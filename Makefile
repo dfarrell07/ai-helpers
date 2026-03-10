@@ -1,4 +1,4 @@
-.PHONY: help lint shellcheck markdownlint yamllint gitlint test
+.PHONY: help lint shellcheck markdownlint yamllint gitlint test work-summary
 
 help:
 	@echo "Available targets:"
@@ -8,6 +8,7 @@ help:
 	@echo "  yamllint      - Check YAML files with yamllint"
 	@echo "  gitlint       - Check commit messages with gitlint"
 	@echo "  test          - Run all tests (currently just linting)"
+	@echo "  work-summary  - Generate work summary (last 7 days, or DAYS=N)"
 
 lint: shellcheck markdownlint yamllint
 
@@ -28,3 +29,6 @@ yamllint:
 gitlint:
 	@echo "Running gitlint..."
 	@gitlint --commits origin/main..HEAD
+
+work-summary:
+	@bash skills/work-summary/scripts/work-summary.sh $(DAYS)

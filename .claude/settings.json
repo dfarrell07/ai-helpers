@@ -1,0 +1,13 @@
+{
+  "enabledPlugins": {
+    "ai-helpers@ai-helpers": true
+  },
+  "extraKnownMarketplaces": {
+    "ai-helpers": {
+      "source": {
+        "source": "git",
+        "url": "https://github.com/dfarrell07/ai-helpers.git"
+      }
+    }
+  }
+}
