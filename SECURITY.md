@@ -61,7 +61,6 @@ Dependabot automatically creates PRs for dependency updates.
 This repository uses GitHub Advanced Security features:
 
 - **Dependabot**: Automated dependency updates
-- **CodeQL**: Static code analysis (limited for bash/markdown repos)
 - **Secret Scanning**: Automatically enabled for public repositories
 
 Security scan results are available in the Security tab.
