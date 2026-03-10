@@ -1,0 +1,25 @@
+{
+  "name": "ai-helpers",
+  "version": "1.0.0",
+  "description": "Claude Code marketplace with productivity skills",
+  "private": true,
+  "scripts": {
+    "lint:markdown": "markdownlint-cli2 '**/*.md' '#node_modules'"
+  },
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/dfarrell07/ai-helpers.git"
+  },
+  "keywords": [
+    "claude",
+    "claude-code",
+    "marketplace",
+    "skills",
+    "productivity"
+  ],
+  "author": "Daniel Farrell <dfarrell@redhat.com>",
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "markdownlint-cli2": "^0.21.0"
+  }
+}
