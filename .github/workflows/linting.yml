@@ -68,4 +68,4 @@ jobs:
         run: pip install gitlint
 
       - name: Run gitlint
-        run: gitlint --commits origin/${{ github.base_ref }}..HEAD
+        run: gitlint --commits origin/main..HEAD
