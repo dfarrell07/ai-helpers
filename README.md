@@ -1,6 +1,6 @@
 # AI Helpers
 
-Claude Code skills for tracking work activity.
+Claude Code marketplace for work tracking.
 
 ## Installation
 
@@ -11,8 +11,6 @@ Claude Code skills for tracking work activity.
 
 ## Skills
 
-| Command         | Purpose                                     |
-|-----------------|---------------------------------------------|
-| `/work-summary` | Show recent git commits and GitHub activity |
+- `/work-summary` - Show recent git commits and GitHub activity
 
-See [.claude/SKILLS.md](.claude/SKILLS.md).
+See [.claude/SKILLS.md](.claude/SKILLS.md) for details.

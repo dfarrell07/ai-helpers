@@ -31,4 +31,5 @@ gitlint:
 	@gitlint --commits origin/main..HEAD
 
 work-summary:
-	@bash skills/work-summary/scripts/work-summary.sh $(DAYS)
+	@bash skills/work-summary/scripts/work-summary.sh $${DAYS:-7} > /tmp/work-summary-data.json
+	@bash skills/work-summary/scripts/render-report.sh /tmp/work-summary-data.json
