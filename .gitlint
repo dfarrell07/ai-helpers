@@ -1,0 +1,27 @@
+# Gitlint configuration for commit message validation
+# Reference: https://jorisroovers.com/gitlint/configuration/
+
+[general]
+# Allow commit messages with only a title (no body required)
+# Allows short commits like "Fix typo" or "Update README"
+ignore=body-is-missing,body-min-length
+
+# Use Python regex search semantics for pattern matching
+regex-style-search=true
+
+[ignore-by-body]
+# Ignore all commit message rules for Dependabot commits
+# Dependabot includes signed-off-by in the message body
+regex=^Signed-off-by: dependabot\[bot\](.*)
+ignore=all
+
+[ignore-by-author-name]
+# Ignore commits from automated Red Hat Konflux bot
+# These automated commits may not follow standard conventions
+regex=red-hat-konflux
+ignore=all
+
+[ignore-body-lines]
+# Allow long URLs in commit message bodies
+# URLs can't be line-wrapped and often exceed line limits
+regex=^https?://[^ ]*$

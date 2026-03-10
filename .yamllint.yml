@@ -1,0 +1,16 @@
+---
+# YAML linting rules
+extends: default
+
+rules:
+  # Line length set to 140 to match Go linting standards used in parent organization
+  line-length:
+    max: 140
+  # Allow standard GitHub Actions syntax for "on: *"
+  truthy:
+    ignore: '.github/workflows/*.yml'
+  # Allow inline mappings (common in GitHub Actions)
+  braces:
+    max-spaces-inside: 1
+  brackets:
+    max-spaces-inside: 1

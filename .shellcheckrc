@@ -1,0 +1,3 @@
+# Disable SC2154: Referenced but not assigned
+# This is common with environment variables like $ARGUMENTS passed by Claude
+disable=SC2154

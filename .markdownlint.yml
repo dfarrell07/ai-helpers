@@ -1,0 +1,6 @@
+---
+# Markdown linting rules
+# Line length set to 140 to match Go linting standards used in parent organization
+line-length:
+  line_length: 140
+  code_blocks: false
