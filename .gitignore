@@ -9,6 +9,12 @@ package-lock.json
 *.swo
 *~
 
+# Python
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
 # OS
 .DS_Store
 Thumbs.db

@@ -1,0 +1,2 @@
+# Python dependencies for ai-helpers scripts
+anthropic>=0.40.0
