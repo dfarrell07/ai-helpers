@@ -1,6 +1,6 @@
 # AI Helpers
 
-Claude Code marketplace for work tracking.
+Claude Code marketplace for work tracking and session notes.
 
 ## Installation
 
@@ -12,5 +12,6 @@ Claude Code marketplace for work tracking.
 ## Skills
 
 - `/work-summary` - Show recent git commits and GitHub activity
+- `/notes` - Take persistent markdown notes organized by topic
 
 See [.claude/SKILLS.md](.claude/SKILLS.md) for details.

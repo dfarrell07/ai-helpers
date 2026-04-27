@@ -10,5 +10,5 @@
   "homepage": "https://github.com/dfarrell07/ai-helpers",
   "repository": "https://github.com/dfarrell07/ai-helpers",
   "license": "Apache-2.0",
-  "keywords": ["productivity", "git", "work-summary", "reporting"]
+  "keywords": ["productivity", "git", "work-summary", "reporting", "notes"]
 }
