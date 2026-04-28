@@ -107,3 +107,34 @@ If no number, show the listing and ask which note to view.
 ### If the user wants to search (`/notes <topic> search <query>`)
 
 Display the search results from Step 0 output.
+
+---
+
+## Step 2: Lint and Commit
+
+**Skip this step if no note was written** (i.e., the user listed, viewed, or searched).
+
+After saving a note with the Write tool, lint and commit it.
+
+### Lint
+
+Run markdownlint with auto-fix on the written file:
+
+```bash
+npx markdownlint-cli2 --fix "$HOME/notes-ai/<topic>/<filename>.md"
+```
+
+If lint errors remain after fix, read the file, fix the violations (typically
+line length over 140 chars), rewrite it, and run lint again. If it still fails
+after one retry, proceed anyway.
+
+### Commit
+
+```bash
+git -C "$HOME/notes-ai" add "<topic>/<filename>.md"
+git -C "$HOME/notes-ai" commit -s -m "Add note: <descriptive title>"
+```
+
+Confirm to the user with the file path and commit hash.
+
+**Do not push.** The user will push manually when ready.
