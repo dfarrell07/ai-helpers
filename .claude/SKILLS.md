@@ -23,6 +23,24 @@ make work-summary DAYS=14  # Last 14 days without AI analysis
 - Activity Stats
 - Detailed Work Log only
 
+## /jira
+
+Query, view, and update Jira issues via acli.
+
+```bash
+/jira                              # List my open issues (default)
+/jira my-issues                    # Same as above
+/jira search <JQL>                 # Search issues with JQL
+/jira view <issue-key>             # View full issue details
+/jira update <issue-key> <action>  # Update an issue
+```
+
+**Update actions:**
+
+- `/jira update ACM-123 transition In Progress` -- Move to new status
+- `/jira update ACM-123 comment Fixed in PR #456` -- Add a comment
+- `/jira update ACM-123 assign @me` -- Self-assign
+
 ## /notes
 
 Take and manage persistent markdown notes organized by topic.
