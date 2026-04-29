@@ -15,6 +15,9 @@ allowed-tools: Bash, Read, Write
 /jira search <JQL>                 # Search issues with JQL
 /jira view <issue-key>             # View full issue details
 /jira update <issue-key> <action>  # Update an issue
+/jira triage assigned              # Triage your non-CVE backlog
+/jira triage cves                  # Find unclaimed Submariner CVEs
+/jira create <type> <summary>      # Create a new issue
 ```
 
 **Arguments:** $ARGUMENTS
@@ -63,12 +66,33 @@ elif [[ "$ARGS" == "update "* ]]; then
   jq -n --arg key "$KEY" --arg action "$ACTION" '{command:"update", key:$key, action:$action}' > /tmp/jira-meta.json
   cat /tmp/jira-data.json
 
-elif [[ "$ARGS" == "search" || "$ARGS" == "view" || "$ARGS" == "update" ]]; then
+elif [[ "$ARGS" == "triage assigned" ]]; then
+  bash "$SCRIPT_DIR/scripts/jira.sh" triage-assigned > /tmp/jira-data.json
+  jq -n '{command:"triage-assigned"}' > /tmp/jira-meta.json
+  cat /tmp/jira-data.json
+
+elif [[ "$ARGS" == "triage cves" ]]; then
+  bash "$SCRIPT_DIR/scripts/jira.sh" triage-cves > /tmp/jira-data.json
+  jq -n '{command:"triage-cves"}' > /tmp/jira-meta.json
+  cat /tmp/jira-data.json
+
+elif [[ "$ARGS" == "create "* ]]; then
+  REST="${ARGS#create }"
+  TYPE="${REST%% *}"
+  SUMMARY="${REST#"$TYPE"}"
+  SUMMARY="${SUMMARY# }"
+  jq -n --arg type "$TYPE" --arg summary "$SUMMARY" '{command:"create", type:$type, summary:$summary}' > /tmp/jira-meta.json
+  echo "Ready to create $TYPE: $SUMMARY"
+
+elif [[ "$ARGS" == "search" || "$ARGS" == "view" || "$ARGS" == "update" || "$ARGS" == "triage" || "$ARGS" == "create" ]]; then
   echo "ERROR: /jira $ARGS requires arguments."
   echo "Usage:"
   echo "  /jira search <JQL>                 # Search issues"
   echo "  /jira view <issue-key>             # View issue details"
   echo "  /jira update <issue-key> <action>  # Update an issue"
+  echo "  /jira triage assigned              # Triage your backlog"
+  echo "  /jira triage cves                  # Find unclaimed CVEs"
+  echo "  /jira create <type> <summary>      # Create an issue"
 
 else
   echo "Unknown command: ${ARGS%% *}"
@@ -77,6 +101,9 @@ else
   echo "  /jira search <JQL>                 # Search issues"
   echo "  /jira view <issue-key>             # View issue details"
   echo "  /jira update <issue-key> <action>  # Update an issue"
+  echo "  /jira triage assigned              # Triage your backlog"
+  echo "  /jira triage cves                  # Find unclaimed CVEs"
+  echo "  /jira create <type> <summary>      # Create an issue"
 fi
 ```
 
@@ -159,6 +186,57 @@ acli jira workitem assign --key "<KEY>" --assignee "<user>" --yes
 ```
 
 After any update, confirm what was done and show the issue link.
+
+### For `triage assigned`
+
+Present a health dashboard of the user's non-CVE backlog. For each issue, flag:
+
+- **Undefined priority** — needs prioritization
+- **New status for a long time** — may be stale or need scoping
+- **Unclear summary** — too vague to act on
+
+Issues are sorted stalest-first. Walk through each interactively, suggesting:
+
+- Suggest a priority level (Critical, Major, Normal, Minor) if currently Undefined
+- Transition status (if stale, suggest closing; if ready, suggest In Progress)
+- Add a comment with assessment or next steps
+- Skip to the next issue
+
+Use the existing acli update commands (transition, comment, assign) for all
+modifications. Confirm each action with the user before executing.
+
+### For `triage cves`
+
+Show the total count of unclaimed Submariner CVEs and list the most recent.
+For each, show key, summary, current assignee, and status.
+
+For each CVE, offer to:
+
+- Reassign to the user: `acli jira workitem assign --key "<KEY>" --assignee @me --yes`
+- Skip to the next CVE
+
+Confirm each reassignment before executing.
+
+### For `create`
+
+Read `/tmp/jira-meta.json` for the type and summary. Supported types: Task,
+Bug, Story, Epic.
+
+Ask the user for a description. Secret-scan it (same credential patterns as
+comment scanning). Show all fields and confirm before creating. Then run:
+
+```bash
+acli jira workitem create \
+  --project "ACM" \
+  --type "<type>" \
+  --summary "<summary>" \
+  --description "<description>" \
+  --label "ai-generated-jira" \
+  --assignee "@me" \
+  --json
+```
+
+Show the created issue key and link (`https://redhat.atlassian.net/browse/<key>`).
 
 ---
 

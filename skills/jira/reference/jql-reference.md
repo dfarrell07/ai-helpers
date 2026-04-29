@@ -46,7 +46,7 @@ project = ACM AND component = "Submariner" ORDER BY updated DESC
 
 # CVE issues (Submariner-related)
 project = ACM AND labels IN (Security)
-  AND (text ~ submariner OR text ~ lighthouse OR text ~ subctl)
+  AND (text ~ submariner OR text ~ lighthouse OR text ~ subctl OR text ~ nettest)
   ORDER BY updated DESC
 
 # Unassigned issues
