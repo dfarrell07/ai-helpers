@@ -54,6 +54,18 @@ cmd_view() {
   echo "$output"
 }
 
+cmd_triage_assigned() {
+  run_with_retry acli jira workitem search \
+    --jql 'assignee = currentUser() AND status NOT IN (Closed, Done, Resolved) AND issuetype != Vulnerability ORDER BY updated ASC' \
+    --json --limit 50
+}
+
+cmd_triage_cves() {
+  run_with_retry acli jira workitem search \
+    --jql 'project = ACM AND (text ~ submariner OR text ~ lighthouse OR text ~ subctl OR text ~ nettest) AND assignee != currentUser() AND status NOT IN (Closed, Done, Resolved) AND issuetype = Vulnerability ORDER BY created DESC' \
+    --json --limit 25
+}
+
 usage() {
   cat <<'EOF'
 Usage: jira.sh <command> [args]
@@ -62,6 +74,8 @@ Commands:
   my-issues              List open issues assigned to current user
   search <JQL>           Search issues with JQL query
   view <issue-key>       View full issue details
+  triage-assigned        List non-CVE issues for triage (stalest first)
+  triage-cves            List unclaimed Submariner CVEs (newest first)
 EOF
 }
 
@@ -85,6 +99,12 @@ case "$COMMAND" in
       exit 1
     fi
     cmd_view "$1"
+    ;;
+  triage-assigned)
+    cmd_triage_assigned
+    ;;
+  triage-cves)
+    cmd_triage_cves
     ;;
   help|--help|-h)
     usage

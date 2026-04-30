@@ -33,6 +33,9 @@ Query, view, and update Jira issues via acli.
 /jira search <JQL>                 # Search issues with JQL
 /jira view <issue-key>             # View full issue details
 /jira update <issue-key> <action>  # Update an issue
+/jira triage assigned              # Triage your non-CVE backlog
+/jira triage cves                  # Find unclaimed Submariner CVEs
+/jira create <type> <summary>      # Create a new issue (Task, Bug, Story, Epic)
 ```
 
 **Update actions:**
