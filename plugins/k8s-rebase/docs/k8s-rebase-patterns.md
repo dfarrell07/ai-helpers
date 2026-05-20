@@ -30,6 +30,7 @@ Always try fixes in this order. Disabling or skipping is the last resort.
 | Admission API migrated | SA1019 on old webhook API | Code | Switch to new generics-based API |
 | Utility moved to stdlib | SA1019 on `k8s.io/utils/...` | Code | Replace with stdlib equivalent |
 | Fake client deprecated | SA1019 on `NewSimpleClientset` | Infra | Check for `NewClientset`, else lint exclude |
+| golangci-lint version | `Go language version...lower` | Infra | Bump VERSION in lint.sh, `go install` fallback |
 | Feature gate breaks fakes | Tests hang or panic | Env | Investigate first (see below), then disable |
 
 ## Concrete Examples
@@ -145,7 +146,7 @@ one with `TestMain` that sets the env vars.
 **Finding new feature gates:** Check
 `vendor/k8s.io/client-go/features/known_features.go` for gates
 with `Default: true` at the target k8s version. The rebase
-script writes detected gates to `/tmp/rebase-new-gates.txt`.
+script writes detected gates to `.rebase-tmp/new-gates.txt`.
 
 ### AtomicFIFO and dependent gates (k8s 1.36)
 
@@ -188,6 +189,17 @@ after a large test suite. Goroutine/resource exhaustion.
 **Fix:** Ensure test cleanup calls `watchFactory.Shutdown()` not
 just `libovsdbCleanup.Cleanup()`. Store the WatchFactory in the
 test controller struct and shut it down in `close()`.
+
+### golangci-lint version mismatch (Go version bump)
+
+**Detection:** `the Go language version (go1.X) used to build
+golangci-lint is lower than the targeted Go version (1.Y)`
+
+**Fix:** Bump the VERSION pin in `hack/lint.sh` (or equivalent).
+The rebase script does this automatically when Go version changes.
+If the pinned version's install script fails (checksum errors),
+use `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
+as a fallback.
 
 ### go vet format string errors (Go 1.26)
 

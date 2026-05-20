@@ -5,11 +5,13 @@
 # Parses logs to extract actionable errors. Writes categorized summary.
 #
 # Exit codes: 0 = all validation passes (no errors)
-#             1 = errors found (see /tmp/rebase-summary.txt)
+#             1 = errors found (see $REBASE_TMP/summary.txt)
 
 set -uo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
+REBASE_TMP="$REPO_ROOT/.rebase-tmp"
+mkdir -p "$REBASE_TMP"
 
 # Auto-containerize if local Go is too old for the repo's go.mod
 cd "$REPO_ROOT"
@@ -41,7 +43,7 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
   fi
 fi
 
-SUMMARY="/tmp/rebase-summary.txt"
+SUMMARY="$REBASE_TMP/summary.txt"
 ERRORS_FOUND=0
 VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-15m}"
 
@@ -49,7 +51,7 @@ VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-15m}"
 
 run_validation() {
   local name="$1"
-  local logfile="/tmp/rebase-${name}.log"
+  local logfile="$REBASE_TMP/${name}.log"
   shift
 
   echo ":: Running: $name (timeout: $VALIDATION_TIMEOUT)"
@@ -106,7 +108,7 @@ categorize_errors() {
     echo "## TIMEOUT ($category)" >> "$SUMMARY"
     echo "$timeout_errors" >> "$SUMMARY"
     echo "Possible causes: feature gate causing test hang, resource exhaustion, resource leak" >> "$SUMMARY"
-    echo "Check /tmp/rebase-new-gates.txt for newly enabled feature gates" >> "$SUMMARY"
+    echo "Check $REBASE_TMP/new-gates.txt for newly enabled feature gates" >> "$SUMMARY"
     echo "" >> "$SUMMARY"
     ERRORS_FOUND=1
   fi
@@ -136,12 +138,24 @@ while IFS= read -r gomod; do
   step_failed=0
   if [[ -f "$REPO_ROOT/$mod_dir/Makefile" ]]; then
     run_validation "${mod_name}-build" "make -C $mod_dir" || step_failed=1
-    categorize_errors "/tmp/rebase-${mod_name}-build.log" "$mod_name build" "$step_failed"
+    categorize_errors "$REBASE_TMP/${mod_name}-build.log" "$mod_name build" "$step_failed"
 
     step_failed=0
     if grep -q "^lint:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null; then
-      run_validation "${mod_name}-lint" "make -C $mod_dir lint" || step_failed=1
-      categorize_errors "/tmp/rebase-${mod_name}-lint.log" "$mod_name lint" "$step_failed"
+      run_validation "${mod_name}-lint" "make -C $mod_dir lint" || {
+        if grep -qE "Go language version.*lower than the targeted|failed to install golangci-lint" "$REBASE_TMP/${mod_name}-lint.log" 2>/dev/null; then
+          echo "  NOTE: lint tool version incompatible, installing latest via go install..."
+          go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
+          if command -v golangci-lint &>/dev/null; then
+            run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --modules-download-mode=vendor --timeout=15m0s" || step_failed=1
+          else
+            step_failed=1
+          fi
+        else
+          step_failed=1
+        fi
+      }
+      categorize_errors "$REBASE_TMP/${mod_name}-lint.log" "$mod_name lint" "$step_failed"
     fi
 
     step_failed=0
@@ -149,7 +163,7 @@ while IFS= read -r gomod; do
       # Try make test first; if it needs sudo (common for network namespace tests),
       # fall back to go test without -race for non-privileged packages
       run_validation "${mod_name}-test" "make -C $mod_dir test" || {
-        if grep -q "sudo" "/tmp/rebase-${mod_name}-test.log" 2>/dev/null; then
+        if grep -q "sudo" "$REBASE_TMP/${mod_name}-test.log" 2>/dev/null; then
           echo "  NOTE: make test needs sudo/privileged container for some packages"
           echo "  Running go test without -race on non-sudo packages..."
           run_validation "${mod_name}-test" "cd $mod_dir && go test -mod vendor -timeout 10m ./... -count=1" || step_failed=1
@@ -157,17 +171,17 @@ while IFS= read -r gomod; do
           step_failed=1
         fi
       }
-      categorize_errors "/tmp/rebase-${mod_name}-test.log" "$mod_name test" "$step_failed"
+      categorize_errors "$REBASE_TMP/${mod_name}-test.log" "$mod_name test" "$step_failed"
     fi
   else
     run_validation "${mod_name}-build" "cd $mod_dir && go build ./..." || step_failed=1
-    categorize_errors "/tmp/rebase-${mod_name}-build.log" "$mod_name build" "$step_failed"
+    categorize_errors "$REBASE_TMP/${mod_name}-build.log" "$mod_name build" "$step_failed"
   fi
 
   # Always run go vet — catches type mismatches that go build misses
   step_failed=0
   run_validation "${mod_name}-vet" "cd $mod_dir && go vet ./..." || step_failed=1
-  categorize_errors "/tmp/rebase-${mod_name}-vet.log" "$mod_name vet" "$step_failed"
+  categorize_errors "$REBASE_TMP/${mod_name}-vet.log" "$mod_name vet" "$step_failed"
 done < <(find . -name "go.mod" -not -path "*/vendor/*" | sort)
 
 echo ""

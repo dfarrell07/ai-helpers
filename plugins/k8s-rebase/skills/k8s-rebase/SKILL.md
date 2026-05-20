@@ -66,15 +66,15 @@ fi
 ```
 
 If exit 0: all validation passes, done.
-If exit 1: read `/tmp/rebase-summary.txt` for categorized errors.
+If exit 1: read `.rebase-tmp/summary.txt` for categorized errors.
 
 ### Step 3: Fix errors (priority order)
 
 Read the error summary, new feature gates, and breakage patterns:
 
 ```bash
-cat /tmp/rebase-summary.txt
-[ -f /tmp/rebase-new-gates.txt ] && echo "NEW GATES:" && cat /tmp/rebase-new-gates.txt
+cat .rebase-tmp/summary.txt
+[ -f .rebase-tmp/new-gates.txt ] && echo "NEW GATES:" && cat .rebase-tmp/new-gates.txt
 PATTERNS=$(find "$HOME/.claude" -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1)
 [ -n "$PATTERNS" ] && cat "$PATTERNS"
 ```
@@ -111,7 +111,7 @@ commit with `--signoff` and a descriptive message.
 
 **Handling TIMEOUT errors:** If the summary shows `## TIMEOUT`,
 tests are likely hanging due to a feature gate or resource leak.
-Check `/tmp/rebase-new-gates.txt` for new gates. Run individual
+Check `.rebase-tmp/new-gates.txt` for new gates. Run individual
 test packages to isolate which one hangs. Distinguish a hang
 (never terminates — feature gate or resource leak) from slowness
 (finishes in 15+ minutes — container resource limit, adjust
@@ -131,7 +131,7 @@ After each fix commit passes validation, run the review script:
 REVIEW=$(find "$HOME/.claude" -name "k8s-rebase-review.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 if [ -n "$REVIEW" ]; then
   COMMIT=$(git rev-parse HEAD)
-  # Pass the original error that triggered this fix (from /tmp/rebase-summary.txt)
+  # Pass the original error that triggered this fix (from .rebase-tmp/summary.txt)
   bash "$REVIEW" "$COMMIT" "PASTE_THE_ORIGINAL_ERROR_FROM_SUMMARY"
 fi
 ```

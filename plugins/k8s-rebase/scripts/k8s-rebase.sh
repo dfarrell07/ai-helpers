@@ -18,6 +18,8 @@ set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
+REBASE_TMP="$REPO_ROOT/.rebase-tmp"
+mkdir -p "$REBASE_TMP"
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -400,6 +402,20 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
     --include="*.yml" --include="*.yaml" --include="Makefile*" \
     --include="Dockerfile*" . \
     | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
+
+  # Bump golangci-lint version in lint scripts when Go version changes
+  LATEST_LINT=$(curl -sf "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oP '"tag_name": "\K[^"]+' || true)
+  if [[ -n "$LATEST_LINT" ]]; then
+    while IFS= read -r lintscript; do
+      [[ -z "$lintscript" ]] && continue
+      OLD_LINT=$(grep -oP 'VERSION=v[0-9]+\.[0-9]+\.[0-9]+' "$lintscript" | head -1 | sed 's/VERSION=//')
+      if [[ -n "$OLD_LINT" ]] && [[ "$OLD_LINT" != "$LATEST_LINT" ]]; then
+        sed -i "s|VERSION=${OLD_LINT}|VERSION=${LATEST_LINT}|g" "$lintscript"
+        CHANGED_FILES+="$lintscript"$'\n'
+        info "  Updated golangci-lint: $OLD_LINT → $LATEST_LINT in $lintscript"
+      fi
+    done < <(grep -rln "golangci-lint" --include="*.sh" . | grep -v vendor | grep -v "/\.git/" || true)
+  fi
 fi
 
 cd "$REPO_ROOT"
@@ -419,7 +435,7 @@ fi
 # each gate, tries real fixes first, and only disables as last resort.
 
 KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1)
-GATE_REPORT="/tmp/rebase-new-gates.txt"
+GATE_REPORT="$REBASE_TMP/new-gates.txt"
 : > "$GATE_REPORT"
 
 if [[ -n "$KNOWN_FEATURES" ]]; then
