@@ -147,5 +147,11 @@ flag for human review instead of looping.
 
 ### Done
 
-When all validation passes and all fixes are approved, the rebase
-branch is ready for PR submission.
+When all validation passes and all fixes are approved, clean up
+and report:
+
+```bash
+rm -rf .rebase-tmp/
+```
+
+The rebase branch is ready for PR submission.

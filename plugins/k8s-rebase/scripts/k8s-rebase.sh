@@ -85,6 +85,7 @@ info "Target:  k8s.io/api $API_VERSION (k8s $K8S_FULL)"
 # Idempotency check
 if [[ "$OLD_MINOR" == "$K8S_MINOR" ]]; then
   info "Already at k8s 1.${K8S_MINOR} — nothing to do"
+  rm -rf "$REBASE_TMP"
   exit 0
 fi
 

@@ -43,6 +43,8 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
   fi
 fi
 
+cleanup() { rm -rf "$REBASE_TMP"; }
+
 SUMMARY="$REBASE_TMP/summary.txt"
 ERRORS_FOUND=0
 VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-15m}"
@@ -200,6 +202,7 @@ done < <(find . -name "go.mod" -not -path "*/vendor/*" | sort)
 echo ""
 if [[ "$ERRORS_FOUND" -eq 0 ]]; then
   echo "All validation passes. No Phase 4 fixups needed."
+  cleanup
   exit 0
 else
   echo "Errors found. Summary: $SUMMARY"
