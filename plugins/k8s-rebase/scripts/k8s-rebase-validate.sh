@@ -45,18 +45,31 @@ fi
 
 SUMMARY="$REBASE_TMP/summary.txt"
 ERRORS_FOUND=0
-VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-25m}"
+VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-15m}"
+LINT_TIMEOUT="${LINT_TIMEOUT:-20m}"
 
 : > "$SUMMARY"
+
+# Sudo shim: when running as root in a container, test scripts that
+# invoke sudo work transparently without installing the sudo package
+if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]] && [[ "$(id -u)" == "0" ]]; then
+  if ! command -v sudo &>/dev/null; then
+    printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo
+    chmod +x /usr/local/bin/sudo
+  fi
+fi
 
 run_validation() {
   local name="$1"
   local logfile="$REBASE_TMP/${name}.log"
   shift
 
-  echo ":: Running: $name (timeout: $VALIDATION_TIMEOUT)"
+  local step_timeout="$VALIDATION_TIMEOUT"
+  [[ "$name" == *-lint ]] && step_timeout="$LINT_TIMEOUT"
+
+  echo ":: Running: $name (timeout: $step_timeout)"
   local rc=0
-  timeout "$VALIDATION_TIMEOUT" bash -c "$*" > "$logfile" 2>&1 || rc=$?
+  timeout "$step_timeout" bash -c "$*" > "$logfile" 2>&1 || rc=$?
   if [[ "$rc" -eq 0 ]]; then
     echo "  PASS"
     return 0
