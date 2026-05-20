@@ -87,6 +87,11 @@ the minimal correct fix. This is the goal — keep tests running with
 real fixes. Example: WatchFactory leak (add Shutdown() in test
 teardown), renamed function (update call site + imports).
 
+When converting between types (e.g., metav1.Condition to a builder
+pattern), read the FULL source struct definition and map ALL fields
+— not just the ones you see callers set. Zero-valued fields still
+need mapping to avoid silent data loss.
+
 **Priority 2: Fix test infrastructure.** If tests hang or timeout,
 investigate the root cause before disabling anything. Check:
 - Is there a resource leak in test setup/teardown? (Fix it.)

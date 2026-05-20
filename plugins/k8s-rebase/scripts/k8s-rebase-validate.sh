@@ -78,7 +78,7 @@ categorize_errors() {
 
   local build_errors lint_errors test_failures
   build_errors=$(grep -E ":[0-9]+:[0-9]+: (undefined|too many arguments|too few arguments|cannot use|not enough arguments)" "$logfile" 2>/dev/null || true)
-  lint_errors=$(grep -E "SA1019.*deprecated|staticcheck|lostcancel|gci" "$logfile" 2>/dev/null | grep -v "^#" || true)
+  lint_errors=$(grep -E "\.go:[0-9]+:[0-9]+:.*(SA[0-9]+|staticcheck|lostcancel|gci)" "$logfile" 2>/dev/null | grep -v "^#" || true)
   test_failures=$(grep -E "^--- FAIL:|^FAIL\t" "$logfile" 2>/dev/null || true)
 
   if [[ -n "$build_errors" ]]; then

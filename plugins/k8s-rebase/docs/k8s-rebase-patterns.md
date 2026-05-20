@@ -82,6 +82,7 @@ import metaapplyv1 "k8s.io/client-go/applyconfigurations/meta/v1"
 
 condApply := metaapplyv1.Condition().
     WithType(c.Type).WithStatus(c.Status).
+    WithObservedGeneration(c.ObservedGeneration).
     WithReason(c.Reason).WithMessage(c.Message).
     WithLastTransitionTime(c.LastTransitionTime)
 ```

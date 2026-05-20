@@ -27,9 +27,12 @@ ${PATTERN_HINT}
 1. Does the fix address the original error?
 2. Is it the minimal necessary change?
 3. Are function arguments mapped correctly (not just renamed)?
-4. Does it introduce any side effects (changed semantics, lost
+4. For type conversions: are ALL fields of the source type mapped,
+   not just the ones visibly set by callers? Check the struct
+   definition — zero-valued fields still need mapping.
+5. Does it introduce any side effects (changed semantics, lost
    error handling, removed timeouts)?
-5. Are new imports correct and necessary?
+6. Are new imports correct and necessary?
 
 ## Output
 
