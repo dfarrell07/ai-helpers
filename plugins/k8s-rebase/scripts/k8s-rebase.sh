@@ -448,7 +448,7 @@ if [[ -n "$KNOWN_FEATURES" ]]; then
   done < <(awk '
     /^\t[A-Z].*Feature = / { gate = $1 }
     /Default: true/ && /MustParse\("1\.'"${K8S_MINOR}"'"\)/ { print gate }
-  ' "$KNOWN_FEATURES")
+  ' "$KNOWN_FEATURES" | sort -u)
 
   if [[ ${#NEW_GATES[@]} -gt 0 ]]; then
     info "New default-true feature gates in k8s 1.${K8S_MINOR}: ${NEW_GATES[*]}"
