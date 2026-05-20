@@ -68,26 +68,46 @@ fi
 If exit 0: all validation passes, done.
 If exit 1: read `/tmp/rebase-summary.txt` for categorized errors.
 
-### Step 3: Fix errors
+### Step 3: Fix errors (priority order)
 
-Read the error summary and the breakage patterns reference:
+Read the error summary, new feature gates, and breakage patterns:
 
 ```bash
 cat /tmp/rebase-summary.txt
+[ -f /tmp/rebase-new-gates.txt ] && echo "NEW GATES:" && cat /tmp/rebase-new-gates.txt
 PATTERNS=$(find "$HOME/.claude" -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1)
 [ -n "$PATTERNS" ] && cat "$PATTERNS"
 ```
 
-For each error category in the summary:
+**Fix priority — always try in this order:**
 
-1. Read the extracted error lines (file paths and symbols)
-2. Check if a pattern from the patterns file matches
-3. Read the affected source files
-4. Apply the fix — the minimal change that addresses the error
-5. Commit with `--signoff` and a descriptive message
-   (e.g., `"Fix e2e tests failure"`, `"Fix lint issues"`)
+**Priority 1: Fix the code.** API changes, type mismatches, renamed
+functions, resource leaks. Read the error, read the source, apply
+the minimal correct fix. This is the goal — keep tests running with
+real fixes. Example: WatchFactory leak (add Shutdown() in test
+teardown), renamed function (update call site + imports).
 
-Each fix category gets its own independently revertable commit.
+**Priority 2: Fix test infrastructure.** If tests hang or timeout,
+investigate the root cause before disabling anything. Check:
+- Is there a resource leak in test setup/teardown? (Fix it.)
+- Is a test creating clients without proper cleanup? (Fix it.)
+- Is a newer fake clientset API available that supports the
+  feature? (Use it.)
+- Is the test actually testing ovnk logic, or k8s internals?
+
+**Priority 3 (last resort): Configure test environment.** Only after
+confirming the failure is caused by a k8s infrastructure limitation
+(e.g., fake clientset doesn't implement a new API) and no code fix
+exists. When disabling a feature gate:
+- Add a comment with the upstream issue URL
+- Add `TODO(rebase): re-enable when <upstream issue> is resolved`
+- Check for gate dependencies (disable dependents first in a
+  separate SetFromMap call)
+- Commit message must explain WHY disable is necessary, not just
+  WHAT was disabled
+
+For each error category, create its own independently revertable
+commit with `--signoff` and a descriptive message.
 
 ### Step 4: Re-validate
 

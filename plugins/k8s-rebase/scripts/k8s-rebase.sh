@@ -414,14 +414,17 @@ EOF
   info "Committed: Update version references for k8s ${K8S_MAJOR_MINOR}"
 fi
 
-# ── Phase 3b: Auto-disable new feature gates for tests ───────────────
+# ── Phase 3b: Detect new feature gates ──────────────────────────────
+# Detection only — does NOT auto-disable. Phase 4 agent investigates
+# each gate, tries real fixes first, and only disables as last resort.
 
 KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1)
-if [[ -n "$KNOWN_FEATURES" ]]; then
-  banner "Phase 3b: Feature Gate Updates for Tests"
+GATE_REPORT="/tmp/rebase-new-gates.txt"
+echo "" > "$GATE_REPORT"
 
-  # Extract gates that are Default:true at the new k8s version
-  # These may break fake clientsets in tests
+if [[ -n "$KNOWN_FEATURES" ]]; then
+  banner "Phase 3b: Feature Gate Detection"
+
   NEW_GATES=()
   while IFS= read -r gate; do
     [[ -z "$gate" ]] && continue
@@ -433,45 +436,9 @@ if [[ -n "$KNOWN_FEATURES" ]]; then
 
   if [[ ${#NEW_GATES[@]} -gt 0 ]]; then
     info "New default-true feature gates in k8s 1.${K8S_MINOR}: ${NEW_GATES[*]}"
-
-    # Add env var exports to test-go.sh
-    TEST_GO_SH=$(find . -path "*/hack/test-go.sh" -not -path "*/vendor/*" | head -1)
-    if [[ -n "$TEST_GO_SH" ]]; then
-      for gate in "${NEW_GATES[@]}"; do
-        if ! grep -q "KUBE_FEATURE_${gate}" "$TEST_GO_SH" 2>/dev/null; then
-          # Insert after the last KUBE_FEATURE_ line
-          sed -i "/KUBE_FEATURE_/a export KUBE_FEATURE_${gate}=false" "$TEST_GO_SH"
-          info "  Added KUBE_FEATURE_${gate}=false to $(basename "$TEST_GO_SH")"
-        fi
-      done
-    fi
-
-    # Add to all suite_test.go files that use SetFromMap
-    while IFS= read -r suite; do
-      for gate in "${NEW_GATES[@]}"; do
-        if ! grep -q "\"${gate}\"" "$suite" 2>/dev/null; then
-          # Add the gate to existing SetFromMap calls
-          sed -i "s/\"WatchListClient\": false/\"WatchListClient\": false, \"${gate}\": false/g" "$suite"
-          info "  Added ${gate} to $(echo "$suite" | sed "s|$REPO_ROOT/||")"
-        fi
-      done
-    done < <(grep -rl "SetFromMap" --include="*_test.go" . | grep -v vendor)
-
-    cd "$REPO_ROOT"
-    if [[ -n "$(git status --porcelain)" ]]; then
-      git add -A
-      git commit -s -m "$(cat <<EOF
-Disable new feature gates for tests (k8s ${K8S_MAJOR_MINOR})
-
-K8s ${K8S_MAJOR_MINOR} enables these feature gates by default:
-$(printf '  %s\n' "${NEW_GATES[@]}")
-
-Fake clientsets may not support the new semantics, causing
-test hangs. Disabled via env var and SetFromMap.
-EOF
-)"
-      info "Committed: Disable new feature gates for tests"
-    fi
+    info "These may cause test failures with fake clientsets."
+    info "Phase 4 will investigate each and apply the appropriate fix."
+    printf '%s\n' "${NEW_GATES[@]}" > "$GATE_REPORT"
   else
     info "No new default-true feature gates in k8s 1.${K8S_MINOR}"
   fi
@@ -490,6 +457,10 @@ echo "From:      k8s 1.${OLD_MINOR} (API $OLD_API_VERSION)"
 echo "Go:        $OLD_GO_VERSION → $NEW_GO_VERSION"
 echo "CR:        ${CR_VERSION:-latest}"
 echo "Commits:   $COMMIT_COUNT"
+if [[ -s "$GATE_REPORT" ]]; then
+  echo "New gates: $(tr '\n' ' ' < "$GATE_REPORT")"
+  echo "           Phase 4 will investigate and fix (see $GATE_REPORT)"
+fi
 echo ""
 echo "Next: run Phase 4 (build validation and fixups)"
 echo "  ./go-controller/hack/k8s-rebase-validate.sh"

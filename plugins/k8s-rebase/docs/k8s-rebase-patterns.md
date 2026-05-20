@@ -1,21 +1,36 @@
 # Kubernetes Rebase Breakage Patterns
 
-Common breakage categories from the 1.33-1.35 rebases. These are
+Common breakage categories from the 1.33-1.36 rebases. These are
 starting points for recognition — each k8s release brings new changes.
 
 Update this file after each rebase with new patterns discovered.
 
+## Fix Priority
+
+Always try fixes in this order. Disabling or skipping is the last resort.
+
+1. **Fix the code** — API changes, type mismatches, resource leaks.
+   The goal is to keep all tests running and passing.
+2. **Fix test infrastructure** — update fakes, fix setup/teardown,
+   use newer client APIs that support new features.
+3. **Configure test environment** — only when the failure is caused
+   by an upstream limitation with no available fix. Must include
+   a tracking comment (upstream issue URL + TODO to re-enable).
+
 ## Pattern Table
 
-| Category | What breaks | How to fix |
-| ------------------------------ | ------------------------------- | --------------------------------- |
-| Feature gate default changed | Tests hang or panic | Disable the gate in test env |
-| Function renamed | `undefined: <OldName>` | Search-replace + import update |
-| Function signature changed | `too many/few arguments` | Add missing parameter (often logger) |
-| Admission API migrated | SA1019 on old webhook API | Switch to new generics-based API |
-| Fake client deprecated | SA1019 on `NewSimpleClientset` | Add linter exclusion in .golangci.yml |
-| Utility moved to stdlib | SA1019 on `k8s.io/utils/...` | Replace with stdlib equivalent |
-| Validation message changed | Test assertion mismatch | Update expected error strings |
+| Category | What breaks | Fix type | How to fix |
+| ------------------------------ | ------------------------------- | -------- | --------------------------------- |
+| Function renamed | `undefined: <OldName>` | Code | Search-replace + import update |
+| Function signature changed | `too many/few arguments` | Code | Add missing parameter (often logger) |
+| Type divergence | `cannot use X as Y` | Code | Convert field-by-field |
+| Resource leak in tests | Tests hang in sequence | Code | Add cleanup (Shutdown/Close) in teardown |
+| Validation message changed | Test assertion mismatch | Code | Update expected error strings |
+| go vet format string | `non-constant format string` | Code | Wrap in `"%s", msg` or use `%v` |
+| Admission API migrated | SA1019 on old webhook API | Code | Switch to new generics-based API |
+| Utility moved to stdlib | SA1019 on `k8s.io/utils/...` | Code | Replace with stdlib equivalent |
+| Fake client deprecated | SA1019 on `NewSimpleClientset` | Infra | Check for `NewClientset`, else lint exclude |
+| Feature gate breaks fakes | Tests hang or panic | Env | Investigate first (see below), then disable |
 
 ## Concrete Examples
 
@@ -97,10 +112,24 @@ AtomicFIFO (1.36).
 **Detection:** Unit tests hang or timeout. `make test` never
 completes. Individual tests may pass but the full suite hangs.
 
-**Fix (3 parts):**
+**Investigation (do this BEFORE disabling):**
+
+1. Run individual test packages to isolate which ones hang
+2. Check if the hang is a resource leak (goroutine dump, test
+   cleanup not calling Shutdown/Close) — if so, fix the leak
+3. Check if a newer fake clientset API supports the feature
+   (e.g., `fake.NewClientset()` vs `fake.NewSimpleClientset()`)
+4. Check upstream k8s issues for the gate name — is there a
+   recommended fix other than disabling?
+5. If the root cause is "fake clientset doesn't implement the
+   feature's API" — disabling is correct, but document it
+
+**If disable is necessary (last resort, 3 parts):**
 
 1. Add env var to `hack/test-go.sh`:
 ```bash
+# TODO(rebase): re-enable when upstream fake clientset supports <GateName>
+# See: https://github.com/kubernetes/kubernetes/issues/<ISSUE>
 export KUBE_FEATURE_<GateName>=false
 ```
 
@@ -115,7 +144,8 @@ one with `TestMain` that sets the env vars.
 
 **Finding new feature gates:** Check
 `vendor/k8s.io/client-go/features/known_features.go` for gates
-with `Default: true` at the target k8s version.
+with `Default: true` at the target k8s version. The rebase
+script writes detected gates to `/tmp/rebase-new-gates.txt`.
 
 ### WatchFactory leak in tests (k8s 1.36)
 
