@@ -140,8 +140,8 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
 fi
 info "Go version: $CURRENT_GO (>= ${REQUIRED_GO:-any} required)"
 
-# Clean working tree
-if [[ -n "$(git status --porcelain)" ]]; then
+# Clean working tree (ignore our own temp dir)
+if [[ -n "$(git status --porcelain | grep -v "^?? \.rebase-tmp/")" ]]; then
   die "Working tree is not clean. Commit or stash changes first."
 fi
 
