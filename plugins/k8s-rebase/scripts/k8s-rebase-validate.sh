@@ -162,6 +162,9 @@ while IFS= read -r gomod; do
           echo "  NOTE: lint tool version incompatible, installing latest via go install..."
           go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
           if command -v golangci-lint &>/dev/null; then
+            INSTALLED_VER="v$(golangci-lint version --short 2>/dev/null || true)"
+            LINT_SH=$(find "$REPO_ROOT" -name "lint.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
+            [[ -n "$LINT_SH" ]] && [[ -n "$INSTALLED_VER" ]] && sed -i "s/VERSION=v[0-9.]*/VERSION=${INSTALLED_VER}/" "$LINT_SH"
             run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --modules-download-mode=vendor --timeout=15m0s" || step_failed=1
           else
             step_failed=1
