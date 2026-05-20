@@ -147,6 +147,39 @@ one with `TestMain` that sets the env vars.
 with `Default: true` at the target k8s version. The rebase
 script writes detected gates to `/tmp/rebase-new-gates.txt`.
 
+### AtomicFIFO and dependent gates (k8s 1.36)
+
+**Detection:** Tests hang. Disabling AtomicFIFO alone produces:
+`"AtomicFIFO" depends on features that are disabled:
+StaleControllerConsistencyJob`
+
+**Root cause:** AtomicFIFO replaces DeltaFIFO internals. Fake
+clientsets don't support the new queue semantics. The gate has
+4 dependent gates that must be disabled first.
+
+**Fix (two-phase SetFromMap):**
+```go
+// Disable AtomicFIFO dependents first
+dependents := map[string]bool{
+    "StaleControllerConsistencyJob":         false,
+    "StaleControllerConsistencyReplicaSet":  false,
+    "StaleControllerConsistencyStatefulSet": false,
+    "StaleControllerConsistencyDaemonSet":   false,
+}
+_ = utilfeature.DefaultMutableFeatureGate.SetFromMap(dependents)
+// Then disable the parent gates
+if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+    "WatchListClient": false,
+    "AtomicFIFO":      false,
+}); err != nil {
+    t.Fatalf("Failed to disable feature gates: %v", err)
+}
+```
+
+**Key lesson:** Some feature gates have dependency chains. If
+`SetFromMap` fails with "depends on features that are disabled",
+split into two calls: dependents first, then parents.
+
 ### WatchFactory leak in tests (k8s 1.36)
 
 **Detection:** Test that passes individually but hangs when run

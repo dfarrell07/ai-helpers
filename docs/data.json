@@ -1797,6 +1797,21 @@
       "name": "marketplace-ops",
       "skills": [],
       "version": "0.1.2"
+    },
+    {
+      "commands": [],
+      "description": "Automate Kubernetes dependency rebases for Go projects that consume k8s.io/* packages. Scans go.mod, derives version bumps, runs codegen, updates version references, and guides agent-driven fixups with antagonistic review.",
+      "has_readme": true,
+      "hooks": [],
+      "name": "k8s-rebase",
+      "skills": [
+        {
+          "description": "Rebase a Go project to a new Kubernetes version by bumping all k8s.io/* dependencies, running codegen, updating version references, and fixing build breakage with antagonistic review.",
+          "id": "k8s-rebase",
+          "name": "k8s-rebase"
+        }
+      ],
+      "version": "0.2.0"
     }
   ]
 }

@@ -420,7 +420,7 @@ fi
 
 KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1)
 GATE_REPORT="/tmp/rebase-new-gates.txt"
-echo "" > "$GATE_REPORT"
+: > "$GATE_REPORT"
 
 if [[ -n "$KNOWN_FEATURES" ]]; then
   banner "Phase 3b: Feature Gate Detection"

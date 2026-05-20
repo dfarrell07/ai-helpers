@@ -43,18 +43,26 @@ fi
 
 SUMMARY="/tmp/rebase-summary.txt"
 ERRORS_FOUND=0
+VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-15m}"
 
-echo "" > "$SUMMARY"
+: > "$SUMMARY"
 
 run_validation() {
   local name="$1"
   local logfile="/tmp/rebase-${name}.log"
   shift
 
-  echo ":: Running: $name"
-  if eval "$@" > "$logfile" 2>&1; then
+  echo ":: Running: $name (timeout: $VALIDATION_TIMEOUT)"
+  local rc=0
+  timeout "$VALIDATION_TIMEOUT" bash -c "$*" > "$logfile" 2>&1 || rc=$?
+  if [[ "$rc" -eq 0 ]]; then
     echo "  PASS"
     return 0
+  elif [[ "$rc" -eq 124 ]]; then
+    echo "  TIMEOUT after $VALIDATION_TIMEOUT (see $logfile)"
+    echo "" >> "$logfile"
+    echo "TIMEOUT: command did not complete within $VALIDATION_TIMEOUT" >> "$logfile"
+    return 1
   else
     echo "  FAIL (see $logfile)"
     return 1
@@ -92,8 +100,18 @@ categorize_errors() {
     ERRORS_FOUND=1
   fi
 
-  # If the step failed but no specific errors were found, report the raw failure
-  if [[ "$step_failed" -eq 1 ]] && [[ -z "$build_errors" ]] && [[ -z "$lint_errors" ]] && [[ -z "$test_failures" ]]; then
+  local timeout_errors
+  timeout_errors=$(grep -E "^TIMEOUT:" "$logfile" 2>/dev/null || true)
+  if [[ -n "$timeout_errors" ]]; then
+    echo "## TIMEOUT ($category)" >> "$SUMMARY"
+    echo "$timeout_errors" >> "$SUMMARY"
+    echo "Possible causes: feature gate causing test hang, resource exhaustion, resource leak" >> "$SUMMARY"
+    echo "Check /tmp/rebase-new-gates.txt for newly enabled feature gates" >> "$SUMMARY"
+    echo "" >> "$SUMMARY"
+    ERRORS_FOUND=1
+  fi
+
+  if [[ "$step_failed" -eq 1 ]] && [[ -z "$build_errors" ]] && [[ -z "$lint_errors" ]] && [[ -z "$test_failures" ]] && [[ -z "$timeout_errors" ]]; then
     echo "## UNCLASSIFIED FAILURE ($category)" >> "$SUMMARY"
     tail -10 "$logfile" >> "$SUMMARY"
     echo "" >> "$SUMMARY"
@@ -151,24 +169,6 @@ while IFS= read -r gomod; do
   run_validation "${mod_name}-vet" "cd $mod_dir && go vet ./..." || step_failed=1
   categorize_errors "/tmp/rebase-${mod_name}-vet.log" "$mod_name vet" "$step_failed"
 done < <(find . -name "go.mod" -not -path "*/vendor/*" | sort)
-
-# ── Auto-fix mechanical vet patterns ─────────────────────────────────
-
-if grep -q "non-constant format string in call to.*Eventf" "$SUMMARY" 2>/dev/null; then
-  echo ""
-  echo ":: Auto-fixing Eventf format string warnings..."
-  # Find all Eventf calls with a variable as format string and wrap in "%s"
-  while IFS=: read -r file line _; do
-    [[ -z "$file" ]] && continue
-    # Get the line content and check if it's a simple msg variable
-    content=$(sed -n "${line}p" "$REPO_ROOT/$file")
-    if echo "$content" | grep -qE 'Eventf\([^)]+,\s*[a-zA-Z_]+\.[A-Za-z]+\(\)\s*\)'; then
-      # Pattern: Eventf(..., expr.Method())  → Eventf(..., "%s", expr.Method())
-      sed -i "${line}s/,\s*\([a-zA-Z_]*\.[A-Za-z]*())\)/\, \"%s\", \1/" "$REPO_ROOT/$file"
-      echo "  Fixed: $file:$line"
-    fi
-  done < <(grep -n "non-constant format string in call to.*Eventf" "$SUMMARY" | grep -oP '[^/]+\.go:\d+' || true)
-fi
 
 echo ""
 if [[ "$ERRORS_FOUND" -eq 0 ]]; then

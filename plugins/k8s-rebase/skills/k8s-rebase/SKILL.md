@@ -109,6 +109,15 @@ exists. When disabling a feature gate:
 For each error category, create its own independently revertable
 commit with `--signoff` and a descriptive message.
 
+**Handling TIMEOUT errors:** If the summary shows `## TIMEOUT`,
+tests are likely hanging due to a feature gate or resource leak.
+Check `/tmp/rebase-new-gates.txt` for new gates. Run individual
+test packages to isolate which one hangs. Distinguish a hang
+(never terminates — feature gate or resource leak) from slowness
+(finishes in 15+ minutes — container resource limit, adjust
+`VALIDATION_TIMEOUT`). Fix the root cause; disable gates only
+as Priority 3 last resort.
+
 ### Step 4: Re-validate
 
 After each fix batch, re-run the validation script. Only proceed
@@ -122,7 +131,8 @@ After each fix commit passes validation, run the review script:
 REVIEW=$(find "$HOME/.claude" -name "k8s-rebase-review.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 if [ -n "$REVIEW" ]; then
   COMMIT=$(git rev-parse HEAD)
-  bash "$REVIEW" "$COMMIT" "ORIGINAL_ERROR_HERE"
+  # Pass the original error that triggered this fix (from /tmp/rebase-summary.txt)
+  bash "$REVIEW" "$COMMIT" "PASTE_THE_ORIGINAL_ERROR_FROM_SUMMARY"
 fi
 ```
 
