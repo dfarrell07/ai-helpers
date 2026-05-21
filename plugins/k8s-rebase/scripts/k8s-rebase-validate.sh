@@ -177,7 +177,7 @@ while IFS= read -r gomod; do
     fi
 
     step_failed=0
-    if grep -q "^test:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null; then
+    if grep -qE "^(test|check test):" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null; then
       # Try make test first; if it needs sudo (common for network namespace tests),
       # fall back to go test without -race for non-privileged packages
       run_validation "${mod_name}-test" "make -C $mod_dir test" || {
