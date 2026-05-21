@@ -57,7 +57,7 @@ LINT_TIMEOUT="${LINT_TIMEOUT:-20m}"
 # invoke sudo work transparently without installing the sudo package
 if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]] && [[ "$(id -u)" == "0" ]]; then
   if ! command -v sudo &>/dev/null; then
-    printf '#!/bin/sh\nexec "$@"\n' > /usr/local/bin/sudo
+    printf '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n' > /usr/local/bin/sudo
     chmod +x /usr/local/bin/sudo
   fi
 fi
