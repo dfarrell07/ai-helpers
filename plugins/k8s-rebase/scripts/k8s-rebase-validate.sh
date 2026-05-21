@@ -179,12 +179,18 @@ while IFS= read -r gomod; do
     step_failed=0
     if grep -qE "^(test|check test):" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null; then
       # Try make test first; if it needs sudo (common for network namespace tests),
-      # fall back to go test without -race for non-privileged packages
+      # fall back to go test without -race for non-privileged packages.
+      # Source feature gate env vars from test-go.sh so fake clientsets work.
       run_validation "${mod_name}-test" "make -C $mod_dir test" || {
         if grep -q "sudo" "$REBASE_TMP/${mod_name}-test.log" 2>/dev/null; then
           echo "  NOTE: make test needs sudo/privileged container for some packages"
           echo "  Running go test without -race on non-sudo packages..."
-          run_validation "${mod_name}-test" "cd $mod_dir && go test -mod vendor -timeout 10m ./... -count=1" || step_failed=1
+          GATE_EXPORTS=""
+          TEST_GO_SH=$(find "$REPO_ROOT" -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
+          if [[ -n "$TEST_GO_SH" ]]; then
+            GATE_EXPORTS=$(grep "^export KUBE_FEATURE_" "$TEST_GO_SH" | tr '\n' '; ')
+          fi
+          run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && go test -mod vendor -timeout 10m ./... -count=1" || step_failed=1
         else
           step_failed=1
         fi

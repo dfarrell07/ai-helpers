@@ -42,6 +42,11 @@ third-party libraries don't support WatchList semantics, causing
 informers to hang waiting for bookmark events.
 
 **Detection:** Tests hang indefinitely or `make test` times out.
+Error: `error in syncing cache for *TYPE informer`
+
+**Important:** If running `go test` directly (not via `make test`
+or `hack/test-go.sh`), feature gate env vars won't be set. Always
+source `KUBE_FEATURE_*` exports from `hack/test-go.sh` first.
 
 **Fix (2 parts):**
 
