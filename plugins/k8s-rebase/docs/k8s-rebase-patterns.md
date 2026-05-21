@@ -207,6 +207,20 @@ If the pinned version's install script fails (checksum errors),
 use `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest`
 as a fallback.
 
+### x/exp to stdlib migration (Go 1.21+)
+
+**Detection:** golangci-lint `inline` warnings on `golang.org/x/exp`
+packages like `maps`, `slices`, `constraints`.
+
+**Fix:** Replace with stdlib equivalents:
+- `golang.org/x/exp/maps` → `maps` (stdlib)
+- `golang.org/x/exp/constraints` → `cmp` (stdlib)
+- `maps.Keys()` now returns `iter.Seq[K]`, not `[]K` — wrap
+  with `slices.Collect()` where a slice is needed
+- Move the import from the third-party group to the stdlib group
+- Maintain alphabetical order within the stdlib group (gci linter)
+- Add `"slices"` import only to files that use `slices.Collect`
+
 ### go vet format string errors (Go 1.26)
 
 **Detection:** `non-constant format string in call to Eventf` or
