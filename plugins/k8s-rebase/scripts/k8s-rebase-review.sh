@@ -1,5 +1,5 @@
 #!/bin/bash
-# k8s-rebase-review.sh — Phase 4 step 5: antagonistic review
+# k8s-rebase-review.sh — Phase 4 step 4: antagonistic review
 #
 # For each fix commit, loads the review prompt template, substitutes
 # variables with pre-fetched evidence, invokes claude -p as a separate
@@ -29,7 +29,8 @@ ORIGINAL_ERROR="$*"
 
 # Pre-fetch evidence deterministically
 export DIFF
-DIFF=$(git -C "$REPO_ROOT" show "$COMMIT" --format="" -- "*.go" "*.yml" "*.yaml" "*.sh" | head -500)
+MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null || echo "$COMMIT~10")
+DIFF=$(git -C "$REPO_ROOT" diff "$MERGE_BASE".."$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" ':!*/vendor/*' | head -500)
 
 export ORIGINAL_ERROR
 

@@ -33,6 +33,10 @@ ${PATTERN_HINT}
 5. Does it introduce any side effects (changed semantics, lost
    error handling, removed timeouts)?
 6. Are new imports correct and necessary?
+7. Are stdlib imports (maps, slices, cmp) in the stdlib import
+   section, not the third-party section after a blank line?
+8. Do format strings in Eventf/Errorf/Sprintf have the correct
+   number of verbs (%s, %v, %d) for their arguments?
 
 ## Output
 

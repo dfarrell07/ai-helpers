@@ -126,8 +126,11 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
   info "Go $CURRENT_GO < $REQUIRED_GO required — re-running inside $GO_IMAGE"
 
   SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+  USERNS_FLAG=""
+  [[ "$CONTAINER_RT" == "podman" ]] && USERNS_FLAG="--userns=keep-id"
   exec $CONTAINER_RT run --rm \
     --security-opt label=disable \
+    $USERNS_FLAG \
     -v "$REPO_ROOT:$REPO_ROOT" \
     -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
     -w "$REPO_ROOT" \
@@ -163,15 +166,14 @@ else
   info "Controller-runtime: v0.${CR_MINOR}.x not on proxy, will use latest"
 fi
 
-# Create branch
+# Create branch (append timestamp if name taken)
 BRANCH_NAME="bump${K8S_MAJOR_MINOR}"
 if git rev-parse --verify "$BRANCH_NAME" &>/dev/null; then
-  info "Branch $BRANCH_NAME already exists, checking it out"
-  git checkout "$BRANCH_NAME"
-else
-  git checkout -b "$BRANCH_NAME"
-  info "Created branch: $BRANCH_NAME"
+  BRANCH_NAME="bump${K8S_MAJOR_MINOR}-$(date +%Y%m%d%H%M%S)"
+  info "bump${K8S_MAJOR_MINOR} already exists, using $BRANCH_NAME"
 fi
+git checkout -b "$BRANCH_NAME"
+info "Created branch: $BRANCH_NAME"
 
 # ── Derivation function ─────────────────────────────────────────────
 
@@ -327,31 +329,70 @@ done
 if [[ -n "$CODEGEN_SCRIPT" ]]; then
   banner "Phase 2: Code Generation"
 
-  # Update code-generator version pin
-  sed -i "s|code-generator/cmd/%s@v0\.[0-9]*\.[0-9]*|code-generator/cmd/%s@${API_VERSION}|g" "$CODEGEN_SCRIPT"
+  # Update code-generator version pin (handles both printf %s and explicit tool names)
+  sed -i -E "s|(code-generator/cmd/[^@]+)@v0\.[0-9]+\.[0-9]+|\1@${API_VERSION}|g" "$CODEGEN_SCRIPT"
   info "Updated code-generator version to ${API_VERSION}"
 
   # Run codegen — try common make targets
   CODEGEN_DIR=$(dirname "$(dirname "$CODEGEN_SCRIPT")")
   CODEGEN_RAN=0
+  CODEGEN_FAILED=0
+  CODEGEN_LOG="$REBASE_TMP/codegen.log"
   for target in codegen generate update-codegen; do
     if make -n -C "$CODEGEN_DIR" "$target" &>/dev/null; then
       info "Running make $target in $CODEGEN_DIR..."
-      make -C "$CODEGEN_DIR" "$target" || info "WARNING: make $target failed (continuing)"
-      CODEGEN_RAN=1
+      if make -C "$CODEGEN_DIR" "$target" > "$CODEGEN_LOG" 2>&1; then
+        CODEGEN_RAN=1
+      else
+        info "WARNING: make $target failed — Phase 4 will fix codegen script"
+        CODEGEN_FAILED=1
+      fi
       break
     fi
   done
-  if [[ "$CODEGEN_RAN" -eq 0 ]]; then
+  if [[ "$CODEGEN_RAN" -eq 0 ]] && [[ "$CODEGEN_FAILED" -eq 0 ]]; then
     info "WARNING: No codegen/generate make target found, running script directly..."
-    bash "$CODEGEN_SCRIPT" || info "WARNING: codegen script failed (continuing)"
+    if ! bash "$CODEGEN_SCRIPT" > "$CODEGEN_LOG" 2>&1; then
+      info "WARNING: codegen script failed — Phase 4 will fix codegen script"
+      CODEGEN_FAILED=1
+    fi
   fi
 
   cd "$REPO_ROOT"
-  if [[ -n "$(git status --porcelain)" ]]; then
-    git add -A
+  if [[ -n "$(git status --porcelain -- . ':!.rebase-tmp')" ]]; then
+    git add -A -- . ':!.rebase-tmp'
     git commit -s -m "Update codegen for k8s ${K8S_MAJOR_MINOR}"
     info "Committed: Update codegen for k8s ${K8S_MAJOR_MINOR}"
+  fi
+
+  if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
+    # Auto-fix common codegen failures (dropped flags) and retry
+    if grep -q 'unknown flag\|flag provided but not defined' "$CODEGEN_LOG" 2>/dev/null; then
+      # Extract the unknown flag name and remove it from the codegen script
+      bad_flag=$(grep -oE '(unknown flag|flag provided but not defined): --[a-zA-Z0-9_-]+' "$CODEGEN_LOG" | head -1 | sed 's/.*--//')
+      if [[ -n "$bad_flag" ]] && grep -q "\-\-${bad_flag}" "$CODEGEN_SCRIPT"; then
+        info "Removing dropped flag --${bad_flag} from codegen script and retrying"
+        sed -i "/^[[:space:]]*--${bad_flag}/d" "$CODEGEN_SCRIPT"
+        git add "$CODEGEN_SCRIPT"
+        git commit -s -m "Remove deprecated --${bad_flag} flag from codegen"
+        # Retry codegen
+        if make -C "$CODEGEN_DIR" "$target" > "$CODEGEN_LOG" 2>&1 || bash "$CODEGEN_SCRIPT" > "$CODEGEN_LOG" 2>&1; then
+          info "Codegen succeeded after removing --${bad_flag}"
+          CODEGEN_FAILED=0
+          cd "$REPO_ROOT"
+          if [[ -n "$(git status --porcelain -- . ':!.rebase-tmp')" ]]; then
+            git add -A -- . ':!.rebase-tmp'
+            git commit -s -m "Regenerate code after codegen fix for k8s ${K8S_MAJOR_MINOR}"
+          fi
+        fi
+      fi
+    fi
+    if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
+      echo "## CODEGEN FAILURE" >> "$REBASE_TMP/summary.txt"
+      tail -5 "$CODEGEN_LOG" >> "$REBASE_TMP/summary.txt"
+      echo "Fix the codegen script (e.g. removed flags) and re-run codegen." >> "$REBASE_TMP/summary.txt"
+      echo "" >> "$REBASE_TMP/summary.txt"
+    fi
   fi
 else
   info "No codegen script found, skipping Phase 2"
@@ -361,28 +402,27 @@ fi
 
 banner "Phase 3: Version Reference Updates"
 
-OLD_K8S_FULL="v${K8S_MAJOR}.${OLD_MINOR}.0"
 NEW_K8S_FULL="${K8S_FULL}"
+OLD_SHORT="${K8S_MAJOR}.${OLD_MINOR}"
+NEW_SHORT="${K8S_MAJOR_MINOR}"
 CHANGED_FILES=""
 
-# Pass 1: full version (CI workflows, scripts, Dockerfiles)
+# Pass 1: v-prefixed versions in CI, scripts, docs (v1.35.0, v1.35)
+# Two-stage sed: patch form first (v1.35.X → v1.36.0), then bare (v1.35 → v1.36)
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  sed -i "s|${OLD_K8S_FULL}|${NEW_K8S_FULL}|g" "$file"
+  sed -i -E "s|v${K8S_MAJOR}\.${OLD_MINOR}\.[0-9]+|${NEW_K8S_FULL}|g; s|v${K8S_MAJOR}\.${OLD_MINOR}\b|v${NEW_SHORT}|g" "$file"
   CHANGED_FILES+="$file"$'\n'
   info "  Updated: $file"
-done < <(grep -rln "${OLD_K8S_FULL}" \
+done < <(grep -rln -E "v${K8S_MAJOR}\.${OLD_MINOR}(\.[0-9]+)?\b" \
   --include="*.yml" --include="*.yaml" --include="*.sh" \
   --include="*.md" --include="Makefile*" --include="Dockerfile*" . \
   | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
 
-# Pass 2: short version in docs
-OLD_SHORT="${K8S_MAJOR}.${OLD_MINOR}"
-NEW_SHORT="${K8S_MAJOR_MINOR}"
+# Pass 2: bare version in doc prose (1.35 without v-prefix)
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  OLD_SHORT_ESC=$(echo "$OLD_SHORT" | sed 's/\./\\./g')
-  sed -i -E "s/\b${OLD_SHORT_ESC}\b/${NEW_SHORT}/g" "$file"
+  sed -i -E "s/\b${OLD_SHORT//./\\.}\b/${NEW_SHORT}/g" "$file"
   CHANGED_FILES+="$file"$'\n'
   info "  Updated (short): $file"
 done < <(grep -rln "\b${OLD_SHORT}\b" --include="*.md" docs/ 2>/dev/null | grep -v vendor || true)
@@ -420,15 +460,20 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
 fi
 
 cd "$REPO_ROOT"
-if [[ -n "$(git status --porcelain)" ]]; then
-  git add -A
-  git commit -s -m "$(cat <<EOF
+# Add only the files we modified — not -A which fails on root-owned codegen files
+if [[ -n "$CHANGED_FILES" ]]; then
+  echo "$CHANGED_FILES" | while IFS= read -r f; do
+    [[ -n "$f" ]] && git add "$f" 2>/dev/null
+  done
+  if [[ -n "$(git status --porcelain -- . ':!.rebase-tmp')" ]]; then
+    git commit -s -m "$(cat <<EOF
 Update version references for k8s ${K8S_MAJOR_MINOR}
 
 ${CHANGED_FILES}
 EOF
 )"
-  info "Committed: Update version references for k8s ${K8S_MAJOR_MINOR}"
+    info "Committed: Update version references for k8s ${K8S_MAJOR_MINOR}"
+  fi
 fi
 
 # ── Phase 3b: Detect new feature gates ──────────────────────────────
@@ -447,8 +492,9 @@ if [[ -n "$KNOWN_FEATURES" ]]; then
     [[ -z "$gate" ]] && continue
     NEW_GATES+=("$gate")
   done < <(awk '
-    /^\t[A-Z].*Feature = / { gate = $1 }
-    /Default: true/ && /MustParse\("1\.'"${K8S_MINOR}"'"\)/ { print gate }
+    /^\t[A-Z][a-zA-Z0-9]*Feature = / { gate = $1 }
+    /^\t[A-Z][a-zA-Z0-9]*: \{/ { gsub(/:.*/, "", $1); gate = $1 }
+    !/\/\// && /Default: true/ && /MustParse\("1\.'"${K8S_MINOR}"'"\)/ { print gate }
   ' "$KNOWN_FEATURES" | sort -u)
 
   if [[ ${#NEW_GATES[@]} -gt 0 ]]; then
@@ -463,22 +509,15 @@ fi
 
 # ── Summary ──────────────────────────────────────────────────────────
 
-# Count commits on this branch since creation (look for the branch point)
-BRANCH_BASE=$(git log --oneline --grep="rebase ${K8S_MAJOR_MINOR}\|codegen\|kubernetes versions" "$BRANCH_NAME" 2>/dev/null | wc -l)
-COMMIT_COUNT="${BRANCH_BASE:-?}"
-
 banner "Phases 0-3 Complete"
 echo "Branch:    $BRANCH_NAME"
 echo "Target:    k8s $K8S_FULL (API $API_VERSION)"
 echo "From:      k8s 1.${OLD_MINOR} (API $OLD_API_VERSION)"
 echo "Go:        $OLD_GO_VERSION → $NEW_GO_VERSION"
 echo "CR:        ${CR_VERSION:-latest}"
-echo "Commits:   $COMMIT_COUNT"
 if [[ -s "$GATE_REPORT" ]]; then
   echo "New gates: $(tr '\n' ' ' < "$GATE_REPORT")"
-  echo "           Phase 4 will investigate and fix (see $GATE_REPORT)"
 fi
 echo ""
-echo "Next: run Phase 4 (build validation and fixups)"
-echo "  ./go-controller/hack/k8s-rebase-validate.sh"
+echo "Next: proceed to Phase 4 (build validation and fixups)"
 exit 2

@@ -31,9 +31,12 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
       GO_IMAGE="docker.io/library/golang:${REQUIRED_GO}"
       echo ":: Go $CURRENT_GO < $REQUIRED_GO — re-running validate inside $GO_IMAGE"
       SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
+      USERNS_FLAG=""
+      [[ "$CONTAINER_RT" == "podman" ]] && USERNS_FLAG="--userns=keep-id"
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         --privileged \
+        $USERNS_FLAG \
         -v "$REPO_ROOT:$REPO_ROOT" \
         -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
         -w "$REPO_ROOT" \
@@ -48,7 +51,7 @@ cleanup() { rm -rf "$REBASE_TMP"; }
 
 SUMMARY="$REBASE_TMP/summary.txt"
 ERRORS_FOUND=0
-VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-15m}"
+VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-25m}"
 LINT_TIMEOUT="${LINT_TIMEOUT:-20m}"
 
 : > "$SUMMARY"
@@ -77,9 +80,9 @@ run_validation() {
     echo "  PASS"
     return 0
   elif [[ "$rc" -eq 124 ]]; then
-    echo "  TIMEOUT after $VALIDATION_TIMEOUT (see $logfile)"
+    echo "  TIMEOUT after $step_timeout (see $logfile)"
     echo "" >> "$logfile"
-    echo "TIMEOUT: command did not complete within $VALIDATION_TIMEOUT" >> "$logfile"
+    echo "TIMEOUT: command did not complete within $step_timeout" >> "$logfile"
     return 1
   else
     echo "  FAIL (see $logfile)"
@@ -92,9 +95,10 @@ categorize_errors() {
   local category="$2"
   local step_failed="${3:-0}"
 
-  local build_errors lint_errors test_failures
+  local build_errors lint_errors vet_errors test_failures
   build_errors=$(grep -E ":[0-9]+:[0-9]+: (undefined|too many arguments|too few arguments|cannot use|not enough arguments)" "$logfile" 2>/dev/null || true)
-  lint_errors=$(grep -E "\.go:[0-9]+:[0-9]+:.*(SA[0-9]+|staticcheck|lostcancel|gci)" "$logfile" 2>/dev/null | grep -v "^#" || true)
+  lint_errors=$(grep -E "\.go:[0-9]+:[0-9]+:.*(SA[0-9]+|staticcheck|lostcancel|gci|inline:|nilness:)" "$logfile" 2>/dev/null | grep -v "^#" || true)
+  vet_errors=$(grep -E ":[0-9]+:[0-9]+:.*(non-constant format string|format %|has arguments but no formatting directives|deprecated)" "$logfile" 2>/dev/null | grep -v "^#" || true)
   test_failures=$(grep -E "^--- FAIL:|^FAIL\t" "$logfile" 2>/dev/null || true)
 
   if [[ -n "$build_errors" ]]; then
@@ -107,6 +111,13 @@ categorize_errors() {
   if [[ -n "$lint_errors" ]]; then
     echo "## LINT ERRORS ($category)" >> "$SUMMARY"
     echo "$lint_errors" >> "$SUMMARY"
+    echo "" >> "$SUMMARY"
+    ERRORS_FOUND=1
+  fi
+
+  if [[ -n "$vet_errors" ]]; then
+    echo "## VET ERRORS ($category)" >> "$SUMMARY"
+    echo "$vet_errors" >> "$SUMMARY"
     echo "" >> "$SUMMARY"
     ERRORS_FOUND=1
   fi
@@ -129,7 +140,7 @@ categorize_errors() {
     ERRORS_FOUND=1
   fi
 
-  if [[ "$step_failed" -eq 1 ]] && [[ -z "$build_errors" ]] && [[ -z "$lint_errors" ]] && [[ -z "$test_failures" ]] && [[ -z "$timeout_errors" ]]; then
+  if [[ "$step_failed" -eq 1 ]] && [[ -z "$build_errors" ]] && [[ -z "$lint_errors" ]] && [[ -z "$vet_errors" ]] && [[ -z "$test_failures" ]] && [[ -z "$timeout_errors" ]]; then
     echo "## UNCLASSIFIED FAILURE ($category)" >> "$SUMMARY"
     tail -10 "$logfile" >> "$SUMMARY"
     echo "" >> "$SUMMARY"
@@ -191,7 +202,7 @@ while IFS= read -r gomod; do
           if [[ -n "$TEST_GO_SH" ]]; then
             GATE_EXPORTS=$(grep "^export KUBE_FEATURE_" "$TEST_GO_SH" | tr '\n' '; ')
           fi
-          run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && go test -mod vendor -timeout 10m ./... -count=1" || step_failed=1
+          run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && go test -mod vendor -timeout ${VALIDATION_TIMEOUT} ./... -count=1" || step_failed=1
         else
           step_failed=1
         fi
