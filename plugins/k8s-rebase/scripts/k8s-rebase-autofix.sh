@@ -561,6 +561,22 @@ fix_feature_gates() {
       sed -i 's/unrecognized feature gate: WatchListClient/unrecognized feature gate/' "$tf"
     fi
   done
+
+  # ── Layer 4: Warn about test packages that may need gates ──
+  # Not all fake clientset packages need gates — only those using
+  # informers (list/watch). Too many false positives to auto-fix.
+  local _missing_gate_pkgs=0
+  for suite in $(find go-controller/ -name "*_suite_test.go" -not -path "*/vendor/*" 2>/dev/null); do
+    local pkg_dir
+    pkg_dir=$(dirname "$suite")
+    grep -rq "KUBE_FEATURE_\|SetFromMap" "$pkg_dir"/*.go 2>/dev/null && continue
+    grep -rq "fake\.NewClientBuilder\|fake\.NewSimpleClientset\|fake\.NewClientset" "$pkg_dir"/*.go 2>/dev/null || continue
+    _missing_gate_pkgs=$((_missing_gate_pkgs + 1))
+  done
+  if [[ "$_missing_gate_pkgs" -gt 0 ]]; then
+    echo ":: NOTE: $_missing_gate_pkgs test packages use fake clientsets without gate env vars."
+    echo "   If tests hang with informer timeouts, add KUBE_FEATURE_ env vars to the suite file."
+  fi
 }
 
 fix_imports() {

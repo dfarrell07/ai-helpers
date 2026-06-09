@@ -174,6 +174,10 @@ all — they will block CI.
    (`--full` may show pre-existing test failures — check if
    they also fail on master before investigating)
 
+**Test caching:** Always use `-count=1` when running tests
+manually. Go's test cache can return stale passes that hide
+real failures (e.g., informer timeouts from missing gates).
+
 **Nilness dead code:** The bumped golangci-lint catches `if err
 != nil` blocks where err is guaranteed nil — either the function
 doesn't return an error, or a prior `t.Fatal`/`return` already
