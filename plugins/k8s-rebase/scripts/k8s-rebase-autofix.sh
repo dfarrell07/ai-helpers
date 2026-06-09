@@ -275,12 +275,13 @@ fix_go_version() {
   # Detect old Go version from CI files (the version BEFORE the rebase)
   old_go=$(grep -oE 'golang[:-][0-9]+\.[0-9]+' .github/workflows/docker.yml 2>/dev/null | head -1 | sed 's/golang[:-]//')
   [[ -z "$old_go" ]] && old_go=$(grep -roE 'GO_VERSION \?= [0-9]+\.[0-9]+' --include="Makefile*" . 2>/dev/null | head -1 | sed 's/.*GO_VERSION ?= //')
+  [[ -z "$old_go" ]] && old_go=$(grep -roE 'GO_VERSION: "[0-9]+\.[0-9]+"' --include="*.yml" --include="*.yaml" . 2>/dev/null | grep -v vendor | head -1 | sed 's/.*GO_VERSION: "//;s/"//')
   [[ -z "$old_go" ]] && return 0
   [[ "$old_go" == "$new_go" ]] && return 0
   echo ":: Fixing Go version refs: $old_go → $new_go"
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
-    sed -i "s|golang[:-]${old_go}|golang:${new_go}|g; s|GO_VERSION ?= ${old_go}|GO_VERSION ?= ${new_go}|g; s|go-version: \[${old_go}|go-version: [${new_go}|g" "$f"
+    sed -i "s|golang[:-]${old_go}|golang:${new_go}|g; s|GO_VERSION ?= ${old_go}|GO_VERSION ?= ${new_go}|g; s|go-version: \[${old_go}|go-version: [${new_go}|g; s|GO_VERSION: \"${old_go}\"|GO_VERSION: \"${new_go}\"|g" "$f"
   done < <(grep -rln "${old_go}" \
     --include="*.yml" --include="*.yaml" --include="Makefile*" --include="Dockerfile*" . \
     | grep -v vendor | grep -v '/\.git/' | grep -v go.mod || true)
