@@ -365,6 +365,27 @@ fix_kind_version() {
   fi
 }
 
+fix_metallb_check() {
+  # Warn if MetalLB version might be too old for the target k8s version.
+  # MetalLB CRDs may lack format annotations that stricter k8s validation
+  # requires. Can't auto-fix because MetalLB install has repo-specific patches.
+  local kind_common
+  kind_common=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
+  [[ -z "$kind_common" ]] && return 0
+  local current_metallb
+  current_metallb=$(grep -oE 'metallb_version=v[0-9.]+' "$kind_common" | head -1 | sed 's/metallb_version=//')
+  [[ -z "$current_metallb" ]] && return 0
+  local latest_metallb
+  latest_metallb=$(curl -sf "https://api.github.com/repos/metallb/metallb/releases" 2>/dev/null | grep -oE '"tag_name": "v[0-9][^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
+  [[ -z "$latest_metallb" ]] && return 0
+  if [[ "$current_metallb" != "$latest_metallb" ]]; then
+    echo ":: WARNING: MetalLB $current_metallb may be incompatible with this k8s version."
+    echo "   Latest: $latest_metallb. If e2e tests fail with CRD validation errors"
+    echo "   (\"Maximum boundary value must be of type integer\"), bump metallb_version"
+    echo "   and FRR_K8S_UPSTREAM_FRR_IMAGE in $(basename "$kind_common")."
+  fi
+}
+
 # Pattern-based fixes (conditional — only run if pattern found)
 
 fix_addtoscheme() {
@@ -678,6 +699,7 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_lint_version
   fix_kind_image
   fix_kind_version
+  fix_metallb_check
   fix_feature_gates
 
   # Version-specific fixes — conditional on finding the pattern.
