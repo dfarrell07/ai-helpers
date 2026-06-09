@@ -508,7 +508,7 @@ fix_feature_gates() {
         if [[ -n "$insert_after" ]]; then
           sed -i "${insert_after}a export KUBE_FEATURE_${gate}=false" "$test_go_sh"
         else
-          echo "export KUBE_FEATURE_${gate}=false" >> "$test_go_sh"
+          sed -i "1a export KUBE_FEATURE_${gate}=false" "$test_go_sh"
         fi
       fi
     done
