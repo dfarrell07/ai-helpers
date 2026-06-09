@@ -520,14 +520,13 @@ fix_feature_gates() {
   for tf in $env_files; do
     for gate in "${all_gates[@]}"; do
       [[ -z "$gate" ]] && continue
-      grep -q "$gate" "$tf" && continue
-      if grep -q 'os\.Setenv.*KUBE_FEATURE' "$tf"; then
+      if grep -q 'os\.Setenv.*KUBE_FEATURE' "$tf" && ! grep -q "os\.Setenv.*${gate}" "$tf"; then
         local setenv_line
         setenv_line=$(grep -n 'os\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1)
         sed -i "${setenv_line}i\\
 \\tos.Setenv(\"KUBE_FEATURE_${gate}\", \"false\")" "$tf"
       fi
-      if grep -q 't\.Setenv.*KUBE_FEATURE' "$tf"; then
+      if grep -q 't\.Setenv.*KUBE_FEATURE' "$tf" && ! grep -q "t\.Setenv.*${gate}" "$tf"; then
         local tsetenv_line
         tsetenv_line=$(grep -n 't\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1)
         sed -i "${tsetenv_line}i\\
