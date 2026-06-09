@@ -108,9 +108,13 @@ run_checks() {
     fi
   done
   local _gmiss=0
-  for _g in $_all_gate_names; do
-    grep -q "KUBE_FEATURE_$_g\|\"$_g\"" $MODULE_ROOT/hack/test-go.sh 2>/dev/null || _gmiss=$((_gmiss+1))
-  done
+  local _test_go_sh
+  _test_go_sh=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" 2>/dev/null | head -1)
+  if [[ -n "$_test_go_sh" ]]; then
+    for _g in $_all_gate_names; do
+      grep -q "KUBE_FEATURE_$_g\|\"$_g\"" "$_test_go_sh" 2>/dev/null || _gmiss=$((_gmiss+1))
+    done
+  fi
   r "Gates in test-go.sh" "$_gmiss"
   # Env var files: check ALL gates (parents + deps).
   # Match on os.Setenv/t.Setenv calls, not just KUBE_FEATURE_ (avoids comments).
