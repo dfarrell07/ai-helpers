@@ -29,7 +29,8 @@ When rebasing to k8s 1.37+, update these files:
 | Deprecated API | `SA1019: X is deprecated` | Check vendored `// Deprecated:` comment |
 | x/exp migration | `inline: cannot inline` | Migrate to stdlib `maps` (NOT disable linter) |
 | Nilness dead code | `nilness: impossible condition` | Remove dead `if err != nil` blocks |
-| Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag, re-run codegen |
+| Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag from script, re-run codegen |
+| Codegen field removed | `unknown field X in struct literal` | Remove field from Go code, re-run codegen |
 | Feature gate (existing) | Tests hang (gate files exist) | Add new gate + dependents to existing setup |
 | Feature gate (missing) | Tests hang (no gate setup) | Add `t.Setenv` for all gates to suite file |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
