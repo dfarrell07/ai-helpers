@@ -189,8 +189,9 @@ derive_go_gets() {
     local pkg ver_prefix
     pkg=$(echo "$line" | awk '{print $1}')
     ver_prefix=$(echo "$line" | grep -oE 'v[0-9]+' | head -1 | sed 's/v//')
+    [[ -z "$ver_prefix" ]] && continue
     cmds+=("go get ${pkg}@v${ver_prefix}.${K8S_MINOR}.${K8S_PATCH}")
-  done < <(grep -E "k8s\.io/|sigs\.k8s\.io/" "$gomod" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | sort -u)
+  done < <(grep -E "k8s\.io/|sigs\.k8s\.io/" "$gomod" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | sort -u)
 
   # Rule 2: controller-runtime
   if grep -q "controller-runtime" "$gomod"; then
@@ -214,6 +215,7 @@ derive_go_gets() {
     echo "$pkg" | grep -q "controller-runtime" && continue
     cmds+=("go get ${pkg}")
   done < <(grep -E "k8s\.io/|sigs\.k8s\.io/|github\.com/openshift/(api|client-go) " "$gomod" | \
+           grep -v "=>" | \
            grep -vE "v[0-9]+\.${OLD_MINOR}\." | \
            awk '{print $1}' | sort -u)
 
