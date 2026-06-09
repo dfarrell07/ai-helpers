@@ -68,7 +68,7 @@ for candidate in go-controller/go.mod go.mod; do
   fi
 done
 if [[ -z "$PRIMARY_GOMOD" ]]; then
-  PRIMARY_GOMOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -lE "k8s\.io/(api|client-go|apimachinery) " {} \; | head -1)
+  PRIMARY_GOMOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -lE "k8s\.io/(api|client-go|apimachinery) " {} \; | head -1 || true)
 fi
 [[ -z "$PRIMARY_GOMOD" ]] && die "No go.mod with k8s.io dependencies found in $REPO_ROOT"
 
@@ -78,7 +78,7 @@ for pkg in "k8s.io/api " "k8s.io/client-go " "k8s.io/apimachinery "; do
   OLD_API_VERSION=$(grep "$pkg" "$PRIMARY_GOMOD" 2>/dev/null | head -1 | awk '{print $2}' || true)
   [[ -n "$OLD_API_VERSION" ]] && break
 done
-OLD_MINOR=$(echo "$OLD_API_VERSION" | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
+OLD_MINOR=$(echo "$OLD_API_VERSION" | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//' || true)
 [[ -z "$OLD_MINOR" ]] && die "Cannot detect current k8s minor from $PRIMARY_GOMOD"
 OLD_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}')
 
@@ -107,7 +107,7 @@ fi
 info "Target version confirmed on proxy"
 
 # Check Go version — if too old, re-exec inside the official Go container
-REQUIRED_GO=$(curl -sf "https://raw.githubusercontent.com/kubernetes/kubernetes/v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}/go.mod" 2>/dev/null | grep "^go " | awk '{print $2}')
+REQUIRED_GO=$(curl -sf "https://raw.githubusercontent.com/kubernetes/kubernetes/v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}/go.mod" 2>/dev/null | grep "^go " | awk '{print $2}' || true)
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
 GO_OK=1
 if [[ -n "$REQUIRED_GO" ]]; then
