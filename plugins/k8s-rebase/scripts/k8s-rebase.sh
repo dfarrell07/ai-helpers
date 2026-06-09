@@ -381,7 +381,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     # Auto-fix common codegen failures (dropped flags) and retry
     if grep -q 'unknown flag\|flag provided but not defined' "$CODEGEN_LOG" 2>/dev/null; then
       # Extract the unknown flag name and remove it from the codegen script
-      bad_flag=$(grep -oE '(unknown flag|flag provided but not defined): --[a-zA-Z0-9_-]+' "$CODEGEN_LOG" | head -1 | sed 's/.*--//')
+      bad_flag=$(grep -oE '(unknown flag|flag provided but not defined): --[a-zA-Z0-9_-]+' "$CODEGEN_LOG" | head -1 | sed 's/.*--//' || true)
       if [[ -n "$bad_flag" ]] && grep -q "\-\-${bad_flag}" "$CODEGEN_SCRIPT"; then
         info "Removing dropped flag --${bad_flag} from codegen script and retrying"
         sed -i "/^[[:space:]]*--${bad_flag}/d" "$CODEGEN_SCRIPT"
@@ -480,7 +480,7 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
   if [[ -n "$LATEST_LINT" ]]; then
     while IFS= read -r lintscript; do
       [[ -z "$lintscript" ]] && continue
-      OLD_LINT=$(grep -oE 'VERSION=v[0-9]+\.[0-9]+\.[0-9]+' "$lintscript" | head -1 | sed 's/VERSION=//')
+      OLD_LINT=$(grep -oE 'VERSION=v[0-9]+\.[0-9]+\.[0-9]+' "$lintscript" | head -1 | sed 's/VERSION=//' || true)
       if [[ -n "$OLD_LINT" ]] && [[ "$OLD_LINT" != "$LATEST_LINT" ]]; then
         sed -i "s|VERSION=${OLD_LINT}|VERSION=${LATEST_LINT}|g" "$lintscript"
         CHANGED_FILES+="$lintscript"$'\n'
