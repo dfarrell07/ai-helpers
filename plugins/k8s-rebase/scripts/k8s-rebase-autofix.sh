@@ -20,6 +20,8 @@ for gm in go-controller/go.mod go.mod; do
   [[ -f "$gm" ]] && grep -q "k8s.io/" "$gm" && PRIMARY_GOMOD="$gm" && break
 done
 [[ -z "$PRIMARY_GOMOD" ]] && PRIMARY_GOMOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l "k8s.io/" {} \; | head -1)
+MODULE_ROOT="."
+[[ -n "$PRIMARY_GOMOD" ]] && MODULE_ROOT=$(dirname "$PRIMARY_GOMOD")
 
 # Auto-containerize if local Go is too old for the repo's go.mod
 REQUIRED_GO=""
@@ -97,7 +99,7 @@ run_checks() {
   # exist in the vendored k8s code (safe across k8s versions).
   local _active_gates="" _all_gate_names=""
   for _p in "${!GATE_DEPS[@]}"; do
-    if grep -rq "\"$_p\"" go-controller/vendor/k8s.io/ 2>/dev/null; then
+    if grep -rq "\"$_p\"" $MODULE_ROOT/vendor/k8s.io/ 2>/dev/null; then
       _active_gates="$_active_gates $_p"
       _all_gate_names="$_all_gate_names $_p"
       for _d in ${GATE_DEPS[$_p]}; do
@@ -107,13 +109,13 @@ run_checks() {
   done
   local _gmiss=0
   for _g in $_all_gate_names; do
-    grep -q "KUBE_FEATURE_$_g\|\"$_g\"" go-controller/hack/test-go.sh 2>/dev/null || _gmiss=$((_gmiss+1))
+    grep -q "KUBE_FEATURE_$_g\|\"$_g\"" $MODULE_ROOT/hack/test-go.sh 2>/dev/null || _gmiss=$((_gmiss+1))
   done
   r "Gates in test-go.sh" "$_gmiss"
   # Env var files: check ALL gates (parents + deps).
   # Match on os.Setenv/t.Setenv calls, not just KUBE_FEATURE_ (avoids comments).
   local _genv=0
-  for _f in $(grep -rl 'os\.Setenv.*KUBE_FEATURE\|t\.Setenv.*KUBE_FEATURE' --include='*_test.go' --include='*_suite_test.go' go-controller/ 2>/dev/null | grep -v vendor); do
+  for _f in $(grep -rl 'os\.Setenv.*KUBE_FEATURE\|t\.Setenv.*KUBE_FEATURE' --include='*_test.go' --include='*_suite_test.go' $MODULE_ROOT/ 2>/dev/null | grep -v vendor); do
     for _g in $_all_gate_names; do
       grep -q "$_g" "$_f" || _genv=$((_genv+1))
     done
@@ -123,13 +125,13 @@ run_checks() {
   # SetFromMap validates parent-dep consistency and rejects unrecognized gates.
   local _sfm_gates="$_active_gates"
   for _p in "${!GATE_DEPS[@]}"; do
-    grep -rq "\"$_p\"" go-controller/vendor/k8s.io/ 2>/dev/null || continue
+    grep -rq "\"$_p\"" $MODULE_ROOT/vendor/k8s.io/ 2>/dev/null || continue
     for _d in ${GATE_DEPS[$_p]}; do
-      grep -rq "\"$_d\"" go-controller/vendor/k8s.io/ 2>/dev/null && _sfm_gates="$_sfm_gates $_d"
+      grep -rq "\"$_d\"" $MODULE_ROOT/vendor/k8s.io/ 2>/dev/null && _sfm_gates="$_sfm_gates $_d"
     done
   done
   local _gsfm=0
-  for _f in $(grep -rl 'SetFromMap' --include='*_test.go' --include='*_suite_test.go' go-controller/ 2>/dev/null | grep -v vendor); do
+  for _f in $(grep -rl 'SetFromMap' --include='*_test.go' --include='*_suite_test.go' $MODULE_ROOT/ 2>/dev/null | grep -v vendor); do
     for _g in $_sfm_gates; do
       grep -q "\"$_g\"" "$_f" || _gsfm=$((_gsfm+1))
     done
@@ -484,7 +486,7 @@ fix_feature_gates() {
   # Only process gates that exist in the vendored k8s code.
   local parents=() all_deps=()
   for gate in "${!GATE_DEPS[@]}"; do
-    grep -rq "\"$gate\"" go-controller/vendor/k8s.io/ 2>/dev/null || continue
+    grep -rq "\"$gate\"" $MODULE_ROOT/vendor/k8s.io/ 2>/dev/null || continue
     parents+=("$gate")
     for dep in ${GATE_DEPS[$gate]}; do
       all_deps+=("$dep")
@@ -514,7 +516,7 @@ fix_feature_gates() {
 
   # ── Layer 2: os.Setenv / t.Setenv in test files ──
   local env_files
-  env_files=$(grep -rl 'os\.Setenv.*KUBE_FEATURE\|t\.Setenv.*KUBE_FEATURE' --include='*_test.go' --include='*_suite_test.go' go-controller/ 2>/dev/null | grep -v vendor)
+  env_files=$(grep -rl 'os\.Setenv.*KUBE_FEATURE\|t\.Setenv.*KUBE_FEATURE' --include='*_test.go' --include='*_suite_test.go' $MODULE_ROOT/ 2>/dev/null | grep -v vendor)
   for tf in $env_files; do
     for gate in "${all_gates[@]}"; do
       [[ -z "$gate" ]] && continue
@@ -543,11 +545,11 @@ fix_feature_gates() {
     sfm_gates+=("$gate")
   done
   for dep in "${all_deps[@]}"; do
-    grep -rq "\"$dep\"" go-controller/vendor/k8s.io/ 2>/dev/null && sfm_gates+=("$dep")
+    grep -rq "\"$dep\"" $MODULE_ROOT/vendor/k8s.io/ 2>/dev/null && sfm_gates+=("$dep")
   done
 
   local sfm_files
-  sfm_files=$(grep -rl 'SetFromMap' --include='*_test.go' --include='*_suite_test.go' go-controller/ 2>/dev/null | grep -v vendor)
+  sfm_files=$(grep -rl 'SetFromMap' --include='*_test.go' --include='*_suite_test.go' $MODULE_ROOT/ 2>/dev/null | grep -v vendor)
   for tf in $sfm_files; do
     local missing=false
     for g in "${sfm_gates[@]}"; do
@@ -574,7 +576,7 @@ fix_feature_gates() {
   # Only checks suite files; packages without suites (e.g., pod/)
   # are caught by the validate script's dynamic test selection.
   local _missing_gate_list=""
-  for suite in $(find go-controller/ -name "*_suite_test.go" -not -path "*/vendor/*" 2>/dev/null); do
+  for suite in $(find "$MODULE_ROOT"/ -name "*_suite_test.go" -not -path "*/vendor/*" 2>/dev/null); do
     local pkg_dir
     pkg_dir=$(dirname "$suite")
     grep -rq "KUBE_FEATURE_\|SetFromMap" "$pkg_dir"/*.go 2>/dev/null && continue
