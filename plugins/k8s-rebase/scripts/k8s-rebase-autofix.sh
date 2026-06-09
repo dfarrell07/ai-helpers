@@ -622,7 +622,7 @@ fix_imports() {
     # Read gci sections from project's golangci config
     local gci_args=()
     local lint_config
-    lint_config=$(find . -name ".golangci.yml" -not -path "*/vendor/*" | head -1)
+    lint_config=$(find . \( -name ".golangci.yml" -o -name ".golangci.yaml" \) -not -path "*/vendor/*" | head -1)
     if [[ -f "$lint_config" ]] && grep -q 'gci:' "$lint_config"; then
       while IFS= read -r section; do
         [[ -n "$section" ]] && gci_args+=(-s "$section")
