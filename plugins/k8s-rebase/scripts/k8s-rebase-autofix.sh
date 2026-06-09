@@ -316,7 +316,8 @@ fix_kind_image() {
     local exists=1
     if command -v docker &>/dev/null; then
       docker manifest inspect "kindest/node:${candidate}" &>/dev/null && exists=0
-    else
+    fi
+    if [[ "$exists" -eq 1 ]]; then
       curl -sf "https://hub.docker.com/v2/repositories/kindest/node/tags/${candidate}" > /dev/null 2>&1 && exists=0
     fi
     if [[ "$exists" -eq 0 ]]; then
