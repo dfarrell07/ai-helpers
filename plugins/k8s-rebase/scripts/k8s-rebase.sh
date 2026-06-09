@@ -21,6 +21,7 @@ SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
 mkdir -p "$REBASE_TMP"
 grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
+grep -qF '.config' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.config/' >> "$REPO_ROOT/.git/info/exclude"
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -145,8 +146,8 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
 fi
 info "Go version: $CURRENT_GO (>= ${REQUIRED_GO:-any} required)"
 
-# Clean working tree (ignore our own temp dir)
-if [[ -n "$(git status --porcelain | grep -v "^?? \.rebase-tmp/")" ]]; then
+# Clean working tree (ignore dirs created by containerized Go)
+if [[ -n "$(git status --porcelain | grep -v "^?? \.rebase-tmp/" | grep -v "^?? \.config/")" ]]; then
   die "Working tree is not clean. Commit or stash changes first."
 fi
 
