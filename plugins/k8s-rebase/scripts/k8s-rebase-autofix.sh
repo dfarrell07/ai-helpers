@@ -281,7 +281,7 @@ fix_go_version() {
   echo ":: Fixing Go version refs: $old_go → $new_go"
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
-    sed -i "s|golang[:-]${old_go}|golang:${new_go}|g; s|GO_VERSION ?= ${old_go}|GO_VERSION ?= ${new_go}|g; s|go-version: \[${old_go}|go-version: [${new_go}|g; s|GO_VERSION: \"${old_go}\"|GO_VERSION: \"${new_go}\"|g" "$f"
+    sed -i "s|golang[:-]${old_go}|golang:${new_go}|g; s|GO_VERSION ?= ${old_go}|GO_VERSION ?= ${new_go}|g; s|GOLANG_VERSION ?= ${old_go}|GOLANG_VERSION ?= ${new_go}|g; s|go-version: \[${old_go}|go-version: [${new_go}|g; s|GO_VERSION: \"${old_go}\"|GO_VERSION: \"${new_go}\"|g" "$f"
   done < <(grep -rln "${old_go}" \
     --include="*.yml" --include="*.yaml" --include="Makefile*" --include="Dockerfile*" . \
     | grep -v vendor | grep -v '/\.git/' | grep -v go.mod || true)
