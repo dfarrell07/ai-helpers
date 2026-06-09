@@ -46,6 +46,13 @@ runs from the plugin.
 
 ## Tested against
 
-Validated against
-[ovn-org/ovn-kubernetes](https://github.com/ovn-org/ovn-kubernetes)
-(3 Go modules, codegen, vendor, network-policy-api conformance tests).
+| Repo | Modules | Features exercised |
+|------|---------|--------------------|
+| ovn-org/ovn-kubernetes | 3 | Codegen, vendor, conformance tests, feature gates |
+| openshift/multus-cni | 1 | Vendor, Eventf vet errors, gate insertion |
+| openshift/api | 1 | Vendor, codegen field removal, golangci-lint format |
+| metallb/frr-k8s | 2 | No vendor, codegen, 3-version jump, transitive deps |
+| kubernetes-sigs/network-policy-api | 2 | No vendor, codegen, multi-module |
+| ovn-kubernetes/ovn-kubernetes-mcp | 1 | Vendor, no test-go.sh |
+| openshift/cloud-network-config-controller | 1 | Vendor, library-go blocker |
+| openshift/cluster-network-operator | 1 | Vendor, library-go blocker |
