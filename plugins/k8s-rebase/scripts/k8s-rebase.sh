@@ -503,9 +503,9 @@ fi
 # this is informational logging only.
 
 KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1)
+NEW_GATES=()
 
 if [[ -n "$KNOWN_FEATURES" ]]; then
-  NEW_GATES=()
   while IFS= read -r gate; do
     [[ -z "$gate" ]] && continue
     NEW_GATES+=("$gate")
