@@ -216,7 +216,6 @@ while IFS= read -r gomod; do
       run_validation "${mod_name}-test" "make -C $mod_dir test" || {
         if grep -q "sudo" "$REBASE_TMP/${mod_name}-test.log" 2>/dev/null; then
           echo "  NOTE: make test needs sudo/privileged container for some packages"
-          echo "  Testing changed non-privileged packages only..."
           GATE_EXPORTS=""
           TEST_GO_SH=$(find "$REPO_ROOT" -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
           if [[ -n "$TEST_GO_SH" ]]; then
@@ -227,26 +226,40 @@ while IFS= read -r gomod; do
           if [[ -n "$TEST_GO_SH" ]]; then
             ROOT_PKGS=$(sed -n '/root_pkgs=(/,/)/p' "$TEST_GO_SH" | grep -oE 'pkg/[^"]+' | sort -u | tr '\n' '|')
           fi
-          # Find packages changed by the rebase
+          # When vendor/ changed (k8s rebase), test ALL non-privileged
+          # packages — vendored dep changes affect all consumers, not
+          # just packages with source changes.
           MERGE_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null || git -C "$REPO_ROOT" merge-base HEAD main 2>/dev/null || echo "HEAD~20")
-          CHANGED_PKGS=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/" | grep '\.go$' | grep -v vendor | grep -v "_test.go" | sed "s|${mod_dir}/||;s|/[^/]*$||" | sort -u)
+          VENDOR_CHANGED=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/vendor/" | head -1)
           TEST_PKGS=""
-          for pkg in $CHANGED_PKGS; do
-            # Skip privileged packages
-            if [[ -n "$ROOT_PKGS" ]] && echo "$pkg" | grep -qE "^(${ROOT_PKGS%|})$"; then
-              echo "  Skipping privileged: $pkg"
-              continue
-            fi
-            # Only include if package has test files
-            if find "$REPO_ROOT/$mod_dir/$pkg" -name "*_test.go" -maxdepth 1 2>/dev/null | grep -q .; then
+          if [[ -n "$VENDOR_CHANGED" ]]; then
+            echo "  Vendor changed — testing all non-privileged packages..."
+            while IFS= read -r pkg; do
+              [[ -z "$pkg" ]] && continue
+              if [[ -n "$ROOT_PKGS" ]] && echo "$pkg" | grep -qE "^(${ROOT_PKGS%|})"; then
+                echo "  Skipping privileged: $pkg"
+                continue
+              fi
               TEST_PKGS+=" ./${pkg}/..."
-            fi
-          done
+            done < <(cd "$REPO_ROOT/$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -exec dirname {} \; | sed 's|^\./||' | sort -u)
+          else
+            echo "  Testing changed non-privileged packages only..."
+            CHANGED_PKGS=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/" | grep '\.go$' | grep -v vendor | grep -v "_test.go" | sed "s|${mod_dir}/||;s|/[^/]*$||" | sort -u)
+            for pkg in $CHANGED_PKGS; do
+              if [[ -n "$ROOT_PKGS" ]] && echo "$pkg" | grep -qE "^(${ROOT_PKGS%|})$"; then
+                echo "  Skipping privileged: $pkg"
+                continue
+              fi
+              if find "$REPO_ROOT/$mod_dir/$pkg" -name "*_test.go" -maxdepth 1 2>/dev/null | grep -q .; then
+                TEST_PKGS+=" ./${pkg}/..."
+              fi
+            done
+          fi
           if [[ -n "$TEST_PKGS" ]]; then
             echo "  Testing:$TEST_PKGS"
             run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && go test -mod vendor -timeout ${VALIDATION_TIMEOUT} ${TEST_PKGS} -count=1" || step_failed=1
           else
-            echo "  No changed non-privileged test packages found"
+            echo "  No non-privileged test packages found"
           fi
         else
           step_failed=1
