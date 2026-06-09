@@ -44,9 +44,6 @@ is gitignored. Use plain `git add -A` instead.
 
 ## Phase 0-3: Mechanical Rebase
 
-Before starting, check for existing rebase PRs for the same
-version to avoid duplicate effort.
-
 Run from the default branch (master/main). The script creates a
 new timestamped branch. Do not reuse branches from prior runs.
 
