@@ -30,7 +30,8 @@ When rebasing to k8s 1.37+, update these files:
 | x/exp migration | `inline: cannot inline` | Migrate to stdlib `maps` (NOT disable linter) |
 | Nilness dead code | `nilness: impossible condition` | Remove dead `if err != nil` blocks |
 | Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag, re-run codegen |
-| Feature gate fakes | Tests hang silently | Investigate, then disable gate + dependents |
+| Feature gate fakes | Tests hang silently | Disable gate + dependents in test setup |
+| Missing gate packages | Tests timeout on cache sync | Add `t.Setenv` for all gates to suite file |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
@@ -43,6 +44,14 @@ Add gate AND ALL dependents to ALL three mechanisms:
 1. `hack/test-go.sh` env var exports
 2. `os.Setenv`/`t.Setenv` in test files
 3. `SetFromMap` in test files
+
+**Missing gate packages:** Some test packages use fake clientsets
+but have NO gate setup. These work until a new gate enables
+informer behavior (like WatchList) that fake clientsets don't
+support. Symptoms: tests hang or timeout on informer cache sync.
+Fix: add `t.Setenv("KUBE_FEATURE_<gate>", "false")` to the
+suite's `TestX` function. The autofix warns about these packages
+but doesn't auto-fix (not all fake clientset tests need gates).
 
 SetFromMap validates parent-dep consistency — disabling a parent
 without its deps causes a validation error. All gates must be in
