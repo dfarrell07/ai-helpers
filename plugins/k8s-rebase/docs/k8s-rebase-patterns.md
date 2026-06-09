@@ -33,6 +33,7 @@ When rebasing to k8s 1.37+, update these files:
 | Feature gate fakes | Tests hang silently | Investigate, then disable gate + dependents |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
+| MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
 ## Feature Gates (recurring)
