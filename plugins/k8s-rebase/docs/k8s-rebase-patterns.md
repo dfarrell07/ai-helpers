@@ -32,6 +32,7 @@ When rebasing to k8s 1.37+, update these files:
 | Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag, re-run codegen |
 | Feature gate fakes | Tests hang silently | Investigate, then disable gate + dependents |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
+| KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
 ## Feature Gates (recurring)

@@ -347,6 +347,24 @@ fix_kind_image() {
   fi
 }
 
+fix_kind_version() {
+  # Bump the KIND binary to the latest release. Newer KIND versions
+  # are needed to create clusters with newer kindest/node images.
+  local install_script
+  install_script=$(find . -name "install-kind.sh" -not -path "*/vendor/*" | head -1)
+  [[ -z "$install_script" ]] && return 0
+  local current_ver
+  current_ver=$(grep -oE 'kind.sigs.k8s.io/dl/v[0-9.]+' "$install_script" | head -1 | sed 's|kind.sigs.k8s.io/dl/||')
+  [[ -z "$current_ver" ]] && return 0
+  local latest_ver
+  latest_ver=$(curl -sf "https://api.github.com/repos/kubernetes-sigs/kind/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
+  [[ -z "$latest_ver" ]] && return 0
+  if [[ "$current_ver" != "$latest_ver" ]]; then
+    echo ":: Bumping KIND binary: $current_ver → $latest_ver"
+    sed -i "s|kind.sigs.k8s.io/dl/${current_ver}|kind.sigs.k8s.io/dl/${latest_ver}|g" "$install_script"
+  fi
+}
+
 # Pattern-based fixes (conditional — only run if pattern found)
 
 fix_addtoscheme() {
@@ -659,6 +677,7 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_go_version
   fix_lint_version
   fix_kind_image
+  fix_kind_version
   fix_feature_gates
 
   # Version-specific fixes — conditional on finding the pattern.
