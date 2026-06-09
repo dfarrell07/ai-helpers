@@ -565,6 +565,8 @@ fix_feature_gates() {
   # ── Layer 4: Warn about test packages that may need gates ──
   # Not all fake clientset packages need gates — only those using
   # informers (list/watch). Too many false positives to auto-fix.
+  # Only checks suite files; packages without suites (e.g., pod/)
+  # are caught by the validate script's dynamic test selection.
   local _missing_gate_list=""
   for suite in $(find go-controller/ -name "*_suite_test.go" -not -path "*/vendor/*" 2>/dev/null); do
     local pkg_dir
