@@ -195,7 +195,7 @@ derive_go_gets() {
   while IFS= read -r line; do
     local pkg ver_prefix
     pkg=$(echo "$line" | awk '{print $1}')
-    ver_prefix=$(echo "$line" | grep -oE 'v[0-9]+' | head -1 | sed 's/v//')
+    ver_prefix=$(echo "$line" | grep -oE 'v[0-9]+' | head -1 | sed 's/v//' || true)
     [[ -z "$ver_prefix" ]] && continue
     cmds+=("go get ${pkg}@v${ver_prefix}.${K8S_MINOR}.${K8S_PATCH}")
   done < <(grep -E "k8s\.io/|sigs\.k8s\.io/" "$gomod" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | sort -u)
@@ -512,7 +512,7 @@ fi
 # The autofix (Phase 4 Step 2) handles disabling via GATE_DEPS —
 # this is informational logging only.
 
-KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1)
+KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1 || true)
 NEW_GATES=()
 
 if [[ -n "$KNOWN_FEATURES" ]]; then
