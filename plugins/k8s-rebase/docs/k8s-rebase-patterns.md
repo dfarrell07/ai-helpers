@@ -37,6 +37,7 @@ When rebasing to k8s 1.37+, update these files:
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go — upstream must add new interface methods first |
+| Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
 ## Feature Gates (recurring)
@@ -140,6 +141,20 @@ was (that was the third-party section).
 
 After migration: `go mod tidy && go mod vendor` to remove x/exp.
 Use `--userns=keep-id` with podman.
+
+### Transitive dependency compatibility
+
+When controller-runtime or another k8s ecosystem package bumps,
+other direct dependencies that consume it may break. Build errors
+appear in `/go/pkg/mod/` paths (not in the project's own code).
+
+Fix: `go get <broken-dep>@latest` then `go mod tidy`. The latest
+version of the dependency will be compatible with the bumped
+controller-runtime.
+
+Example: `cert-controller v0.10` uses `controller.NewUnmanaged`
+with an old signature. Bumping to v0.16 fixes the incompatibility
+with controller-runtime v0.24.
 
 ### E2e framework changes (k8s 1.35)
 

@@ -96,6 +96,9 @@ If summary contains `## CODEGEN FAILURE`, fix the codegen script
 (e.g. remove dropped flags), re-run codegen, commit, re-validate.
 
 Fix compilation errors from ALL modules (find all go.mod files).
+If errors appear in `/go/pkg/mod/` paths (not the project's own
+code), a direct dependency is incompatible with the bumped k8s
+packages. Fix with `go get <dep>@latest && go mod tidy`.
 When converting types, read the FULL struct definition and map
 ALL fields. Check test files for the same type changes — test
 files often use the same types as source files. Create separate
