@@ -56,7 +56,7 @@ if [[ ! -f "$TEMPLATE" ]]; then
   exit 0
 fi
 
-PROMPT=$(envsubst < "$TEMPLATE")
+PROMPT=$(envsubst '$DIFF $ORIGINAL_ERROR $K8S_CHANGELOG $PATTERN_HINT' < "$TEMPLATE")
 
 # Invoke review agent
 if ! command -v claude &>/dev/null; then
