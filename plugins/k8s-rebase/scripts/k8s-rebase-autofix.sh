@@ -14,11 +14,16 @@ cd "$REPO_ROOT"
 grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
 grep -qF '.gitconfig' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$REPO_ROOT/.git/info/exclude"
 
+# Find primary go.mod with k8s.io deps
+PRIMARY_GOMOD=""
+for gm in go-controller/go.mod go.mod; do
+  [[ -f "$gm" ]] && grep -q "k8s.io/" "$gm" && PRIMARY_GOMOD="$gm" && break
+done
+[[ -z "$PRIMARY_GOMOD" ]] && PRIMARY_GOMOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l "k8s.io/" {} \; | head -1)
+
 # Auto-containerize if local Go is too old for the repo's go.mod
 REQUIRED_GO=""
-for gm in go-controller/go.mod go.mod; do
-  [[ -f "$gm" ]] && REQUIRED_GO=$(grep "^go " "$gm" | awk '{print $2}') && break
-done
+[[ -n "$PRIMARY_GOMOD" ]] && REQUIRED_GO=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}')
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
 if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
   REQ_MINOR=$(echo "$REQUIRED_GO" | cut -d. -f2)
@@ -136,7 +141,7 @@ run_checks() {
   r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b' --include='*.go' . | grep -v vendor | wc -l)"
   r "Bare Eventf" "$(grep -rn 'Eventf(.*\.Error())' --include='*.go' . | grep -v vendor | grep -v '%s\|%v' | wc -l)"
   local NEW OLD
-  NEW=$(grep 'k8s.io/api ' go-controller/go.mod 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
+  NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   if [[ -n "$NEW" ]]; then
     OLD=$((NEW-1))
     r "Stale docs ver" "$(grep "| *1\.${OLD} *|" docs/features/requirements.md 2>/dev/null | wc -l)"
@@ -231,7 +236,7 @@ fix_eventf() {
 
 fix_docs_version() {
   local NEW OLD
-  NEW=$(grep 'k8s.io/api ' go-controller/go.mod 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
+  NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   [[ -z "$NEW" ]] && return 0
   OLD=$((NEW-1))
   local file="docs/features/requirements.md"
@@ -246,7 +251,7 @@ fix_version_refs() {
   # Update stale K8S version references in CI, scripts, and docs.
   # Defense-in-depth for Phase 3 which may fail in some container setups.
   local NEW OLD
-  NEW=$(grep 'k8s.io/api ' go-controller/go.mod 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
+  NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   [[ -z "$NEW" ]] && return 0
   OLD=$((NEW-1))
   local changed=0
@@ -265,11 +270,11 @@ fix_go_version() {
   # Update Go version references in CI, Makefiles, and Dockerfiles.
   # Defense-in-depth for Phase 3's Go version block which may not commit.
   local new_go old_go
-  new_go=$(grep "^go " go-controller/go.mod 2>/dev/null | awk '{print $2}' | grep -oE '[0-9]+\.[0-9]+')
+  new_go=$(grep "^go " "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}' | grep -oE '[0-9]+\.[0-9]+')
   [[ -z "$new_go" ]] && return 0
   # Detect old Go version from CI files (the version BEFORE the rebase)
   old_go=$(grep -oE 'golang[:-][0-9]+\.[0-9]+' .github/workflows/docker.yml 2>/dev/null | head -1 | sed 's/golang[:-]//')
-  [[ -z "$old_go" ]] && old_go=$(grep -oE 'GO_VERSION \?= [0-9]+\.[0-9]+' go-controller/Makefile 2>/dev/null | head -1 | sed 's/GO_VERSION ?= //')
+  [[ -z "$old_go" ]] && old_go=$(grep -roE 'GO_VERSION \?= [0-9]+\.[0-9]+' --include="Makefile*" . 2>/dev/null | head -1 | sed 's/.*GO_VERSION ?= //')
   [[ -z "$old_go" ]] && return 0
   [[ "$old_go" == "$new_go" ]] && return 0
   echo ":: Fixing Go version refs: $old_go → $new_go"
@@ -299,7 +304,7 @@ fix_lint_version() {
 
 fix_kind_image() {
   local NEW
-  NEW=$(grep 'k8s.io/api ' go-controller/go.mod 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
+  NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   [[ -z "$NEW" ]] && return 0
   # Check if KIND image exists — try patch versions from highest to .0
   local kind_tag=""
@@ -628,7 +633,7 @@ fix_imports() {
     [[ ${#gci_args[@]} -eq 0 ]] && gci_args=(-s standard -s default)
     # gci localmodule needs to run from a dir with go.mod
     local gci_dir="."
-    [[ -f go-controller/go.mod ]] && gci_dir="go-controller"
+    [[ -n "$PRIMARY_GOMOD" ]] && gci_dir="$(dirname "$PRIMARY_GOMOD")"
     echo ":: Running gci on modified files (${gci_args[*]})"
     for f in $modified; do
       [[ -f "$f" ]] && (cd "$gci_dir" && gci write "${gci_args[@]}" "$REPO_ROOT/$f") 2>/dev/null || true
@@ -662,7 +667,7 @@ run_vet() {
   # type mismatches) that grep-based checks miss.
   # Skip if local Go is too old — Step 3 re-validation auto-containerizes.
   local required_go
-  required_go=$(grep "^go " go-controller/go.mod 2>/dev/null | awk '{print $2}')
+  required_go=$(grep "^go " "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}')
   local current_go
   current_go=$(go env GOVERSION 2>/dev/null | sed 's/go//')
   if [[ -n "$required_go" ]] && [[ -n "$current_go" ]]; then
