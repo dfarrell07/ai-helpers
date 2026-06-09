@@ -312,8 +312,8 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*"); do
     cd "$REPO_ROOT/$mod_dir" && go mod tidy && cd "$REPO_ROOT"
     if [[ -n "$(git status --porcelain -- "$mod_dir")" ]]; then
       git add "$mod_dir"
-      git commit -s -m "Sync ${mod_dir} go.mod after go-controller rebase"
-      info "Committed: Sync ${mod_dir} go.mod after go-controller rebase"
+      git commit -s -m "Sync ${mod_dir} go.mod after dependency rebase"
+      info "Committed: Sync ${mod_dir} go.mod after dependency rebase"
     fi
   fi
 done
