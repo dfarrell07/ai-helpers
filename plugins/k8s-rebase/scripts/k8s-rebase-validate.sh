@@ -70,6 +70,9 @@ LINT_TIMEOUT="${LINT_TIMEOUT:-20m}"
 
 # Container setup: install missing tools needed by CI checks
 if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
+  export GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_KEY_0=safe.directory
+  export GIT_CONFIG_VALUE_0="$REPO_ROOT"
   # Sudo shim: when running as root, test scripts that invoke sudo
   # work transparently without installing the sudo package
   if [[ "$(id -u)" == "0" ]] && ! command -v sudo &>/dev/null; then

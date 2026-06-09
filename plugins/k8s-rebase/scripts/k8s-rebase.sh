@@ -147,6 +147,13 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
 fi
 info "Go version: $CURRENT_GO (>= ${REQUIRED_GO:-any} required)"
 
+# Container setup: git safe.directory for mounted volumes
+if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
+  export GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_KEY_0=safe.directory
+  export GIT_CONFIG_VALUE_0="$REPO_ROOT"
+fi
+
 # Clean working tree (ignore dirs created by containerized Go)
 if [[ -n "$(git status --porcelain | grep -v "^?? \.rebase-tmp/" | grep -v "^?? \.config/" | grep -v "^?? \.cache/")" ]]; then
   die "Working tree is not clean. Commit or stash changes first."
