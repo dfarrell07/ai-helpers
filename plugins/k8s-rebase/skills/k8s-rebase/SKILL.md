@@ -150,7 +150,7 @@ PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.m
 **Gate:** Launch 3 count-check subagents in parallel (must all be 0):
 1. "Count files with `golang.org/x/exp` imports (excluding vendor). Count files with `reflect.Ptr` (excluding vendor). Count files with `FieldsV1.Raw` (excluding vendor). Report all three counts."
 2. "Read the GATE_DEPS map at the top of the autofix script. For each parent gate and its deps, count test files with SetFromMap or KUBE_FEATURE_ that are missing any of those gates. Report the count."
-3. "Run `make lint` in each module that has a `lint:` target in its Makefile. If no module has a lint target, report 0 — lint isn't part of this repo's CI. Report the gci issue count AND the nilness issue count as separate numbers."
+3. "Run `make lint` in each module that has a `lint:` target in its Makefile. If no module has a lint target, report 0 — lint isn't part of this repo's CI. From the output, count only lines containing `(gci)` and `(nilness)` as separate numbers. Ignore other linter issues — golangci-lint has exclude rules that may show warnings but still exit 0."
 
 Also launch 2 judgment subagents:
 4. "Review the feature gate handling across all test files. Could any gate configuration cause tests to hang or crash with fake clientsets? Are all parent AND dependent gates present in both SetFromMap and env vars?"
@@ -197,7 +197,7 @@ SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh"
 ```
 
 **Gate:** Launch 3 count-check subagents in parallel (must all be 0):
-1. "Run `make lint` in each module that has a `lint:` target in its Makefile. If no module has a lint target, report 0 — lint isn't part of this repo's CI. Report the exact total issue count."
+1. "Run `make lint` in each module that has a `lint:` target in its Makefile. If no module has a lint target, report 0 — lint isn't part of this repo's CI. Report the exit code (0 = pass). Do NOT count raw output lines — golangci-lint has exclude rules that filter issues before the final result."
 2. "Find packages modified by the rebase (git diff merge-base..HEAD, excluding vendor). Skip packages listed as root/privileged in hack/test-go.sh. Run unit tests on the remaining changed packages with feature gate env vars exported. Report the number of FAIL results."
 3. "Count root-owned files outside .git and vendor. Count files named .gitconfig in repo root. Count .rebase-tmp files tracked by git (run `git ls-files .rebase-tmp`). Report all three counts."
 
