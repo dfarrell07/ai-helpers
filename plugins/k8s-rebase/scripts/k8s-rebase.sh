@@ -260,6 +260,27 @@ rebase_module() {
     cmd_log+="$cmd"$'\n'
   done <<< "$commands"
 
+  # If this module depends on k8s.io/kubernetes, resolve its staging
+  # replace directives. kubernetes's go.mod uses local replace paths
+  # (./staging/...) that don't work outside the kubernetes repo. Fetch
+  # the staging module list and go-get each at the target version.
+  if grep -q "k8s.io/kubernetes " "$gomod" 2>/dev/null; then
+    local k8s_ver
+    k8s_ver=$(grep "k8s.io/kubernetes " "$gomod" | awk '{print $2}')
+    if [[ "$k8s_ver" =~ v1\.[0-9]+\.[0-9]+ ]]; then
+      info "Resolving k8s.io/kubernetes staging deps for $k8s_ver..."
+      local staging_mods
+      staging_mods=$(curl -sf "https://raw.githubusercontent.com/kubernetes/kubernetes/${k8s_ver}/go.mod" 2>/dev/null | grep "=> ./staging/" | awk '{print $1}' || true)
+      local staging_ver="v0.${K8S_MINOR}.${K8S_PATCH}"
+      for mod in $staging_mods; do
+        if ! grep -q "$mod " "$gomod" 2>/dev/null; then
+          info "  go get ${mod}@${staging_ver}"
+          go get "${mod}@${staging_ver}" 2>/dev/null || info "  WARNING: ${mod}@${staging_ver} not available"
+        fi
+      done
+    fi
+  fi
+
   info "Running go mod tidy..."
   go mod tidy
 
