@@ -767,6 +767,9 @@ echo ""
 VET_FAILED=0
 run_vet || VET_FAILED=1
 
+# Vet may update go.work.sum or download checksums as a side effect
+fix_uncommitted
+
 echo ""
 echo "━━━━ Phase C: Re-verification ━━━━"
 echo ""
