@@ -358,6 +358,38 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   # Update code-generator version pin (handles both printf %s and explicit tool names)
   sed -i -E "s|(code-generator/cmd/[^@]+)@v0\.[0-9]+\.[0-9]+|\1@${API_VERSION}|g" "$CODEGEN_SCRIPT"
   info "Updated code-generator version to ${API_VERSION}"
+elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
+  banner "Phase 2: Code Generation (make)"
+
+  # controller-gen projects use make generate/manifests instead of
+  # hack/update-codegen.sh. Run both if available.
+  CODEGEN_RAN=0
+  CODEGEN_FAILED=0
+  CODEGEN_LOG="$REBASE_TMP/codegen.log"
+  for target in generate manifests; do
+    if grep -q "^${target}:" "$REPO_ROOT/Makefile"; then
+      info "Running make $target..."
+      if make -C "$REPO_ROOT" "$target" >> "$CODEGEN_LOG" 2>&1; then
+        CODEGEN_RAN=1
+      else
+        info "WARNING: make $target failed — Phase 4 will fix"
+        CODEGEN_FAILED=1
+      fi
+    fi
+  done
+
+  cd "$REPO_ROOT"
+  if [[ -n "$(git status --porcelain)" ]]; then
+    git add -A
+    git commit -s -m "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
+    info "Committed: Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
+  fi
+
+  if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
+    echo "## CODEGEN FAILURE" >> "$REBASE_TMP/summary.txt"
+    tail -5 "$CODEGEN_LOG" >> "$REBASE_TMP/summary.txt"
+    echo "" >> "$REBASE_TMP/summary.txt"
+  fi
 
   # Run codegen — try common make targets
   CODEGEN_DIR=$(dirname "$(dirname "$CODEGEN_SCRIPT")")
