@@ -587,6 +587,14 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
   fi
 fi
 
+# Reconcile ENVTEST_K8S_VERSION (kubebuilder test binary version).
+# Runs regardless of Go version change — it tracks k8s version.
+if grep -q "ENVTEST_K8S_VERSION" "$REPO_ROOT/Makefile" 2>/dev/null; then
+  sed -i -E "s|(ENVTEST_K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)[0-9]+\.[0-9]+[.x0-9]*|\1${K8S_MAJOR}.${K8S_MINOR}|" "$REPO_ROOT/Makefile"
+  CHANGED_FILES+="Makefile"$'\n'
+  info "  Reconciled ENVTEST_K8S_VERSION to ${K8S_MAJOR}.${K8S_MINOR}"
+fi
+
 cd "$REPO_ROOT"
 # Add only the files we modified (more precise than git add -A)
 if [[ -n "$CHANGED_FILES" ]]; then
