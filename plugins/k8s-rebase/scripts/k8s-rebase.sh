@@ -561,6 +561,35 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
     CHANGED_FILES+="$df"$'\n'
     info "  Reconciled Dockerfile Go version: $df"
   done < <(grep -rln "ARG GOLANG_VERSION=" --include="Dockerfile*" . | grep -v vendor | grep -v "/\.git/" || true)
+
+  # Update OCP version in CI builder image tags if we can detect
+  # the repo's target OCP version from openshift/release configs.
+  # Go 1.26 images may only exist for openshift-5.0, not 4.22.
+  if grep -q "golang-${NEW_GO_SHORT}.*openshift-" .ci-operator.yaml 2>/dev/null; then
+    old_ocp=$(grep -oE 'openshift-[0-9.]+' .ci-operator.yaml | head -1 | sed 's/openshift-//' || true)
+    repo_name=$(basename "$REPO_ROOT")
+    repo_org=$(basename "$(dirname "$REPO_ROOT")")
+    target_ocp=""
+    # Check openshift/release ci-operator config for the repo's OCP target
+    for release_dir in "$HOME/ovnk/openshift/release" "$HOME/release"; do
+      for branch in master main; do
+        cfg="${release_dir}/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml"
+        if [[ -f "$cfg" ]]; then
+          target_ocp=$(grep 'name: "' "$cfg" | tail -1 | grep -oE '[0-9]+\.[0-9]+' || true)
+          break 2
+        fi
+      done
+    done
+    if [[ -n "$target_ocp" ]] && [[ "$old_ocp" != "$target_ocp" ]]; then
+      info "  Updating OCP version in CI tags: openshift-${old_ocp} → openshift-${target_ocp}"
+      for ci_file in .ci-operator.yaml Dockerfile.openshift Dockerfile.daemon.openshift Dockerfile Dockerfile.microshift; do
+        [[ -f "$ci_file" ]] && sed -i "s|openshift-${old_ocp}|openshift-${target_ocp}|g" "$ci_file" && CHANGED_FILES+="$ci_file"$'\n'
+      done
+    elif [[ -z "$target_ocp" ]]; then
+      info "  NOTE: CI builder image uses golang-${NEW_GO_SHORT}-openshift-${old_ocp}."
+      info "  Could not detect OCP target — verify this image exists."
+    fi
+  fi
 fi
 
 cd "$REPO_ROOT"
