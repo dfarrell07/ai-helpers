@@ -34,6 +34,7 @@ When rebasing to k8s 1.37+, update these files:
 | Feature gate (existing) | Tests hang (gate files exist) | Add new gate + dependents to existing setup |
 | Feature gate (missing) | Tests hang (no gate setup) | Add `t.Setenv` for all gates to suite file |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
+| golangci-lint v1/v2 | v2 config rejected by v1 binary | Makefile may use v1 import path while lint.sh uses v2 container — update both if migrating |
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go — upstream must add new interface methods first |
