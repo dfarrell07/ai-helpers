@@ -52,8 +52,7 @@ new timestamped branch. Do not reuse branches from prior runs.
 set -euo pipefail
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -z "$REPO_ROOT" ] && echo "ERROR: Not in a git repo" && exit 1
-SCRIPT=$(find "$HOME/.claude" -name "k8s-rebase.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-[ -z "$SCRIPT" ] && SCRIPT=$(find "$HOME" -maxdepth 7 -name "k8s-rebase.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 [ -z "$SCRIPT" ] && echo "ERROR: k8s-rebase.sh not found" && exit 1
 exec bash "$SCRIPT" $ARGUMENTS
 ```
@@ -79,8 +78,7 @@ If you cannot launch subagents, run the gate checks inline.
 ### Step 1: Fix compilation errors
 
 ```bash
-SCRIPT=$(find "$HOME/.claude" -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-[ -z "$SCRIPT" ] && SCRIPT=$(find "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 if [ -n "$SCRIPT" ]; then
   bash "$SCRIPT" --quick
 else
@@ -137,8 +135,7 @@ All counts must be 0. If judgment subagents flag concerns, investigate before pr
 ### Step 2: Run autofix script
 
 ```bash
-SCRIPT=$(find "$HOME/.claude" -name "k8s-rebase-autofix.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-[ -z "$SCRIPT" ] && SCRIPT=$(find "$HOME" -maxdepth 7 -name "k8s-rebase-autofix.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-autofix.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 [ -n "$SCRIPT" ] && bash "$SCRIPT"
 ```
 
@@ -146,8 +143,7 @@ Applies known fix patterns and outputs RESULT: PASS or FAIL.
 If FAIL, fix remaining items and re-run until PASS. Read the
 patterns doc for unfamiliar patterns:
 ```bash
-PATTERNS=$(find "$HOME/.claude" -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1)
-[ -z "$PATTERNS" ] && PATTERNS=$(find "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1)
+PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1)
 [ -n "$PATTERNS" ] && cat "$PATTERNS"
 ```
 
@@ -195,8 +191,7 @@ default mode. Use `--full` to run them as root. If you run
 privileged packages — this is normal in unprivileged containers.
 
 ```bash
-SCRIPT=$(find "$HOME/.claude" -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-[ -z "$SCRIPT" ] && SCRIPT=$(find "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 [ -n "$SCRIPT" ] && bash "$SCRIPT"          # full (~15 min)
 # For iteration: bash "$SCRIPT" --quick     # build + vet only (~1 min)
 ```
@@ -218,8 +213,7 @@ subagents AND Step 4 subagents in parallel — no modifications
 happen between them so they can verify simultaneously.
 
 ```bash
-REVIEW=$(find "$HOME/.claude" -name "k8s-rebase-review.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-[ -z "$REVIEW" ] && REVIEW=$(find "$HOME" -maxdepth 7 -name "k8s-rebase-review.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+REVIEW=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-review.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 if [ -n "$REVIEW" ]; then
   COMMIT=$(git rev-parse HEAD)
   bash "$REVIEW" "$COMMIT" "k8s rebase"
