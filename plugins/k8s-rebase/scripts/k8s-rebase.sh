@@ -265,11 +265,11 @@ rebase_module() {
   # When bumped, go mod tidy may fail with "unknown revision v0.0.0"
   # for staging deps not yet in go.mod. Retry by resolving each.
   local tidy_attempts=0
-  while ! go mod tidy 2>/tmp/k8s-rebase-tidy.log; do
+  while ! go mod tidy 2>${REBASE_TMP}/tidy.log; do
     local missing_mod
-    missing_mod=$(grep "unknown revision v0.0.0" /tmp/k8s-rebase-tidy.log | grep -oE 'k8s\.io/[a-z][-a-z]*' | head -1 || true)
+    missing_mod=$(grep "unknown revision v0.0.0" ${REBASE_TMP}/tidy.log | grep -oE 'k8s\.io/[a-z][-a-z]*' | head -1 || true)
     if [[ -z "$missing_mod" ]] || [[ $tidy_attempts -ge 10 ]]; then
-      cat /tmp/k8s-rebase-tidy.log >&2
+      cat ${REBASE_TMP}/tidy.log >&2
       die "go mod tidy failed in $(basename "$gomod" .mod)"
     fi
     info "  Resolving staging dep: ${missing_mod}@${API_VERSION}"
@@ -501,6 +501,23 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
         info "  Updated golangci-lint: $OLD_LINT → $LATEST_LINT in $lintscript"
       fi
     done < <(grep -rln "golangci-lint" --include="*.sh" . | grep -v vendor | grep -v "/\.git/" || true)
+    # Also bump GOLANGCI_LINT_VERSION in Makefiles.
+    # If the Makefile uses the v1 import path, use latest v1 (not v2).
+    while IFS= read -r mkfile; do
+      [[ -z "$mkfile" ]] && continue
+      OLD_MK_LINT=$(grep -oE 'GOLANGCI_LINT_VERSION\s*[:?]?=\s*v[0-9]+\.[0-9]+\.[0-9]+' "$mkfile" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+      [[ -z "$OLD_MK_LINT" ]] && continue
+      target_lint="$LATEST_LINT"
+      if [[ "$OLD_MK_LINT" == v1.* ]] && [[ "$LATEST_LINT" == v2.* ]]; then
+        target_lint=$(curl -sf "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
+        [[ -z "$target_lint" ]] && target_lint="$OLD_MK_LINT"
+      fi
+      if [[ "$OLD_MK_LINT" != "$target_lint" ]]; then
+        sed -i "s|${OLD_MK_LINT}|${target_lint}|g" "$mkfile"
+        CHANGED_FILES+="$mkfile"$'\n'
+        info "  Updated golangci-lint: $OLD_MK_LINT → $target_lint in $mkfile"
+      fi
+    done < <(grep -rln "GOLANGCI_LINT_VERSION" --include="Makefile*" . | grep -v vendor | grep -v "/\.git/" || true)
   fi
 fi
 
