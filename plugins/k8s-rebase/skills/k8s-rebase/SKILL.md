@@ -221,7 +221,7 @@ fi
 ```
 
 Launch 3 count-check subagents to check the full diff (must all be 0):
-1. **Correctness:** "Read the full diff. Count changes that are not required by the k8s version bump, Go version bump, or linter version bump. Count format strings with wrong verbs. Count Eventf calls missing format directives. Report all counts."
+1. **Correctness:** "Read the full diff. Count changes that are not required by the rebase. Any change needed to compile, pass vet, pass lint, or pass tests with the new k8s version is valid (version bumps, type conversions, API renames, format string fixes, import reordering, codegen, feature gates, deprecated API migrations, dead code from stricter linters). Count format strings with wrong verbs. Count Eventf calls missing format directives. Report all counts."
 2. **Completeness:** "Count stale v1.OLD version refs in yml/sh/md files (exclude K8S_VERSION which may stay at old version if kindest/node image isn't published yet). Count files with SupportBaselineAdminNetworkPolicy. Report all counts."
 3. **Gates:** "Read the GATE_DEPS map in the autofix script. Count test files with SetFromMap or KUBE_FEATURE_ that are missing any gate from that map. Count SetFromMap files with more than 1 SetFromMap call. Report all counts."
 
