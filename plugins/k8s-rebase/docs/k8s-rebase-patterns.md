@@ -38,6 +38,7 @@ When rebasing to k8s 1.37+, update these files:
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go — upstream must add new interface methods first |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
+| k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
 ## Feature Gates (recurring)
