@@ -196,7 +196,10 @@ while IFS= read -r gomod; do
     categorize_errors "$REBASE_TMP/${mod_name}-build.log" "$mod_name build" "$step_failed"
 
     step_failed=0
-    if [[ "$MODE" != "quick" ]] && grep -q "^lint:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null; then
+    lint_target=""
+    grep -q "^lint:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null && lint_target="lint"
+    [[ -z "$lint_target" ]] && grep -q "^golangci-lint:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null && lint_target="golangci-lint"
+    if [[ "$MODE" != "quick" ]] && [[ -n "$lint_target" ]]; then
       if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
         # Inside a container — make lint often needs nested containers
         # (e.g., hack/lint.sh runs golangci-lint in its own container).
@@ -210,7 +213,7 @@ while IFS= read -r gomod; do
           echo "  WARNING: golangci-lint not available — skipping lint"
         fi
       else
-        run_validation "${mod_name}-lint" "make -C $mod_dir lint" || {
+        run_validation "${mod_name}-lint" "make -C $mod_dir $lint_target" || {
           if grep -qE "Go language version.*lower than the targeted|failed to install golangci-lint" "$REBASE_TMP/${mod_name}-lint.log" 2>/dev/null; then
             echo "  NOTE: lint version incompatible, installing latest via go install..."
             go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
@@ -230,11 +233,15 @@ while IFS= read -r gomod; do
     fi
 
     step_failed=0
-    if [[ "$MODE" != "quick" ]] && grep -qE "^(test|check test):" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null; then
+    test_target=""
+    for _tt in test test-unit check; do
+      grep -q "^${_tt}:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null && test_target="$_tt" && break
+    done
+    if [[ "$MODE" != "quick" ]] && [[ -n "$test_target" ]]; then
       # Try make test first; if it needs sudo (common for network namespace tests),
       # fall back to go test without -race for non-privileged packages.
       # Source feature gate env vars from test-go.sh so fake clientsets work.
-      run_validation "${mod_name}-test" "make -C $mod_dir test" || {
+      run_validation "${mod_name}-test" "make -C $mod_dir $test_target" || {
         if grep -q "sudo" "$REBASE_TMP/${mod_name}-test.log" 2>/dev/null; then
           echo "  NOTE: make test needs sudo/privileged container for some packages"
           GATE_EXPORTS=""
