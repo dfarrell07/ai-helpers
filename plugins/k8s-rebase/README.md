@@ -54,5 +54,6 @@ runs from the plugin.
 | metallb/frr-k8s | 2 | No vendor, codegen, 3-version jump, transitive deps |
 | kubernetes-sigs/network-policy-api | 2 | No vendor, codegen, multi-module |
 | ovn-kubernetes/ovn-kubernetes-mcp | 1 | Vendor, no test-go.sh |
+| openshift/ingress-node-firewall | 1 | Vendor, 4-version jump, staging deps, controller-gen, golangci-lint v1/v2 |
 | openshift/cloud-network-config-controller | 1 | Vendor, library-go blocker |
 | openshift/cluster-network-operator | 1 | Vendor, library-go blocker |
