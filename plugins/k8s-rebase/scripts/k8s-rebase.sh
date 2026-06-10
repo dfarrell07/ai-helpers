@@ -467,7 +467,7 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
 
   while IFS= read -r file; do
     [[ -z "$file" ]] && continue
-    sed -i "s|golang:${OLD_GO_SHORT}|golang:${NEW_GO_SHORT}|g; s|golang-${OLD_GO_SHORT}|golang-${NEW_GO_SHORT}|g; s|GO_VERSION ?= ${OLD_GO_SHORT}|GO_VERSION ?= ${NEW_GO_SHORT}|g; s|GOLANG_VERSION ?= ${OLD_GO_SHORT}|GOLANG_VERSION ?= ${NEW_GO_SHORT}|g; s|go-version: \[${OLD_GO_SHORT}|go-version: [${NEW_GO_SHORT}|g; s|GO_VERSION: \"${OLD_GO_SHORT}\"|GO_VERSION: \"${NEW_GO_SHORT}\"|g" "$file"
+    sed -i "s|golang:${OLD_GO_SHORT}|golang:${NEW_GO_SHORT}|g; s|golang-${OLD_GO_SHORT}|golang-${NEW_GO_SHORT}|g; s|GO_VERSION ?= ${OLD_GO_SHORT}|GO_VERSION ?= ${NEW_GO_SHORT}|g; s|GOLANG_VERSION ?= ${OLD_GO_SHORT}|GOLANG_VERSION ?= ${NEW_GO_SHORT}|g; s|go-version: \[${OLD_GO_SHORT}|go-version: [${NEW_GO_SHORT}|g; s|go-version: ${OLD_GO_SHORT}|go-version: ${NEW_GO_SHORT}|g; s|GO_VERSION: \"${OLD_GO_SHORT}\"|GO_VERSION: \"${NEW_GO_SHORT}\"|g" "$file"
     CHANGED_FILES+="$file"$'\n'
     info "  Updated Go version: $file"
   done < <(grep -rlnE "golang[:-]${OLD_GO_SHORT}|GO_VERSION.{0,5}${OLD_GO_SHORT}|GOLANG_VERSION.{0,5}${OLD_GO_SHORT}|go-version:.{0,3}${OLD_GO_SHORT}" \
