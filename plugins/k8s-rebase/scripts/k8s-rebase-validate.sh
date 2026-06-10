@@ -143,8 +143,16 @@ categorize_errors() {
   fi
 
   if [[ -n "$test_failures" ]]; then
-    echo "## TEST FAILURES ($category)" >> "$SUMMARY"
-    echo "$test_failures" >> "$SUMMARY"
+    local priv_errors
+    priv_errors=$(grep -cE "permission denied|operation not permitted" "$logfile" 2>/dev/null || true)
+    if [[ "$priv_errors" -gt 0 ]]; then
+      echo "## TEST FAILURES ($category) — ${priv_errors} privilege errors detected" >> "$SUMMARY"
+      echo "$test_failures" >> "$SUMMARY"
+      echo "Some failures may need CAP_NET_ADMIN. Compare with default branch to confirm pre-existing." >> "$SUMMARY"
+    else
+      echo "## TEST FAILURES ($category)" >> "$SUMMARY"
+      echo "$test_failures" >> "$SUMMARY"
+    fi
     echo "" >> "$SUMMARY"
     ERRORS_FOUND=1
   fi
