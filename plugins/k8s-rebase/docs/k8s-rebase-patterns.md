@@ -113,6 +113,16 @@ Convert field-by-field. Check `_test.go` files too.
 | `SupportBaselineAdminNetworkPolicy` | (removed) |
 | `ConformanceProfileName` type cast | `CNPConformanceProfileName` |
 
+The v0.2.0 conformance suite also expects `ClusterNetworkPolicy`
+resources in `v1alpha2` API version. If the project only installs
+`v1alpha1` CRDs, conformance tests fail with:
+```
+no matches for kind "ClusterNetworkPolicy" in version "policy.networking.k8s.io/v1alpha2"
+```
+Fix: install the v1alpha2 CRD and register the v1alpha2 scheme
+in the conformance test. This is a project-level change, not
+automatable by the rebase skill.
+
 ### AddToScheme → Install (SA1019)
 
 Vendored packages may fix misspelled `Depreciated` → `Deprecated`
@@ -142,6 +152,20 @@ was (that was the third-party section).
 
 After migration: `go mod tidy && go mod vendor` to remove x/exp.
 Use `--userns=keep-id` with podman.
+
+### MetalLB CRD validation (k8s 1.36)
+
+k8s 1.36 enforces stricter CRD validation: `format: int32` is
+now required on integer fields. MetalLB v0.15.3's `BGPPeer` CRD
+has `spec.myASN` and `spec.peerASN` fields without this
+annotation, causing cluster setup to fail:
+```
+BGPPeer.metallb.io "peer-1" is invalid: Maximum boundary value must be of type integer with format int32 in spec.myASN
+```
+Fix: bump `metallb_version` in `kind-common.sh` to v0.16.0+.
+Check that repo-specific patches (KIND path, FRR image
+replacement) still apply to the new version. The autofix script
+warns but cannot auto-bump due to these patches.
 
 ### Transitive dependency compatibility
 
