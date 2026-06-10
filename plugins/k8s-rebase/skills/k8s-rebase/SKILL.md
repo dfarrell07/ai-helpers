@@ -62,6 +62,11 @@ proceed to Phase 4.** The Bash tool displays exit 2 as an error
 but it means Phase 0-3 completed. Check `git log` for rebase
 commits. Do NOT re-run the script.
 
+If the output says "Could not detect OCP target", check the
+repo's CI config in `openshift/release` or compare with an
+existing manual rebase PR for the correct `openshift-X.Y`
+version in `.ci-operator.yaml` and Dockerfiles.
+
 ---
 
 ## Phase 4: Build Validation and Fixups

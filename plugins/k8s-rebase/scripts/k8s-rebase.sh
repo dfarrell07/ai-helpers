@@ -570,15 +570,10 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
     repo_name=$(basename "$REPO_ROOT")
     repo_org=$(basename "$(dirname "$REPO_ROOT")")
     target_ocp=""
-    # Check openshift/release ci-operator config for the repo's OCP target
-    for release_dir in "$HOME/ovnk/openshift/release" "$HOME/release"; do
-      for branch in master main; do
-        cfg="${release_dir}/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml"
-        if [[ -f "$cfg" ]]; then
-          target_ocp=$(grep 'name: "' "$cfg" | tail -1 | grep -oE '[0-9]+\.[0-9]+' || true)
-          break 2
-        fi
-      done
+    # Detect OCP target from openshift/release ci-operator config
+    for branch in master main; do
+      target_ocp=$(curl -sf "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep 'name: "' | tail -1 | grep -oE '[0-9]+\.[0-9]+' || true)
+      [[ -n "$target_ocp" ]] && break
     done
     if [[ -n "$target_ocp" ]] && [[ "$old_ocp" != "$target_ocp" ]]; then
       info "  Updating OCP version in CI tags: openshift-${old_ocp} → openshift-${target_ocp}"
