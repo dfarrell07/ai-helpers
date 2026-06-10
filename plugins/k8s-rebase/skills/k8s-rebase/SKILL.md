@@ -199,7 +199,7 @@ SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh"
 **Gate:** Launch 3 count-check subagents in parallel (must all be 0):
 1. "Run `make lint` in each module that has a `lint:` target in its Makefile. If no module has a lint target, report 0 — lint isn't part of this repo's CI. Report the exit code (0 = pass). Do NOT count raw output lines — golangci-lint has exclude rules that filter issues before the final result."
 2. "Find packages modified by the rebase (git diff merge-base..HEAD, excluding vendor). Skip packages listed as root/privileged in hack/test-go.sh. Run unit tests on the remaining changed packages with feature gate env vars exported. Report the number of FAIL results."
-3. "Count root-owned files outside .git and vendor. Count files named .gitconfig in repo root. Count .rebase-tmp files tracked by git (run `git ls-files .rebase-tmp`). Report all three counts."
+3. "Count uncommitted tracked files (`git status --short | grep -v '^[?]' | wc -l`). Count root-owned files outside .git and vendor. Count .rebase-tmp files tracked by git (`git ls-files .rebase-tmp`). Report all three counts."
 
 Also launch 1 judgment subagent:
 4. "Read the full rebase diff (excluding vendor). Would this diff pass upstream code review? Are there any changes a maintainer would question — unnecessary refactors, style changes mixed with rebase fixes, or changes that look like they could alter runtime behavior?"
