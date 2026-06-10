@@ -103,7 +103,7 @@ run_checks() {
       _active_gates="$_active_gates $_p"
       _all_gate_names="$_all_gate_names $_p"
       for _d in ${GATE_DEPS[$_p]}; do
-        _all_gate_names="$_all_gate_names $_d"
+        grep -rq "\"$_d\"" $MODULE_ROOT/vendor/k8s.io/ 2>/dev/null && _all_gate_names="$_all_gate_names $_d"
       done
     fi
   done
@@ -494,7 +494,7 @@ fix_feature_gates() {
     grep -rq "\"$gate\"" $MODULE_ROOT/vendor/k8s.io/ 2>/dev/null || continue
     parents+=("$gate")
     for dep in ${GATE_DEPS[$gate]}; do
-      all_deps+=("$dep")
+      grep -rq "\"$dep\"" $MODULE_ROOT/vendor/k8s.io/ 2>/dev/null && all_deps+=("$dep")
     done
   done
   [[ ${#parents[@]} -eq 0 ]] && return 0
