@@ -307,6 +307,28 @@ fix_lint_version() {
     echo ":: Syncing lint version: test.yml $test_ver → $lint_ver"
     sed -i "s/version: ${test_ver}/version: ${lint_ver}/g" "$test_yml"
   fi
+  # Fix golangci-lint v1 + newer Go incompatibility.
+  # v1 is EOL — the last release was built with Go 1.24 which
+  # can't parse Go 1.26+ syntax. The container image fails, but
+  # go install builds from source with the local Go and works.
+  # Replace the Makefile's no-op else branch with go install.
+  if [[ -n "$lint_ver" ]] && [[ "$lint_ver" == v1.* ]]; then
+    local required_go
+    required_go=$(grep "^go " "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
+    if [[ -n "$required_go" ]] && [[ "$required_go" -ge 26 ]] 2>/dev/null; then
+      if grep -q "can only be run within a container" "$REPO_ROOT/Makefile" 2>/dev/null; then
+        echo ":: Fixing Makefile lint fallback for Go 1.${required_go} compatibility"
+        if grep -q "GOLANGCI_LINT_VERSION" "$REPO_ROOT/Makefile" 2>/dev/null; then
+          sed -i 's|echo "linter can only be run within a container.*|go install github.com/golangci/golangci-lint/cmd/golangci-lint@$$(GOLANGCI_LINT_VERSION) 2>/dev/null \&\& golangci-lint run --verbose --timeout=15m0s|g' "$REPO_ROOT/Makefile"
+        else
+          sed -i "s|echo \"linter can only be run within a container.*|go install github.com/golangci/golangci-lint/cmd/golangci-lint@${lint_ver} 2>/dev/null \&\& golangci-lint run --verbose --timeout=15m0s|g" "$REPO_ROOT/Makefile"
+        fi
+      else
+        echo ":: WARNING: lint.sh uses golangci-lint $lint_ver (built with Go <1.26)."
+        echo "   The container image can't parse Go 1.${required_go} code."
+      fi
+    fi
+  fi
 }
 
 fix_kind_image() {
