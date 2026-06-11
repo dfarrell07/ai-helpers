@@ -300,12 +300,13 @@ fix_lint_version() {
   local lint_ver test_yml
   lint_ver=$(grep -oE 'VERSION=v[0-9.]+' "$lint_sh" | head -1 | sed 's/VERSION=//')
   test_yml=$(find . -name "test.yml" -path "*/.github/workflows/*" | head -1)
-  [[ -z "$test_yml" ]] && return 0
-  local test_ver
-  test_ver=$(grep -oE 'version: v[0-9.]+' "$test_yml" | head -1 | sed 's/version: //')
-  if [[ -n "$lint_ver" ]] && [[ -n "$test_ver" ]] && [[ "$lint_ver" != "$test_ver" ]]; then
-    echo ":: Syncing lint version: test.yml $test_ver → $lint_ver"
-    sed -i "s/version: ${test_ver}/version: ${lint_ver}/g" "$test_yml"
+  if [[ -n "$test_yml" ]]; then
+    local test_ver
+    test_ver=$(grep -oE 'version: v[0-9.]+' "$test_yml" | head -1 | sed 's/version: //')
+    if [[ -n "$lint_ver" ]] && [[ -n "$test_ver" ]] && [[ "$lint_ver" != "$test_ver" ]]; then
+      echo ":: Syncing lint version: test.yml $test_ver → $lint_ver"
+      sed -i "s/version: ${test_ver}/version: ${lint_ver}/g" "$test_yml"
+    fi
   fi
   # Fix golangci-lint v1 + newer Go incompatibility.
   # v1 is EOL — the last release was built with Go 1.24 which
