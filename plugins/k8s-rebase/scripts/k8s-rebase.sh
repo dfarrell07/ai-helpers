@@ -528,9 +528,18 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
       [[ -z "$lintscript" ]] && continue
       OLD_LINT=$(grep -oE 'VERSION=v[0-9]+\.[0-9]+\.[0-9]+' "$lintscript" | head -1 | sed 's/VERSION=//' || true)
       if [[ -n "$OLD_LINT" ]] && [[ "$OLD_LINT" != "$LATEST_LINT" ]]; then
-        sed -i "s|VERSION=${OLD_LINT}|VERSION=${LATEST_LINT}|g" "$lintscript"
-        CHANGED_FILES+="$lintscript"$'\n'
-        info "  Updated golangci-lint: $OLD_LINT → $LATEST_LINT in $lintscript"
+        # If lint.sh uses v1, keep v1 — v2 has different defaults
+        # that surface pre-existing issues and fail CI.
+        lint_target="$LATEST_LINT"
+        if [[ "$OLD_LINT" == v1.* ]] && [[ "$LATEST_LINT" == v2.* ]]; then
+          lint_target=$(curl -sf "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
+          [[ -z "$lint_target" ]] && lint_target="$OLD_LINT"
+        fi
+        if [[ "$OLD_LINT" != "$lint_target" ]]; then
+          sed -i "s|VERSION=${OLD_LINT}|VERSION=${lint_target}|g" "$lintscript"
+          CHANGED_FILES+="$lintscript"$'\n'
+          info "  Updated golangci-lint: $OLD_LINT → $lint_target in $lintscript"
+        fi
       fi
     done < <(grep -rln "golangci-lint" --include="*.sh" . | grep -v vendor | grep -v "/\.git/" || true)
     # Also bump GOLANGCI_LINT_VERSION in Makefiles.

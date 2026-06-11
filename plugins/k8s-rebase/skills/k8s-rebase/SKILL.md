@@ -106,7 +106,9 @@ packages. Extract the module path (between `/go/pkg/mod/` and
 When converting types, read the FULL struct definition and map
 ALL fields. Check test files for the same type changes — test
 files often use the same types as source files. Create separate
-`--signoff` commits per fix category.
+`--signoff` commits per fix category. After fixing type
+definitions, re-run `make generate` (if available) and commit
+any regenerated files (e.g., `zz_generated.deepcopy.go`).
 
 Expect multiple validate cycles — vet can only check files that
 compile, so fixing build errors reveals new vet errors.
