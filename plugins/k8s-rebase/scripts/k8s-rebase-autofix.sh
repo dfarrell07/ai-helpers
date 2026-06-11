@@ -626,8 +626,8 @@ fix_imports() {
   # Import issues may have been committed by earlier steps.
   local merge_base modified
   merge_base=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo "HEAD~10")
-  modified=$(git diff --name-only "$merge_base" -- '*.go' | grep -v vendor)
-  [[ -z "$modified" ]] && modified=$(git diff --name-only -- '*.go' | grep -v vendor)
+  modified=$(git diff --name-only "$merge_base" -- '*.go' | grep -v vendor | grep -v 'zz_generated')
+  [[ -z "$modified" ]] && modified=$(git diff --name-only -- '*.go' | grep -v vendor | grep -v 'zz_generated')
   [[ -z "$modified" ]] && return 0
 
   # Step 1: goimports adds missing imports
@@ -749,7 +749,6 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_docs_version
   fix_version_refs
   fix_go_version
-  fix_lint_version
   fix_kind_image
   fix_kind_version
   fix_metallb_check
@@ -765,7 +764,8 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_obsgen
 fi
 
-# Always run import ordering — not covered by verification checks
+# Always run — not covered by verification checks
+fix_lint_version
 fix_imports
 
 # Regenerate mocks if codegen deleted them (belt-and-suspenders with k8s-rebase.sh)
