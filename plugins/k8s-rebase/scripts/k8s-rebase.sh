@@ -606,6 +606,14 @@ if grep -q "ENVTEST_K8S_VERSION" "$REPO_ROOT/Makefile" 2>/dev/null; then
   info "  Reconciled ENVTEST_K8S_VERSION to ${K8S_MAJOR}.${K8S_MINOR}"
 fi
 
+# Reconcile setup-envtest release branch (tracks controller-runtime).
+CR_MINOR_RECONCILE=$((K8S_MINOR - 12))
+if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then
+  sed -i "s|setup-envtest@release-[0-9.]*|setup-envtest@release-0.${CR_MINOR_RECONCILE}|g" "$REPO_ROOT/Makefile"
+  CHANGED_FILES+="Makefile"$'\n'
+  info "  Reconciled setup-envtest to release-0.${CR_MINOR_RECONCILE}"
+fi
+
 cd "$REPO_ROOT"
 # Add only the files we modified (more precise than git add -A)
 if [[ -n "$CHANGED_FILES" ]]; then
