@@ -523,6 +523,9 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
 
   # Bump golangci-lint version in lint scripts when Go version changes
   LATEST_LINT=$(curl -sf "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
+  if [[ -z "$LATEST_LINT" ]]; then
+    info "  WARNING: Could not fetch latest golangci-lint version (API rate limited?). Lint version not bumped."
+  fi
   if [[ -n "$LATEST_LINT" ]]; then
     while IFS= read -r lintscript; do
       [[ -z "$lintscript" ]] && continue
