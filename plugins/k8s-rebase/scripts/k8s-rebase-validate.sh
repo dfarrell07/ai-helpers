@@ -124,6 +124,13 @@ categorize_errors() {
   if [[ -n "$build_errors" ]]; then
     echo "## BUILD ERRORS ($category)" >> "$SUMMARY"
     echo "$build_errors" >> "$SUMMARY"
+    if echo "$build_errors" | grep -q "does not implement.*SharedIndexInformer\|vendor.*does not implement" 2>/dev/null; then
+      echo "" >> "$SUMMARY"
+      echo "NOTE: Vendored dependency missing a new interface method." >> "$SUMMARY"
+      echo "Patching vendor directly will fail verify-deps CI." >> "$SUMMARY"
+      echo "Options: (1) bump the dep with go get @latest, (2) use a" >> "$SUMMARY"
+      echo "go.mod replace to a fork, (3) patch vendor and accept CI failure." >> "$SUMMARY"
+    fi
     echo "" >> "$SUMMARY"
     ERRORS_FOUND=1
   fi
