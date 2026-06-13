@@ -122,9 +122,15 @@ resources in `v1alpha2` API version. If the project only installs
 ```
 no matches for kind "ClusterNetworkPolicy" in version "policy.networking.k8s.io/v1alpha2"
 ```
-Fix: install the v1alpha2 CRD and register the v1alpha2 scheme
-in the conformance test. This is a project-level change, not
-automatable by the rebase skill.
+Fix: ADD the v0.2.0 `clusternetworkpolicies.yaml` CRD URL to
+`kind-helm.sh` alongside the existing `adminnetworkpolicies` and
+`baselineadminnetworkpolicies` URLs. Do NOT remove the old CRDs —
+the OVN-K controller still watches AdminNetworkPolicy and
+BaselineAdminNetworkPolicy resources. Removing them causes
+ovnkube-node pods to fail to start (kind setup timeout).
+The autofix script handles this automatically when
+network-policy-api is at v0.2.0+. The conformance test only runs
+on non-ipv6 CI jobs (`ipfamily != ipv6`).
 
 ### AddToScheme → Install (SA1019)
 
@@ -156,6 +162,15 @@ was (that was the third-party section).
 After migration: `go mod tidy && go mod vendor` to remove x/exp.
 Use `--userns=keep-id` with podman.
 
+**Map iteration ordering:** `x/exp/maps.Keys()` returned `[]T`
+directly. Stdlib `maps.Keys()` returns `iter.Seq[T]` which
+`slices.Collect` materializes. Both produce unspecified order,
+but the concrete order may differ. Tests that depend on specific
+map iteration order (e.g., IP allocation determined by pod
+processing order from `maps.Keys`) may flake after migration.
+These are pre-existing test fragilities, not rebase bugs — verify
+by re-running the failing test individually.
+
 ### MetalLB CRD validation (k8s 1.36)
 
 k8s 1.36 enforces stricter CRD validation: `format: int32` is
@@ -166,9 +181,56 @@ annotation, causing cluster setup to fail:
 BGPPeer.metallb.io "peer-1" is invalid: Maximum boundary value must be of type integer with format int32 in spec.myASN
 ```
 Fix: bump `metallb_version` in `kind-common.sh` to v0.16.0+.
-Check that repo-specific patches (KIND path, FRR image
-replacement) still apply to the new version. The autofix script
-warns but cannot auto-bump due to these patches.
+MetalLB versions ship different FRR images — add a separate
+`METALLB_UPSTREAM_FRR_IMAGE` variable and update the
+`replace_in_file_or_exit` calls in `install_metallb` to use it
+instead of `FRR_K8S_UPSTREAM_FRR_IMAGE`. The autofix script
+handles the version bump and FRR image variable automatically.
+
+### KubeVirt version incompatibility (recurring)
+
+Each k8s bump typically breaks the pinned stable KubeVirt version
+because KubeVirt CRDs lag behind k8s API changes. Symptom: VMs
+never reach readiness, 300s timeouts in kv-live-migration tests.
+Fix: change `KUBEVIRT_VERSION` in `kind-common.sh` from the pinned
+stable version (e.g. `v1.6.2`) to `nightly`. Revert to stable once
+KubeVirt releases a k8s-compatible version. The autofix script
+handles this automatically.
+
+### RelaxedServiceNameValidation (k8s 1.36)
+
+Beta feature gate, default true in k8s 1.36, but custom KIND node
+images built with `kind build node-image` start kube-apiserver with
+`--feature-gates=""` (empty), so beta defaults are not applied.
+Symptom: conformance test fails creating Service named `1kubernetes`:
+```
+Service "1kubernetes" is invalid: metadata.name: Invalid value
+```
+Fix: add a probe function to `e2e-kind.sh` that creates a
+digit-prefixed Service to test if the API server accepts it. If
+not, skip only the exact DNS test that exercises this gate. Also
+add `featureGates: RelaxedServiceNameValidation: true` to
+`kind.yaml.j2` as a best-effort (may not work for custom images).
+The autofix script injects both the probe and the skip.
+
+### kubeadm v1beta4 format (k8s 1.36, not CI-blocking)
+
+kubeadm v1beta3 still works in k8s 1.36 but v1beta4 changes
+`extraArgs` from a map format to a list-of-name-value format:
+```yaml
+# v1beta3 (old)
+apiServer:
+  extraArgs:
+    "v": "5"
+# v1beta4 (new)
+apiServer:
+  extraArgs:
+    - name: "v"
+      value: "5"
+```
+Add `apiVersion: kubeadm.k8s.io/v1beta4` to ClusterConfiguration,
+InitConfiguration, JoinConfiguration in `kind.yaml.j2`. This is
+proactive cleanup — not currently blocking CI.
 
 ### Transitive dependency compatibility
 

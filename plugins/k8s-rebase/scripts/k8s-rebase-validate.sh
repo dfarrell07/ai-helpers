@@ -4,10 +4,16 @@
 # Runs build, lint, and test for all modules. Captures output to logs.
 # Parses logs to extract actionable errors. Writes categorized summary.
 #
-# Usage: k8s-rebase-validate.sh [--quick|--full]
-#   --quick  Build + vet only (~1 min)
-#   --full   All checks + privileged tests as root (~25 min)
-#   default  All checks except privileged tests (~15 min)
+# Usage: k8s-rebase-validate.sh [--quick|--no-test|--full|--test-only PKG...]
+#   --quick      Build + vet only (~1 min)
+#   --no-test    Build + vet + lint, no tests (~5 min)
+#   --full       All checks + privileged tests as root (~25 min)
+#   --test-only  Run tests for specified packages only (for parallel agents)
+#   default      All checks except privileged tests (~15 min)
+#
+# --test-only handles auto-containerization, feature gate exports,
+# and output capture — subagents should use it instead of raw go test.
+# Example: k8s-rebase-validate.sh --test-only ./pkg/ovn/... ./pkg/util/...
 #
 # Exit codes: 0 = all validation passes (no errors)
 #             1 = errors found (see $REBASE_TMP/summary.txt)
@@ -15,8 +21,16 @@
 set -uo pipefail
 
 MODE="default"
+TEST_ONLY_PKGS=""
 [[ "${1:-}" == "--quick" ]] && MODE="quick"
+[[ "${1:-}" == "--no-test" ]] && MODE="no-test"
 [[ "${1:-}" == "--full" ]] && MODE="full"
+if [[ "${1:-}" == "--test-only" ]]; then
+  MODE="test-only"
+  shift
+  TEST_ONLY_PKGS="$*"
+  [[ -z "$TEST_ONLY_PKGS" ]] && { echo "ERROR: --test-only requires package arguments" >&2; exit 1; }
+fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
@@ -45,6 +59,8 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
       [[ "$CONTAINER_RT" == "podman" ]] && [[ "$MODE" != "full" ]] && USERNS_FLAG="--userns=keep-id"
       MODE_FLAG=""
       [[ "$MODE" != "default" ]] && MODE_FLAG="--$MODE"
+      EXTRA_ARGS=""
+      [[ "$MODE" == "test-only" ]] && EXTRA_ARGS="$TEST_ONLY_PKGS"
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         --privileged \
@@ -54,7 +70,7 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
         -w "$REPO_ROOT" \
         -e K8S_REBASE_IN_CONTAINER=1 \
         "$GO_IMAGE" \
-        bash "$SCRIPT_PATH" $MODE_FLAG
+        bash "$SCRIPT_PATH" $MODE_FLAG $EXTRA_ARGS
     fi
   fi
 fi
@@ -185,6 +201,73 @@ categorize_errors() {
 
 cd "$REPO_ROOT"
 
+# ── --test-only: run tests for specific packages and exit ───────────
+if [[ "$MODE" == "test-only" ]]; then
+  echo "━━━━ Testing specified packages ━━━━"
+  echo ""
+  echo "Packages: $TEST_ONLY_PKGS"
+
+  # Find primary module
+  PRIMARY_MOD=""
+  for candidate in go-controller .; do
+    [[ -f "$candidate/go.mod" ]] && PRIMARY_MOD="$candidate" && break
+  done
+  [[ -z "$PRIMARY_MOD" ]] && PRIMARY_MOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | head -1)
+
+  # Export feature gate env vars
+  TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
+  if [[ -n "$TEST_GO_SH" ]]; then
+    eval "$(grep "^export KUBE_FEATURE_" "$TEST_GO_SH")"
+  fi
+
+  VENDOR_FLAG=""
+  [[ -d "$PRIMARY_MOD/vendor" ]] && VENDOR_FLAG="-mod vendor"
+
+  # Strip module dir prefix from package paths if present
+  # (agent may pass ./go-controller/pkg/ovn/... instead of ./pkg/ovn/...)
+  if [[ "$PRIMARY_MOD" != "." ]]; then
+    cleaned=""
+    for pkg in $TEST_ONLY_PKGS; do
+      pkg="${pkg#./${PRIMARY_MOD}/}"   # strip ./go-controller/
+      pkg="${pkg#${PRIMARY_MOD}/}"     # strip go-controller/
+      [[ "$pkg" != ./* ]] && pkg="./$pkg"
+      cleaned="$cleaned $pkg"
+    done
+    TEST_ONLY_PKGS="${cleaned# }"
+  fi
+
+  # Determine timeout — 60m for packages over 30k test lines, 30m otherwise
+  TEST_TIMEOUT="30m"
+  TOTAL_LINES=0
+  for pkg in $TEST_ONLY_PKGS; do
+    pkg_dir="${PRIMARY_MOD}/${pkg#./}"
+    pkg_dir="${pkg_dir%/...}"
+    if [[ -d "$pkg_dir" ]]; then
+      lines=$(find "$pkg_dir" -name "*_test.go" -not -path "*/vendor/*" -exec cat {} + 2>/dev/null | wc -l)
+      TOTAL_LINES=$((TOTAL_LINES + lines))
+    fi
+  done
+  (( TOTAL_LINES > 30000 )) && TEST_TIMEOUT="60m"
+  echo "Test lines: ~$TOTAL_LINES (timeout: $TEST_TIMEOUT)"
+
+  # Use PID + random suffix so parallel agents (especially containers
+  # where PID is always 1) don't clobber each other
+  LOG_NAME="test-only-$$-${RANDOM}"
+  step_failed=0
+  run_validation "$LOG_NAME" "cd $PRIMARY_MOD && go test $VENDOR_FLAG -count=1 -timeout $TEST_TIMEOUT $TEST_ONLY_PKGS" || step_failed=1
+
+  if [[ "$step_failed" -eq 1 ]]; then
+    echo ""
+    echo "FAIL — see $REBASE_TMP/${LOG_NAME}.log"
+    tail -30 "$REBASE_TMP/${LOG_NAME}.log"
+    exit 1
+  else
+    echo ""
+    echo "PASS — all specified packages"
+    exit 0
+  fi
+fi
+
 echo "━━━━ Phase 4: Build Validation ━━━━"
 echo ""
 
@@ -195,6 +278,13 @@ while IFS= read -r gomod; do
   mod_dir=$(dirname "$gomod" | sed 's|^\./||')
   mod_name=$(basename "$mod_dir")
   [[ "$mod_dir" == "." ]] && mod_name="root"
+
+  # Skip modules with gitignored vendor dirs — their vendor may be
+  # stale and produce false build/vet/lint errors
+  if [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && git check-ignore -q "$REPO_ROOT/$mod_dir/vendor" 2>/dev/null; then
+    echo ":: Skipping $mod_dir (vendor is gitignored)"
+    continue
+  fi
 
   # Try make first (if Makefile exists), fall back to go build
   step_failed=0
@@ -244,7 +334,7 @@ while IFS= read -r gomod; do
     for _tt in test test-unit check; do
       grep -q "^${_tt}:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null && test_target="$_tt" && break
     done
-    if [[ "$MODE" != "quick" ]] && [[ -n "$test_target" ]]; then
+    if [[ "$MODE" != "quick" ]] && [[ "$MODE" != "no-test" ]] && [[ -n "$test_target" ]]; then
       # Try make test first; if it needs sudo (common for network namespace tests),
       # fall back to go test without -race for non-privileged packages.
       # Source feature gate env vars from test-go.sh so fake clientsets work.

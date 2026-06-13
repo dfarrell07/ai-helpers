@@ -52,6 +52,11 @@ new timestamped branch. Do not reuse branches from prior runs.
 set -euo pipefail
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -z "$REPO_ROOT" ] && echo "ERROR: Not in a git repo" && exit 1
+# Validate REPO_ROOT is a Go project, not a workspace meta-repo
+if ! [[ -f "$REPO_ROOT/go.mod" || -f "$REPO_ROOT/go-controller/go.mod" ]]; then
+  echo "ERROR: $REPO_ROOT has no go.mod — are you in a workspace root instead of the target repo?"
+  exit 1
+fi
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 [ -z "$SCRIPT" ] && echo "ERROR: k8s-rebase.sh not found" && exit 1
 exec bash "$SCRIPT" $ARGUMENTS
@@ -73,7 +78,10 @@ version in `.ci-operator.yaml` and Dockerfiles.
 
 Every step ends with subagent verification. The step is not
 complete until all subagents report zero issues. Subagents
-must report specific counts, not just "looks good."
+must report specific counts, not just "looks good." Gate
+subagents are read-only — they verify and report, but must
+NOT edit files. The main agent applies fixes based on their
+findings.
 
 Gate subagents need context: give them the repo path and tell
 them to use `podman run --userns=keep-id` with the golang
@@ -146,101 +154,153 @@ SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-autofix.sh" 
 [ -n "$SCRIPT" ] && bash "$SCRIPT"
 ```
 
-Applies known fix patterns and outputs RESULT: PASS or FAIL.
-If FAIL, fix remaining items and re-run until PASS. Read the
-patterns doc for unfamiliar patterns:
+Applies known fix patterns (code fixes, feature gates, lint
+version, AND e2e infra: MetalLB, KubeVirt, RelaxedServiceNameValidation).
+Outputs RESULT: PASS or FAIL. If FAIL, fix remaining items and
+re-run until PASS. Check output for MetalLB FRR image warnings —
+if the autofix bumped MetalLB, verify the FRR image variable
+matches what the new MetalLB version ships. Read the patterns doc
+for unfamiliar patterns:
 ```bash
 PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1)
 [ -n "$PATTERNS" ] && cat "$PATTERNS"
 ```
 
-**Gate:** Launch 3 count-check subagents in parallel (must all be 0):
+**Gate:** Launch 2 count-check subagents in parallel (must all be 0):
 1. "Count files with `golang.org/x/exp` imports (excluding vendor). Count files with `reflect.Ptr` (excluding vendor). Count files with `FieldsV1.Raw` (excluding vendor). Report all three counts."
 2. "Read the GATE_DEPS map at the top of the autofix script. For each parent gate and its deps, count test files with SetFromMap or KUBE_FEATURE_ that are missing any of those gates. Report the count."
-3. "Run `make lint` in each module that has a `lint:` target in its Makefile. If no module has a lint target, report 0 — lint isn't part of this repo's CI. From the output, count only lines containing `(gci)` and `(nilness)` as separate numbers. Ignore other linter issues — golangci-lint has exclude rules that may show warnings but still exit 0."
 
 Also launch 2 judgment subagents:
-4. "Review the feature gate handling across all test files. Could any gate configuration cause tests to hang or crash with fake clientsets? Are all parent AND dependent gates present in both SetFromMap and env vars?"
-5. "Read the autofix commit's diff. Verify that x/exp → stdlib replacements are correct (maps.Keys wrapped in slices.Collect, imports in stdlib section). Verify feature gate entries match between SetFromMap, env vars, and test-go.sh. Report any inconsistencies."
+3. "Review the feature gate handling across all test files. Could any gate configuration cause tests to hang or crash with fake clientsets? Are all parent AND dependent gates present in both SetFromMap and env vars?"
+4. "Read the autofix commit's diff. Verify that x/exp → stdlib replacements are correct (maps.Keys wrapped in slices.Collect, imports in stdlib section). Verify feature gate entries match between SetFromMap, env vars, and test-go.sh. Report any inconsistencies."
 
-gci count must be 0. If nilness count is non-zero, fix them now
-(see Step 3 nilness guidance) before proceeding — this avoids
-a full validation cycle in Step 3.
+All counts must be 0. Investigate judgment concerns.
 
-### Step 3: Lint and test verification
+### Step 3: Lint, test, and review
 
-The lint version bump surfaces pre-existing issues. Fix them
-all — they will block CI.
+Fix lint issues first (they're fast to iterate on), then launch
+one parallel wave that verifies everything at once.
 
-1. Run the validate script without flags (~15 min, full checks)
-2. Fix every reported issue — ALL of them, not just the first
-3. Commit fixes
-4. Re-run validate (use `--quick` for fast iteration, no flags for full)
-5. Repeat until exit 0
-6. Optional: run with `--full` for privileged test coverage
-   (`--full` may show pre-existing test failures — check if
-   they also fail on master before investigating)
-
-**Test caching:** Always use `-count=1` when running tests
-manually. Go's test cache can return stale passes that hide
-real failures (e.g., informer timeouts from missing gates).
-
-**Nilness dead code:** The bumped golangci-lint catches `if err
-!= nil` blocks where err is guaranteed nil — either the function
-doesn't return an error, or a prior `t.Fatal`/`return` already
-handled it. Remove the entire dead block. Do not simplify or
-restructure. Check for ALL nilness issues in the lint output.
-
-**Privileged tests:** The validate script automatically skips
-tests requiring CAP_NET_ADMIN (netlink, nftables, VRF) in
-default mode. Use `--full` to run them as root. If you run
-`make test` manually, expect "operation not permitted" for
-privileged packages — this is normal in unprivileged containers.
+**3a. Lint iteration:**
 
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-[ -n "$SCRIPT" ] && bash "$SCRIPT"          # full (~15 min)
-# For iteration: bash "$SCRIPT" --quick     # build + vet only (~1 min)
+[ -n "$SCRIPT" ] && bash "$SCRIPT" --no-test   # build + vet + lint (~5 min)
+# For faster build/vet iteration: bash "$SCRIPT" --quick  (~1 min)
 ```
 
-**Gate:** Launch 3 count-check subagents in parallel (must all be 0):
-1. "Run `make lint` in each module that has a `lint:` target in its Makefile. If no module has a lint target, report 0 — lint isn't part of this repo's CI. Report the exit code (0 = pass). Do NOT count raw output lines — golangci-lint has exclude rules that filter issues before the final result."
-2. "Find packages modified by the rebase (git diff merge-base..HEAD, excluding vendor). Skip packages listed as root/privileged in hack/test-go.sh. Run unit tests on the remaining changed packages with feature gate env vars exported. Report the number of FAIL results."
-3. "Count uncommitted tracked files (`git status --short | grep -v '^[?]' | wc -l`). Count root-owned files outside .git and vendor. Count .rebase-tmp files tracked by git (`git ls-files .rebase-tmp`). Report all three counts."
+Fix every reported issue. The lint version bump surfaces
+pre-existing issues — fix them all, they will block CI.
 
-Also launch 1 judgment subagent:
-4. "Read the full rebase diff (excluding vendor). Would this diff pass upstream code review? Are there any changes a maintainer would question — unnecessary refactors, style changes mixed with rebase fixes, or changes that look like they could alter runtime behavior?"
+**Nilness dead code:** The bumped golangci-lint catches `if err
+!= nil` blocks where err is guaranteed nil. Remove the entire
+dead block. Do not simplify or restructure.
 
-All counts must be 0. Investigate any judgment concerns.
+**Test caching:** Always use `-count=1` when running tests
+manually. Go's test cache can return stale passes.
 
-### Step 4: Antagonistic review
+Iterate with `--quick` for build+vet, `--no-test` to include
+lint. Repeat until `--no-test` exits 0.
 
-Once Step 3 validate passes (exit 0), launch Step 3 gate
-subagents AND Step 4 subagents in parallel — no modifications
-happen between them so they can verify simultaneously.
+**3b. Parallel verification wave:** Once `--no-test` passes,
+launch ALL of the following subagents in one parallel wave.
+No modifications happen after this point — everything runs
+simultaneously.
+
+First, discover test packages:
+
+```bash
+TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
+ROOT_PKGS=""
+[ -n "$TEST_GO_SH" ] && ROOT_PKGS=$(sed -n '/root_pkgs=(/,/)/p' "$TEST_GO_SH" | grep -oE 'pkg/[^"]+' | tr '\n' '|')
+GATE_EXPORTS=""
+[ -n "$TEST_GO_SH" ] && GATE_EXPORTS=$(grep "^export KUBE_FEATURE_" "$TEST_GO_SH" | tr '\n' '; ')
+for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | sort); do
+  echo "=== $mod_dir ==="
+  for pkg in $(cd "$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -exec dirname {} \; | sort -u); do
+    [ -n "$ROOT_PKGS" ] && echo "$pkg" | grep -qE "^\./(${ROOT_PKGS%|})" && continue
+    echo "$pkg"
+  done
+done
+```
+
+**Test agents** (count-check, all must report 0 FAIL):
+Split packages across subagents — count test lines per package
+(`wc -l *_test.go`), cap ~30k lines per agent, give the biggest
+package its own agent. Each agent uses the validate script's
+`--test-only` flag, which handles containerization, feature gate
+exports, timeout scaling, and output capture automatically:
+```bash
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+bash "$SCRIPT" --test-only ./pkg/ovn/... ./pkg/util/...
+```
+Results are in `.rebase-tmp/test-only-*.log`. Do NOT run raw
+`go test` inside containers — stdout piping across container
+boundaries loses output. The `--test-only` flag writes to a log
+file on the mounted volume, so results are always readable.
+
+**Cleanliness agent** (count-check, all must be 0):
+"Run on the host, NOT in a container. Count uncommitted tracked
+files (`git status --short | grep -v '^[?]' | wc -l`). Count
+root-owned files outside .git and vendor (`find . -not -path
+'./.git/*' -not -path '*/vendor/*' -user root 2>/dev/null |
+wc -l`). Count .rebase-tmp tracked by git (`git ls-files
+.rebase-tmp | wc -l`). Report all three counts."
+
+**Correctness agent** (count-check, all must be 0):
+"Read the full diff. Count changes not required by the rebase
+(version bumps, type conversions, API renames, format string
+fixes, import reordering, codegen, feature gates, deprecated
+API migrations, dead code from stricter linters are all valid).
+Count format strings with wrong verbs. Count Eventf calls
+missing format directives. Report all counts."
+
+**Completeness agent** (count-check, all must be 0):
+"Count stale v1.OLD version refs in yml/sh/md files (exclude
+K8S_VERSION if kindest/node image isn't published yet). Count
+files with SupportBaselineAdminNetworkPolicy. Report counts."
+
+**Gates agent** (count-check, all must be 0):
+"Read the GATE_DEPS map in the autofix script. Count test files
+with SetFromMap or KUBE_FEATURE_ missing any gate from that map.
+Count SetFromMap files with more than 1 SetFromMap call. Report."
+
+**Judgment agents** (flag concerns):
+1. "Does every change serve the k8s version bump, or are there
+   unrelated cleanups, style changes, or logic alterations?
+   Would a maintainer approve this diff as-is?"
+2. "Are test expectations correct for the new k8s version? Could
+   any test pass locally but fail in CI due to missing fixtures,
+   wrong API versions, or hardcoded assumptions?"
+
+All count-checks must be 0. Investigate judgment concerns.
+If any test agent reports failures or timeouts:
+- **Timeout** likely means a feature gate issue (informer hang).
+  Check that all gates from GATE_DEPS are disabled in the
+  failing package's test suite.
+- **Flaky failure**: re-run the specific failing test individually
+  (`go test -count=1 -run TestName ./pkg/...`). If it passes on
+  retry, it's a flake — not a rebase issue. Large test suites
+  (pkg/ovn) are prone to flakes in full-suite runs.
+- **Pre-existing failure**: if it fails consistently, check if it
+  also fails on master (`git checkout master && go test ... &&
+  git checkout -`). Don't fix pre-existing issues.
+- Fix genuine rebase failures and re-run from 3a.
+
+**3c. Independent review:** Once 3b passes, run the antagonistic
+review script. This invokes a separate Claude instance with fresh
+context for a truly independent second opinion:
 
 ```bash
 REVIEW=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-review.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 if [ -n "$REVIEW" ]; then
-  COMMIT=$(git rev-parse HEAD)
-  bash "$REVIEW" "$COMMIT" "k8s rebase"
+  bash "$REVIEW" "$(git rev-parse HEAD)" "k8s rebase"
 fi
 ```
 
-Launch 3 count-check subagents to check the full diff (must all be 0):
-1. **Correctness:** "Read the full diff. Count changes that are not required by the rebase. Any change needed to compile, pass vet, pass lint, or pass tests with the new k8s version is valid (version bumps, type conversions, API renames, format string fixes, import reordering, codegen, feature gates, deprecated API migrations, dead code from stricter linters). Count format strings with wrong verbs. Count Eventf calls missing format directives. Report all counts."
-2. **Completeness:** "Count stale v1.OLD version refs in yml/sh/md files (exclude K8S_VERSION which may stay at old version if kindest/node image isn't published yet). Count files with SupportBaselineAdminNetworkPolicy. Report all counts."
-3. **Gates:** "Read the GATE_DEPS map in the autofix script. Count test files with SetFromMap or KUBE_FEATURE_ that are missing any gate from that map. Count SetFromMap files with more than 1 SetFromMap call. Report all counts."
+APPROVE means proceed. REJECT means investigate the stated reason.
 
-Also launch 2 judgment subagents:
-4. "Read the full diff and evaluate: does every change serve the k8s version bump, or are there unrelated cleanups, style changes, or logic alterations mixed in? Would a maintainer approve this diff as-is?"
-5. "Look at the test changes in the diff. Are test expectations still correct for the new k8s version? Could any test pass locally but fail in CI due to missing fixtures, wrong API versions, or hardcoded assumptions?"
-
-All counts should be 0. If any count is non-zero, determine
-whether each item is toolchain-forced (acceptable) or truly
-unrelated (fix before proceeding). Investigate judgment concerns.
-
-### Step 5: Done
+### Step 4: Done
 
 ```bash
 rm -rf .rebase-tmp/

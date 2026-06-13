@@ -68,7 +68,17 @@ for candidate in go-controller/go.mod go.mod; do
   fi
 done
 if [[ -z "$PRIMARY_GOMOD" ]]; then
-  PRIMARY_GOMOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -lE "k8s\.io/(api|client-go|apimachinery) " {} \; | head -1 || true)
+  # Search within this repo only — skip directories that are separate git repos
+  while IFS= read -r -d '' gomod; do
+    dir=$(dirname "$gomod")
+    # Skip if this go.mod lives inside a nested git repo
+    mod_toplevel=$(cd "$dir" && git rev-parse --show-toplevel 2>/dev/null) || continue
+    [[ "$mod_toplevel" != "$REPO_ROOT" ]] && continue
+    if grep -qE "k8s\.io/(api|client-go|apimachinery) " "$gomod"; then
+      PRIMARY_GOMOD="$gomod"
+      break
+    fi
+  done < <(find . -name "go.mod" -not -path "*/vendor/*" -print0 2>/dev/null)
 fi
 [[ -z "$PRIMARY_GOMOD" ]] && die "No go.mod with k8s.io dependencies found in $REPO_ROOT"
 

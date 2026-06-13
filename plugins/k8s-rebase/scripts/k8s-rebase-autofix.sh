@@ -141,7 +141,7 @@ run_checks() {
     done
   done
   r "Gates in SetFromMap files" "$_gsfm"
-  r "ObsGen missing" "$(grep -L 'WithObservedGeneration' go-controller/pkg/ovn/controller/admin_network_policy/status.go 2>/dev/null | wc -l)"
+  r "ObsGen missing" "$(grep -L 'WithObservedGeneration\|ObservedGeneration' go-controller/pkg/ovn/controller/admin_network_policy/status.go 2>/dev/null | wc -l)"
   r "x/exp imports" "$(grep -rn 'golang.org/x/exp' --include='*.go' . | grep -v vendor | wc -l)"
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
   r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b' --include='*.go' . | grep -v vendor | wc -l)"
@@ -401,24 +401,167 @@ fix_kind_version() {
   fi
 }
 
-fix_metallb_check() {
-  # Warn if MetalLB version might be too old for the target k8s version.
-  # MetalLB CRDs may lack format annotations that stricter k8s validation
-  # requires. Can't auto-fix because MetalLB install has repo-specific patches.
+fix_metallb_version() {
   local kind_common
   kind_common=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
   [[ -z "$kind_common" ]] && return 0
   local current_metallb
   current_metallb=$(grep -oE 'metallb_version=v[0-9.]+' "$kind_common" | head -1 | sed 's/metallb_version=//')
   [[ -z "$current_metallb" ]] && return 0
+
   local latest_metallb
   latest_metallb=$(curl -sf "https://api.github.com/repos/metallb/metallb/releases" 2>/dev/null | grep -oE '"tag_name": "v[0-9][^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
-  [[ -z "$latest_metallb" ]] && return 0
+  [[ -z "$latest_metallb" ]] && { echo ":: WARNING: Could not fetch latest MetalLB version"; return 0; }
+
   if [[ "$current_metallb" != "$latest_metallb" ]]; then
-    echo ":: WARNING: MetalLB $current_metallb may be incompatible with this k8s version."
-    echo "   Latest: $latest_metallb. If e2e tests fail with CRD validation errors"
-    echo "   (\"Maximum boundary value must be of type integer\"), bump metallb_version"
-    echo "   and FRR_K8S_UPSTREAM_FRR_IMAGE in $(basename "$kind_common")."
+    echo ":: Bumping MetalLB: $current_metallb → $latest_metallb"
+    sed -i "s|metallb_version=${current_metallb}|metallb_version=${latest_metallb}|" "$kind_common"
+
+    # MetalLB versions ship different FRR images. Add a separate variable
+    # so install_metallb replaces the correct source tag.
+    local metallb_frr_tag
+    metallb_frr_tag=$(curl -sf "https://raw.githubusercontent.com/metallb/metallb/${latest_metallb}/charts/metallb/values.yaml" 2>/dev/null | awk '/repository.*frrouting\/frr/{getline; if(/tag:/) {gsub(/.*tag: */,""); print; exit}}' || true)
+    if [[ -n "$metallb_frr_tag" ]]; then
+      local metallb_frr_image="quay.io/frrouting/frr:${metallb_frr_tag}"
+      if ! grep -q "METALLB_UPSTREAM_FRR_IMAGE" "$kind_common"; then
+        sed -i "/^readonly FRR_K8S_UPSTREAM_FRR_IMAGE=/a readonly METALLB_UPSTREAM_FRR_IMAGE=${metallb_frr_image}" "$kind_common"
+        echo ":: Added METALLB_UPSTREAM_FRR_IMAGE=${metallb_frr_image}"
+      fi
+      # Update replace_in_file_or_exit calls inside install_metallb() to use the new var
+      # Handles both ${VAR} and ${VAR##*:} patterns
+      sed -i '/^install_metallb()/,/^}/s/FRR_K8S_UPSTREAM_FRR_IMAGE/METALLB_UPSTREAM_FRR_IMAGE/g' "$kind_common"
+      if sed -n '/^install_metallb()/,/^}/p' "$kind_common" | grep -q 'FRR_K8S_UPSTREAM_FRR_IMAGE'; then
+        echo ":: WARNING: install_metallb still references FRR_K8S_UPSTREAM_FRR_IMAGE — manual update needed"
+      else
+        echo ":: Updated install_metallb to use METALLB_UPSTREAM_FRR_IMAGE"
+      fi
+    else
+      echo ":: WARNING: Could not detect FRR image for MetalLB $latest_metallb"
+      echo "   Verify FRR image tags in install_metallb manually."
+    fi
+  fi
+}
+
+fix_kubevirt_version() {
+  local kind_common
+  kind_common=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
+  [[ -z "$kind_common" ]] && return 0
+  if grep -q 'KUBEVIRT_VERSION:-"v[0-9]' "$kind_common"; then
+    local current
+    current=$(grep -oE 'KUBEVIRT_VERSION:-"v[^"]+' "$kind_common" | head -1 | sed 's/.*:-"//' || true)
+    sed -i '/^[[:space:]]*#/!s/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"v[^"]*"}/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"nightly"}/' "$kind_common"
+    echo ":: Changed KubeVirt ${current} → nightly (pinned stable may not support this k8s version)"
+  fi
+}
+
+fix_relaxed_service_name_validation() {
+  local e2e_kind
+  e2e_kind=$(find . -name "e2e-kind.sh" -path "*/test/scripts/*" | head -1)
+  [[ -z "$e2e_kind" ]] && return 0
+  grep -q "relaxedServiceNameValidationActive" "$e2e_kind" && return 0
+
+  echo ":: Adding RelaxedServiceNameValidation probe and conditional skip to $(basename "$e2e_kind")"
+
+  # Insert probe function after groomTestList's closing brace
+  local insert_after
+  insert_after=$(awk '/^groomTestList\(\)/,/^}/ { line=NR } END { print line }' "$e2e_kind")
+  [[ -z "$insert_after" || "$insert_after" == "0" ]] && return 0
+
+  local probe_func
+  probe_func=$(cat <<'PROBE'
+
+relaxedServiceNameValidationActive() {
+  local kubeconfig="${KUBECONFIG:-${HOME}/ovn.conf}"
+  local probe_service="1ovn-relaxed-svc-probe"
+  kubectl --kubeconfig="${kubeconfig}" -n default delete service "${probe_service}" --ignore-not-found=true >/dev/null 2>&1 || true
+  if kubectl --kubeconfig="${kubeconfig}" -n default create service clusterip "${probe_service}" --tcp=80:80 >/dev/null 2>&1; then
+    kubectl --kubeconfig="${kubeconfig}" -n default delete service "${probe_service}" --ignore-not-found=true >/dev/null 2>&1 || true
+    return 0
+  fi
+  return 1
+}
+PROBE
+)
+  # Use awk to insert after the target line (avoids sed escaping issues)
+  awk -v n="$insert_after" -v newfn="$probe_func" 'NR==n { print; print newfn; next } 1' "$e2e_kind" > "${e2e_kind}.tmp" && chmod --reference="$e2e_kind" "${e2e_kind}.tmp" && mv "${e2e_kind}.tmp" "$e2e_kind"
+
+  # Insert skip block before the final groomTestList call
+  local groom_line
+  groom_line=$(grep -n 'SKIPPED_TESTS=.*groomTestList' "$e2e_kind" | tail -1 | cut -d: -f1)
+  [[ -z "$groom_line" ]] && return 0
+
+  local skip_block
+  skip_block=$(cat <<'SKIP'
+RELAXED_SERVICE_NAME_VALIDATION_DNS_TEST="
+\[sig-network\].*DNS.*should work with a service name that starts with a digit.*\[FeatureGate:RelaxedServiceNameValidation\] \[Beta\]
+"
+
+if relaxedServiceNameValidationActive; then
+	echo "RelaxedServiceNameValidation is active"
+else
+	echo "RelaxedServiceNameValidation not active; skipping digit-prefixed Service DNS test"
+	SKIPPED_TESTS=$SKIPPED_TESTS$RELAXED_SERVICE_NAME_VALIDATION_DNS_TEST
+fi
+
+SKIP
+)
+  export SKIP_BLOCK_TEXT="$skip_block"
+  awk -v n="$groom_line" 'NR==n { print ENVIRON["SKIP_BLOCK_TEXT"] } 1' "$e2e_kind" > "${e2e_kind}.tmp" && chmod --reference="$e2e_kind" "${e2e_kind}.tmp" && mv "${e2e_kind}.tmp" "$e2e_kind"
+  unset SKIP_BLOCK_TEXT
+
+  # Best-effort: add featureGates to kind.yaml.j2
+  local kind_yaml
+  kind_yaml=$(find . -name "kind.yaml.j2" -path "*/contrib/*" | head -1)
+  if [[ -n "$kind_yaml" ]] && ! grep -q "RelaxedServiceNameValidation" "$kind_yaml"; then
+    awk '/^networking:/ { print "featureGates:"; print "  RelaxedServiceNameValidation: true"; print "" } 1' "$kind_yaml" > "${kind_yaml}.tmp" && chmod --reference="$kind_yaml" "${kind_yaml}.tmp" && mv "${kind_yaml}.tmp" "$kind_yaml"
+    echo ":: Added RelaxedServiceNameValidation to kind.yaml.j2 (best-effort)"
+  fi
+}
+
+fix_network_policy_api_crds() {
+  # When network-policy-api bumps to v0.2.0+, the CRD name changed:
+  # AdminNetworkPolicy → ClusterNetworkPolicy, BaselineAdminNetworkPolicy removed.
+  # CI scripts that install CRDs via raw.githubusercontent.com URLs need updating.
+
+  # Detect network-policy-api version from go.mod
+  local npa_version
+  npa_version=$(grep "network-policy-api " go-controller/go.mod 2>/dev/null | awk '{print $2}' || true)
+  [[ -z "$npa_version" ]] && npa_version=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -h "network-policy-api " {} \; | head -1 | awk '{print $2}' || true)
+  [[ -z "$npa_version" ]] && return 0
+
+  # Only fix if v0.2.0+ (where the rename happened)
+  local npa_minor
+  npa_minor=$(echo "$npa_version" | cut -d. -f2)
+  (( npa_minor < 2 )) 2>/dev/null && return 0
+
+  # Fix CRD URLs in kind-helm.sh
+  local kind_helm
+  kind_helm=$(find . -name "kind-helm.sh" -not -path "*/vendor/*" | head -1)
+  [[ -z "$kind_helm" ]] && kind_helm=$(find . -name "kind.sh" -not -path "*/vendor/*" -not -type l | head -1)
+  if [[ -n "$kind_helm" ]] && ! grep -q "clusternetworkpolicies" "$kind_helm"; then
+    # Add ClusterNetworkPolicy CRD alongside existing ones — do NOT remove
+    # the old AdminNetworkPolicy/BaselineAdminNetworkPolicy CRDs because
+    # the OVN-K controller still watches those resource types.
+    local anp_line
+    anp_line=$(grep -n "adminnetworkpolicies.yaml" "$kind_helm" | head -1 | cut -d: -f1)
+    if [[ -n "$anp_line" ]]; then
+      echo ":: Adding ClusterNetworkPolicy CRD for $npa_version (keeping existing ANP/BANP CRDs)"
+      sed -i "${anp_line}a\\  run_kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/network-policy-api/${npa_version}/config/crd/experimental/policy.networking.k8s.io_clusternetworkpolicies.yaml" "$kind_helm"
+    fi
+  fi
+
+  # Bump network-policy-api in conformance module go.mod to match
+  local conf_gomod
+  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" | head -1)
+  if [[ -n "$conf_gomod" ]]; then
+    local conf_npa
+    conf_npa=$(grep "network-policy-api " "$conf_gomod" 2>/dev/null | awk '{print $2}' || true)
+    if [[ -n "$conf_npa" ]] && [[ "$conf_npa" != "$npa_version" ]]; then
+      echo ":: Bumping network-policy-api in $(dirname "$conf_gomod"): $conf_npa → $npa_version"
+      local conf_dir
+      conf_dir=$(dirname "$conf_gomod")
+      (cd "$conf_dir" && go get "sigs.k8s.io/network-policy-api@${npa_version}" && go mod tidy) 2>&1 || echo "  WARNING: go get/tidy failed in $conf_dir"
+    fi
   fi
 }
 
@@ -478,8 +621,8 @@ fix_obsgen() {
   [[ -f "$file" ]] || return 0
   # Only fix if builder pattern exists (agent already converted)
   grep -q 'Condition()' "$file" || return 0
-  # Skip if ObservedGeneration already present (agent got it right)
-  grep -q 'WithObservedGeneration' "$file" && return 0
+  # Skip if ObservedGeneration already present (builder or struct literal)
+  grep -q 'WithObservedGeneration\|ObservedGeneration' "$file" && return 0
 
   echo ":: Fixing ObsGen in $file"
   # Insert WithObservedGeneration after each WithStatus(newCondition line.
@@ -714,6 +857,12 @@ run_vet() {
   for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
     local mod_dir
     mod_dir=$(dirname "$gomod")
+    # Skip modules with gitignored vendor dirs — their vendor may be
+    # stale (not updated by the rebase) and produce false vet errors
+    if [[ -d "$mod_dir/vendor" ]] && git check-ignore -q "$mod_dir/vendor" 2>/dev/null; then
+      echo "  Skipping $mod_dir (vendor is gitignored)"
+      continue
+    fi
     (cd "$mod_dir" && go vet ./...) 2>&1 || vet_failed=1
   done
   return "$vet_failed"
@@ -752,7 +901,6 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_go_version
   fix_kind_image
   fix_kind_version
-  fix_metallb_check
   fix_feature_gates
 
   # Version-specific fixes — conditional on finding the pattern.
@@ -765,9 +913,13 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_obsgen
 fi
 
-# Always run — not covered by verification checks
+# Always run — not covered by Go code verification checks
 fix_lint_version
 fix_imports
+fix_metallb_version
+fix_kubevirt_version
+fix_relaxed_service_name_validation
+fix_network_policy_api_crds
 
 # Regenerate mocks if codegen deleted them (belt-and-suspenders with k8s-rebase.sh)
 fix_mocks
