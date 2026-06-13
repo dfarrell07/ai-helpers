@@ -122,15 +122,21 @@ resources in `v1alpha2` API version. If the project only installs
 ```
 no matches for kind "ClusterNetworkPolicy" in version "policy.networking.k8s.io/v1alpha2"
 ```
-Fix: ADD the v0.2.0 `clusternetworkpolicies.yaml` CRD URL to
-`kind-helm.sh` alongside the existing `adminnetworkpolicies` and
-`baselineadminnetworkpolicies` URLs. Do NOT remove the old CRDs —
-the OVN-K controller still watches AdminNetworkPolicy and
-BaselineAdminNetworkPolicy resources. Removing them causes
-ovnkube-node pods to fail to start (kind setup timeout).
-The autofix script handles this automatically when
-network-policy-api is at v0.2.0+. The conformance test only runs
-on non-ipv6 CI jobs (`ipfamily != ipv6`).
+Fix depends on which network-policy-api version the conformance
+module uses:
+- **v0.1.x or pre-release** (e.g. `v0.1.9-0.2026...`): uses
+  v1alpha1 `AdminNetworkPolicy` fixtures. No CRD changes needed.
+  The existing CRD URLs work. Do NOT bump the conformance module
+  to v0.2.0 — that brings v1alpha2 `ClusterNetworkPolicy` fixtures
+  that the controller can't enforce (policy timeout failures).
+- **v0.2.0+**: uses v1alpha2 `ClusterNetworkPolicy` fixtures. ADD
+  the `clusternetworkpolicies.yaml` CRD URL alongside existing
+  ones. Do NOT remove old CRDs — the controller still needs them.
+
+Do NOT force-bump the conformance module to match go-controller's
+version. The conformance module has its own version that may
+intentionally lag behind. The conformance test only runs on
+non-ipv6 CI jobs (`ipfamily != ipv6`).
 
 ### AddToScheme → Install (SA1019)
 

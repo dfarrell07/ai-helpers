@@ -91,9 +91,22 @@ GATE_DEPS[AtomicFIFO]="StaleControllerConsistencyJob StaleControllerConsistencyR
 run_checks() {
   local F=0
   r() { echo "$1: $2"; [ "$2" != "0" ] && F=$((F+1)); }
-  r "Conformance old names" "$(grep -w 'SupportAdminNetworkPolicy' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
+  # Only check conformance renames if conformance module uses v0.2.0+
+  local _conf_npa_minor=0
+  local _conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" | head -1)
+  [[ -n "$_conf_gomod" ]] && _conf_npa_minor=$(grep "network-policy-api " "$_conf_gomod" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
+  if (( _conf_npa_minor >= 2 )) 2>/dev/null; then
+    r "Conformance old names" "$(grep -w 'SupportAdminNetworkPolicy' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
+  else
+    r "Conformance old names" "0"
+  fi
   r "AddToScheme in factory" "$(grep 'anpapi.AddToScheme' go-controller/pkg/factory/factory.go 2>/dev/null | wc -l)"
-  r "AddToScheme in conformance" "$(grep 'AddToScheme' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
+  # Only check conformance AddToScheme if conformance module uses v0.2.0+
+  if (( _conf_npa_minor >= 2 )) 2>/dev/null; then
+    r "AddToScheme in conformance" "$(grep 'AddToScheme' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
+  else
+    r "AddToScheme in conformance" "0"
+  fi
   r "BANP wrong EgressPeer" "$(grep 'AdminNetworkPolicyEgressPeer' go-controller/pkg/ovn/baseline_admin_network_policy_test.go 2>/dev/null | grep -vc Baseline)"
   # Gate checks — driven by GATE_DEPS map. Only checks gates that
   # exist in the vendored k8s code (safe across k8s versions).
@@ -519,48 +532,39 @@ SKIP
 }
 
 fix_network_policy_api_crds() {
-  # When network-policy-api bumps to v0.2.0+, the CRD name changed:
-  # AdminNetworkPolicy → ClusterNetworkPolicy, BaselineAdminNetworkPolicy removed.
-  # CI scripts that install CRDs via raw.githubusercontent.com URLs need updating.
+  # The conformance module may use a different network-policy-api version
+  # than go-controller. Do NOT force-bump the conformance module to match —
+  # the conformance suite's fixtures must match the API version the controller
+  # supports. If go-controller uses v0.2.0 (Go types still include
+  # AdminNetworkPolicy v1alpha1), the conformance module may use a pre-release
+  # that has v1alpha1 fixtures. Bumping to v0.2.0 would bring v1alpha2
+  # ClusterNetworkPolicy fixtures that the controller can't enforce.
+  #
+  # Only add ClusterNetworkPolicy CRD if the conformance module itself
+  # uses v0.2.0+ (meaning the conformance tests expect it).
+  local conf_gomod
+  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" | head -1)
+  [[ -z "$conf_gomod" ]] && return 0
 
-  # Detect network-policy-api version from go.mod
-  local npa_version
-  npa_version=$(grep "network-policy-api " go-controller/go.mod 2>/dev/null | awk '{print $2}' || true)
-  [[ -z "$npa_version" ]] && npa_version=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -h "network-policy-api " {} \; | head -1 | awk '{print $2}' || true)
-  [[ -z "$npa_version" ]] && return 0
+  local conf_npa
+  conf_npa=$(grep "network-policy-api " "$conf_gomod" 2>/dev/null | awk '{print $2}' || true)
+  [[ -z "$conf_npa" ]] && return 0
 
-  # Only fix if v0.2.0+ (where the rename happened)
-  local npa_minor
-  npa_minor=$(echo "$npa_version" | cut -d. -f2)
-  (( npa_minor < 2 )) 2>/dev/null && return 0
+  # Only add CRD if conformance module uses v0.2.0+ (not a pre-release)
+  local conf_minor
+  conf_minor=$(echo "$conf_npa" | cut -d. -f2)
+  # Pre-release versions like v0.1.9-0.20260225... have minor=1
+  (( conf_minor < 2 )) 2>/dev/null && return 0
 
-  # Fix CRD URLs in kind-helm.sh
   local kind_helm
   kind_helm=$(find . -name "kind-helm.sh" -not -path "*/vendor/*" | head -1)
   [[ -z "$kind_helm" ]] && kind_helm=$(find . -name "kind.sh" -not -path "*/vendor/*" -not -type l | head -1)
   if [[ -n "$kind_helm" ]] && ! grep -q "clusternetworkpolicies" "$kind_helm"; then
-    # Add ClusterNetworkPolicy CRD alongside existing ones — do NOT remove
-    # the old AdminNetworkPolicy/BaselineAdminNetworkPolicy CRDs because
-    # the OVN-K controller still watches those resource types.
     local anp_line
     anp_line=$(grep -n "adminnetworkpolicies.yaml" "$kind_helm" | head -1 | cut -d: -f1)
     if [[ -n "$anp_line" ]]; then
-      echo ":: Adding ClusterNetworkPolicy CRD for $npa_version (keeping existing ANP/BANP CRDs)"
-      sed -i "${anp_line}a\\  run_kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/network-policy-api/${npa_version}/config/crd/experimental/policy.networking.k8s.io_clusternetworkpolicies.yaml" "$kind_helm"
-    fi
-  fi
-
-  # Bump network-policy-api in conformance module go.mod to match
-  local conf_gomod
-  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" | head -1)
-  if [[ -n "$conf_gomod" ]]; then
-    local conf_npa
-    conf_npa=$(grep "network-policy-api " "$conf_gomod" 2>/dev/null | awk '{print $2}' || true)
-    if [[ -n "$conf_npa" ]] && [[ "$conf_npa" != "$npa_version" ]]; then
-      echo ":: Bumping network-policy-api in $(dirname "$conf_gomod"): $conf_npa → $npa_version"
-      local conf_dir
-      conf_dir=$(dirname "$conf_gomod")
-      (cd "$conf_dir" && go get "sigs.k8s.io/network-policy-api@${npa_version}" && go mod tidy) 2>&1 || echo "  WARNING: go get/tidy failed in $conf_dir"
+      echo ":: Adding ClusterNetworkPolicy CRD for conformance (${conf_npa})"
+      sed -i "${anp_line}a\\  run_kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/network-policy-api/${conf_npa}/config/crd/experimental/policy.networking.k8s.io_clusternetworkpolicies.yaml" "$kind_helm"
     fi
   fi
 }
@@ -596,6 +600,16 @@ fix_addtoscheme() {
 fix_conformance_renames() {
   # SupportAdminNetworkPolicy* → SupportClusterNetworkPolicy* (all variants)
   # SupportBaselineAdminNetworkPolicy* → SupportClusterNetworkPolicy* (merged)
+  # Only rename if the conformance module uses v0.2.0+ where these symbols
+  # were renamed. Pre-release versions (v0.1.9-0.2026...) still use the old names.
+  local conf_gomod
+  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" | head -1)
+  # No conformance module → nothing to rename
+  [[ -z "$conf_gomod" ]] && return 0
+  local conf_npa_minor
+  conf_npa_minor=$(grep "network-policy-api " "$conf_gomod" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
+  # Pre-release versions (minor < 2) still use the old symbol names
+  (( conf_npa_minor < 2 )) 2>/dev/null && return 0
   local files
   files=$(grep -rln 'SupportAdminNetworkPolicy\|SupportBaselineAdminNetworkPolicy' --include='*.go' . | grep -v vendor)
   [[ -z "$files" ]] && return 0
