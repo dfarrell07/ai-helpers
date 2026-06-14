@@ -233,6 +233,21 @@ add `featureGates: RelaxedServiceNameValidation: true` to
 `kind.yaml.j2` as a best-effort (may not work for custom images).
 The autofix script injects both the probe and the skip.
 
+### KubeVirt secondary interface IPv6 test fix (k8s 1.36)
+
+Secondary KubeVirt interfaces use IPv4-only cloud-init (DHCPv6
+not supported). OVN allocates both IPv4 and IPv6, but VMI status
+only reports the IPv4 for secondary interfaces. Tests that
+validate persistent IPs by reading from VMI status see 1 address
+instead of 2 and fail with:
+```
+Expected <[]string | len:1>: ["10.28.112.4"] to have length 2
+```
+Fix: read allocated addresses from the pod's Multus
+`network-status` annotation for secondary UDNs instead of VMI
+status. VMI status is correct for primary interfaces only.
+This is a test-only change — the OVN allocation is correct.
+
 ### kubeadm v1beta4 format (k8s 1.36, not CI-blocking)
 
 kubeadm v1beta3 still works in k8s 1.36 but v1beta4 changes

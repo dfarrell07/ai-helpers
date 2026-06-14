@@ -563,21 +563,50 @@ SKIP
 fix_crd_int64_validation() {
   # k8s 1.36 rejects CRD integer fields where Maximum > int32 max
   # but format is int32 (the default for uint32 Go types).
-  # Detect and warn — can't auto-fix because it requires codegen.
-  local files
+  # Add +kubebuilder:validation:Format=int64 marker and regenerate.
+  local files fixed=0
   files=$(find . -name "*types*.go" -path "*/crd/*" -not -path "*/vendor/*" 2>/dev/null)
   [[ -z "$files" ]] && return 0
   for f in $files; do
-    if grep -q "Maximum.*4294967295\|Maximum.*2147483647" "$f" && ! grep -q "Format.*int64\|Format=int64" "$f"; then
-      echo ":: WARNING: $f has uint32 fields with Maximum > int32 range"
-      echo "   k8s 1.36 rejects CRDs without format:int64 for these fields."
-      echo "   Add '+kubebuilder:validation:Format=int64' above each field,"
-      echo "   then run 'make generate' to regenerate the CRD."
-      grep -n "Maximum.*4294967295\|Maximum.*2147483647" "$f" | while read line; do
-        echo "   $line"
-      done
+    if grep -q "Maximum.*4294967295" "$f" && ! grep -q "Format.*int64\|Format=int64" "$f"; then
+      echo ":: Fixing CRD int64 validation in $f"
+      # Insert +kubebuilder:validation:Format=int64 after each Maximum marker
+      sed -i '/Maximum.*4294967295/a\\t// +kubebuilder:validation:Format=int64' "$f"
+      fixed=1
     fi
   done
+  if [[ "$fixed" -eq 1 ]]; then
+    # Regenerate CRDs. Use make codegen if available (pins controller-gen
+    # version, handles helm copy). Fall back to controller-gen directly.
+    echo ":: Regenerating CRDs after adding Format=int64 markers"
+    local regen_ok=false
+    if [[ -f "$MODULE_ROOT/Makefile" ]] && grep -q "^codegen:" "$MODULE_ROOT/Makefile"; then
+      echo ":: Running make -C $MODULE_ROOT codegen"
+      if make -C "$MODULE_ROOT" codegen 2>&1; then
+        regen_ok=true
+      else
+        echo "  make codegen failed, trying controller-gen directly..."
+      fi
+    fi
+    if [[ "$regen_ok" != "true" ]]; then
+      command -v controller-gen &>/dev/null || go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest 2>/dev/null
+      if command -v controller-gen &>/dev/null; then
+        local output_dir="${MODULE_ROOT}/_output/crds"
+        mkdir -p "$output_dir"
+        (cd "$MODULE_ROOT" && controller-gen crd:crdVersions="v1" paths=./pkg/crd/... output:crd:dir=_output/crds) 2>&1 || echo "  WARNING: controller-gen failed"
+        local helm_crd_dir
+        helm_crd_dir=$(find . -path "*/helm/*/crds" -type d -not -path "*/vendor/*" | head -1)
+        if [[ -n "$helm_crd_dir" ]] && [[ -d "$output_dir" ]]; then
+          cp "$output_dir"/*.yaml "$helm_crd_dir/" 2>/dev/null
+          echo ":: Copied CRDs to $helm_crd_dir"
+        fi
+        regen_ok=true
+      fi
+    fi
+    if [[ "$regen_ok" != "true" ]]; then
+      echo "  WARNING: CRD regeneration failed. Run 'make codegen' manually."
+    fi
+  fi
 }
 
 fix_network_policy_api_crds() {
