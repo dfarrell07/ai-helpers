@@ -687,9 +687,10 @@ fix_crd_name_validation() {
     old_file=$(git show "${base_branch}:${rel_path}" 2>/dev/null) || continue
 
     # Compare metadata section line counts — if old has more, hand-edits were lost
+    # (|| true prevents pipefail from killing the script on no-match)
     local s_start s_end c_start c_end
-    s_start=$(echo "$old_file" | grep -n "^          metadata:" | head -1 | cut -d: -f1)
-    c_start=$(grep -n "^          metadata:" "$crd_file" | head -1 | cut -d: -f1)
+    s_start=$(echo "$old_file" | grep -n "^          metadata:" 2>/dev/null | head -1 | cut -d: -f1 || true)
+    c_start=$(grep -n "^          metadata:" "$crd_file" 2>/dev/null | head -1 | cut -d: -f1 || true)
     [[ -z "$s_start" || -z "$c_start" ]] && continue
     s_end=$(echo "$old_file" | awk "NR>$s_start && /^          [a-z]/{print NR; exit}")
     c_end=$(awk "NR>$c_start && /^          [a-z]/{print NR; exit}" "$crd_file")
