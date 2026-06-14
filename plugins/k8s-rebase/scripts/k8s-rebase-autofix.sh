@@ -610,40 +610,81 @@ fix_crd_int64_validation() {
 }
 
 fix_crd_name_validation() {
-  # controller-gen strips hand-edited metadata.name pattern validations.
-  # EgressQoS and EgressFirewall CRDs require name=default; re-insert
-  # the validation after any codegen run.
+  # controller-gen strips hand-edited metadata.name validations from CRD
+  # YAMLs (it doesn't generate metadata constraints). Detect CRDs that
+  # had a metadata.name pattern on the base branch but lost it, and
+  # restore using the exact block from the old version.
   local helm_crd_dir
   helm_crd_dir=$(find . -path "*/helm/*/crds" -type d -not -path "*/vendor/*" | head -1)
   [[ -z "$helm_crd_dir" ]] && return 0
-  for crd_file in "$helm_crd_dir"/k8s.ovn.org_egressqoses.yaml "$helm_crd_dir"/k8s.ovn.org_egressfirewalls.yaml; do
+
+  local base_branch=""
+  for candidate in master main; do
+    git rev-parse --verify "$candidate" &>/dev/null && base_branch="$candidate" && break
+  done
+  [[ -z "$base_branch" ]] && return 0
+
+  for crd_file in "$helm_crd_dir"/*.yaml; do
     [[ -f "$crd_file" ]] || continue
-    if grep -q "pattern: .default" "$crd_file"; then
+
+    local rel_path
+    rel_path=$(git ls-files --full-name "$crd_file" 2>/dev/null)
+    [[ -z "$rel_path" ]] && continue
+
+    # Check if the base branch had a metadata.name pattern block
+    local old_content
+    old_content=$(git show "${base_branch}:${rel_path}" 2>/dev/null) || continue
+
+    # Extract the pattern from under the schema-level metadata: block
+    local pattern_val
+    pattern_val=$(echo "$old_content" | awk '
+      /^          metadata:/ { in_meta=1; next }
+      in_meta && /^ *type: object/ { next }
+      in_meta && /^ *properties:/ { next }
+      in_meta && /^ *name:/ { next }
+      in_meta && /^ *type: string/ { next }
+      in_meta && /^ *pattern:/ { print $2; exit }
+      in_meta && /^          [a-z]/ { exit }
+    ')
+    [[ -z "$pattern_val" ]] && continue
+
+    # Check if the current file already has this pattern under metadata
+    if awk '
+      /^          metadata:/ { in_meta=1; next }
+      in_meta && /pattern:/ { found=1; exit }
+      in_meta && /^          [a-z]/ { exit }
+      END { exit !found }
+    ' "$crd_file" 2>/dev/null; then
       continue
     fi
-    if grep -q "metadata:" "$crd_file"; then
-      echo ":: Re-inserting metadata.name pattern validation in $(basename "$crd_file")"
-      sed -i '/^          metadata:/{
+
+    echo ":: Restoring metadata.name validation (pattern: $pattern_val) in $(basename "$crd_file")"
+    sed -i '/^          metadata:/{
 N
-s/\(metadata:\n *type: object\)/\1\n            properties:\n              name:\n                type: string\n                pattern: ^default$/
+s/\(metadata:\n *type: object\)/\1\n            properties:\n              name:\n                type: string\n                pattern: '"$pattern_val"'/
 }' "$crd_file"
+
+    # Verify the fix applied
+    if ! awk '/^          metadata:/ { in_meta=1; next } in_meta && /pattern:/ { found=1; exit } in_meta && /^          [a-z]/ { exit } END { exit !found }' "$crd_file" 2>/dev/null; then
+      echo "  WARNING: Failed to restore metadata.name validation in $(basename "$crd_file")"
     fi
   done
+
+  # Also fix _output/crds — copy fixed version from helm
   local output_dir
   output_dir=$(find . -path "*/_output/crds" -type d -not -path "*/vendor/*" | head -1)
-  [[ -z "$output_dir" ]] && return 0
-  for crd_file in "$output_dir"/k8s.ovn.org_egressqoses.yaml "$output_dir"/k8s.ovn.org_egressfirewalls.yaml; do
-    [[ -f "$crd_file" ]] || continue
-    if grep -q "pattern: .default" "$crd_file"; then
-      continue
-    fi
-    if grep -q "metadata:" "$crd_file"; then
-      sed -i '/^          metadata:/{
-N
-s/\(metadata:\n *type: object\)/\1\n            properties:\n              name:\n                type: string\n                pattern: ^default$/
-}' "$crd_file"
-    fi
-  done
+  if [[ -n "$output_dir" ]]; then
+    for crd_file in "$helm_crd_dir"/*.yaml; do
+      [[ -f "$crd_file" ]] || continue
+      local out_file="$output_dir/$(basename "$crd_file")"
+      [[ -f "$out_file" ]] || continue
+      # If helm has metadata.name pattern but _output doesn't, copy
+      if awk '/^          metadata:/ { m=1; next } m && /pattern:/ { found=1; exit } m && /^          [a-z]/ { exit } END { exit !found }' "$crd_file" 2>/dev/null &&
+         ! awk '/^          metadata:/ { m=1; next } m && /pattern:/ { found=1; exit } m && /^          [a-z]/ { exit } END { exit !found }' "$out_file" 2>/dev/null; then
+        cp "$crd_file" "$out_file"
+      fi
+    done
+  fi
 }
 
 fix_network_policy_api_crds() {
