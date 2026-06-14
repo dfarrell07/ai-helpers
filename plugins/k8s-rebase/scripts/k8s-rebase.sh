@@ -230,6 +230,10 @@ derive_go_gets() {
       module|replace|require|exclude|"$own_module") continue ;;
     esac
     echo "$pkg" | grep -q "controller-runtime" && continue
+    # Skip network-policy-api — it has its own versioning independent
+    # of k8s releases. Bumping it can break conformance tests by
+    # pulling in API renames the controller doesn't support yet.
+    echo "$pkg" | grep -q "network-policy-api" && continue
     cmds+=("go get ${pkg}")
   done < <(grep -E "k8s\.io/|sigs\.k8s\.io/|github\.com/openshift/(api|client-go) " "$gomod" | \
            grep -v "=>" | \
