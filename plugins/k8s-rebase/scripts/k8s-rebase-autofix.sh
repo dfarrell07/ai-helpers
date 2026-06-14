@@ -172,6 +172,40 @@ run_checks() {
   else
     r "Stale docs ver" "0"
   fi
+  # CRD checks: verify int64 format and metadata.name validations
+  local _crd_int64_miss=0
+  for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
+    if grep -q "maximum: 4294967295" "$_crd" && ! grep -q "format: int64" "$_crd"; then
+      _crd_int64_miss=$((_crd_int64_miss+1))
+    fi
+  done
+  r "CRD missing format:int64" "$_crd_int64_miss"
+  local _crd_name_miss=0
+  local _base=""
+  for _c in master main; do git rev-parse --verify "$_c" &>/dev/null && _base="$_c" && break; done
+  if [[ -n "$_base" ]]; then
+    for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
+      local _rel
+      _rel=$(git ls-files --full-name "$_crd" 2>/dev/null) || continue
+      # Did the base branch have a metadata.name pattern?
+      local _had_pattern
+      _had_pattern=$(git show "${_base}:${_rel}" 2>/dev/null | awk '
+        /^          metadata:/ { m=1; next }
+        m && /pattern:/ { print 1; exit }
+        m && /^          [a-z]/ { exit }
+      ')
+      if [[ "$_had_pattern" == "1" ]]; then
+        local _has_pattern
+        _has_pattern=$(awk '
+          /^          metadata:/ { m=1; next }
+          m && /pattern:/ { print 1; exit }
+          m && /^          [a-z]/ { exit }
+        ' "$_crd")
+        [[ "$_has_pattern" != "1" ]] && _crd_name_miss=$((_crd_name_miss+1))
+      fi
+    done
+  fi
+  r "CRD missing name validation" "$_crd_name_miss"
   r "Uncommitted" "$(git status --short | grep -v '^[?]' | wc -l)"
   echo "---"
   [ "$F" -eq 0 ] && echo "RESULT: PASS" || echo "RESULT: FAIL ($F checks non-zero)"
@@ -583,9 +617,10 @@ fix_crd_int64_validation() {
   if [[ "$fixed" -eq 1 ]]; then
     # Patch CRD YAML files directly instead of re-running codegen
     # (which strips hand-edited metadata blocks from unrelated CRDs).
-    # k8s-rebase.sh Phase 2 already ran codegen; the CRD YAMLs have
-    # format: int32 on these fields — just change int32 to int64.
-    echo ":: Patching CRD YAML files: format int32 → int64 for uint32 fields"
+    # Handles two cases:
+    # - format: int32 exists (Phase 2 codegen ran) → change to int64
+    # - no format line (Phase 2 codegen failed) → insert format: int64
+    echo ":: Patching CRD YAML files: ensure format: int64 for uint32 fields"
     local helm_crd_dir
     helm_crd_dir=$(find . -path "*/helm/*/crds" -type d -not -path "*/vendor/*" | head -1)
     local output_dir
@@ -594,22 +629,34 @@ fix_crd_int64_validation() {
       [[ -n "$dir" && -d "$dir" ]] || continue
       for crd_yaml in "$dir"/*.yaml; do
         [[ -f "$crd_yaml" ]] || continue
-        if grep -q "maximum: 4294967295" "$crd_yaml"; then
-          # Change format: int32 to format: int64 on lines immediately
-          # before maximum: 4294967295. Uses awk to only change format
-          # lines that are directly associated with the uint32 field.
-          awk '
-            /format: int32/ { prev=$0; prev_nr=NR; next }
-            /maximum: 4294967295/ && prev_nr==NR-1 {
+        grep -q "maximum: 4294967295" "$crd_yaml" || continue
+        grep -q "format: int64" "$crd_yaml" && continue
+        # Two cases:
+        # 1. "format: int32" on line before "maximum: 4294967295" → replace
+        # 2. No format line before "maximum: 4294967295" → insert
+        awk '
+          /format: int32/ { prev=$0; prev_nr=NR; next }
+          /maximum: 4294967295/ {
+            if (prev_nr==NR-1) {
               sub(/int32/, "int64", prev)
               print prev
-              print
-              prev=""; next
+            } else {
+              if (prev!="") print prev
+              match($0, /^[[:space:]]*/);
+              printf "%s%s\n", substr($0, 1, RLENGTH), "format: int64"
             }
-            { if (prev!="") print prev; prev=""; print }
-            END { if (prev!="") print prev }
-          ' "$crd_yaml" > "${crd_yaml}.tmp" && mv "${crd_yaml}.tmp" "$crd_yaml"
+            print; prev=""; next
+          }
+          { if (prev!="") print prev; prev=""; print }
+          END { if (prev!="") print prev }
+        ' "$crd_yaml" > "${crd_yaml}.tmp"
+        chmod --reference="$crd_yaml" "${crd_yaml}.tmp" 2>/dev/null
+        mv "${crd_yaml}.tmp" "$crd_yaml"
+        # Verify
+        if grep -q "format: int64" "$crd_yaml"; then
           echo "  Patched $(basename "$crd_yaml")"
+        else
+          echo "  WARNING: Failed to patch format: int64 in $(basename "$crd_yaml")"
         fi
       done
     done
@@ -666,9 +713,12 @@ fix_crd_name_validation() {
     fi
 
     echo ":: Restoring metadata.name validation (pattern: $pattern_val) in $(basename "$crd_file")"
+    # Escape sed replacement special chars (& and \) in the pattern value
+    local safe_pattern
+    safe_pattern=$(printf '%s' "$pattern_val" | sed 's/[&\\]/\\&/g')
     sed -i '/^          metadata:/{
 N
-s/\(metadata:\n *type: object\)/\1\n            properties:\n              name:\n                type: string\n                pattern: '"$pattern_val"'/
+s/\(metadata:\n *type: object\)/\1\n            properties:\n              name:\n                type: string\n                pattern: '"$safe_pattern"'/
 }' "$crd_file"
 
     # Verify the fix applied
