@@ -560,6 +560,26 @@ SKIP
   fi
 }
 
+fix_crd_int64_validation() {
+  # k8s 1.36 rejects CRD integer fields where Maximum > int32 max
+  # but format is int32 (the default for uint32 Go types).
+  # Detect and warn — can't auto-fix because it requires codegen.
+  local files
+  files=$(find . -name "*types*.go" -path "*/crd/*" -not -path "*/vendor/*" 2>/dev/null)
+  [[ -z "$files" ]] && return 0
+  for f in $files; do
+    if grep -q "Maximum.*4294967295\|Maximum.*2147483647" "$f" && ! grep -q "Format.*int64\|Format=int64" "$f"; then
+      echo ":: WARNING: $f has uint32 fields with Maximum > int32 range"
+      echo "   k8s 1.36 rejects CRDs without format:int64 for these fields."
+      echo "   Add '+kubebuilder:validation:Format=int64' above each field,"
+      echo "   then run 'make generate' to regenerate the CRD."
+      grep -n "Maximum.*4294967295\|Maximum.*2147483647" "$f" | while read line; do
+        echo "   $line"
+      done
+    fi
+  done
+}
+
 fix_network_policy_api_crds() {
   # The conformance module may use a different network-policy-api version
   # than go-controller. Do NOT force-bump the conformance module to match —
@@ -966,6 +986,7 @@ fix_metallb_version
 fix_kubevirt_version
 fix_relaxed_service_name_validation
 fix_network_policy_api_crds
+fix_crd_int64_validation
 
 # Regenerate mocks if codegen deleted them (belt-and-suspenders with k8s-rebase.sh)
 fix_mocks

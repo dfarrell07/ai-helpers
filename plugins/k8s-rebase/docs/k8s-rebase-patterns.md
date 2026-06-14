@@ -177,6 +177,20 @@ processing order from `maps.Keys`) may flake after migration.
 These are pre-existing test fragilities, not rebase bugs — verify
 by re-running the failing test individually.
 
+### Project CRD int64 validation (k8s 1.36)
+
+k8s 1.36 enforces stricter CRD integer format validation. Any
+CRD field with `uint32` type and `Maximum > 2^31-1` (int32 max)
+needs `+kubebuilder:validation:Format=int64` or the CRD is
+rejected at runtime. Symptom: tests that use the CRD fail with
+timeouts because resources aren't properly applied.
+
+Example: NetworkQoS `Rate` and `Burst` fields are `uint32` with
+`Maximum:=4294967295`. Fix: add `+kubebuilder:validation:Format=int64`
+to both fields in `types.go`, then regenerate the CRD with
+`make generate` or `controller-gen`. The autofix warns about
+this but can't auto-fix (requires codegen).
+
 ### MetalLB CRD validation (k8s 1.36)
 
 k8s 1.36 enforces stricter CRD validation: `format: int32` is
