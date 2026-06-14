@@ -563,49 +563,56 @@ SKIP
 fix_crd_int64_validation() {
   # k8s 1.36 rejects CRD integer fields where Maximum > int32 max
   # but format is int32 (the default for uint32 Go types).
-  # Add +kubebuilder:validation:Format=int64 marker and regenerate.
+  #
+  # Two-part fix:
+  # 1. Add +kubebuilder:validation:Format=int64 marker to types.go
+  #    (ensures future codegen produces correct CRDs)
+  # 2. Patch format: int64 directly into the CRD YAML files
+  #    (immediate fix without re-running codegen, which would strip
+  #    hand-edited metadata blocks from unrelated CRDs)
   local files fixed=0
   files=$(find . -name "*types*.go" -path "*/crd/*" -not -path "*/vendor/*" 2>/dev/null)
   [[ -z "$files" ]] && return 0
   for f in $files; do
     if grep -q "Maximum.*4294967295" "$f" && ! grep -q "Format.*int64\|Format=int64" "$f"; then
-      echo ":: Fixing CRD int64 validation in $f"
-      # Insert +kubebuilder:validation:Format=int64 after each Maximum marker
+      echo ":: Adding Format=int64 kubebuilder marker in $f"
       sed -i '/Maximum.*4294967295/a\\t// +kubebuilder:validation:Format=int64' "$f"
       fixed=1
     fi
   done
   if [[ "$fixed" -eq 1 ]]; then
-    # Regenerate CRDs. Use make codegen if available (pins controller-gen
-    # version, handles helm copy). Fall back to controller-gen directly.
-    echo ":: Regenerating CRDs after adding Format=int64 markers"
-    local regen_ok=false
-    if [[ -f "$MODULE_ROOT/Makefile" ]] && grep -q "^codegen:" "$MODULE_ROOT/Makefile"; then
-      echo ":: Running make -C $MODULE_ROOT codegen"
-      if make -C "$MODULE_ROOT" codegen 2>&1; then
-        regen_ok=true
-      else
-        echo "  make codegen failed, trying controller-gen directly..."
-      fi
-    fi
-    if [[ "$regen_ok" != "true" ]]; then
-      command -v controller-gen &>/dev/null || go install sigs.k8s.io/controller-tools/cmd/controller-gen@latest 2>/dev/null
-      if command -v controller-gen &>/dev/null; then
-        local output_dir="${MODULE_ROOT}/_output/crds"
-        mkdir -p "$output_dir"
-        (cd "$MODULE_ROOT" && controller-gen crd:crdVersions="v1" paths=./pkg/crd/... output:crd:dir=_output/crds) 2>&1 || echo "  WARNING: controller-gen failed"
-        local helm_crd_dir
-        helm_crd_dir=$(find . -path "*/helm/*/crds" -type d -not -path "*/vendor/*" | head -1)
-        if [[ -n "$helm_crd_dir" ]] && [[ -d "$output_dir" ]]; then
-          cp "$output_dir"/*.yaml "$helm_crd_dir/" 2>/dev/null
-          echo ":: Copied CRDs to $helm_crd_dir"
+    # Patch CRD YAML files directly instead of re-running codegen
+    # (which strips hand-edited metadata blocks from unrelated CRDs).
+    # k8s-rebase.sh Phase 2 already ran codegen; the CRD YAMLs have
+    # format: int32 on these fields — just change int32 to int64.
+    echo ":: Patching CRD YAML files: format int32 → int64 for uint32 fields"
+    local helm_crd_dir
+    helm_crd_dir=$(find . -path "*/helm/*/crds" -type d -not -path "*/vendor/*" | head -1)
+    local output_dir
+    output_dir=$(find . -path "*/_output/crds" -type d -not -path "*/vendor/*" | head -1)
+    for dir in $helm_crd_dir $output_dir; do
+      [[ -n "$dir" && -d "$dir" ]] || continue
+      for crd_yaml in "$dir"/*.yaml; do
+        [[ -f "$crd_yaml" ]] || continue
+        if grep -q "maximum: 4294967295" "$crd_yaml"; then
+          # Change format: int32 to format: int64 on lines immediately
+          # before maximum: 4294967295. Uses awk to only change format
+          # lines that are directly associated with the uint32 field.
+          awk '
+            /format: int32/ { prev=$0; prev_nr=NR; next }
+            /maximum: 4294967295/ && prev_nr==NR-1 {
+              sub(/int32/, "int64", prev)
+              print prev
+              print
+              prev=""; next
+            }
+            { if (prev!="") print prev; prev=""; print }
+            END { if (prev!="") print prev }
+          ' "$crd_yaml" > "${crd_yaml}.tmp" && mv "${crd_yaml}.tmp" "$crd_yaml"
+          echo "  Patched $(basename "$crd_yaml")"
         fi
-        regen_ok=true
-      fi
-    fi
-    if [[ "$regen_ok" != "true" ]]; then
-      echo "  WARNING: CRD regeneration failed. Run 'make codegen' manually."
-    fi
+      done
+    done
   fi
 }
 
