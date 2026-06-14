@@ -107,7 +107,12 @@ run_checks() {
   else
     r "AddToScheme in conformance" "0"
   fi
-  r "BANP wrong EgressPeer" "$(grep 'AdminNetworkPolicyEgressPeer' go-controller/pkg/ovn/baseline_admin_network_policy_test.go 2>/dev/null | grep -vc Baseline)"
+  # Only flag shared EgressPeer in BANP test if the split type exists in vendor
+  if grep -rq "BaselineAdminNetworkPolicyEgressPeer" "$MODULE_ROOT/vendor/sigs.k8s.io/network-policy-api/" 2>/dev/null; then
+    r "BANP wrong EgressPeer" "$(grep 'AdminNetworkPolicyEgressPeer' go-controller/pkg/ovn/baseline_admin_network_policy_test.go 2>/dev/null | grep -vc Baseline)"
+  else
+    r "BANP wrong EgressPeer" "0"
+  fi
   # Gate checks — driven by GATE_DEPS map. Only checks gates that
   # exist in the vendored k8s code (safe across k8s versions).
   local _active_gates="" _all_gate_names=""
@@ -655,14 +660,17 @@ fix_banp_egresspeer() {
   local file
   file=$(find . -name "baseline_admin_network_policy_test.go" -not -path "*/vendor/*" | head -1)
   [[ -z "$file" ]] && return 0
+  # Only rename if BaselineAdminNetworkPolicyEgressPeer exists in vendored source.
+  # In network-policy-api v0.1.x, the type doesn't exist — BANP uses the
+  # shared AdminNetworkPolicyEgressPeer. In v0.2.0+ it was split.
+  if ! grep -rq "BaselineAdminNetworkPolicyEgressPeer" "$MODULE_ROOT/vendor/sigs.k8s.io/network-policy-api/" 2>/dev/null; then
+    return 0
+  fi
   local count
   count=$(grep 'AdminNetworkPolicyEgressPeer' "$file" | grep -vc Baseline)
   [[ "$count" -eq 0 ]] && return 0
   echo ":: Fixing BANP EgressPeer type in $file ($count occurrences)"
-  # In BANP test files, non-Baseline AdminNetworkPolicyEgressPeer → BaselineAdminNetworkPolicyEgressPeer
   sed -i 's/\bAdminNetworkPolicyEgressPeer\b/BaselineAdminNetworkPolicyEgressPeer/g' "$file"
-  # The above also changes BaselineAdminNetworkPolicyEgressPeer to
-  # BaselineBaselineAdminNetworkPolicyEgressPeer — fix the double prefix
   sed -i 's/BaselineBaselineAdminNetworkPolicyEgressPeer/BaselineAdminNetworkPolicyEgressPeer/g' "$file"
 }
 
