@@ -264,7 +264,9 @@ missing format directives. Report all counts."
 
 **Completeness agent** (count-check, all must be 0):
 "Count stale v1.OLD version refs in yml/sh/md files (exclude
-K8S_VERSION if kindest/node image isn't published yet). Count
+K8S_VERSION if kindest/node image isn't published yet, and
+exclude historical references like 'introduced in K8s 1.OLD'
+which are accurate context, not stale refs). Count
 files with SupportBaselineAdminNetworkPolicy. Report counts."
 
 **Gates agent** (count-check, all must be 0):
