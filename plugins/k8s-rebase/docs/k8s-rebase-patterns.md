@@ -248,10 +248,14 @@ Fix: read allocated addresses from the pod's Multus
 status. VMI status is correct for primary interfaces only.
 This is a test-only change — the OVN allocation is correct.
 
-### kubeadm v1beta4 format (k8s 1.36, not CI-blocking)
+### kubeadm v1beta4 format (k8s 1.36)
 
-kubeadm v1beta3 still works in k8s 1.36 but v1beta4 changes
-`extraArgs` from a map format to a list-of-name-value format:
+k8s 1.36 kubeadm may silently ignore v1beta3 `extraArgs` map
+format, causing controller-manager flags like
+`-service-lb-controller` to not be applied. This leads to
+subtle test failures (LB iptables, MTU recovery) because the
+cluster runs with different controller settings than intended.
+Migrate `kind.yaml.j2` kubeadmConfigPatches to v1beta4 format:
 ```yaml
 # v1beta3 (old)
 apiServer:
