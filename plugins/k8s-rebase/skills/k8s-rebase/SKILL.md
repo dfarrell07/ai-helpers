@@ -111,6 +111,13 @@ If errors appear in `/go/pkg/mod/` paths (not the project's own
 code), a direct dependency is incompatible with the bumped k8s
 packages. Extract the module path (between `/go/pkg/mod/` and
 `@`) and fix with `go get <module>@latest && go mod tidy`.
+
+**Do NOT bump non-k8s dependencies** in other modules (e.g.,
+`test/conformance/`) unless the build actually fails. The
+conformance module may intentionally use a different version of
+`network-policy-api` than go-controller — bumping it to match
+can break CI (v0.2.0 conformance creates ClusterNetworkPolicy
+resources that the controller doesn't support yet).
 When converting types, read the FULL struct definition and map
 ALL fields. Check test files for the same type changes — test
 files often use the same types as source files. Create separate
