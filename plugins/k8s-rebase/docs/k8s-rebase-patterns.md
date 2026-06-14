@@ -188,9 +188,10 @@ timeouts because resources aren't properly applied.
 
 Example: NetworkQoS `Rate` and `Burst` fields are `uint32` with
 `Maximum:=4294967295`. Fix: add `+kubebuilder:validation:Format=int64`
-to both fields in `types.go`, then regenerate the CRD with
-`make generate` or `controller-gen`. The autofix warns about
-this but can't auto-fix (requires codegen).
+to both fields in `types.go`, then change `format: int32` to
+`format: int64` in the CRD YAML. The autofix handles both — it adds
+the kubebuilder marker and patches the YAML directly (no codegen
+re-run, which would strip hand-edited metadata blocks).
 
 ### CRD metadata.name validation lost during codegen (recurring)
 
