@@ -609,6 +609,43 @@ fix_crd_int64_validation() {
   fi
 }
 
+fix_crd_name_validation() {
+  # controller-gen strips hand-edited metadata.name pattern validations.
+  # EgressQoS and EgressFirewall CRDs require name=default; re-insert
+  # the validation after any codegen run.
+  local helm_crd_dir
+  helm_crd_dir=$(find . -path "*/helm/*/crds" -type d -not -path "*/vendor/*" | head -1)
+  [[ -z "$helm_crd_dir" ]] && return 0
+  for crd_file in "$helm_crd_dir"/k8s.ovn.org_egressqoses.yaml "$helm_crd_dir"/k8s.ovn.org_egressfirewalls.yaml; do
+    [[ -f "$crd_file" ]] || continue
+    if grep -q "pattern: .default" "$crd_file"; then
+      continue
+    fi
+    if grep -q "metadata:" "$crd_file"; then
+      echo ":: Re-inserting metadata.name pattern validation in $(basename "$crd_file")"
+      sed -i '/^          metadata:/{
+N
+s/\(metadata:\n *type: object\)/\1\n            properties:\n              name:\n                type: string\n                pattern: ^default$/
+}' "$crd_file"
+    fi
+  done
+  local output_dir
+  output_dir=$(find . -path "*/_output/crds" -type d -not -path "*/vendor/*" | head -1)
+  [[ -z "$output_dir" ]] && return 0
+  for crd_file in "$output_dir"/k8s.ovn.org_egressqoses.yaml "$output_dir"/k8s.ovn.org_egressfirewalls.yaml; do
+    [[ -f "$crd_file" ]] || continue
+    if grep -q "pattern: .default" "$crd_file"; then
+      continue
+    fi
+    if grep -q "metadata:" "$crd_file"; then
+      sed -i '/^          metadata:/{
+N
+s/\(metadata:\n *type: object\)/\1\n            properties:\n              name:\n                type: string\n                pattern: ^default$/
+}' "$crd_file"
+    fi
+  done
+}
+
 fix_network_policy_api_crds() {
   # The conformance module may use a different network-policy-api version
   # than go-controller. Do NOT force-bump the conformance module to match —
@@ -1016,6 +1053,7 @@ fix_kubevirt_version
 fix_relaxed_service_name_validation
 fix_network_policy_api_crds
 fix_crd_int64_validation
+fix_crd_name_validation
 
 # Regenerate mocks if codegen deleted them (belt-and-suspenders with k8s-rebase.sh)
 fix_mocks

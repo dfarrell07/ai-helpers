@@ -42,6 +42,7 @@ When rebasing to k8s 1.37+, update these files:
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go — upstream must add new interface methods first |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
+| CRD name validation lost | `not-default created` (should be rejected) | Re-insert `metadata.name: pattern: ^default$` after codegen |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
 ## Feature Gates (recurring)
@@ -190,6 +191,36 @@ Example: NetworkQoS `Rate` and `Burst` fields are `uint32` with
 to both fields in `types.go`, then regenerate the CRD with
 `make generate` or `controller-gen`. The autofix warns about
 this but can't auto-fix (requires codegen).
+
+### CRD metadata.name validation lost during codegen (recurring)
+
+Some CRDs enforce `metadata.name` must be a specific value (e.g.
+`"default"`) via a hand-edited `pattern: ^default$` in the CRD
+YAML. `controller-gen` doesn't generate metadata constraints, so
+re-running codegen strips these validations. Symptom: tests that
+create resources with invalid names succeed instead of being
+rejected:
+```
+egressqos.k8s.ovn.org/not-default created
+```
+but the test expected:
+```
+Invalid value: "not-default"
+```
+Fix: after any codegen run, re-insert the `metadata.name` pattern
+block into the affected CRD YAMLs (both `_output/crds/` and
+`helm/*/crds/`):
+```yaml
+          metadata:
+            type: object
+            properties:
+              name:
+                type: string
+                pattern: ^default$
+```
+Known affected CRDs: `k8s.ovn.org_egressqoses.yaml` and
+`k8s.ovn.org_egressfirewalls.yaml`. The autofix script handles
+this automatically.
 
 ### MetalLB CRD validation (k8s 1.36)
 
