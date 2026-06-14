@@ -30,6 +30,54 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 info() { echo ":: $*"; }
 banner() { echo ""; echo "━━━━ $* ━━━━"; echo ""; }
 
+# Save/restore CRD hand-edits across codegen.
+# controller-gen regenerates CRD YAMLs but can't express hand-edited
+# constraints like metadata.name patterns. These functions snapshot
+# CRD files before codegen and splice preserved sections back after.
+save_crd_metadata() {
+  local helm_crd_dir save_dir="$REBASE_TMP/crd-pre-codegen"
+  helm_crd_dir=$(find "$REPO_ROOT" -path "*/helm/*/crds" -type d -not -path "*/vendor/*" 2>/dev/null | head -1)
+  [[ -z "$helm_crd_dir" ]] && return 0
+  rm -rf "$save_dir" && mkdir -p "$save_dir"
+  cp "$helm_crd_dir"/*.yaml "$save_dir/" 2>/dev/null
+  echo "$helm_crd_dir" > "$save_dir/.helm-crd-dir"
+}
+restore_crd_metadata() {
+  local save_dir="$REBASE_TMP/crd-pre-codegen"
+  [[ -d "$save_dir" ]] || return 0
+  local helm_crd_dir
+  helm_crd_dir=$(cat "$save_dir/.helm-crd-dir" 2>/dev/null) || return 0
+  [[ -d "$helm_crd_dir" ]] || return 0
+  local restored=0
+  for saved in "$save_dir"/*.yaml; do
+    [[ -f "$saved" ]] || continue
+    local crd="$helm_crd_dir/$(basename "$saved")"
+    [[ -f "$crd" ]] || continue
+    # Find metadata section boundaries in both files
+    local s_start s_end c_start c_end
+    s_start=$(grep -n "^          metadata:" "$saved" | head -1 | cut -d: -f1)
+    c_start=$(grep -n "^          metadata:" "$crd" | head -1 | cut -d: -f1)
+    [[ -z "$s_start" || -z "$c_start" ]] && continue
+    s_end=$(awk "NR>$s_start && /^          [a-z]/{print NR; exit}" "$saved")
+    c_end=$(awk "NR>$c_start && /^          [a-z]/{print NR; exit}" "$crd")
+    [[ -z "$s_end" || -z "$c_end" ]] && continue
+    # Compare metadata sections — if saved has more lines, hand-edits were stripped
+    local s_lines=$((s_end - s_start)) c_lines=$((c_end - c_start))
+    if [[ "$s_lines" -gt "$c_lines" ]]; then
+      info "Restoring CRD metadata hand-edits in $(basename "$crd") ($s_lines lines → was $c_lines)"
+      {
+        head -n "$((c_start - 1))" "$crd"
+        sed -n "${s_start},$((s_end - 1))p" "$saved"
+        tail -n "+${c_end}" "$crd"
+      } > "${crd}.tmp"
+      chmod --reference="$crd" "${crd}.tmp" 2>/dev/null
+      mv "${crd}.tmp" "$crd"
+      restored=1
+    fi
+  done
+  [[ "$restored" -eq 1 ]] && info "CRD metadata hand-edits restored"
+}
+
 # ── Argument parsing ─────────────────────────────────────────────────
 
 if [[ $# -lt 1 ]]; then
@@ -366,6 +414,9 @@ for candidate in go-controller/hack/update-codegen.sh hack/update-codegen.sh; do
   fi
 done
 
+# Save CRD hand-edits before any codegen (restored after)
+save_crd_metadata
+
 if [[ -n "$CODEGEN_SCRIPT" ]]; then
   banner "Phase 2: Code Generation"
 
@@ -391,6 +442,7 @@ elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
       fi
     fi
   done
+  restore_crd_metadata
 
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
@@ -429,6 +481,7 @@ elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
       CODEGEN_FAILED=1
     fi
   fi
+  restore_crd_metadata
 
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
@@ -451,6 +504,7 @@ elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
         if make -C "$CODEGEN_DIR" "$target" > "$CODEGEN_LOG" 2>&1 || bash "$CODEGEN_SCRIPT" > "$CODEGEN_LOG" 2>&1; then
           info "Codegen succeeded after removing --${bad_flag}"
           CODEGEN_FAILED=0
+          restore_crd_metadata
           cd "$REPO_ROOT"
           if [[ -n "$(git status --porcelain)" ]]; then
             git add -A
@@ -488,6 +542,7 @@ elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
 else
   info "No codegen script found, skipping Phase 2"
 fi
+rm -rf "$REBASE_TMP/crd-pre-codegen"
 
 # ── Phase 3: Version Reference Updates ───────────────────────────────
 
