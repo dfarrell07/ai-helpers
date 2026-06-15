@@ -277,8 +277,9 @@ General agents (any Go k8s project):
 4. (judge) "Maintainer review: does every change serve the k8s version bump, or are there unrelated cleanups, style changes, or logic alterations? Would a maintainer approve this diff as-is?"
 5. (judge) "CI prediction: could any test pass locally but fail in CI due to missing fixtures, wrong API versions, hardcoded assumptions, or e2e infrastructure incompatibilities (wrong KIND image, missing CRDs, stale FRR images)?"
 
+6. (count) "Go module health: run `go build ./...` and `go vet ./...` in each module (find go.mod, exclude vendor). Step 1 ran this before autofix and lint fixes — this re-run catches issues those later fixes may have introduced. Report total error count."
+
 Repo-specific agents (adapt to what exists — skip if N/A):
-6. (count) "Go module health: run `go build ./...` and `go vet ./...` in each module (find go.mod, exclude vendor). This catches issues the agent's lint fixes may have introduced. Report total error count."
 7. (judge) "Logical consistency: read ALL fix commits (autofix + agent). For each function modified, verify the change is self-consistent. If a field was added to a struct, is it used in comparisons, propagated in copies, and tested? Flag inconsistencies like a field set but never checked."
 8. (judge) "CI readiness: read the patterns doc. Are there any documented patterns that apply to this repo but have NO corresponding fix in the branch diff? Are there any e2e infrastructure changes missing (CRDs, KIND config, test skips)? Flag gaps that would cause CI failures."
 
