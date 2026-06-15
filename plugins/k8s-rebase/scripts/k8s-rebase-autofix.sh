@@ -1152,6 +1152,20 @@ fix_imports() {
   fi
 }
 
+fix_bounding_dirs() {
+  # Remove deprecated --bounding-dirs flag from codegen scripts.
+  # k8s 1.36 deepcopy-gen removed this flag. k8s-rebase.sh auto-retries
+  # on "unknown flag" errors but may not permanently remove the flag if
+  # the tool accepts it as a no-op.
+  local codegen_script
+  codegen_script=$(find . -name "update-codegen.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
+  [[ -z "$codegen_script" ]] && return 0
+  if grep -q "bounding-dirs" "$codegen_script"; then
+    echo ":: Removing deprecated --bounding-dirs from $(basename "$codegen_script")"
+    sed -i '/--bounding-dirs/d' "$codegen_script"
+  fi
+}
+
 fix_mocks() {
   # Regenerate mocks if codegen deleted them. This covers the case where
   # the agent (not k8s-rebase.sh) ran codegen — k8s-rebase.sh has its
@@ -1259,6 +1273,9 @@ fix_kubeadm_v1beta4
 fix_network_policy_api_crds
 fix_crd_int64_validation
 fix_crd_name_validation
+
+# Remove deprecated codegen flags and regenerate if needed
+fix_bounding_dirs
 
 # Regenerate mocks if codegen deleted them (belt-and-suspenders with k8s-rebase.sh)
 fix_mocks

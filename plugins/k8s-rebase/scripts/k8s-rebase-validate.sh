@@ -251,6 +251,26 @@ if [[ "$MODE" == "test-only" ]]; then
     TEST_ONLY_PKGS="${cleaned# }"
   fi
 
+  # Filter out root_pkgs (need CAP_NET_ADMIN, always fail unprivileged)
+  local test_go_sh
+  test_go_sh=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" 2>/dev/null | head -1)
+  if [[ -n "$test_go_sh" ]]; then
+    local root_pkgs_pattern
+    root_pkgs_pattern=$(sed -n '/root_pkgs=(/,/)/p' "$test_go_sh" | grep -oE 'pkg/[^"]+' | tr '\n' '|' || true)
+    if [[ -n "$root_pkgs_pattern" ]]; then
+      local filtered=""
+      for pkg in $TEST_ONLY_PKGS; do
+        if echo "$pkg" | grep -qE "(${root_pkgs_pattern%|})"; then
+          echo ":: Skipping root_pkg $pkg (needs CAP_NET_ADMIN)"
+        else
+          filtered="$filtered $pkg"
+        fi
+      done
+      TEST_ONLY_PKGS="${filtered# }"
+      [[ -z "$TEST_ONLY_PKGS" ]] && { echo "All packages are root_pkgs — nothing to test unprivileged"; exit 0; }
+    fi
+  fi
+
   # Determine timeout — 60m for packages over 30k test lines, 30m otherwise
   TEST_TIMEOUT="30m"
   TOTAL_LINES=0
