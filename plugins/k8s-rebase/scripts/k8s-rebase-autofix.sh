@@ -913,12 +913,15 @@ fix_obsgen() {
 \\t\\t\\tWithObservedGeneration(${gen_var})." "$file"
     done < <(grep -n 'WithStatus(newCondition' "$file" | tac | cut -d: -f1)
   else
-    # Struct literal pattern: insert field assignment after fetching ANP/BANP
-    # Look for lines like "anp, err := ..." then insert after the error check
+    # Struct literal pattern: three changes needed for correctness.
+    # 1. Set newCondition.ObservedGeneration = X.Generation after fetching
+    # 2. Add ObservedGeneration to doesStatusNeedAnUpdate comparison
+    # 3. Propagate ObservedGeneration when reusing existingCondition
+
+    # Change 1: insert assignment after object fetch + error check
     for func_pattern in "updateANPZoneStatusCondition" "updateBANPZoneStatusCondition"; do
       local obj_var="anp"
       [[ "$func_pattern" == *BANP* ]] && obj_var="banp"
-      # Find the "return err" line after the object fetch in this function
       local return_line
       return_line=$(awk "
         /func.*${func_pattern}/ { in_func=1 }
@@ -930,6 +933,19 @@ fix_obsgen() {
 \\tnewCondition.ObservedGeneration = ${obj_var}.Generation" "$file"
       fi
     done
+
+    # Change 2: add ObservedGeneration to the equality check in doesStatusNeedAnUpdate
+    if grep -q "existingCondition.Message == newCondition.Message {" "$file" &&
+       ! grep -q "existingCondition.ObservedGeneration == newCondition.ObservedGeneration" "$file"; then
+      sed -i 's/existingCondition\.Message == newCondition\.Message {/existingCondition.Message == newCondition.Message \&\&\
+\t\texistingCondition.ObservedGeneration == newCondition.ObservedGeneration {/' "$file"
+    fi
+
+    # Change 3: propagate ObservedGeneration when copying from existingCondition
+    # Insert after each "existingCondition.Message = newCondition.Message" line
+    if ! grep -q "existingCondition.ObservedGeneration = newCondition.ObservedGeneration" "$file"; then
+      sed -i '/existingCondition\.Message = newCondition\.Message/a\\t\texistingCondition.ObservedGeneration = newCondition.ObservedGeneration' "$file"
+    fi
   fi
 }
 
