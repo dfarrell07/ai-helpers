@@ -885,28 +885,43 @@ fix_conformance_renames() {
 }
 
 fix_obsgen() {
-  # Add WithObservedGeneration to ConditionApplyConfiguration builder chains.
-  # Only runs if the agent already converted WithConditions to the builder
-  # pattern but omitted ObservedGeneration (agents confuse which struct
-  # has this field — it's on ConditionApplyConfiguration, not ANP status).
+  # Ensure ObservedGeneration is set on ANP/BANP status conditions.
+  # Handles both patterns:
+  #   Builder chain: .WithObservedGeneration(anp.Generation)
+  #   Struct literal: newCondition.ObservedGeneration = anp.Generation
   local file="go-controller/pkg/ovn/controller/admin_network_policy/status.go"
   [[ -f "$file" ]] || return 0
-  # Only fix if builder pattern exists (agent already converted)
-  grep -q 'Condition()' "$file" || return 0
-  # Skip if ObservedGeneration already present (builder or struct literal)
-  grep -q 'WithObservedGeneration\|ObservedGeneration' "$file" && return 0
+  grep -q 'WithObservedGeneration\|\.ObservedGeneration' "$file" && return 0
 
   echo ":: Fixing ObsGen in $file"
-  # Insert WithObservedGeneration after each WithStatus(newCondition line.
-  # Process in reverse (tac) so line numbers don't shift.
-  # In tac order: BANP appears first (later in file), ANP second.
-  local is_first=true
-  while IFS= read -r lineno; do
-    local gen_var="anp.Generation"
-    $is_first && gen_var="banp.Generation" && is_first=false
-    sed -i "${lineno}a\\
+  if grep -q 'Condition()' "$file"; then
+    # Builder pattern: insert WithObservedGeneration in chain
+    local is_first=true
+    while IFS= read -r lineno; do
+      local gen_var="anp.Generation"
+      $is_first && gen_var="banp.Generation" && is_first=false
+      sed -i "${lineno}a\\
 \\t\\t\\tWithObservedGeneration(${gen_var})." "$file"
-  done < <(grep -n 'WithStatus(newCondition' "$file" | tac | cut -d: -f1)
+    done < <(grep -n 'WithStatus(newCondition' "$file" | tac | cut -d: -f1)
+  else
+    # Struct literal pattern: insert field assignment after fetching ANP/BANP
+    # Look for lines like "anp, err := ..." then insert after the error check
+    for func_pattern in "updateANPZoneStatusCondition" "updateBANPZoneStatusCondition"; do
+      local obj_var="anp"
+      [[ "$func_pattern" == *BANP* ]] && obj_var="banp"
+      # Find the "return err" line after the object fetch in this function
+      local return_line
+      return_line=$(awk "
+        /func.*${func_pattern}/ { in_func=1 }
+        in_func && /${obj_var}, err :=/ { found_fetch=1 }
+        in_func && found_fetch && /return err/ { print NR; found_fetch=0; exit }
+      " "$file")
+      if [[ -n "$return_line" ]]; then
+        sed -i "$((return_line + 1))a\\
+\\tnewCondition.ObservedGeneration = ${obj_var}.Generation" "$file"
+      fi
+    done
+  fi
 }
 
 fix_banp_egresspeer() {
