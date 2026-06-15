@@ -149,21 +149,23 @@ definition in vendor and list ALL fields. Compare against the
 conversion code. Report any fields present in the struct but
 missing from the conversion."
 
-**Gate:** Launch all of the following subagents in one parallel
-wave. The first group is general (works for any repo). The second
-group adapts to what this repo actually has. To extend for future
-k8s versions: add repo-specific agents when new autofix patterns
-are added; the general agents rarely need changes.
+**Gate:** Read each gate file and launch one subagent per file
+in a single parallel wave. Give each subagent the repo path.
+```bash
+GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
+  -path "*/k8s-rebase/gates/step1" -type d 2>/dev/null | head -1)
+```
+Gate files (one subagent per file):
+- `build-vet.md` (count)
+- `version-consistency.md` (count)
+- `type-conversions.md` (judge)
+- `fix-correctness.md` (judge)
+- `patterns-coverage.md` (judge)
 
-General agents (any Go k8s project):
-1. (count) "Run `go build ./...` and `go vet ./...` in each module directory (find go.mod, exclude vendor). Report total error count."
-2. (count) "Count go.mod files where k8s.io/* versions are inconsistent (e.g., api at v0.36 but client-go at v0.35). For each module with vendor/, verify vendor is in sync. Report inconsistency count."
-3. (judge) "Review type conversions: for each struct conversion, read the FULL struct in vendor. Are any fields silently dropped? Could any conversion lose data at runtime?"
-4. (judge) "Review fix correctness: did the agent understand WHY each change was needed, or just make the compiler happy? Flag fixes that compile but would behave incorrectly at runtime."
-5. (judge) "Read the patterns doc. For EACH pattern in the Pattern Table, check if the symptom file/code exists in this repo (e.g., does the repo have x/exp imports? FieldsV1.Raw? CRDs with int32? kind.yaml.j2 with extraArgs?). List each pattern, whether it applies, and if so whether it was fixed. Flag patterns that apply but were not addressed."
-
-All counts must be 0. If judgment agents flag concerns,
-investigate before proceeding.
+Count gates must report 0. Judge gates must cite evidence.
+Investigate all concerns before proceeding. To add a gate for
+future k8s versions: create a new `.md` file in the step1/
+directory and add it to this list.
 
 ### Step 2: Run autofix script
 
@@ -187,25 +189,24 @@ PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.m
 [ -n "$PATTERNS" ] && cat "$PATTERNS"
 ```
 
-**Gate:** Launch all of the following subagents in one parallel
-wave. General agents verify the autofix output is clean.
-Repo-specific agents verify fixes that depend on the repo's
-structure. To extend: when adding a new autofix pattern, add a
-matching repo-specific agent here.
+**Gate:** Read each gate file and launch one subagent per file
+in a single parallel wave. Give each subagent the repo path.
+```bash
+GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
+  -path "*/k8s-rebase/gates/step2" -type d 2>/dev/null | head -1)
+```
+Gate files (one subagent per file):
+- `autofix-result.md` (count)
+- `deprecated-api-remnants.md` (count)
+- `feature-gates.md` (count)
+- `autofix-diff-review.md` (judge)
+- `crd-validation.md` (count)
+- `logical-completeness.md` (count)
+- `e2e-infra.md` (judge)
+- `patterns-completeness.md` (judge)
 
-General agents (any Go k8s project — verify autofix cleaned up):
-1. (count) "Read the autofix output. If RESULT is FAIL, report which checks failed. Count WARNING lines. Report total issues."
-2. (count) "Count deprecated API remnants the autofix should have fixed: `golang.org/x/exp` imports, `reflect.Ptr`, `FieldsV1.Raw` or `FieldsV1{Raw:` (all excluding vendor). Report total."
-3. (count) "If test files use feature gates (SetFromMap or KUBE_FEATURE_): read the GATE_DEPS map. Count files missing any gate. Verify gates match between SetFromMap, env vars, and test-go.sh. Report count."
-4. (judge) "Read the autofix commit's diff. For each code change, verify it is a correct transformation (x/exp→stdlib, imports in right section, format strings correct). Report inconsistencies."
-
-Repo-specific agents (verify fixes are COMPLETE, not just present):
-5. (count) "If CRD YAMLs exist in helm/*/crds/: count files where `format: int32` precedes `maximum: 4294967295`. Count CRDs that lost metadata.name pattern validation compared to the base branch (`git show master:path`). Report both counts."
-6. (count) "Read the autofix commit diff. For each Go function it modified: (a) read the FULL function after the change, (b) trace every added statement — if a value is assigned, is it later read? If it's read in one path, is it read in all paths? (c) Check for logical gaps: a field set but not compared, a field compared but not propagated when the struct is copied. List each function checked and your finding. Count functions with partial changes. Report count."
-7. (judge) "If e2e infrastructure was modified (kind-common.sh, kind.yaml.j2, e2e-kind.sh): verify MetalLB bumped, KubeVirt set to nightly, kubeadm extraArgs in v1beta4 list format, RelaxedServiceNameValidation probe present. Report issues."
-8. (judge) "Read the patterns doc. For each pattern the autofix handles, verify the fix is COMPLETE in this repo. Flag any partial fixes. This is the only patterns doc review for Step 2 — Step 1's patterns check verified fixes exist, this one verifies the autofix made them correct."
-
-All counts must be 0. Investigate judgment concerns.
+Count gates must report 0. Judge gates must cite evidence.
+Investigate all concerns before proceeding.
 
 ### Step 3: Lint, test, and review
 
@@ -271,25 +272,20 @@ boundaries loses output. The `--test-only` flag writes to a log
 file on the mounted volume, so results are always readable.
 
 The following agents run in parallel alongside the test agents.
-Step 2 already verified the autofix output, so these agents
-focus on the FULL branch diff (autofix + agent fixes together)
-and on things only visible after lint and agent fixes are done.
-General agents are stable across repos and versions.
-Repo-specific agents adapt to this repo's structure. To extend:
-add repo-specific agents when new patterns are discovered.
-
-General agents (any Go k8s project):
-1. (count) "Cleanliness: count uncommitted tracked files, root-owned files outside .git and vendor, and .rebase-tmp files tracked by git. Run on the host, NOT in a container. Report all three counts."
-2. (count) "Correctness: read the full diff against the base branch. Count changes not required by the rebase (version bumps, type conversions, API renames, format fixes, import reordering, codegen, feature gates, deprecated API migrations, dead code removal are all valid). Count format strings with wrong verbs. Count Eventf calls missing format directives. Report all counts."
-3. (count) "Version completeness: count stale v1.OLD version refs in yml/sh/md files (exclude K8S_VERSION if kindest/node image isn't published yet, and exclude historical references like 'introduced in K8s 1.OLD'). Report count."
-4. (judge) "Maintainer review: does every change serve the k8s version bump, or are there unrelated cleanups, style changes, or logic alterations? Would a maintainer approve this diff as-is?"
-5. (judge) "CI prediction: could any test pass locally but fail in CI due to missing fixtures, wrong API versions, hardcoded assumptions, or e2e infrastructure incompatibilities (wrong KIND image, missing CRDs, stale FRR images)?"
-
-6. (count) "Go module health: run `go build ./...` and `go vet ./...` in each module (find go.mod, exclude vendor). Step 1 ran this before autofix and lint fixes — this re-run catches issues those later fixes may have introduced. Report total error count."
-
-Repo-specific agents (adapt to what exists — skip if N/A):
-7. (judge) "Logical consistency: read ALL fix commits (autofix + agent). For each function modified, read the full function and trace data flow. Flag: fields set but never read, fields compared in one code path but not another, struct copies that drop fields. List each function checked and your finding — do not just say 'no issues'."
-8. (judge) "CI readiness: read the patterns doc. For EACH version-specific pattern (e.g., kubeadm v1beta4, MetalLB CRD, KubeVirt version, CRD int64), check if this repo has the relevant files AND whether the fix was applied. Also check: does any e2e test reference a hardcoded k8s version, CRD URL, or container image that needs updating? Flag gaps."
+Read each gate file and launch one subagent per file.
+```bash
+GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
+  -path "*/k8s-rebase/gates/step3b" -type d 2>/dev/null | head -1)
+```
+Gate files (one subagent per file):
+- `cleanliness.md` (count)
+- `correctness.md` (count)
+- `version-completeness.md` (count)
+- `maintainer-review.md` (judge)
+- `ci-prediction.md` (judge)
+- `build-vet-recheck.md` (count)
+- `logical-consistency.md` (judge)
+- `ci-readiness.md` (judge)
 
 All count-checks must be 0. Investigate judgment concerns.
 If any test agent reports failures or timeouts:
