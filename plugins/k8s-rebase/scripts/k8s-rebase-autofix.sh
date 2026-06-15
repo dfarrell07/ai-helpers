@@ -236,9 +236,14 @@ fix_xexp() {
     # Replace API usage
     sed -i 's/constraints\.Ordered/cmp.Ordered/g' "$f"
     # maps.Keys/Values now return iterators — wrap with slices.Collect
-    # Only wrap if not already wrapped
-    sed -i '/slices\.Collect/!s/\bmaps\.Keys(\([^)]*\))/slices.Collect(maps.Keys(\1))/g' "$f"
-    sed -i '/slices\.Collect/!s/\bmaps\.Values(\([^)]*\))/slices.Collect(maps.Values(\1))/g' "$f"
+    # Protect already-wrapped instances with placeholders so both Keys
+    # and Values on the same line are handled independently.
+    sed -i 's/slices\.Collect(maps\.Keys(/\x00SCMK(/g' "$f"
+    sed -i 's/slices\.Collect(maps\.Values(/\x00SCMV(/g' "$f"
+    sed -i 's/\bmaps\.Keys(\([^)]*\))/slices.Collect(maps.Keys(\1))/g' "$f"
+    sed -i 's/\bmaps\.Values(\([^)]*\))/slices.Collect(maps.Values(\1))/g' "$f"
+    sed -i 's/\x00SCMK(/slices.Collect(maps.Keys(/g' "$f"
+    sed -i 's/\x00SCMV(/slices.Collect(maps.Values(/g' "$f"
     # maps.Clear → builtin clear
     sed -i 's/\bmaps\.Clear(\([^)]*\))/clear(\1)/g' "$f"
     # Missing imports (maps, slices, cmp) and placement handled by goimports below
