@@ -596,6 +596,79 @@ SKIP
   fi
 }
 
+fix_kubeadm_v1beta4() {
+  # k8s 1.36 silently ignores kubeadm v1beta3 extraArgs map format,
+  # causing controller-manager flags (e.g. -service-lb-controller) to
+  # not be applied. Migrate kind.yaml.j2 to v1beta4 list format.
+  local kind_yaml
+  kind_yaml=$(find . -name "kind.yaml.j2" -path "*/contrib/*" | head -1)
+  [[ -z "$kind_yaml" ]] && return 0
+  grep -q "v1beta4" "$kind_yaml" && return 0
+  # Only act if the file has kubeadm extraArgs in map format
+  grep -q 'extraArgs:' "$kind_yaml" || return 0
+
+  echo ":: Migrating kind.yaml.j2 kubeadm config to v1beta4 format"
+  awk '
+    # Add apiVersion after kind: *Configuration lines (inside kubeadmConfigPatches)
+    /kind: (Cluster|Init|Join)Configuration/ && !/apiVersion/ {
+      print
+      # Preserve indentation: same as current line
+      match($0, /^[[:space:]]*/); indent = substr($0, 1, RLENGTH)
+      print indent "apiVersion: kubeadm.k8s.io/v1beta4"
+      next
+    }
+    # Track when we enter an extraArgs or kubeletExtraArgs block
+    /[Ee]xtraArgs:$/ {
+      in_args = 1
+      # Record the indentation of the extraArgs key itself
+      match($0, /^[[:space:]]*/); args_indent = RLENGTH
+      print
+      next
+    }
+    # Inside extraArgs: convert "key": "value" to - name: / value:
+    in_args {
+      # Check if this line is a child of extraArgs (deeper indentation)
+      match($0, /^[[:space:]]*/); cur_indent = RLENGTH
+      if (cur_indent <= args_indent) {
+        # Left the extraArgs block
+        in_args = 0
+        print
+        next
+      }
+      # Skip comment lines (preserve them as-is)
+      if ($0 ~ /^[[:space:]]*#/) { print; next }
+      # Parse "key": "value" — strip quotes and extract key/value
+      line = $0; gsub(/^[[:space:]]+/, "", line); gsub(/[[:space:]]+$/, "", line)
+      gsub(/"/, "", line)
+      n = index(line, ":")
+      if (n > 0) {
+        key = substr(line, 1, n-1)
+        val = substr(line, n+1); gsub(/^[[:space:]]+/, "", val)
+        entry_indent = ""
+        for (i = 0; i < args_indent + 2; i++) entry_indent = entry_indent " "
+        sub_indent = entry_indent "  "
+        print entry_indent "- name: \"" key "\""
+        print sub_indent "value: \"" val "\""
+      } else {
+        # Unrecognized format, pass through
+        print
+      }
+      next
+    }
+    { print }
+  ' "$kind_yaml" > "${kind_yaml}.tmp"
+
+  if ! grep -q "v1beta4" "${kind_yaml}.tmp"; then
+    echo "  WARNING: kubeadm v1beta4 migration failed — file unchanged"
+    rm -f "${kind_yaml}.tmp"
+    return 0
+  fi
+
+  chmod --reference="$kind_yaml" "${kind_yaml}.tmp" 2>/dev/null
+  mv "${kind_yaml}.tmp" "$kind_yaml"
+  echo ":: Migrated kubeadm extraArgs to v1beta4 list format"
+}
+
 fix_crd_int64_validation() {
   # k8s 1.36 rejects CRD integer fields where Maximum > int32 max
   # but format is int32 (the default for uint32 Go types).
@@ -1118,6 +1191,7 @@ fix_imports
 fix_metallb_version
 fix_kubevirt_version
 fix_relaxed_service_name_validation
+fix_kubeadm_v1beta4
 fix_network_policy_api_crds
 fix_crd_int64_validation
 fix_crd_name_validation
