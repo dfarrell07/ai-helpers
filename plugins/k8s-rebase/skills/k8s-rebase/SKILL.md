@@ -149,13 +149,17 @@ definition in vendor and list ALL fields. Compare against the
 conversion code. Report any fields present in the struct but
 missing from the conversion."
 
-**Gate:** Read each gate file and launch one subagent per file
-in a single parallel wave. Give each subagent the repo path.
+**Gate:** Find the gate prompt directory, read each file listed
+below with `cat`, and launch one subagent per file with the
+file's contents as the prompt. Launch all in a single parallel
+wave. Prepend the repo path to each prompt so the subagent
+knows where to look.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step1" -type d 2>/dev/null | head -1)
+cat "$GATE_DIR/build-vet.md"  # read this, use as subagent prompt
 ```
-Gate files (one subagent per file):
+Gate files:
 - `build-vet.md` (count)
 - `version-consistency.md` (count)
 - `type-conversions.md` (judge)
@@ -163,9 +167,8 @@ Gate files (one subagent per file):
 - `patterns-coverage.md` (judge)
 
 Count gates must report 0. Judge gates must cite evidence.
-Investigate all concerns before proceeding. To add a gate for
-future k8s versions: create a new `.md` file in the step1/
-directory and add it to this list.
+Investigate all concerns before proceeding. To add a gate:
+create a new `.md` file in step1/ and add it to this list.
 
 ### Step 2: Run autofix script
 
@@ -189,13 +192,14 @@ PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.m
 [ -n "$PATTERNS" ] && cat "$PATTERNS"
 ```
 
-**Gate:** Read each gate file and launch one subagent per file
-in a single parallel wave. Give each subagent the repo path.
+**Gate:** Find the gate prompt directory, `cat` each file below,
+and launch one subagent per file with its contents as the prompt.
+All in one parallel wave. Prepend the repo path to each prompt.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step2" -type d 2>/dev/null | head -1)
 ```
-Gate files (one subagent per file):
+Gate files:
 - `autofix-result.md` (count)
 - `deprecated-api-remnants.md` (count)
 - `feature-gates.md` (count)
@@ -272,12 +276,14 @@ boundaries loses output. The `--test-only` flag writes to a log
 file on the mounted volume, so results are always readable.
 
 The following agents run in parallel alongside the test agents.
-Read each gate file and launch one subagent per file.
+Find the gate prompt directory, `cat` each file below, and
+launch one subagent per file with its contents as the prompt.
+Prepend the repo path to each prompt.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step3b" -type d 2>/dev/null | head -1)
 ```
-Gate files (one subagent per file):
+Gate files:
 - `cleanliness.md` (count)
 - `correctness.md` (count)
 - `version-completeness.md` (count)
