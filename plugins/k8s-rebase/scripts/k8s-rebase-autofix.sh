@@ -1220,12 +1220,24 @@ run_vet() {
 
 fix_uncommitted() {
   if [[ -n "$(git status --short | grep -v '^[?]')" ]]; then
-    echo ":: Committing automated fixes"
     git add -A
-    git commit -s -m "Apply automated k8s rebase fixes
+    # Use a descriptive message based on what actually changed
+    local changed_files
+    changed_files=$(git diff --cached --name-only)
+    local msg="Apply automated k8s rebase fixes
 
 Fixes applied by k8s-rebase-autofix.sh for known breakage
 patterns. See docs/k8s-rebase-patterns.md for details."
+    # If only a few Go files changed with small diffs, likely just
+    # import reordering from a second autofix run
+    local changed_count diff_lines
+    changed_count=$(echo "$changed_files" | wc -l)
+    diff_lines=$(git diff --cached --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+    if [[ "$changed_count" -le 3 ]] && [[ "$diff_lines" -le 20 ]] && ! echo "$changed_files" | grep -qvE '\.go$'; then
+      msg="Reorder imports after k8s rebase fixes"
+    fi
+    echo ":: Committing: $(echo "$msg" | head -1)"
+    git commit -s -m "$msg"
   fi
 }
 
