@@ -29,9 +29,14 @@ TEST_ONLY_EXTRA=""
 if [[ "${1:-}" == "--test-only" ]]; then
   MODE="test-only"
   shift
-  # Separate packages (./path/... patterns) from go test flags (-run, etc.)
+  # Separate packages from go test flags. Once we see a -flag, treat
+  # everything from that point as extra args (flags + their values).
+  local in_flags=false
   for arg in "$@"; do
     if [[ "$arg" == -* ]]; then
+      in_flags=true
+    fi
+    if $in_flags; then
       TEST_ONLY_EXTRA="$TEST_ONLY_EXTRA $arg"
     else
       TEST_ONLY_PKGS="$TEST_ONLY_PKGS $arg"
