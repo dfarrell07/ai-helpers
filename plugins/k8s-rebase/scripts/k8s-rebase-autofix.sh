@@ -217,6 +217,18 @@ run_checks() {
     done
   fi
   r "CRD missing name validation" "$_crd_name_miss"
+  # E2e test fixes: check if known CI-blocking test patterns exist
+  # without their corresponding fix. Each entry is: file, old pattern
+  # (the broken code), fix marker (the new code). If old exists but
+  # fix doesn't, the test will fail in CI.
+  local _e2e_miss=0
+  if [[ -f "test/e2e/kubevirt.go" ]]; then
+    if grep -q "virtualMachineAddressesFromStatus" "test/e2e/kubevirt.go" && \
+       ! grep -q "virtLauncherNetworkStatusIPs" "test/e2e/kubevirt.go"; then
+      _e2e_miss=$((_e2e_miss+1))
+    fi
+  fi
+  r "E2e test fixes missing" "$_e2e_miss"
   r "Uncommitted" "$(git status --short | grep -v '^[?]' | wc -l)"
   echo "---"
   [ "$F" -eq 0 ] && echo "RESULT: PASS" || echo "RESULT: FAIL ($F checks non-zero)"
