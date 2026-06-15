@@ -568,7 +568,7 @@ PROBE
 
   # Insert skip block before the final groomTestList call
   local groom_line
-  groom_line=$(grep -n 'SKIPPED_TESTS=.*groomTestList' "$e2e_kind" | tail -1 | cut -d: -f1)
+  groom_line=$(grep -n 'SKIPPED_TESTS=.*groomTestList' "$e2e_kind" | tail -1 | cut -d: -f1 || true)
   [[ -z "$groom_line" ]] && return 0
 
   local skip_block
@@ -819,7 +819,7 @@ fix_network_policy_api_crds() {
   [[ -z "$kind_helm" ]] && kind_helm=$(find . -name "kind.sh" -not -path "*/vendor/*" -not -type l | head -1)
   if [[ -n "$kind_helm" ]] && ! grep -q "clusternetworkpolicies" "$kind_helm"; then
     local anp_line
-    anp_line=$(grep -n "adminnetworkpolicies.yaml" "$kind_helm" | head -1 | cut -d: -f1)
+    anp_line=$(grep -n "adminnetworkpolicies.yaml" "$kind_helm" | head -1 | cut -d: -f1 || true)
     if [[ -n "$anp_line" ]]; then
       echo ":: Adding ClusterNetworkPolicy CRD for conformance (${conf_npa})"
       sed -i "${anp_line}a\\  run_kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/network-policy-api/${conf_npa}/config/crd/experimental/policy.networking.k8s.io_clusternetworkpolicies.yaml" "$kind_helm"
@@ -965,7 +965,7 @@ fix_feature_gates() {
       if ! grep -q "KUBE_FEATURE_${gate}" "$test_go_sh"; then
         echo ":: Adding gate $gate to $test_go_sh"
         local insert_after
-        insert_after=$(grep -n "KUBE_FEATURE_" "$test_go_sh" | tail -1 | cut -d: -f1)
+        insert_after=$(grep -n "KUBE_FEATURE_" "$test_go_sh" | tail -1 | cut -d: -f1 || true)
         if [[ -n "$insert_after" ]]; then
           sed -i "${insert_after}a export KUBE_FEATURE_${gate}=false" "$test_go_sh"
         else
@@ -983,13 +983,13 @@ fix_feature_gates() {
       [[ -z "$gate" ]] && continue
       if grep -q 'os\.Setenv.*KUBE_FEATURE' "$tf" && ! grep -q "os\.Setenv.*${gate}" "$tf"; then
         local setenv_line
-        setenv_line=$(grep -n 'os\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1)
+        setenv_line=$(grep -n 'os\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1 || true)
         sed -i "${setenv_line}i\\
 \\tos.Setenv(\"KUBE_FEATURE_${gate}\", \"false\")" "$tf"
       fi
       if grep -q 't\.Setenv.*KUBE_FEATURE' "$tf" && ! grep -q "t\.Setenv.*${gate}" "$tf"; then
         local tsetenv_line
-        tsetenv_line=$(grep -n 't\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1)
+        tsetenv_line=$(grep -n 't\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1 || true)
         sed -i "${tsetenv_line}i\\
 \\tt.Setenv(\"KUBE_FEATURE_${gate}\", \"false\")" "$tf"
       fi
