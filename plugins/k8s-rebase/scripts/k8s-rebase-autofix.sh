@@ -173,13 +173,15 @@ run_checks() {
     r "Stale docs ver" "0"
   fi
   # CRD checks: verify int64 format and metadata.name validations
+  # Check specifically for format: int32 preceding maximum: 4294967295
+  # (can't just check for absence of format: int64 — unrelated fields may have it)
   local _crd_int64_miss=0
   for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
-    if grep -q "maximum: 4294967295" "$_crd" && ! grep -q "format: int64" "$_crd"; then
+    if awk '/format: int32/{p=1;next} /maximum: 4294967295/{if(p){found=1;exit}} {p=0} END{exit !found}' "$_crd" 2>/dev/null; then
       _crd_int64_miss=$((_crd_int64_miss+1))
     fi
   done
-  r "CRD missing format:int64" "$_crd_int64_miss"
+  r "CRD format:int32 before uint32 max" "$_crd_int64_miss"
   local _crd_name_miss=0
   local _base=""
   for _c in master main; do git rev-parse --verify "$_c" &>/dev/null && _base="$_c" && break; done
@@ -630,7 +632,8 @@ fix_crd_int64_validation() {
       for crd_yaml in "$dir"/*.yaml; do
         [[ -f "$crd_yaml" ]] || continue
         grep -q "maximum: 4294967295" "$crd_yaml" || continue
-        grep -q "format: int64" "$crd_yaml" && continue
+        # No file-level skip — the awk is idempotent (only changes
+        # format: int32 lines directly before maximum: 4294967295).
         # Two cases:
         # 1. "format: int32" on line before "maximum: 4294967295" → replace
         # 2. No format line before "maximum: 4294967295" → insert
@@ -652,11 +655,11 @@ fix_crd_int64_validation() {
         ' "$crd_yaml" > "${crd_yaml}.tmp"
         chmod --reference="$crd_yaml" "${crd_yaml}.tmp" 2>/dev/null
         mv "${crd_yaml}.tmp" "$crd_yaml"
-        # Verify
-        if grep -q "format: int64" "$crd_yaml"; then
+        # Verify: no format: int32 should remain before maximum: 4294967295
+        if ! awk '/format: int32/{p=1;next} /maximum: 4294967295/{if(p){found=1;exit}} {p=0} END{exit !found}' "$crd_yaml" 2>/dev/null; then
           echo "  Patched $(basename "$crd_yaml")"
         else
-          echo "  WARNING: Failed to patch format: int64 in $(basename "$crd_yaml")"
+          echo "  WARNING: format: int32 still precedes maximum: 4294967295 in $(basename "$crd_yaml")"
         fi
       done
     done
