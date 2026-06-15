@@ -273,6 +273,8 @@ containerization, feature gate exports, timeout scaling, and
 output capture automatically:
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+# Group non-root packages into subtrees. Never include root_pkgs
+# subtrees (e.g., ./pkg/node/...) — they need CAP_NET_ADMIN.
 bash "$SCRIPT" --test-only ./pkg/ovn/... ./pkg/util/...
 ```
 Results are in `.rebase-tmp/test-only-*.log`. Do NOT run raw
