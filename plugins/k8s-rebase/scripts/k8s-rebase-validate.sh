@@ -217,31 +217,32 @@ categorize_errors() {
 cd "$REPO_ROOT"
 
 # ── --test-only: run tests for specific packages and exit ───────────
-if [[ "$MODE" == "test-only" ]]; then
+run_test_only() {
   echo "━━━━ Testing specified packages ━━━━"
   echo ""
   echo "Packages: $TEST_ONLY_PKGS"
 
   # Find primary module
-  PRIMARY_MOD=""
+  local PRIMARY_MOD=""
   for candidate in go-controller .; do
     [[ -f "$candidate/go.mod" ]] && PRIMARY_MOD="$candidate" && break
   done
   [[ -z "$PRIMARY_MOD" ]] && PRIMARY_MOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | head -1)
 
   # Export feature gate env vars
+  local TEST_GO_SH
   TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
   if [[ -n "$TEST_GO_SH" ]]; then
     eval "$(grep "^export KUBE_FEATURE_" "$TEST_GO_SH")"
   fi
 
-  VENDOR_FLAG=""
+  local VENDOR_FLAG=""
   [[ -d "$PRIMARY_MOD/vendor" ]] && VENDOR_FLAG="-mod vendor"
 
   # Strip module dir prefix from package paths if present
   # (agent may pass ./go-controller/pkg/ovn/... instead of ./pkg/ovn/...)
   if [[ "$PRIMARY_MOD" != "." ]]; then
-    cleaned=""
+    local cleaned=""
     for pkg in $TEST_ONLY_PKGS; do
       pkg="${pkg#./${PRIMARY_MOD}/}"   # strip ./go-controller/
       pkg="${pkg#${PRIMARY_MOD}/}"     # strip go-controller/
@@ -252,11 +253,13 @@ if [[ "$MODE" == "test-only" ]]; then
   fi
 
   # Filter out root_pkgs (need CAP_NET_ADMIN, always fail unprivileged)
+  local test_go_sh
   test_go_sh=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" 2>/dev/null | head -1)
   if [[ -n "$test_go_sh" ]]; then
+    local root_pkgs_pattern
     root_pkgs_pattern=$(sed -n '/root_pkgs=(/,/)/p' "$test_go_sh" | grep -oE 'pkg/[^"]+' | tr '\n' '|' || true)
     if [[ -n "$root_pkgs_pattern" ]]; then
-      filtered=""
+      local filtered=""
       for pkg in $TEST_ONLY_PKGS; do
         if echo "$pkg" | grep -qE "(${root_pkgs_pattern%|})"; then
           echo ":: Skipping root_pkg $pkg (needs CAP_NET_ADMIN)"
@@ -270,12 +273,13 @@ if [[ "$MODE" == "test-only" ]]; then
   fi
 
   # Determine timeout — 60m for packages over 30k test lines, 30m otherwise
-  TEST_TIMEOUT="30m"
-  TOTAL_LINES=0
+  local TEST_TIMEOUT="30m"
+  local TOTAL_LINES=0
   for pkg in $TEST_ONLY_PKGS; do
-    pkg_dir="${PRIMARY_MOD}/${pkg#./}"
+    local pkg_dir="${PRIMARY_MOD}/${pkg#./}"
     pkg_dir="${pkg_dir%/...}"
     if [[ -d "$pkg_dir" ]]; then
+      local lines
       lines=$(find "$pkg_dir" -name "*_test.go" -not -path "*/vendor/*" -exec cat {} + 2>/dev/null | wc -l)
       TOTAL_LINES=$((TOTAL_LINES + lines))
     fi
@@ -285,8 +289,8 @@ if [[ "$MODE" == "test-only" ]]; then
 
   # Use PID + random suffix so parallel agents (especially containers
   # where PID is always 1) don't clobber each other
-  LOG_NAME="test-only-$$-${RANDOM}"
-  step_failed=0
+  local LOG_NAME="test-only-$$-${RANDOM}"
+  local step_failed=0
   run_validation "$LOG_NAME" "cd $PRIMARY_MOD && go test $VENDOR_FLAG -count=1 -timeout $TEST_TIMEOUT $TEST_ONLY_EXTRA $TEST_ONLY_PKGS" || step_failed=1
 
   if [[ "$step_failed" -eq 1 ]]; then
@@ -299,6 +303,10 @@ if [[ "$MODE" == "test-only" ]]; then
     echo "PASS — all specified packages"
     exit 0
   fi
+}
+
+if [[ "$MODE" == "test-only" ]]; then
+  run_test_only
 fi
 
 echo "━━━━ Phase 4: Build Validation ━━━━"
