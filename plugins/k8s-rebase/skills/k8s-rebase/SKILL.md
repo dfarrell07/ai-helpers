@@ -143,21 +143,26 @@ definition in vendor and list ALL fields. Compare against the
 conversion code. Report any fields present in the struct but
 missing from the conversion."
 
-**Gate:** Launch all of the following subagents in one parallel wave.
+**Gate:** Launch all of the following subagents in one parallel
+wave. The first group is general (works for any repo). The second
+group adapts to what this repo actually has. To extend for future
+k8s versions: add repo-specific agents when new autofix patterns
+are added; the general agents rarely need changes.
 
-Count-check subagents (must all report 0):
-1. "Find all go.mod files (excluding vendor). Run `go build ./...` in each module directory. Report the total error count."
-2. "Find all go.mod files (excluding vendor). Run `go vet ./...` in each module directory. Report the total error count."
-3. "Read each fix commit's diff. Count files that are not Go source, tests, docs, CI configs, or build files. Report the count."
-4. "For each module with a vendor directory, run `go mod verify` or diff go.sum against vendor/modules.txt. Count modules where vendor is out of sync with go.mod. Report the count."
-5. "Count go.mod files where k8s.io/* dependency versions are inconsistent (e.g., k8s.io/api at v0.36 but k8s.io/client-go at v0.35). Report the count."
+General agents (any Go k8s project):
+1. (count) "Run `go build ./...` and `go vet ./...` in each module directory (find go.mod, exclude vendor). Report total error count."
+2. (count) "Count go.mod files where k8s.io/* versions are inconsistent (e.g., api at v0.36 but client-go at v0.35). For each module with vendor/, verify vendor is in sync. Report inconsistency count."
+3. (count) "Read each fix commit's diff. Count files that are not Go source, tests, docs, CI configs, or build files — unexpected file types suggest a fix went wrong. Report count."
+4. (judge) "Review type conversions: for each struct conversion, read the FULL struct in vendor. Are any fields silently dropped? Could any conversion lose data at runtime?"
+5. (judge) "Review fix correctness: did the agent understand WHY each change was needed, or just make the compiler happy? Flag fixes that compile but would behave incorrectly at runtime."
 
-Judgment subagents (can flag concerns):
-6. "Review the type conversions in the fix commits. For each struct conversion, did the agent map ALL fields from the source struct? Are any fields silently dropped? Could any conversion lose data at runtime?"
-7. "Review the fix commits for correctness. Did the agent understand WHY each change was needed, or did it just make the compiler happy? Are there any fixes that compile but would behave incorrectly at runtime?"
-8. "Read the patterns doc. For each fix commit, identify which pattern it addresses. Are there any patterns in the doc that apply to this repo but were NOT fixed? Flag missing fixes."
+Repo-specific agents (adapt to what exists here):
+6. (judge) "Read the patterns doc. For each pattern, check if it applies to this repo (the relevant files exist). For patterns that apply, verify the fix was made and is complete. Flag patterns that apply but were not addressed."
+7. (count) "Count deprecated API remnants: `golang.org/x/exp` imports, `reflect.Ptr`, `FieldsV1.Raw` or `FieldsV1{Raw:` (all excluding vendor). Report total."
+8. (count) "If test files use `SetFromMap` or `KUBE_FEATURE_` env vars: read the GATE_DEPS map in the autofix script. Count files missing any gate from that map. Report count."
 
-All counts must be 0. If judgment subagents flag concerns, investigate before proceeding.
+All counts must be 0. If judgment agents flag concerns,
+investigate before proceeding.
 
 ### Step 2: Run autofix script
 
@@ -179,19 +184,23 @@ PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.m
 [ -n "$PATTERNS" ] && cat "$PATTERNS"
 ```
 
-**Gate:** Launch all of the following subagents in one parallel wave.
+**Gate:** Launch all of the following subagents in one parallel
+wave. General agents verify the autofix output is clean.
+Repo-specific agents verify fixes that depend on the repo's
+structure. To extend: when adding a new autofix pattern, add a
+matching repo-specific agent here.
 
-Count-check subagents (must all report 0):
-1. "Count files with `golang.org/x/exp` imports (excluding vendor). Count files with `reflect.Ptr` (excluding vendor). Count files with `FieldsV1.Raw` or `FieldsV1{Raw:` (excluding vendor). Report all three counts."
-2. "Read the GATE_DEPS map at the top of the autofix script. For each parent gate and its deps, count test files with SetFromMap or KUBE_FEATURE_ that are missing any of those gates. Report the count."
-3. "Read the autofix output (RESULT line and any WARNING lines). If RESULT is FAIL, report which checks failed and their counts. Report count of FAIL checks."
-4. "If `go-controller/pkg/ovn/controller/admin_network_policy/status.go` exists, count ObservedGeneration references (need ≥5 for a complete fix — 2 assignments, 1 comparison, 2 propagations). Report deficit (5 minus actual, 0 if ≥5)."
-5. "If the helm CRD directory exists, count CRD YAML files where `format: int32` precedes `maximum: 4294967295`. Count CRD YAML files that lost metadata.name pattern validation compared to the base branch. Report both counts."
+General agents (any Go k8s project):
+1. (count) "Read the autofix output. If RESULT is FAIL, report which checks failed and their counts. Count WARNING lines. Report total issues."
+2. (count) "Count deprecated API remnants: `golang.org/x/exp` imports, `reflect.Ptr`, `FieldsV1.Raw` or `FieldsV1{Raw:` (all excluding vendor). Report total."
+3. (judge) "Read the autofix commit's diff. For each code change, verify it is a correct transformation. Are x/exp→stdlib replacements right (maps.Keys wrapped in slices.Collect)? Are imports in the right section? Report inconsistencies."
 
-Judgment subagents (can flag concerns):
-6. "Review the feature gate handling across all test files. Could any gate configuration cause tests to hang or crash with fake clientsets? Are all parent AND dependent gates present in both SetFromMap and env vars?"
-7. "Read the autofix commit's diff. Verify that x/exp → stdlib replacements are correct (maps.Keys wrapped in slices.Collect, imports in stdlib section). Verify feature gate entries match between SetFromMap, env vars, and test-go.sh. Report any inconsistencies."
-8. "Read the autofix commit's diff for CRD and e2e infra changes. Verify CRD metadata.name validations preserved. Verify kubeadm extraArgs in list format with v1beta4. Verify MetalLB bumped, KubeVirt set to nightly, RelaxedServiceNameValidation probe present. Report any issues."
+Repo-specific agents (check what autofix claims to have fixed):
+4. (count) "If test files use feature gates (SetFromMap or KUBE_FEATURE_): read the GATE_DEPS map. Count files missing any gate. Verify gates match between SetFromMap, env vars, and test-go.sh. Report count."
+5. (count) "If the autofix modified CRD YAMLs: count files where `format: int32` still precedes `maximum: 4294967295`. Count CRDs that lost metadata.name pattern validation compared to the base branch. Report both counts."
+6. (count) "If the autofix modified status condition code: count ObservedGeneration references in the file (complete fix needs ≥5: assignments, comparison, propagation). Report deficit if incomplete."
+7. (judge) "If the autofix modified e2e infrastructure (kind-common.sh, kind.yaml.j2, e2e-kind.sh): verify MetalLB bumped, KubeVirt set to nightly, kubeadm extraArgs in v1beta4 list format, RelaxedServiceNameValidation probe present. Report issues."
+8. (judge) "Read the patterns doc. For each pattern the autofix claims to handle, verify the fix is COMPLETE — not just present but fully correct. Flag any partial fixes."
 
 All counts must be 0. Investigate judgment concerns.
 
@@ -258,67 +267,26 @@ Results are in `.rebase-tmp/test-only-*.log`. Do NOT run raw
 boundaries loses output. The `--test-only` flag writes to a log
 file on the mounted volume, so results are always readable.
 
-**Cleanliness agent** (count-check, all must be 0):
-"Run on the host, NOT in a container. Count uncommitted tracked
-files (`git status --short | grep -v '^[?]' | wc -l`). Count
-root-owned files outside .git and vendor (`find . -not -path
-'./.git/*' -not -path '*/vendor/*' -user root 2>/dev/null |
-wc -l`). Count .rebase-tmp tracked by git (`git ls-files
-.rebase-tmp | wc -l`). Report all three counts."
+The following agents run in parallel alongside the test agents.
+General agents work for any repo. Repo-specific agents check
+fixes that depend on the project's structure — skip any that
+don't apply. To extend for new k8s versions: add repo-specific
+agents when new patterns are discovered; the general agents
+are stable across versions.
 
-**Correctness agent** (count-check, all must be 0):
-"Read the full diff. Count changes not required by the rebase
-(version bumps, type conversions, API renames, format string
-fixes, import reordering, codegen, feature gates, deprecated
-API migrations, dead code from stricter linters are all valid).
-Count format strings with wrong verbs. Count Eventf calls
-missing format directives. Report all counts."
+General agents (any Go k8s project):
+1. (count) "Cleanliness: count uncommitted tracked files, root-owned files outside .git and vendor, and .rebase-tmp files tracked by git. Run on the host, NOT in a container. Report all three counts."
+2. (count) "Correctness: read the full diff against the base branch. Count changes not required by the rebase (version bumps, type conversions, API renames, format fixes, import reordering, codegen, feature gates, deprecated API migrations, dead code removal are all valid). Count format strings with wrong verbs. Count Eventf calls missing format directives. Report all counts."
+3. (count) "Version completeness: count stale v1.OLD version refs in yml/sh/md files (exclude K8S_VERSION if kindest/node image isn't published yet, and exclude historical references like 'introduced in K8s 1.OLD'). Report count."
+4. (judge) "Maintainer review: does every change serve the k8s version bump, or are there unrelated cleanups, style changes, or logic alterations? Would a maintainer approve this diff as-is?"
+5. (judge) "CI prediction: are test expectations correct for the new k8s version? Could any test pass locally but fail in CI due to missing fixtures, wrong API versions, or hardcoded assumptions?"
 
-**Completeness agent** (count-check, all must be 0):
-"Count stale v1.OLD version refs in yml/sh/md files (exclude
-K8S_VERSION if kindest/node image isn't published yet, and
-exclude historical references like 'introduced in K8s 1.OLD'
-which are accurate context, not stale refs). Count
-files with SupportBaselineAdminNetworkPolicy. Report counts."
-
-**Gates agent** (count-check, all must be 0):
-"Read the GATE_DEPS map in the autofix script. Count test files
-with SetFromMap or KUBE_FEATURE_ missing any gate from that map.
-Count SetFromMap files with more than 1 SetFromMap call. Report."
-
-**Autofix verification agent** (count-check, all must be 0):
-"Verify every autofix-applied fix is complete and correct. Check:
-(a) If ObservedGeneration was added to status.go, count references
-(need ≥5: assignments + comparison + propagation). (b) If CRD
-YAMLs were modified, verify format:int64 on all uint32-max fields
-and metadata.name patterns preserved. (c) If kubeadm was migrated,
-verify ALL extraArgs/kubeletExtraArgs are in name/value list format
-and ALL Configuration kinds have apiVersion v1beta4. (d) If
-FieldsV1 was fixed, verify ZERO FieldsV1.Raw or FieldsV1{Raw:
-remain. Report count of incomplete fixes."
-
-**E2e infra agent** (count-check, all must be 0):
-"If contrib/kind-common.sh exists, verify: MetalLB version is
-v0.16.0+ (check metallb_version=), KubeVirt is 'nightly' (check
-KUBEVIRT_VERSION), METALLB_UPSTREAM_FRR_IMAGE exists. If
-test/scripts/e2e-kind.sh exists, verify relaxedServiceNameValidation
-probe function exists. If contrib/kind.yaml.j2 exists, verify
-featureGates.RelaxedServiceNameValidation is set. Report count of
-missing items."
-
-**Judgment agents** (flag concerns):
-1. "Does every change serve the k8s version bump, or are there
-   unrelated cleanups, style changes, or logic alterations?
-   Would a maintainer approve this diff as-is?"
-2. "Are test expectations correct for the new k8s version? Could
-   any test pass locally but fail in CI due to missing fixtures,
-   wrong API versions, or hardcoded assumptions?"
-3. "Read the patterns doc. For each pattern that the autofix claims
-   to handle, verify the fix is COMPLETE — not just present but
-   fully correct. Check: are all struct fields mapped in type
-   conversions? Are all ObservedGeneration uses consistent (set,
-   compared, and propagated)? Are CRD hand-edits preserved? Are
-   kubeadm extraArgs in list format? Flag any partial fixes."
+Repo-specific agents (adapt to what exists — skip if N/A):
+6. (count) "Feature gates: read the GATE_DEPS map in the autofix script. Count test files with SetFromMap or KUBE_FEATURE_ missing any gate. Report count."
+7. (count) "Autofix completeness: for each fix the autofix applied, verify it is COMPLETE. Check ObservedGeneration (≥5 refs if present), CRD format:int64, CRD metadata.name, FieldsV1 remnants, kubeadm v1beta4 format. Report count of incomplete fixes."
+8. (count) "E2e infra: if KIND-based e2e exists, verify MetalLB version bumped, KubeVirt nightly, METALLB_UPSTREAM_FRR_IMAGE present, RelaxedServiceNameValidation probe in e2e-kind.sh, featureGates in kind.yaml.j2. Report count of missing items."
+9. (judge) "Patterns doc review: read the patterns doc. For each pattern that applies to this repo, verify the fix was made and is complete — not just present. Flag any partial fixes or patterns that were missed."
+10. (judge) "Diff review: read the autofix and agent fix commits side by side. Are there any logical inconsistencies introduced? (e.g., a field set but never checked, a type converted but test expectations not updated). Flag concerns."
 
 All count-checks must be 0. Investigate judgment concerns.
 If any test agent reports failures or timeouts:
