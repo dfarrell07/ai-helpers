@@ -261,11 +261,16 @@ done
 ```
 
 **Test agents** (count-check, all must report 0 FAIL):
-Split packages across subagents — count test lines per package
-(`wc -l *_test.go`), cap ~30k lines per agent, give the biggest
-package its own agent. Each agent uses the validate script's
-`--test-only` flag, which handles containerization, feature gate
-exports, timeout scaling, and output capture automatically:
+Use ONLY the packages from the discovery snippet above — it
+filters out `root_pkgs` which need CAP_NET_ADMIN (network
+namespaces) and will always fail with "permission denied" in
+unprivileged containers. Do NOT pass `./pkg/...` or `./...`
+directly. Split the filtered packages across subagents — count
+test lines per package (`wc -l *_test.go`), cap ~30k lines per
+agent, give the biggest package its own agent. Each agent uses
+the validate script's `--test-only` flag, which handles
+containerization, feature gate exports, timeout scaling, and
+output capture automatically:
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 bash "$SCRIPT" --test-only ./pkg/ovn/... ./pkg/util/...
