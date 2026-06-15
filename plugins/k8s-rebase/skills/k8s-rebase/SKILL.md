@@ -192,10 +192,10 @@ General agents (any Go k8s project — verify autofix cleaned up):
 4. (judge) "Read the autofix commit's diff. For each code change, verify it is a correct transformation (x/exp→stdlib, imports in right section, format strings correct). Report inconsistencies."
 
 Repo-specific agents (verify fixes are COMPLETE, not just present):
-5. (count) "If CRD YAMLs exist: count files where `format: int32` precedes `maximum: 4294967295`. Count CRDs that lost metadata.name pattern validation compared to the base branch. Report both counts."
-6. (count) "For EACH function the autofix modified, verify the change is logically complete. If a field was added to a struct, is it also added to comparisons and copies of that struct? Count functions with partial fixes. Report count."
+5. (count) "If CRD YAMLs exist in helm/*/crds/: count files where `format: int32` precedes `maximum: 4294967295`. Count CRDs that lost metadata.name pattern validation compared to the base branch (`git show master:path`). Report both counts."
+6. (count) "Read the autofix commit diff. For each Go function it modified, check logical completeness: if a field was added to a struct, is it also checked in comparisons and propagated in copies within the same function? Count functions with partial changes. Report count."
 7. (judge) "If e2e infrastructure was modified (kind-common.sh, kind.yaml.j2, e2e-kind.sh): verify MetalLB bumped, KubeVirt set to nightly, kubeadm extraArgs in v1beta4 list format, RelaxedServiceNameValidation probe present. Report issues."
-8. (judge) "Read the patterns doc. For each pattern the autofix handles, verify the fix is COMPLETE. Flag any partial fixes."
+8. (judge) "Read the patterns doc. For each pattern the autofix handles, verify the fix is COMPLETE in this repo. Flag any partial fixes. This is the only patterns doc review for Step 2 — Step 1's patterns check verified fixes exist, this one verifies the autofix made them correct."
 
 All counts must be 0. Investigate judgment concerns.
 
@@ -278,9 +278,9 @@ General agents (any Go k8s project):
 5. (judge) "CI prediction: could any test pass locally but fail in CI due to missing fixtures, wrong API versions, hardcoded assumptions, or e2e infrastructure incompatibilities (wrong KIND image, missing CRDs, stale FRR images)?"
 
 Repo-specific agents (adapt to what exists — skip if N/A):
-6. (count) "Deprecated API remnants: count `golang.org/x/exp` imports, `reflect.Ptr`, `FieldsV1.Raw` or `FieldsV1{Raw:` (excluding vendor). Report total."
+6. (count) "Go module health: run `go build ./...` and `go vet ./...` in each module (find go.mod, exclude vendor). This catches issues the agent's lint fixes may have introduced. Report total error count."
 7. (judge) "Logical consistency: read ALL fix commits (autofix + agent). For each function modified, verify the change is self-consistent. If a field was added to a struct, is it used in comparisons, propagated in copies, and tested? Flag inconsistencies like a field set but never checked."
-8. (judge) "Patterns doc review: read the patterns doc. For each pattern that applies to this repo, verify the fix was made, is complete, and is consistent with what the doc prescribes. Flag any partial fixes or patterns that apply but were missed."
+8. (judge) "CI readiness: read the patterns doc. Are there any documented patterns that apply to this repo but have NO corresponding fix in the branch diff? Are there any e2e infrastructure changes missing (CRDs, KIND config, test skips)? Flag gaps that would cause CI failures."
 
 All count-checks must be 0. Investigate judgment concerns.
 If any test agent reports failures or timeouts:
