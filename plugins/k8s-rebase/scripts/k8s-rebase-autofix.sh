@@ -162,7 +162,7 @@ run_checks() {
   r "ObsGen missing" "$(grep -L 'WithObservedGeneration\|ObservedGeneration' go-controller/pkg/ovn/controller/admin_network_policy/status.go 2>/dev/null | wc -l)"
   r "x/exp imports" "$(grep -rn 'golang.org/x/exp' --include='*.go' . | grep -v vendor | wc -l)"
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
-  r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b' --include='*.go' . | grep -v vendor | wc -l)"
+  r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
   r "Bare Eventf" "$(grep -rn 'Eventf(.*\.Error())' --include='*.go' . | grep -v vendor | grep -v '%s\|%v' | wc -l)"
   local NEW OLD
   NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
@@ -262,11 +262,14 @@ fix_reflect_ptr() {
 
 fix_fieldsv1() {
   local files
-  files=$(grep -rln 'FieldsV1\.Raw\b' --include='*.go' . | grep -v vendor)
+  files=$(grep -rln 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor)
   [[ -z "$files" ]] && return 0
-  echo ":: Fixing FieldsV1.Raw → FieldsV1.GetRawBytes() in $(echo "$files" | wc -l) files"
+  echo ":: Fixing FieldsV1.Raw in $(echo "$files" | wc -l) files"
   for f in $files; do
+    # Read access: .FieldsV1.Raw → .FieldsV1.GetRawBytes()
     sed -i 's/\.FieldsV1\.Raw\b/.FieldsV1.GetRawBytes()/g' "$f"
+    # Construction: &metav1.FieldsV1{Raw: []byte(`...`)} → metav1.NewFieldsV1(`...`)
+    sed -i 's/&metav1\.FieldsV1{Raw: \[\]byte(\(`[^`]*`\))}/metav1.NewFieldsV1(\1)/g' "$f"
   done
 }
 

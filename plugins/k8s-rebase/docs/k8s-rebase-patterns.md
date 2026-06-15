@@ -159,7 +159,8 @@ Remove flag from `hack/update-codegen.sh`, re-run codegen.
 - `maps.Clear(m)` → `clear(m)`
 - `constraints.Ordered` → `cmp.Ordered`
 - `reflect.Ptr` → `reflect.Pointer`
-- `FieldsV1.Raw` → `GetRawBytes()` (returns `[]byte`, no error)
+- `.FieldsV1.Raw` → `.FieldsV1.GetRawBytes()` (read access)
+- `&metav1.FieldsV1{Raw: []byte(...)}` → `metav1.NewFieldsV1(...)` (construction)
 
 **Import placement:** `"maps"`, `"slices"`, `"cmp"` are stdlib —
 merge them alphabetically into the stdlib import group. Do NOT
