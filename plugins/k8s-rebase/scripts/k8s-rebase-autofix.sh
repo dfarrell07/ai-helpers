@@ -461,32 +461,26 @@ fix_kind_image() {
   done
   if [[ -z "$kind_tag" ]]; then
     local OLD=$((NEW-1))
-    local new_tag="v1.${NEW}.0"
     local revert_tag="v1.${OLD}.1"
     echo ":: kindest/node:v1.${NEW}.* not available — reverting K8S_VERSION to ${revert_tag}"
-    # Revert K8S_VERSION in CI and scripts (but not docs)
-    for f in $(grep -rln "K8S_VERSION.*${new_tag}\|kindest/node:${new_tag}" \
+    # Revert all v1.NEW.* K8S_VERSION references (any patch) to the old version
+    for f in $(grep -rlnE "v1\.${NEW}\.[0-9]+" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
       | grep -v vendor | grep -v docs/); do
-      sed -i "s|${new_tag}|${revert_tag}|g" "$f"
-    done
-    # Also fix contrib/ scripts
-    for f in $(grep -rln "${new_tag}" contrib/ --include="*.sh" --include="*.yaml" 2>/dev/null); do
-      sed -i "s|${new_tag}|${revert_tag}|g" "$f"
+      sed -i -E "s|v1\.${NEW}\.[0-9]+|${revert_tag}|g" "$f"
     done
   else
-    # Update K8S_VERSION to the found patch version if different from .0
-    local base_tag="v1.${NEW}.0"
-    if [[ "$kind_tag" != "$base_tag" ]]; then
-      echo ":: Updating K8S_VERSION from ${base_tag} to ${kind_tag}"
-      for f in $(grep -rln "${base_tag}" \
-        --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
-        | grep -v vendor | grep -v docs/ | grep -v go.mod); do
-        sed -i "s|${base_tag}|${kind_tag}|g" "$f"
-      done
-    else
-      echo ":: Using kindest/node:${kind_tag}"
-    fi
+    # Replace any v1.NEW.* K8S_VERSION with the available kind_tag.
+    # Phase 3 may have set K8S_VERSION to the go.mod patch (e.g., v1.36.2)
+    # but the KIND image may only exist for a lower patch (e.g., v1.36.1).
+    local _changed=0
+    for f in $(grep -rlnE "v1\.${NEW}\.[0-9]+" \
+      --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
+      | grep -v vendor | grep -v docs/ | grep -v go.mod); do
+      sed -i -E "s|v1\.${NEW}\.[0-9]+|${kind_tag}|g" "$f"
+      _changed=1
+    done
+    [[ "$_changed" -eq 1 ]] && echo ":: Updated K8S_VERSION to ${kind_tag}"
   fi
 }
 
