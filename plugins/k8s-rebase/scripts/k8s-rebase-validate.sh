@@ -25,10 +25,20 @@ TEST_ONLY_PKGS=""
 [[ "${1:-}" == "--quick" ]] && MODE="quick"
 [[ "${1:-}" == "--no-test" ]] && MODE="no-test"
 [[ "${1:-}" == "--full" ]] && MODE="full"
+TEST_ONLY_EXTRA=""
 if [[ "${1:-}" == "--test-only" ]]; then
   MODE="test-only"
   shift
-  TEST_ONLY_PKGS="$*"
+  # Separate packages (./path/... patterns) from go test flags (-run, etc.)
+  for arg in "$@"; do
+    if [[ "$arg" == -* ]]; then
+      TEST_ONLY_EXTRA="$TEST_ONLY_EXTRA $arg"
+    else
+      TEST_ONLY_PKGS="$TEST_ONLY_PKGS $arg"
+    fi
+  done
+  TEST_ONLY_PKGS="${TEST_ONLY_PKGS# }"
+  TEST_ONLY_EXTRA="${TEST_ONLY_EXTRA# }"
   [[ -z "$TEST_ONLY_PKGS" ]] && { echo "ERROR: --test-only requires package arguments" >&2; exit 1; }
 fi
 
@@ -60,7 +70,7 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
       MODE_FLAG=""
       [[ "$MODE" != "default" ]] && MODE_FLAG="--$MODE"
       EXTRA_ARGS=""
-      [[ "$MODE" == "test-only" ]] && EXTRA_ARGS="$TEST_ONLY_PKGS"
+      [[ "$MODE" == "test-only" ]] && EXTRA_ARGS="$TEST_ONLY_EXTRA $TEST_ONLY_PKGS"
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         --privileged \
@@ -254,7 +264,7 @@ if [[ "$MODE" == "test-only" ]]; then
   # where PID is always 1) don't clobber each other
   LOG_NAME="test-only-$$-${RANDOM}"
   step_failed=0
-  run_validation "$LOG_NAME" "cd $PRIMARY_MOD && go test $VENDOR_FLAG -count=1 -timeout $TEST_TIMEOUT $TEST_ONLY_PKGS" || step_failed=1
+  run_validation "$LOG_NAME" "cd $PRIMARY_MOD && go test $VENDOR_FLAG -count=1 -timeout $TEST_TIMEOUT $TEST_ONLY_EXTRA $TEST_ONLY_PKGS" || step_failed=1
 
   if [[ "$step_failed" -eq 1 ]]; then
     echo ""
