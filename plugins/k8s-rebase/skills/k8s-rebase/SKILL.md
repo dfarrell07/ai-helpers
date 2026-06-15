@@ -162,7 +162,8 @@ SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-autofix.sh" 
 ```
 
 Applies known fix patterns (code fixes, feature gates, lint
-version, AND e2e infra: MetalLB, KubeVirt, RelaxedServiceNameValidation).
+version, CRD validation fixes, AND e2e infra: MetalLB, KubeVirt,
+RelaxedServiceNameValidation, kubeadm v1beta4).
 Outputs RESULT: PASS or FAIL. If FAIL, fix remaining items and
 re-run until PASS. Check output for MetalLB FRR image warnings —
 if the autofix bumped MetalLB, verify the FRR image variable
