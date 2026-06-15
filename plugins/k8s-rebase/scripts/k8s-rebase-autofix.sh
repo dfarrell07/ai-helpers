@@ -1233,7 +1233,7 @@ patterns. See docs/k8s-rebase-patterns.md for details."
     local changed_count diff_lines
     changed_count=$(echo "$changed_files" | wc -l)
     diff_lines=$(git diff --cached --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-    if [[ "$changed_count" -le 3 ]] && [[ "$diff_lines" -le 20 ]] && ! echo "$changed_files" | grep -qvE '\.go$'; then
+    if [[ "$changed_count" -le 3 ]] && [[ "$diff_lines" -le 30 ]] && ! echo "$changed_files" | grep -qvE '\.go$'; then
       msg="Reorder imports after k8s rebase fixes"
     fi
     echo ":: Committing: $(echo "$msg" | head -1)"
