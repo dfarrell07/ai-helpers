@@ -606,9 +606,13 @@ fix_kubeadm_v1beta4() {
   local kind_yaml
   kind_yaml=$(find . -name "kind.yaml.j2" -path "*/contrib/*" | head -1)
   [[ -z "$kind_yaml" ]] && return 0
-  grep -q "v1beta4" "$kind_yaml" && return 0
-  # Only act if the file has kubeadm extraArgs in map format
+  grep -q "apiVersion: kubeadm.k8s.io/v1beta4" "$kind_yaml" && return 0
+  # Only act if the file has kubeadm extraArgs in map format (not list)
   grep -q 'extraArgs:' "$kind_yaml" || return 0
+  # Skip if already in list format (- name: pattern under extraArgs)
+  if awk '/[Ee]xtraArgs:$/{ea=1;next} ea && /- name:/{found=1;exit} ea && /^[^ ]/{ea=0} END{exit !found}' "$kind_yaml" 2>/dev/null; then
+    return 0
+  fi
 
   echo ":: Migrating kind.yaml.j2 kubeadm config to v1beta4 format"
   awk '
