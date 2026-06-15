@@ -162,6 +162,7 @@ cat "$GATE_DIR/build-vet.md"  # read this, use as subagent prompt
 Gate files:
 - `build-vet.md` (count)
 - `version-consistency.md` (count)
+- `diff-scope.md` (count)
 - `type-conversions.md` (judge)
 - `fix-correctness.md` (judge)
 
