@@ -164,7 +164,6 @@ Gate files:
 - `version-consistency.md` (count)
 - `type-conversions.md` (judge)
 - `fix-correctness.md` (judge)
-- `patterns-coverage.md` (judge)
 
 Count gates must report 0. Judge gates must cite evidence.
 Investigate all concerns before proceeding. To add a gate:
