@@ -31,7 +31,7 @@ if [[ "${1:-}" == "--test-only" ]]; then
   shift
   # Separate packages from go test flags. Once we see a -flag, treat
   # everything from that point as extra args (flags + their values).
-  local in_flags=false
+  in_flags=false
   for arg in "$@"; do
     if [[ "$arg" == -* ]]; then
       in_flags=true
