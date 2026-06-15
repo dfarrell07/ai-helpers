@@ -282,11 +282,10 @@ This is a test-only change — the OVN allocation is correct.
 
 ### kubeadm v1beta4 format (k8s 1.36)
 
-k8s 1.36 kubeadm may silently ignore v1beta3 `extraArgs` map
-format, causing controller-manager flags like
-`-service-lb-controller` to not be applied. This leads to
-subtle test failures (LB iptables, MTU recovery) because the
-cluster runs with different controller settings than intended.
+k8s 1.36 silently ignores v1beta3 `extraArgs` map format, causing
+controller-manager flags like `-service-lb-controller` to not be
+applied. This breaks the disable-forwarding MTU test and any test
+depending on custom controller-manager or kubelet flags.
 Migrate `kind.yaml.j2` kubeadmConfigPatches to v1beta4 format:
 ```yaml
 # v1beta3 (old)
@@ -300,8 +299,9 @@ apiServer:
       value: "5"
 ```
 Add `apiVersion: kubeadm.k8s.io/v1beta4` to ClusterConfiguration,
-InitConfiguration, JoinConfiguration in `kind.yaml.j2`. This is
-proactive cleanup — not currently blocking CI.
+InitConfiguration, JoinConfiguration in `kind.yaml.j2`. Both
+`extraArgs` and `kubeletExtraArgs` need conversion. The autofix
+script handles this automatically.
 
 ### Transitive dependency compatibility
 
