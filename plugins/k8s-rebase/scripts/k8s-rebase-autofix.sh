@@ -159,7 +159,16 @@ run_checks() {
     done
   done
   r "Gates in SetFromMap files" "$_gsfm"
-  r "ObsGen missing" "$(grep -L 'WithObservedGeneration\|ObservedGeneration' go-controller/pkg/ovn/controller/admin_network_policy/status.go 2>/dev/null | wc -l)"
+  # Check ObservedGeneration completeness: need at least 5 references
+  # (2 assignments + 1 comparison + 2 propagations). Fewer means partial fix.
+  local _obsgen_file="go-controller/pkg/ovn/controller/admin_network_policy/status.go"
+  local _obsgen_count=0
+  [[ -f "$_obsgen_file" ]] && _obsgen_count=$(grep -c 'ObservedGeneration' "$_obsgen_file" 2>/dev/null || true)
+  if [[ -f "$_obsgen_file" ]] && [[ "$_obsgen_count" -gt 0 ]] && [[ "$_obsgen_count" -lt 5 ]]; then
+    r "ObsGen incomplete" "1"
+  else
+    r "ObsGen missing" "$(grep -L 'WithObservedGeneration\|ObservedGeneration' "$_obsgen_file" 2>/dev/null | wc -l)"
+  fi
   r "x/exp imports" "$(grep -rn 'golang.org/x/exp' --include='*.go' . | grep -v vendor | wc -l)"
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
   r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
