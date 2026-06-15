@@ -266,7 +266,7 @@ add `featureGates: RelaxedServiceNameValidation: true` to
 `kind.yaml.j2` as a best-effort (may not work for custom images).
 The autofix script injects both the probe and the skip.
 
-### KubeVirt secondary interface IPv6 test fix (k8s 1.36)
+### KubeVirt secondary interface IPv6 test fix (recurring)
 
 Secondary KubeVirt interfaces use IPv4-only cloud-init (DHCPv6
 not supported). OVN allocates both IPv4 and IPv6, but VMI status
@@ -276,10 +276,30 @@ instead of 2 and fail with:
 ```
 Expected <[]string | len:1>: ["10.28.112.4"] to have length 2
 ```
-Fix: read allocated addresses from the pod's Multus
-`network-status` annotation for secondary UDNs instead of VMI
-status. VMI status is correct for primary interfaces only.
+Fix requires two changes in `test/e2e/kubevirt.go`:
+
+1. Add a `virtLauncherNetworkStatusIPs` function that reads
+   allocated IPs from the virt-launcher pod's Multus
+   `network-status` annotation instead of VMI status. Place it
+   near the existing `podsMultusNetworkIPs` function. It should:
+   - Find the running virt-launcher pod for the VMI (label
+     `vm.kubevirt.io/name`)
+   - Read `podNetworkStatus` with the network predicate
+   - Return the IPs from the matching network-status entry
+   - Use Eventually with 30s timeout (pod may take time)
+
+2. In the persistent IP test (around `virtualMachineAddressesFromStatus`
+   call site), split the expected address count:
+   - `expectedAllocatedAddressCount = len(dualCIDRs)` (full dual-stack)
+   - `expectedStatusAddressCount` = same for primary, IPv4-only for
+     secondary (`td.role != udnv1.NetworkRolePrimary`)
+   - Use `virtualMachineAddressesFromStatus` with status count
+   - For secondary: also call `virtLauncherNetworkStatusIPs` with
+     allocated count to verify the full allocation is preserved
+   - Compare static IPs against the allocated addresses, not status
+
 This is a test-only change — the OVN allocation is correct.
+The autofix does not handle this (too complex for sed/awk).
 
 ### kubeadm v1beta4 format (k8s 1.36)
 
