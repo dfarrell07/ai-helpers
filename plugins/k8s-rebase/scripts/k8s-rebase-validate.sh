@@ -75,7 +75,7 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
       MODE_FLAG=""
       [[ "$MODE" != "default" ]] && MODE_FLAG="--$MODE"
       EXTRA_ARGS=""
-      [[ "$MODE" == "test-only" ]] && EXTRA_ARGS="$TEST_ONLY_EXTRA $TEST_ONLY_PKGS"
+      [[ "$MODE" == "test-only" ]] && EXTRA_ARGS="$TEST_ONLY_PKGS $TEST_ONLY_EXTRA"
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         --privileged \

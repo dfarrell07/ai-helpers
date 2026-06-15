@@ -712,13 +712,13 @@ fix_crd_int64_validation() {
       for crd_yaml in "$dir"/*.yaml; do
         [[ -f "$crd_yaml" ]] || continue
         grep -q "maximum: 4294967295" "$crd_yaml" || continue
-        # No file-level skip — the awk is idempotent (only changes
-        # format: int32 lines directly before maximum: 4294967295).
         # Two cases:
-        # 1. "format: int32" on line before "maximum: 4294967295" → replace
-        # 2. No format line before "maximum: 4294967295" → insert
+        # 1. "format: int32" before "maximum: 4294967295" → replace with int64
+        # 2. No format line before "maximum: 4294967295" → insert int64
+        # The awk also buffers "format: int64" lines so it's idempotent —
+        # an already-fixed field is recognized and passed through unchanged.
         awk '
-          /format: int32/ { prev=$0; prev_nr=NR; next }
+          /format: int(32|64)/ { prev=$0; prev_nr=NR; next }
           /maximum: 4294967295/ {
             if (prev_nr==NR-1) {
               sub(/int32/, "int64", prev)
