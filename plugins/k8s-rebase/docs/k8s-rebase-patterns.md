@@ -299,6 +299,11 @@ Fix requires two changes in `test/e2e/kubevirt.go`:
      allocated count to verify the full allocation is preserved
    - Compare static IPs against the allocated addresses, not status
 
+Reuse existing helpers: `podNetworkStatus` and
+`podNetworkStatusByNetConfigPredicate` already parse the Multus
+annotation. The new function wraps them with an Eventually loop
+that finds the running virt-launcher pod by label selector.
+
 This is a test-only change — the OVN allocation is correct.
 The autofix does not handle this (too complex for sed/awk).
 
