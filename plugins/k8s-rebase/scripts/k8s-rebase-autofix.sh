@@ -445,22 +445,13 @@ fix_kind_image() {
   local NEW
   NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   [[ -z "$NEW" ]] && return 0
-  # Check if KIND image exists — try patch versions from highest to .0
+  # Find the highest available kindest/node image for this minor version.
+  # One API call to list all tags, pick the highest patch.
   local kind_tag=""
-  for patch in 9 8 7 6 5 4 3 2 1 0; do
-    local candidate="v1.${NEW}.${patch}"
-    local exists=1
-    if command -v docker &>/dev/null; then
-      docker manifest inspect "kindest/node:${candidate}" &>/dev/null && exists=0
-    fi
-    if [[ "$exists" -eq 1 ]]; then
-      curl -sf "https://hub.docker.com/v2/repositories/kindest/node/tags/${candidate}" > /dev/null 2>&1 && exists=0
-    fi
-    if [[ "$exists" -eq 0 ]]; then
-      kind_tag="$candidate"
-      break
-    fi
-  done
+  kind_tag=$(curl -sf "https://hub.docker.com/v2/repositories/kindest/node/tags?page_size=100&name=v1.${NEW}" 2>/dev/null \
+    | grep -oE "\"name\":\"v1\.${NEW}\.[0-9]+\"" \
+    | sed 's/"name":"//;s/"//' \
+    | sort -V | tail -1 || true)
   if [[ -z "$kind_tag" ]]; then
     local OLD=$((NEW-1))
     local revert_tag="v1.${OLD}.1"
