@@ -354,6 +354,14 @@ into a single event. Fix: increase the `Eventually` timeout
 (e.g., 2s → 5s) and add a comment explaining the coalescing.
 This is a test timing issue, not a logic bug.
 
+### Test timing assertions (recurring)
+
+Tests that assert exact timing strings (e.g., `"timed out waiting
+for pod after 1s"`) break under resource pressure when the actual
+duration varies. Fix: relax the assertion to match the prefix only
+(e.g., `ContainSubstring("timed out waiting for")`). This applies
+to any test that embeds a duration in an error message assertion.
+
 ### E2e framework changes (k8s 1.35)
 
 | Old | New |
