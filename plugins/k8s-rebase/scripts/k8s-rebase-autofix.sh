@@ -483,7 +483,11 @@ fix_kind_image() {
       sed -i -E "s|v1\.${NEW}\.[0-9]+|${kind_tag}|g" "$f"
       _changed=1
     done
-    [[ "$_changed" -eq 1 ]] && echo ":: Updated K8S_VERSION to ${kind_tag}"
+    if [[ "$_changed" -eq 1 ]]; then
+      echo ":: Updated K8S_VERSION to ${kind_tag} (kindest/node image for go.mod patch not published yet)"
+      echo "   Code targets k8s $(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}'), CI cluster runs ${kind_tag}."
+      echo "   This is safe for patch version differences. Update when the image is published."
+    fi
   fi
 }
 
