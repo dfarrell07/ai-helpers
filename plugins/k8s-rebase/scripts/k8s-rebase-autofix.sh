@@ -465,10 +465,11 @@ fix_kind_image() {
     local OLD=$((NEW-1))
     local revert_tag="v1.${OLD}.1"
     echo ":: kindest/node:v1.${NEW}.* not available — reverting K8S_VERSION to ${revert_tag}"
-    # Revert all v1.NEW.* K8S_VERSION references (any patch) to the old version
+    # Revert all v1.NEW.* K8S_VERSION references (any patch) to the old version.
+    # Include docs — they tell users how to create KIND clusters.
     for f in $(grep -rlnE "v1\.${NEW}\.[0-9]+" \
-      --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
-      | grep -v vendor | grep -v docs/); do
+      --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
+      | grep -v vendor); do
       sed -i -E "s|v1\.${NEW}\.[0-9]+|${revert_tag}|g" "$f"
     done
   else
@@ -477,8 +478,8 @@ fix_kind_image() {
     # but the KIND image may only exist for a lower patch (e.g., v1.36.1).
     local _changed=0
     for f in $(grep -rlnE "v1\.${NEW}\.[0-9]+" \
-      --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
-      | grep -v vendor | grep -v docs/ | grep -v go.mod); do
+      --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
+      | grep -v vendor | grep -v go.mod); do
       sed -i -E "s|v1\.${NEW}\.[0-9]+|${kind_tag}|g" "$f"
       _changed=1
     done
