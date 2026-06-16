@@ -127,6 +127,14 @@ conformance module may intentionally use a different version of
 `network-policy-api` than go-controller — bumping it to match
 can break CI (v0.2.0 conformance creates ClusterNetworkPolicy
 resources that the controller doesn't support yet).
+**Import deduplication:** If a file imports the same package
+twice (bare + aliased, e.g., `"k8s.io/.../errors"` and
+`k8serrors "k8s.io/.../errors"`), remove the duplicate and
+update references. Do NOT use `replace_all` for this — it
+causes double-substitution (e.g., `k8serrors` → `k8sk8serrors`).
+Instead, remove the bare import line and update only the
+specific references that used the bare name.
+
 When converting types, read the FULL struct definition and map
 ALL fields. Check test files for the same type changes — test
 files often use the same types as source files. Create separate
