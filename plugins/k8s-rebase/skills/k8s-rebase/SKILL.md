@@ -309,6 +309,14 @@ If any test agent reports failures or timeouts:
   (`go test -count=1 -run TestName ./pkg/...`). If it passes on
   retry, it's a flake — not a rebase issue. Large test suites
   (pkg/ovn) are prone to flakes in full-suite runs.
+- **Container timing flake**: tests with tight timing margins
+  (e.g., 1s context timeout racing a 5×200ms retry loop) flake
+  in containers but pass on bare metal CI. Check if the test
+  code changed in the rebase (`git diff master -- path/to/test.go`).
+  If identical on master, it's pre-existing — fix it if it
+  blocks you (increase timeout, not relax assertion) but note
+  it's pre-existing in the commit message so the maintainer
+  can split it out.
 - **Pre-existing failure**: if it fails consistently, check if it
   also fails on master (`git checkout master && go test ... &&
   git checkout -`). Don't fix pre-existing issues.
