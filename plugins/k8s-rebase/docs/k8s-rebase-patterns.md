@@ -43,6 +43,7 @@ When rebasing to k8s 1.37+, update these files:
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
 | CRD name validation lost | `not-default created` (should be rejected) | Re-insert `metadata.name: pattern: ^default$` after codegen |
+| Informer coalescing | Hybrid-overlay test timeout (2s) | Increase `Eventually` timeout (2s → 5s) |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
 ## Feature Gates (recurring)
@@ -337,6 +338,16 @@ controller-runtime.
 Example: `cert-controller v0.10` uses `controller.NewUnmanaged`
 with an old signature. Bumping to v0.16 fixes the incompatibility
 with controller-runtime v0.24.
+
+### Hybrid-overlay informer coalescing (k8s 1.36)
+
+k8s 1.36 informer changes may cause flow sync events to coalesce
+differently, making hybrid-overlay tests that expect a specific
+sequence of flow sync calls flaky. Symptom: test times out at
+2 seconds waiting for expected OVS commands that were coalesced
+into a single event. Fix: increase the `Eventually` timeout
+(e.g., 2s → 5s) and add a comment explaining the coalescing.
+This is a test timing issue, not a logic bug.
 
 ### E2e framework changes (k8s 1.35)
 
