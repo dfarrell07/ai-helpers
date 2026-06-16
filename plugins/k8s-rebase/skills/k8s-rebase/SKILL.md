@@ -65,7 +65,10 @@ exec bash "$SCRIPT" $ARGUMENTS
 Exit 0: already at target. Exit 1: error. **Exit 2: success —
 proceed to Phase 4.** The Bash tool displays exit 2 as an error
 but it means Phase 0-3 completed. Check `git log` for rebase
-commits. Do NOT re-run the script.
+commits. Do NOT re-run the script. Do NOT run the autofix script
+or make manual go.mod changes before Phase 0-3 completes — the
+rebase script handles all module bumps, codegen, and version
+references. Running autofix early creates duplicate commits.
 
 If the output says "Could not detect OCP target", check the
 repo's CI config in `openshift/release` or compare with an
