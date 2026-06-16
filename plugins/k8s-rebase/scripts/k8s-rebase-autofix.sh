@@ -1235,6 +1235,18 @@ patterns. See docs/k8s-rebase-patterns.md for details."
 
 # ── Main ───────────────────────────────────────────────────────────
 
+# Guard: refuse to run if Phase 0-3 (k8s-rebase.sh) isn't complete.
+# Uncommitted go.mod/vendor changes mean the rebase script is still
+# running or failed partway. The agent should finish Phase 0-3 and
+# commit all changes before running autofix.
+if git status --short | grep -qE "go\.mod|go\.sum|vendor/"; then
+  echo "ERROR: Uncommitted go.mod/vendor changes — Phase 0-3 not complete."
+  echo "Finish k8s-rebase.sh and commit all module changes before running autofix."
+  echo ""
+  git status --short | grep -E "go\.mod|go\.sum|vendor/" | head -5
+  exit 1
+fi
+
 echo "━━━━ Phase A: Diagnostic ━━━━"
 echo ""
 DIAG=$(run_checks)
