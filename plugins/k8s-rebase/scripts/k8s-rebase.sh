@@ -659,10 +659,32 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
       target_ocp=$(curl -sf "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep 'name: "' | tail -1 | grep -oE '[0-9]+\.[0-9]+' || true)
       [[ -n "$target_ocp" ]] && break
     done
-    if [[ -n "$target_ocp" ]] && [[ "$old_ocp" != "$target_ocp" ]]; then
-      info "  Updating OCP version in CI tags: openshift-${old_ocp} → openshift-${target_ocp}"
-      for ci_file in .ci-operator.yaml Dockerfile.openshift Dockerfile.daemon.openshift Dockerfile Dockerfile.microshift; do
-        [[ -f "$ci_file" ]] && sed -i "s|openshift-${old_ocp}|openshift-${target_ocp}|g" "$ci_file" && CHANGED_FILES+="$ci_file"$'\n'
+    if [[ -n "$target_ocp" ]]; then
+      # Update .ci-operator.yaml if needed
+      if [[ "$old_ocp" != "$target_ocp" ]]; then
+        info "  Updating OCP version in CI tags: openshift-${old_ocp} → openshift-${target_ocp}"
+        sed -i "s|openshift-${old_ocp}|openshift-${target_ocp}|g" .ci-operator.yaml && CHANGED_FILES+=".ci-operator.yaml"$'\n'
+      fi
+      # Also update ANY Dockerfile still referencing a stale OCP stream.
+      # Handles both patterns: openshift-X.Y (builder tag) and ocp/X.Y: (base image)
+      for ci_file in Dockerfile.openshift Dockerfile.daemon.openshift Dockerfile Dockerfile.microshift; do
+        [[ -f "$ci_file" ]] || continue
+        local _fixed=0
+        # Pattern 1: openshift-X.Y (builder image tag suffix)
+        if grep -qE "openshift-[0-9.]+" "$ci_file" && ! grep -q "openshift-${target_ocp}" "$ci_file"; then
+          local stale_ocp
+          stale_ocp=$(grep -oE 'openshift-[0-9.]+' "$ci_file" | head -1 | sed 's/openshift-//')
+          sed -i "s|openshift-${stale_ocp}|openshift-${target_ocp}|g" "$ci_file"
+          _fixed=1
+        fi
+        # Pattern 2: ocp/X.Y: (base image reference)
+        if grep -qE "ocp/[0-9.]+:" "$ci_file" && ! grep -q "ocp/${target_ocp}:" "$ci_file"; then
+          local stale_base
+          stale_base=$(grep -oE 'ocp/[0-9.]+:' "$ci_file" | head -1 | sed 's|ocp/||;s|:||')
+          sed -i "s|ocp/${stale_base}:|ocp/${target_ocp}:|g" "$ci_file"
+          _fixed=1
+        fi
+        [[ "$_fixed" -eq 1 ]] && info "  Updated OCP stream in $ci_file → ${target_ocp}" && CHANGED_FILES+="$ci_file"$'\n'
       done
     elif [[ -z "$target_ocp" ]]; then
       info "  NOTE: CI builder image uses golang-${NEW_GO_SHORT}-openshift-${old_ocp}."
