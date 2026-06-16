@@ -431,9 +431,9 @@ fix_lint_version() {
         echo ":: Fixing Makefile lint fallback for Go 1.${required_go} compatibility"
         # Use v2 import path since we're bumping to v2
         if grep -q "GOLANGCI_LINT_VERSION" "$REPO_ROOT/Makefile" 2>/dev/null; then
-          sed -i 's|echo "linter can only be run within a container.*|go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$$(GOLANGCI_LINT_VERSION) 2>/dev/null \&\& golangci-lint run --verbose --timeout=15m0s|g' "$REPO_ROOT/Makefile"
+          sed -i 's|echo "linter can only be run within a container.*|GOFLAGS="" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) 2>/dev/null \&\& golangci-lint run --verbose --timeout=15m0s|g' "$REPO_ROOT/Makefile"
         else
-          sed -i "s|echo \"linter can only be run within a container.*|go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 2>/dev/null \&\& golangci-lint run --verbose --timeout=15m0s|g" "$REPO_ROOT/Makefile"
+          sed -i "s|echo \"linter can only be run within a container.*|GOFLAGS=\"\" go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 2>/dev/null \&\& golangci-lint run --verbose --timeout=15m0s|g" "$REPO_ROOT/Makefile"
         fi
       else
         echo ":: WARNING: lint.sh uses golangci-lint $lint_ver (built with Go <1.26)."
