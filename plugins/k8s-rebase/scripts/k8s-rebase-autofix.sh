@@ -396,6 +396,8 @@ fix_lint_version() {
     if [[ "$lint_ver" == v2.* ]] && (( lint_minor < 12 )) 2>/dev/null; then
       local LATEST_LINT
       LATEST_LINT=$(curl -sf "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
+      # Fallback if API is rate-limited: use a known-good version for Go 1.26+
+      [[ -z "$LATEST_LINT" ]] && LATEST_LINT="v2.12.2"
       if [[ -n "$LATEST_LINT" ]]; then
         echo ":: Bumping golangci-lint: $lint_ver → $LATEST_LINT (Go 1.${required_go} requires newer build)"
         sed -i "s/VERSION=${lint_ver}/VERSION=${LATEST_LINT}/" "$lint_sh"
