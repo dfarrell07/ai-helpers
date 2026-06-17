@@ -287,6 +287,9 @@ run_test_only() {
   (( TOTAL_LINES > 30000 )) && TEST_TIMEOUT="60m"
   echo "Test lines: ~$TOTAL_LINES (timeout: $TEST_TIMEOUT)"
 
+  # Match outer timeout to Go test timeout so the container isn't killed early
+  VALIDATION_TIMEOUT="$TEST_TIMEOUT"
+
   # Use PID + random suffix so parallel agents (especially containers
   # where PID is always 1) don't clobber each other
   local LOG_NAME="test-only-$$-${RANDOM}"
