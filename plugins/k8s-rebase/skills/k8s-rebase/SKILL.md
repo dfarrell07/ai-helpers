@@ -328,9 +328,10 @@ If any test agent reports failures or timeouts:
   blocks you (increase timeout, not relax assertion) but note
   it's pre-existing in the commit message so the maintainer
   can split it out.
-- **Pre-existing failure**: if it fails consistently, check if it
-  also fails on master (`git checkout master && go test ... &&
-  git checkout -`). Don't fix pre-existing issues.
+- **Pre-existing failure**: if it fails consistently, check if the
+  same test file changed in the rebase (`git diff master -- path/to/test.go`).
+  If unchanged, it's pre-existing — don't fix. Do NOT checkout
+  master — switching branches corrupts later steps.
 - Fix genuine rebase failures and re-run from 3a.
 
 **3c. Independent review:** Once 3b passes, run the antagonistic
