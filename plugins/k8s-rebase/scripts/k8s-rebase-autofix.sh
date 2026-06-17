@@ -440,12 +440,19 @@ fix_lint_version() {
         echo "   The container image can't parse Go 1.${required_go} code."
       fi
       # Bump GOLANGCI_LINT_VERSION in Makefile from v1 to v2
+      local latest_v2="${LATEST_LINT:-v2.12.2}"
       if grep -qE "GOLANGCI_LINT_VERSION.*= *v1\." "$REPO_ROOT/Makefile" 2>/dev/null; then
-        local latest_v2="${LATEST_LINT:-v2.12.2}"
         echo ":: Bumping Makefile GOLANGCI_LINT_VERSION from v1 to ${latest_v2}"
         sed -i -E "s|(GOLANGCI_LINT_VERSION.*= *)v1\.[0-9.]+|\1${latest_v2}|" "$REPO_ROOT/Makefile"
         # Update any existing go install references to use v2 import path
         sed -i 's|golangci/golangci-lint/cmd/golangci-lint|golangci/golangci-lint/v2/cmd/golangci-lint|g' "$REPO_ROOT/Makefile"
+      fi
+      # Also bump hack/lint.sh if it's still on v1
+      if [[ -n "$lint_sh" ]] && grep -qE "VERSION=v1\." "$lint_sh" 2>/dev/null; then
+        echo ":: Bumping hack/lint.sh from v1 to ${latest_v2}"
+        sed -i -E "s|VERSION=v1\.[0-9.]+|VERSION=${latest_v2}|" "$lint_sh"
+        # Update container image tag if present (golangci/golangci-lint:vX)
+        sed -i -E "s|golangci/golangci-lint:v1\.[0-9.]+|golangci/golangci-lint:${latest_v2}|" "$lint_sh"
       fi
     fi
   fi
