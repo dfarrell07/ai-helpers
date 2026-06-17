@@ -39,7 +39,9 @@ When rebasing to k8s 1.37+, update these files:
 | CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | New Go versions may only exist for newer OCP streams (e.g., 1.26 → openshift-5.0, not 4.22) |
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
-| library-go interface | `does not implement SharedIndexInformer` | Bump library-go — upstream must add new interface methods first |
+| library-go interface | `does not implement SharedIndexInformer` | BLOCKER: bump library-go after upstream merges interface PR |
+| Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Fix is in openshift/release, not the repo — exclude vendor from snyk |
+| OTE module | downstream `openshift/` module needs separate bump | Run skill on downstream fork, OTE go.mod bumped alongside |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
 | CRD name validation lost | `not-default created` (should be rejected) | Re-insert `metadata.name: pattern: ^default$` after codegen |
@@ -376,3 +378,54 @@ This is a test timing issue, not a logic bug.
 |---|---|
 | `framework.WaitForServiceEndpointsNum(...)` | `e2eendpointslice.WaitForEndpointCount(...)` |
 | `e2enode.IsNodeReady(node)` | `e2enode.IsNodeReady(logger, node)` |
+
+### Snyk vendor scan failures (recurring)
+
+`ci/prow/security` (Snyk) scans vendored code and flags CVEs in
+transitive dependencies. This is often pre-existing (fails on
+main too), but it blocks rebase PRs. Re-vendoring may also add
+new transitive deps that introduce additional findings.
+
+The fix is a CI config change in `openshift/release` (not the
+repo): exclude `vendor/` from Snyk scanning. See CORENET-7277
+/ `openshift/release#80462` (CNO-specific fix).
+
+This is NOT a rebase bug — don't try to fix it in the repo.
+Report it as a known CI blocker.
+
+### Cross-repo dependency ordering (recurring)
+
+Downstream OpenShift repos form a dependency chain:
+1. **Plumbing repos first**: `openshift/api`, `openshift/library-go`,
+   `openshift/client-go` — these must merge their k8s bump before
+   consumers can vendor them.
+2. **Consumer repos next**: CNO, CNCC, multus, ovnk — these `go get`
+   the bumped plumbing repos.
+3. **OTE last**: the downstream `openshift/` module in ovnk has its
+   own go.mod and may depend on consumer repo changes.
+
+If `go mod tidy` / `go mod vendor` produces a diff in library-go
+files (e.g., `verify-deps` fails with `M vendor/.../library-go/...`),
+the plumbing repo hasn't merged yet. This is a BLOCKER — the
+rebase is complete but CI won't pass until the dependency chain
+catches up. Track via JIRA (e.g., CORENET-7287).
+
+When the skill detects `does not implement` errors against
+library-go interfaces, or `verify-deps` fails with library-go
+diffs, it should tell the agent this is an upstream blocker
+rather than a fixable rebase issue.
+
+### OTE downstream module (recurring)
+
+The downstream ovnk fork (`openshift/ovn-kubernetes`) has an
+`openshift/` directory containing OTE (openshift-tests-extension)
+code with its own `go.mod`. This module must be bumped alongside
+the main `go-controller/` module. The upstream fork does not
+have this directory.
+
+The skill finds all `go.mod` files, so running it on the
+downstream fork should bump OTE too — but this path has not
+been tested. OTE may have its own breakage patterns distinct
+from go-controller (e.g., `openshift/origin` test API changes).
+OTE is sometimes bumped as a separate PR by a different
+engineer (see CORENET-7293).

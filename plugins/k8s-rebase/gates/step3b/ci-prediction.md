@@ -18,6 +18,12 @@ fail in CI due to:
   version annotations in CRD manifests matching the vendored
   controller-tools version.
 
+Known ecosystem failures (not rebase bugs — report but don't fix):
+- `ci/prow/security` (Snyk) may fail after vendor update —
+  fix is in openshift/release, not this repo.
+- `ci/prow/verify-deps` may fail if library-go or other
+  plumbing repos haven't merged their k8s bump yet.
+
 Check e2e test files, CI config (.github/workflows/test.yml),
 and KIND setup scripts. List each risk area checked and your
 assessment.
