@@ -669,17 +669,15 @@ if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
       # Handles both patterns: openshift-X.Y (builder tag) and ocp/X.Y: (base image)
       for ci_file in Dockerfile.openshift Dockerfile.daemon.openshift Dockerfile Dockerfile.microshift; do
         [[ -f "$ci_file" ]] || continue
-        local _fixed=0
+        _fixed=0
         # Pattern 1: openshift-X.Y (builder image tag suffix)
         if grep -qE "openshift-[0-9.]+" "$ci_file" && ! grep -q "openshift-${target_ocp}" "$ci_file"; then
-          local stale_ocp
           stale_ocp=$(grep -oE 'openshift-[0-9.]+' "$ci_file" | head -1 | sed 's/openshift-//')
           sed -i "s|openshift-${stale_ocp}|openshift-${target_ocp}|g" "$ci_file"
           _fixed=1
         fi
         # Pattern 2: ocp/X.Y: (base image reference)
         if grep -qE "ocp/[0-9.]+:" "$ci_file" && ! grep -q "ocp/${target_ocp}:" "$ci_file"; then
-          local stale_base
           stale_base=$(grep -oE 'ocp/[0-9.]+:' "$ci_file" | head -1 | sed 's|ocp/||;s|:||')
           sed -i "s|ocp/${stale_base}:|ocp/${target_ocp}:|g" "$ci_file"
           _fixed=1
