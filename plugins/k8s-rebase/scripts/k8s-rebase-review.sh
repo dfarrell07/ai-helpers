@@ -27,6 +27,13 @@ COMMIT="$1"
 shift
 ORIGINAL_ERROR="$*"
 
+# Verify COMMIT is reachable from HEAD (guards against branch-switching)
+if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" HEAD 2>/dev/null; then
+  echo "ERROR: commit $COMMIT is not reachable from HEAD ($(git -C "$REPO_ROOT" rev-parse --short HEAD))" >&2
+  echo "ERROR: Are you on the rebase branch? Current branch: $(git -C "$REPO_ROOT" branch --show-current)" >&2
+  exit 1
+fi
+
 # Pre-fetch evidence deterministically
 export DIFF
 MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null || git -C "$REPO_ROOT" merge-base "$COMMIT" main 2>/dev/null || echo "$COMMIT~10")

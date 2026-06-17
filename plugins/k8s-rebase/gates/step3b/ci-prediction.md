@@ -10,6 +10,13 @@ fail in CI due to:
   (Not all fake clientset packages need gates — only those
   that create informers. Don't flag packages that just use
   fake clientsets for simple CRUD operations.)
+- Stale codegen output? If hack/update-codegen.sh or a
+  Makefile codegen/generate/manifests target exists, check
+  that git log shows a codegen commit. If the repo has a
+  `verify-update-codegen` or `verify` CI job, stale output
+  will fail `git diff --exit-code`. Look for controller-gen
+  version annotations in CRD manifests matching the vendored
+  controller-tools version.
 
 Check e2e test files, CI config (.github/workflows/test.yml),
 and KIND setup scripts. List each risk area checked and your

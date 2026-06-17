@@ -43,6 +43,7 @@ When rebasing to k8s 1.37+, update these files:
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
 | CRD name validation lost | `not-default created` (should be rejected) | Re-insert `metadata.name: pattern: ^default$` after codegen |
+| CRD codegen annotation | `verify-update-codegen` fails (`git diff`) | Re-run codegen to update `controller-gen.kubebuilder.io/version` |
 | Informer coalescing | Hybrid-overlay test timeout (2s) | Increase `Eventually` timeout (2s → 5s) |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
@@ -146,6 +147,21 @@ Vendored packages may fix misspelled `Depreciated` → `Deprecated`
 annotations, newly surfacing SA1019. Check vendored source; if
 `Install` exists, use it. Project-internal CRD register.go is
 NOT deprecated.
+
+### controller-gen version annotation mismatch (recurring)
+
+When `sigs.k8s.io/controller-tools` is bumped (e.g. v0.20.1 →
+v0.21.0), `controller-gen` writes the new version into CRD YAML
+annotations. If codegen isn't re-run and committed, CI's
+`verify-update-codegen` (or `make verify`) detects the stale
+annotation via `git diff --exit-code`. Repos that build
+controller-gen from vendor (like CNO) are affected whenever
+controller-tools bumps; repos that pin a version in the codegen
+script (like ovnk's `@v0.19.0`) are not.
+
+Fix: `k8s-rebase.sh` Phase 2 runs codegen and commits the output.
+If the CRD manifest diff only shows the version annotation, that's
+expected and correct.
 
 ### deepcopy-gen --bounding-dirs removed (k8s 1.36)
 
