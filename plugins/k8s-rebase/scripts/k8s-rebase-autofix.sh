@@ -9,6 +9,7 @@
 
 set -uo pipefail
 
+AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 cd "$REPO_ROOT"
 grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
@@ -1246,7 +1247,7 @@ patterns. See docs/k8s-rebase-patterns.md for details."
       msg="Reorder imports after k8s rebase fixes"
     fi
     echo ":: Committing: $(echo "$msg" | head -1)"
-    git commit -s -m "$msg"
+    git commit -s --trailer "$AI_TRAILER" -m "$msg"
   fi
 }
 

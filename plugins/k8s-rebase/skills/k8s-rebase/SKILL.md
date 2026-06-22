@@ -40,6 +40,11 @@ calls.
 (e.g., `git add -A -- . ':!dir'`). They fail when the path
 is gitignored. Use plain `git add -A` instead.
 
+**AI disclosure:** All commits must include the trailer
+`Assisted-by: Claude Code (claude-code.anthropic.com)`.
+The scripts add it automatically. For manual commits use:
+`git commit -s --trailer "Assisted-by: Claude Code <noreply@anthropic.com>"`
+
 ---
 
 ## Phase 0-3: Mechanical Rebase

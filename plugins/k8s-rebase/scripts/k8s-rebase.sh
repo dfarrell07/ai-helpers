@@ -101,6 +101,7 @@ fi
 K8S_FULL="v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}"
 K8S_MAJOR_MINOR="${K8S_MAJOR}.${K8S_MINOR}"
 API_VERSION="v0.${K8S_MINOR}.${K8S_PATCH}"
+AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
 
 # ── Phase 0: Prerequisites ──────────────────────────────────────────
 
@@ -354,7 +355,7 @@ rebase_module() {
   # Commit if there are changes
   if [[ -n "$(git status --porcelain -- "$module_dir")" ]]; then
     git add "$module_dir"
-    git commit -s -m "$(cat <<EOF
+    git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
 Rebase ${module_path} to k8s ${K8S_MAJOR_MINOR}
 
 ${cmd_log}go mod tidy
@@ -398,7 +399,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*"); do
     cd "$REPO_ROOT/$mod_dir" && go mod tidy && cd "$REPO_ROOT"
     if [[ -n "$(git status --porcelain -- "$mod_dir")" ]]; then
       git add "$mod_dir"
-      git commit -s -m "Sync ${mod_dir} go.mod after dependency rebase"
+      git commit -s --trailer "$AI_TRAILER" -m "Sync ${mod_dir} go.mod after dependency rebase"
       info "Committed: Sync ${mod_dir} go.mod after dependency rebase"
     fi
   fi
@@ -454,7 +455,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
-    git commit -s -m "Update codegen for k8s ${K8S_MAJOR_MINOR}"
+    git commit -s --trailer "$AI_TRAILER" -m "Update codegen for k8s ${K8S_MAJOR_MINOR}"
     info "Committed: Update codegen for k8s ${K8S_MAJOR_MINOR}"
   fi
 
@@ -467,7 +468,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
         info "Removing dropped flag --${bad_flag} from codegen script and retrying"
         sed -i "/^[[:space:]]*--${bad_flag}/d" "$CODEGEN_SCRIPT"
         git add "$CODEGEN_SCRIPT"
-        git commit -s -m "Remove deprecated --${bad_flag} flag from codegen"
+        git commit -s --trailer "$AI_TRAILER" -m "Remove deprecated --${bad_flag} flag from codegen"
         # Retry codegen
         if make -C "$CODEGEN_DIR" "$target" > "$CODEGEN_LOG" 2>&1 || bash "$CODEGEN_SCRIPT" > "$CODEGEN_LOG" 2>&1; then
           info "Codegen succeeded after removing --${bad_flag}"
@@ -476,7 +477,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
           cd "$REPO_ROOT"
           if [[ -n "$(git status --porcelain)" ]]; then
             git add -A
-            git commit -s -m "Regenerate code after codegen fix for k8s ${K8S_MAJOR_MINOR}"
+            git commit -s --trailer "$AI_TRAILER" -m "Regenerate code after codegen fix for k8s ${K8S_MAJOR_MINOR}"
           fi
         fi
       fi
@@ -499,7 +500,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
         cd "$REPO_ROOT"
         if [[ -n "$(git status --porcelain)" ]]; then
           git add -A
-          git commit -s -m "Regenerate mocks after codegen for k8s ${K8S_MAJOR_MINOR}"
+          git commit -s --trailer "$AI_TRAILER" -m "Regenerate mocks after codegen for k8s ${K8S_MAJOR_MINOR}"
           info "Committed: Regenerate mocks after codegen"
         fi
       else
@@ -531,7 +532,7 @@ elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
-    git commit -s -m "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
+    git commit -s --trailer "$AI_TRAILER" -m "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
     info "Committed: Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
   fi
 
@@ -714,7 +715,7 @@ if [[ -n "$CHANGED_FILES" ]]; then
     [[ -n "$f" ]] && git add "$f" 2>/dev/null || true
   done
   if [[ -n "$(git status --porcelain)" ]]; then
-    git commit -s -m "$(cat <<EOF
+    git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
 Update version references for k8s ${K8S_MAJOR_MINOR}
 
 ${CHANGED_FILES}
