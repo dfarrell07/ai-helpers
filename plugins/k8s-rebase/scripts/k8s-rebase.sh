@@ -426,87 +426,65 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   sed -i -E "s|(code-generator/cmd/[^@]+)@v0\.[0-9]+\.[0-9]+|\1@${API_VERSION}|g" "$CODEGEN_SCRIPT"
   info "Updated code-generator version to ${API_VERSION}"
 
-  # Run codegen — try common make targets
+  # Run codegen — try common make targets, auto-retry on dropped flags
   CODEGEN_DIR=$(dirname "$(dirname "$CODEGEN_SCRIPT")")
   CODEGEN_RAN=0
   CODEGEN_FAILED=0
   CODEGEN_LOG="$REBASE_TMP/codegen.log"
-  for target in codegen generate update-codegen; do
-    if make -n -C "$CODEGEN_DIR" "$target" &>/dev/null; then
-      info "Running make $target in $CODEGEN_DIR..."
-      if make -C "$CODEGEN_DIR" "$target" > "$CODEGEN_LOG" 2>&1; then
-        CODEGEN_RAN=1
-      else
-        info "WARNING: make $target failed — Phase 4 will fix codegen script"
-        CODEGEN_FAILED=1
+  CODEGEN_MSG="Update codegen for k8s ${K8S_MAJOR_MINOR}"
+
+  run_codegen() {
+    for target in codegen generate update-codegen; do
+      if make -n -C "$CODEGEN_DIR" "$target" &>/dev/null; then
+        info "Running make $target in $CODEGEN_DIR..."
+        make -C "$CODEGEN_DIR" "$target" > "$CODEGEN_LOG" 2>&1 && return 0
+        return 1
       fi
-      break
-    fi
-  done
-  if [[ "$CODEGEN_RAN" -eq 0 ]] && [[ "$CODEGEN_FAILED" -eq 0 ]]; then
-    info "WARNING: No codegen/generate make target found, running script directly..."
-    if ! bash "$CODEGEN_SCRIPT" > "$CODEGEN_LOG" 2>&1; then
-      info "WARNING: codegen script failed — Phase 4 will fix codegen script"
-      CODEGEN_FAILED=1
-    fi
-  fi
-  restore_crd_metadata
+    done
+    info "No codegen make target found, running script directly..."
+    bash "$CODEGEN_SCRIPT" > "$CODEGEN_LOG" 2>&1
+  }
 
-  cd "$REPO_ROOT"
-  if [[ -n "$(git status --porcelain)" ]]; then
-    git add -A
-    git commit -s --trailer "$AI_TRAILER" -m "Update codegen for k8s ${K8S_MAJOR_MINOR}"
-    info "Committed: Update codegen for k8s ${K8S_MAJOR_MINOR}"
-  fi
-
-  if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
-    # Auto-fix common codegen failures (dropped flags) and retry
+  if run_codegen; then
+    CODEGEN_RAN=1
+  else
+    info "WARNING: codegen failed — checking for auto-fixable errors"
+    # Auto-fix dropped flags and retry
     if grep -q 'unknown flag\|flag provided but not defined' "$CODEGEN_LOG" 2>/dev/null; then
-      # Extract the unknown flag name and remove it from the codegen script
       bad_flag=$(grep -oE '(unknown flag|flag provided but not defined): -+[a-zA-Z0-9_-]+' "$CODEGEN_LOG" | head -1 | sed 's/.*: -*//' || true)
       if [[ -n "$bad_flag" ]] && grep -q "\-\-${bad_flag}" "$CODEGEN_SCRIPT"; then
         info "Removing dropped flag --${bad_flag} from codegen script and retrying"
         sed -i "/^[[:space:]]*--${bad_flag}/d" "$CODEGEN_SCRIPT"
-        git add "$CODEGEN_SCRIPT"
-        git commit -s --trailer "$AI_TRAILER" -m "Remove deprecated --${bad_flag} flag from codegen"
-        # Retry codegen
-        if make -C "$CODEGEN_DIR" "$target" > "$CODEGEN_LOG" 2>&1 || bash "$CODEGEN_SCRIPT" > "$CODEGEN_LOG" 2>&1; then
-          info "Codegen succeeded after removing --${bad_flag}"
-          CODEGEN_FAILED=0
-          restore_crd_metadata
-          cd "$REPO_ROOT"
-          if [[ -n "$(git status --porcelain)" ]]; then
-            git add -A
-            git commit -s --trailer "$AI_TRAILER" -m "Regenerate code after codegen fix for k8s ${K8S_MAJOR_MINOR}"
-          fi
+        if run_codegen; then
+          CODEGEN_RAN=1
+          CODEGEN_MSG="Fix codegen for k8s ${K8S_MAJOR_MINOR}: remove dropped --${bad_flag} flag"
         fi
       fi
     fi
-    if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
-      echo "## CODEGEN FAILURE" >> "$REBASE_TMP/summary.txt"
-      tail -5 "$CODEGEN_LOG" >> "$REBASE_TMP/summary.txt"
-      echo "Fix the codegen script (e.g. removed flags) and re-run codegen." >> "$REBASE_TMP/summary.txt"
-      echo "" >> "$REBASE_TMP/summary.txt"
+    [[ "$CODEGEN_RAN" -eq 0 ]] && CODEGEN_FAILED=1
+  fi
+
+  # Regenerate mocks if codegen deleted them
+  if [[ "$CODEGEN_RAN" -eq 1 ]] && [[ -f "$CODEGEN_DIR/.mockery.yaml" ]]; then
+    if ! find "$CODEGEN_DIR/pkg/crd" -path "*/mocks/*.go" 2>/dev/null | grep -q .; then
+      info "Codegen deleted mock files — running mockery..."
+      make -C "$CODEGEN_DIR" mocksgen 2>/dev/null || info "WARNING: mockery failed — Phase 4 agent will regenerate mocks"
     fi
   fi
 
-  # Regenerate mocks if codegen deleted them (rm -rf pkg/crd/*/apis
-  # removes mocks/ subdirectories). Runs inside this container so
-  # file ownership is correct (podman --userns=keep-id).
-  if [[ "$CODEGEN_FAILED" -eq 0 ]] && [[ -f "$CODEGEN_DIR/.mockery.yaml" ]]; then
-    if ! find "$CODEGEN_DIR/pkg/crd" -name "mocks" -type d 2>/dev/null | grep -q .; then
-      info "Codegen deleted mock directories — running mockery..."
-      if make -C "$CODEGEN_DIR" mocksgen 2>/dev/null; then
-        cd "$REPO_ROOT"
-        if [[ -n "$(git status --porcelain)" ]]; then
-          git add -A
-          git commit -s --trailer "$AI_TRAILER" -m "Regenerate mocks after codegen for k8s ${K8S_MAJOR_MINOR}"
-          info "Committed: Regenerate mocks after codegen"
-        fi
-      else
-        info "WARNING: mockery failed — Phase 4 agent will regenerate mocks"
-      fi
-    fi
+  restore_crd_metadata
+  cd "$REPO_ROOT"
+  if [[ -n "$(git status --porcelain)" ]]; then
+    git add -A
+    git commit -s --trailer "$AI_TRAILER" -m "$CODEGEN_MSG"
+    info "Committed: $CODEGEN_MSG"
+  fi
+
+  if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
+    echo "## CODEGEN FAILURE" >> "$REBASE_TMP/summary.txt"
+    tail -10 "$CODEGEN_LOG" >> "$REBASE_TMP/summary.txt"
+    echo "Fix the codegen script (e.g. removed flags) and re-run codegen." >> "$REBASE_TMP/summary.txt"
+    echo "" >> "$REBASE_TMP/summary.txt"
   fi
 elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
   banner "Phase 2: Code Generation (make)"
