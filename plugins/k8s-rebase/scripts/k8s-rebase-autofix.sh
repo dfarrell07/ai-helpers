@@ -1247,7 +1247,9 @@ patterns. See docs/k8s-rebase-patterns.md for details."
       msg="Reorder imports after k8s rebase fixes"
     fi
     echo ":: Committing: $(echo "$msg" | head -1)"
-    git commit -s --trailer "$AI_TRAILER" -m "$msg"
+    if ! git commit -s --trailer "$AI_TRAILER" -m "$msg"; then
+      echo "WARNING: git commit failed — changes staged but uncommitted"
+    fi
   fi
 }
 

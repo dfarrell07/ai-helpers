@@ -355,13 +355,16 @@ rebase_module() {
   # Commit if there are changes
   if [[ -n "$(git status --porcelain -- "$module_dir")" ]]; then
     git add "$module_dir"
-    git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
+    if git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
 Rebase ${module_path} to k8s ${K8S_MAJOR_MINOR}
 
 ${cmd_log}go mod tidy
 EOF
-)"
-    info "Committed: Rebase ${module_path} to k8s ${K8S_MAJOR_MINOR}"
+)"; then
+      info "Committed: Rebase ${module_path} to k8s ${K8S_MAJOR_MINOR}"
+    else
+      info "WARNING: git commit failed — changes staged but uncommitted"
+    fi
   else
     info "No changes in $module_path (already up to date)"
   fi
@@ -399,8 +402,11 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*"); do
     cd "$REPO_ROOT/$mod_dir" && go mod tidy && cd "$REPO_ROOT"
     if [[ -n "$(git status --porcelain -- "$mod_dir")" ]]; then
       git add "$mod_dir"
-      git commit -s --trailer "$AI_TRAILER" -m "Sync ${mod_dir} go.mod after dependency rebase"
-      info "Committed: Sync ${mod_dir} go.mod after dependency rebase"
+      if git commit -s --trailer "$AI_TRAILER" -m "Sync ${mod_dir} go.mod after dependency rebase"; then
+        info "Committed: Sync ${mod_dir} go.mod after dependency rebase"
+      else
+        info "WARNING: git commit failed — changes staged but uncommitted"
+      fi
     fi
   fi
 done
@@ -476,8 +482,11 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
-    git commit -s --trailer "$AI_TRAILER" -m "$CODEGEN_MSG"
-    info "Committed: $CODEGEN_MSG"
+    if git commit -s --trailer "$AI_TRAILER" -m "$CODEGEN_MSG"; then
+      info "Committed: $CODEGEN_MSG"
+    else
+      info "WARNING: git commit failed (container boundary?) — Phase 4 will commit codegen changes"
+    fi
   fi
 
   if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
@@ -510,8 +519,11 @@ elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
-    git commit -s --trailer "$AI_TRAILER" -m "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
-    info "Committed: Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
+    if git commit -s --trailer "$AI_TRAILER" -m "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"; then
+      info "Committed: Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
+    else
+      info "WARNING: git commit failed — changes staged but uncommitted"
+    fi
   fi
 
   if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
@@ -693,13 +705,16 @@ if [[ -n "$CHANGED_FILES" ]]; then
     [[ -n "$f" ]] && git add "$f" 2>/dev/null || true
   done
   if [[ -n "$(git status --porcelain)" ]]; then
-    git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
+    if git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
 Update version references for k8s ${K8S_MAJOR_MINOR}
 
 ${CHANGED_FILES}
 EOF
-)"
-    info "Committed: Update version references for k8s ${K8S_MAJOR_MINOR}"
+)"; then
+      info "Committed: Update version references for k8s ${K8S_MAJOR_MINOR}"
+    else
+      info "WARNING: git commit failed — changes staged but uncommitted"
+    fi
   fi
 fi
 
