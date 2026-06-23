@@ -707,7 +707,7 @@ fix_kubeadm_v1beta4() {
     return 0
   fi
 
-  chmod --reference="$kind_yaml" "${kind_yaml}.tmp" 2>/dev/null
+  chmod --reference="$kind_yaml" "${kind_yaml}.tmp" 2>/dev/null || true
   mv "${kind_yaml}.tmp" "$kind_yaml"
   echo ":: Migrated kubeadm extraArgs to v1beta4 list format"
 }
@@ -769,7 +769,7 @@ fix_crd_int64_validation() {
           { if (prev!="") print prev; prev=""; print }
           END { if (prev!="") print prev }
         ' "$crd_yaml" > "${crd_yaml}.tmp"
-        chmod --reference="$crd_yaml" "${crd_yaml}.tmp" 2>/dev/null
+        chmod --reference="$crd_yaml" "${crd_yaml}.tmp" 2>/dev/null || true
         mv "${crd_yaml}.tmp" "$crd_yaml"
         # Verify: no format: int32 should remain before maximum: 4294967295
         if ! awk '/format: int32/{p=1;next} /maximum: 4294967295/{if(p){found=1;exit}} {p=0} END{exit !found}' "$crd_yaml" 2>/dev/null; then
@@ -823,7 +823,7 @@ fix_crd_name_validation() {
         echo "$old_file" | sed -n "${s_start},$((s_end - 1))p"
         tail -n "+${c_end}" "$crd_file"
       } > "${crd_file}.tmp"
-      chmod --reference="$crd_file" "${crd_file}.tmp" 2>/dev/null
+      chmod --reference="$crd_file" "${crd_file}.tmp" 2>/dev/null || true
       mv "${crd_file}.tmp" "$crd_file"
     fi
   done
