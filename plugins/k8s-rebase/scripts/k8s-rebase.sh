@@ -749,9 +749,13 @@ echo "Target:    k8s $K8S_FULL (API $API_VERSION)"
 echo "From:      k8s 1.${OLD_MINOR} (API $OLD_API_VERSION)"
 echo "Go:        $OLD_GO_VERSION → $NEW_GO_VERSION"
 echo "CR:        ${CR_VERSION:-latest}"
+echo "Commits:   $(git rev-list "${BRANCH_NAME}@{upstream}..HEAD" --count 2>/dev/null || git rev-list master..HEAD --count 2>/dev/null || git rev-list main..HEAD --count 2>/dev/null || echo '?')"
 if [[ ${#NEW_GATES[@]} -gt 0 ]]; then
   echo "New gates: ${NEW_GATES[*]}"
 fi
+if [[ -n "$(git status --porcelain)" ]]; then
+  echo "WARNING:   uncommitted changes exist (git commit may have failed in container)"
+fi
 echo ""
-echo "Next: proceed to Phase 4 (build validation and fixups)"
+echo "RESULT: EXIT 2 — mechanical rebase done, proceed to Phase 4"
 exit 2

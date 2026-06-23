@@ -399,7 +399,7 @@ while IFS= read -r gomod; do
           # packages — vendored dep changes affect all consumers, not
           # just packages with source changes.
           MERGE_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null || git -C "$REPO_ROOT" merge-base HEAD main 2>/dev/null || echo "HEAD~20")
-          VENDOR_CHANGED=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/vendor/" | head -1)
+          VENDOR_CHANGED=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/vendor/" 2>/dev/null | head -1 || true)
           TEST_PKGS=""
           if [[ -n "$VENDOR_CHANGED" ]]; then
             echo "  Vendor changed — testing all non-privileged packages..."
@@ -413,7 +413,7 @@ while IFS= read -r gomod; do
             done < <(cd "$REPO_ROOT/$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -exec dirname {} \; | sed 's|^\./||' | sort -u)
           else
             echo "  Testing changed non-privileged packages only..."
-            CHANGED_PKGS=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/" | grep '\.go$' | grep -v vendor | grep -v "_test.go" | sed "s|${mod_dir}/||;s|/[^/]*$||" | sort -u)
+            CHANGED_PKGS=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/" 2>/dev/null | grep '\.go$' | grep -v vendor | grep -v "_test.go" | sed "s|${mod_dir}/||;s|/[^/]*$||" | sort -u || true)
             for pkg in $CHANGED_PKGS; do
               if [[ -n "$ROOT_PKGS" ]] && echo "$pkg" | grep -qE "^(${ROOT_PKGS%|})$"; then
                 echo "  Skipping privileged: $pkg"
