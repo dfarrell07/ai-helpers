@@ -283,16 +283,24 @@ namespaces) and will always fail with "permission denied" in
 unprivileged containers. Do NOT pass `./pkg/...` or `./...`
 directly. Split the filtered packages across subagents — count
 test lines per package (`wc -l *_test.go`), cap ~30k lines per
-agent, give the biggest package its own agent. Each agent uses
+agent. Use at least 3 agents. Give the biggest package its own
+dedicated agent — it needs the full timeout. Each agent uses
 the validate script's `--test-only` flag, which handles
 containerization, feature gate exports, timeout scaling, and
 output capture automatically:
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-# Group non-root packages into subtrees. Never include root_pkgs
-# subtrees (e.g., ./pkg/node/...) — they need CAP_NET_ADMIN.
-bash "$SCRIPT" --test-only ./pkg/ovn/... ./pkg/util/...
+# Agent 1: biggest package alone (e.g., ./pkg/ovn for ovnk)
+bash "$SCRIPT" --test-only ./pkg/ovn
+# Agent 2: sub-packages of the biggest
+bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...
+# Agent 3: everything else
+bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/clustermanager/...
 ```
+Do NOT combine the biggest package with others — Go compiles
+the entire package for each `go test` invocation, so the compile
+time for a 56k-line package plus other packages can exceed the
+60-minute container timeout.
 Results are in `.rebase-tmp/test-only-*.log`. Do NOT run raw
 `go test` inside containers — stdout piping across container
 boundaries loses output. The `--test-only` flag writes to a log
