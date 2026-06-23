@@ -316,13 +316,17 @@ rebase_module() {
     return 0
   fi
 
-  info "Running $(echo "$commands" | wc -l) go get commands..."
-  local cmd_log=""
+  local num_cmds
+  num_cmds=$(echo "$commands" | wc -l)
+  info "Running $num_cmds go get commands (log: .rebase-tmp/go-get.log)..."
+  local cmd_log="" cmd_num=0
   while IFS= read -r cmd; do
-    info "  $cmd"
-    eval "$cmd" || info "  WARNING: $cmd failed (continuing)"
+    cmd_num=$((cmd_num + 1))
+    printf "\r:: [%d/%d] %s" "$cmd_num" "$num_cmds" "$(echo "$cmd" | awk '{print $2}' | sed 's/@.*//')"
+    eval "$cmd" >> "$REBASE_TMP/go-get.log" 2>&1 || info "  WARNING: $cmd failed (continuing)"
     cmd_log+="$cmd"$'\n'
   done <<< "$commands"
+  echo ""
 
   info "Running go mod tidy..."
   # k8s.io/kubernetes uses local replace directives for staging repos.
@@ -342,8 +346,8 @@ rebase_module() {
   done
 
   if [[ -d "vendor" ]]; then
-    info "Running go mod vendor..."
-    go mod vendor
+    info "Running go mod vendor (log: .rebase-tmp/vendor.log)..."
+    go mod vendor >> "$REBASE_TMP/vendor.log" 2>&1
     if [[ -x "$REPO_ROOT/go-controller/hack/verify-go-mod-vendor.sh" ]] && [[ "$module_dir" == "go-controller" ]]; then
       info "Verifying vendor..."
       "$REPO_ROOT/go-controller/hack/verify-go-mod-vendor.sh" || info "WARNING: vendor verification failed"
