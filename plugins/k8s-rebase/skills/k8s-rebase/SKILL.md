@@ -52,6 +52,12 @@ The scripts add it automatically. For manual commits use:
 Run from the default branch (master/main). The script creates a
 new timestamped branch. Do not reuse branches from prior runs.
 
+**Important:** This script takes 5-30 minutes (longer if it
+auto-containerizes for a Go version mismatch). Run it in the
+background — the Bash tool's 10-minute max timeout is not enough.
+Use `run_in_background: true` and wait for the completion
+notification. Then check the output file and `git log`.
+
 ```bash
 #!/bin/bash
 set -euo pipefail
@@ -105,6 +111,9 @@ complete until all subagents report zero issues.
 - If you cannot launch subagents, run the gate checks inline.
 
 ### Step 1: Fix compilation errors
+
+Use `timeout: 600000` (10 min) for validation commands, or
+`run_in_background: true` if they auto-containerize.
 
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
@@ -299,10 +308,12 @@ bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...
 # Agent 3: everything else
 bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/clustermanager/...
 ```
-Do NOT combine the biggest package with others — Go compiles
-the entire package for each `go test` invocation, so the compile
-time for a 56k-line package plus other packages can exceed the
-60-minute container timeout.
+These commands auto-containerize and can take 10-30 minutes.
+Use `run_in_background: true` or `timeout: 600000` for each
+Bash call. Do NOT combine the biggest package with others —
+Go compiles the entire package for each `go test` invocation,
+so the compile time for a 56k-line package plus other packages
+can exceed the 60-minute container timeout.
 Results are in `.rebase-tmp/test-only-*.log`. Do NOT run raw
 `go test` inside containers — stdout piping across container
 boundaries loses output. The `--test-only` flag writes to a log
