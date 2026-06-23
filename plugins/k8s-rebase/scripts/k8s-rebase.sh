@@ -762,4 +762,5 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 echo ""
 echo "RESULT: EXIT 2 — mechanical rebase done, proceed to Phase 4"
+echo "EXIT 2" > "$REBASE_TMP/phase03-result.txt"
 exit 2

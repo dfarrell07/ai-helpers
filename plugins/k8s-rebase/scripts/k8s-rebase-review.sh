@@ -37,7 +37,9 @@ fi
 # Pre-fetch evidence deterministically
 export DIFF
 MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null || git -C "$REPO_ROOT" merge-base "$COMMIT" main 2>/dev/null || echo "$COMMIT~10")
-DIFF=$(git -C "$REPO_ROOT" diff "$MERGE_BASE".."$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" ':!*/vendor/*' | head -500)
+DIFF=$(git -C "$REPO_ROOT" diff "$MERGE_BASE".."$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" \
+  ':!*/vendor/*' ':!*generated*' ':!*clientset*' ':!*informer*' ':!*lister*' \
+  ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*' | head -2000)
 
 export ORIGINAL_ERROR
 
