@@ -83,6 +83,12 @@ manual go.mod changes before Phase 0-3 completes — the rebase
 script handles all module bumps, codegen, and version references.
 Running autofix early creates duplicate commits.
 
+If the script was killed (no result file, no "EXIT 2" in output),
+check `git log` for what WAS committed and `git status` for
+uncommitted changes. If rebase commits exist but codegen or
+version ref commits are missing, commit the staged changes
+yourself and continue to Phase 4 — do NOT re-run the script.
+
 If the output says "Could not detect OCP target", check the
 repo's CI config in `openshift/release` or compare with an
 existing manual rebase PR for the correct `openshift-X.Y`
