@@ -353,7 +353,7 @@ fix_version_refs() {
     --include="*.yml" --include="*.yaml" --include="*.sh" \
     --include="*.md" --include="Makefile*" --include="Dockerfile*" . \
     | grep -v vendor | grep -v '/\.git/' | grep -v go.mod || true)
-  [[ "$changed" -eq 1 ]] && echo ":: Fixed stale v1.${OLD} version references → v1.${NEW}"
+  [[ "$changed" -eq 1 ]] && echo ":: Fixed stale v1.${OLD} version references → v1.${NEW}" || true
 }
 
 fix_go_version() {

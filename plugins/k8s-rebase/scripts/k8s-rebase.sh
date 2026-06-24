@@ -76,7 +76,7 @@ restore_crd_metadata() {
       restored=1
     fi
   done
-  [[ "$restored" -eq 1 ]] && info "CRD metadata hand-edits restored"
+  [[ "$restored" -eq 1 ]] && info "CRD metadata hand-edits restored" || true
 }
 
 # ── Argument parsing ─────────────────────────────────────────────────
