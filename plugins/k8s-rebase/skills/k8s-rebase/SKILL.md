@@ -330,12 +330,14 @@ Split packages across agents by test line count (`wc -l
 for each to complete before starting the next). Skip the
 biggest package (e.g., pkg/ovn root, 56k lines) — it causes
 swap thrashing that slows tests 5-6x. Rely on CI for it.
-Run 2 sequential agents for the remaining packages:
+Cap each agent at ~30k test lines. Run 3 sequential agents:
 ```bash
-# Agent 1: sub-packages (~30k lines), timeout: 600000
+# Agent 1: ovn sub-packages (~30k lines), timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...
-# Agent 2 (after Agent 1 completes): everything else, timeout: 600000
-bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/clustermanager/...
+# Agent 2: clustermanager (~33k lines), timeout: 600000
+bash "$SCRIPT" --test-only ./pkg/clustermanager/...
+# Agent 3: everything else (~42k lines), timeout: 600000
+bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/factory/... ./pkg/cni/...
 ```
 
 **32GB+ RAM:** run 3 agents in parallel, including the biggest
