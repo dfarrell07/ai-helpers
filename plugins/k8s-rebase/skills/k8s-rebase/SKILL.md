@@ -314,6 +314,12 @@ Bash call. Do NOT combine the biggest package with others —
 Go compiles the entire package for each `go test` invocation,
 so the compile time for a 56k-line package plus other packages
 can exceed the 60-minute container timeout.
+
+**Resource warning:** each containerized `go test` needs ~5GB
+RAM for compilation. Running 3 in parallel needs ~15GB free.
+If the machine has limited RAM, run test agents sequentially
+instead of in parallel to avoid OOM/timeout from swap thrashing.
+
 Results are in `.rebase-tmp/test-only-*.log`. Do NOT run raw
 `go test` inside containers — stdout piping across container
 boundaries loses output. The `--test-only` flag writes to a log

@@ -292,7 +292,7 @@ run_test_only() {
 
   # Use PID + random suffix so parallel agents (especially containers
   # where PID is always 1) don't clobber each other
-  local LOG_NAME="test-only-$$-${RANDOM}"
+  local LOG_NAME="test-only-$$-$(date +%s)"
   local step_failed=0
   run_validation "$LOG_NAME" "cd $PRIMARY_MOD && go test $VENDOR_FLAG -count=1 -timeout $TEST_TIMEOUT $TEST_ONLY_EXTRA $TEST_ONLY_PKGS" || step_failed=1
 
