@@ -44,6 +44,9 @@ is gitignored. Use plain `git add -A` instead.
 `Assisted-by: Claude Code <noreply@anthropic.com>`.
 The scripts add it automatically. For manual commits use:
 `git commit -s --trailer "Assisted-by: Claude Code <noreply@anthropic.com>"`
+When amending, do NOT re-pass `-s` or `--trailer` — the
+existing trailers are preserved. Use `git commit --amend`
+without those flags to avoid duplicates.
 
 ---
 
