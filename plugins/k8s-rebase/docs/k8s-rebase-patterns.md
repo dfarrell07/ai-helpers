@@ -111,6 +111,7 @@ metaapplyv1.Condition().
 ### EgressPeer type divergence (network-policy-api v0.2.0)
 
 **Only EgressPeer diverged.** IngressPeer remains compatible.
+The autofix script handles this for known file paths.
 Convert field-by-field. Check `_test.go` files too.
 
 ### Conformance suite rename (network-policy-api v0.2.0)
@@ -149,6 +150,7 @@ Vendored packages may fix misspelled `Depreciated` → `Deprecated`
 annotations, newly surfacing SA1019. Check vendored source; if
 `Install` exists, use it. Project-internal CRD register.go is
 NOT deprecated.
+The autofix script handles this migration automatically.
 
 ### controller-gen version annotation mismatch (recurring)
 
@@ -187,6 +189,7 @@ leave them in the blank-line-separated group where `x/exp/maps`
 was (that was the third-party section).
 
 After migration: `go mod tidy && go mod vendor` to remove x/exp.
+The autofix script handles this migration automatically.
 Use `--userns=keep-id` with podman.
 
 **Map iteration ordering:** `x/exp/maps.Keys()` returned `[]T`
