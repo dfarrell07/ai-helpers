@@ -474,6 +474,18 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     [[ "$CODEGEN_RAN" -eq 0 ]] && CODEGEN_FAILED=1
   fi
 
+  # Commit codegen output immediately so progress isn't lost if
+  # the script is killed during mockery or later steps.
+  cd "$REPO_ROOT"
+  if [[ -n "$(git status --porcelain)" ]]; then
+    git add -A
+    if git commit -s --trailer "$AI_TRAILER" -m "$CODEGEN_MSG"; then
+      info "Committed: $CODEGEN_MSG"
+    else
+      info "WARNING: git commit failed — codegen changes staged but uncommitted"
+    fi
+  fi
+
   # Regenerate mocks if codegen deleted them
   if [[ "$CODEGEN_RAN" -eq 1 ]] && [[ -f "$CODEGEN_DIR/.mockery.yaml" ]]; then
     if ! find "$CODEGEN_DIR/pkg/crd" -path "*/mocks/*.go" 2>/dev/null | grep -q .; then
@@ -486,10 +498,10 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
-    if git commit -s --trailer "$AI_TRAILER" -m "$CODEGEN_MSG"; then
-      info "Committed: $CODEGEN_MSG"
+    if git commit -s --trailer "$AI_TRAILER" -m "Regenerate mocks and restore CRD metadata for k8s ${K8S_MAJOR_MINOR}"; then
+      info "Committed: Regenerate mocks and restore CRD metadata"
     else
-      info "WARNING: git commit failed (container boundary?) — Phase 4 will commit codegen changes"
+      info "WARNING: git commit failed — changes staged but uncommitted"
     fi
   fi
 
