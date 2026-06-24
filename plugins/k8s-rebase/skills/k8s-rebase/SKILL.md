@@ -205,6 +205,9 @@ create a new `.md` file in step1/ and add it to this list.
 
 ### Step 2: Run autofix script
 
+Use `timeout: 600000` — the autofix auto-containerizes and
+runs go vet internally.
+
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-autofix.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 [ -n "$SCRIPT" ] && bash "$SCRIPT"
