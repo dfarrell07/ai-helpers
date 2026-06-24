@@ -53,10 +53,15 @@ Run from the default branch (master/main). The script creates a
 new timestamped branch. Do not reuse branches from prior runs.
 
 **Important:** This script takes 5-30 minutes (longer if it
-auto-containerizes for a Go version mismatch). Run it in the
-background — the Bash tool's 10-minute max timeout is not enough.
-Use `run_in_background: true` and wait for the completion
-notification. Then check the output file and `git log`.
+auto-containerizes for a Go version mismatch). Both foreground
+and background Bash calls may be killed at 10 minutes. If the
+script is killed mid-run, check `git log` for commits already
+made and `git status` for uncommitted changes — commit them
+and continue to Phase 4. Do NOT re-run the script.
+
+Use `run_in_background: true` and do not poll the output
+repeatedly — wait for the completion notification or check
+back after 10 minutes.
 
 ```bash
 #!/bin/bash
@@ -88,6 +93,10 @@ check `git log` for what WAS committed and `git status` for
 uncommitted changes. If rebase commits exist but codegen or
 version ref commits are missing, commit the staged changes
 yourself and continue to Phase 4 — do NOT re-run the script.
+Do NOT manually update K8S_VERSION or other version references
+— the autofix script (Step 2) handles these and will choose the
+correct values (e.g., v1.36.1 if v1.36.2 KIND images aren't
+published yet).
 
 If the output says "Could not detect OCP target", check the
 repo's CI config in `openshift/release` or compare with an
