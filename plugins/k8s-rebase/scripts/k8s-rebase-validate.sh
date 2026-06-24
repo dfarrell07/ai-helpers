@@ -285,7 +285,15 @@ run_test_only() {
     fi
   done
   (( TOTAL_LINES > 30000 )) && TEST_TIMEOUT="60m"
-  echo "Test lines: ~$TOTAL_LINES (timeout: $TEST_TIMEOUT)"
+  # Limit compiler parallelism for large suites to reduce memory pressure.
+  # Default GOMAXPROCS uses all CPUs, which can cause 5GB+ RAM spikes
+  # during compilation. GOMAXPROCS=2 reduces the spike to ~1GB.
+  if (( TOTAL_LINES > 30000 )); then
+    export GOMAXPROCS="${GOMAXPROCS:-2}"
+    echo "Test lines: ~$TOTAL_LINES (timeout: $TEST_TIMEOUT, GOMAXPROCS=$GOMAXPROCS)"
+  else
+    echo "Test lines: ~$TOTAL_LINES (timeout: $TEST_TIMEOUT)"
+  fi
 
   # Match outer timeout to Go test timeout so the container isn't killed early
   VALIDATION_TIMEOUT="$TEST_TIMEOUT"

@@ -330,16 +330,18 @@ Split packages across agents by test line count (`wc -l
 ~5GB RAM. Check available memory (`free -h`) first:
 
 **<=16GB RAM:** run agents sequentially (one at a time, wait
-for each to complete before starting the next). Skip the
-biggest package (e.g., pkg/ovn root, 56k lines) — it causes
-swap thrashing that slows tests 5-6x. Rely on CI for it.
-Cap each agent at ~30k test lines. Run 3 sequential agents:
+for each to complete before starting the next). The validate
+script automatically limits compiler parallelism (GOMAXPROCS=2)
+for large packages to reduce memory pressure. Cap each agent
+at ~30k test lines. Run 4 sequential agents:
 ```bash
-# Agent 1: ovn sub-packages (~30k lines), timeout: 600000
+# Agent 1: biggest package alone (~56k lines, nohup — takes ~16 min)
+nohup bash "$SCRIPT" --test-only ./pkg/ovn > .rebase-tmp/test-ovn.log 2>&1 &
+# Agent 2: ovn sub-packages (~30k lines), timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...
-# Agent 2: clustermanager (~33k lines), timeout: 600000
+# Agent 3: clustermanager (~33k lines), timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/clustermanager/...
-# Agent 3: everything else (~42k lines), timeout: 600000
+# Agent 4: everything else (~42k lines), timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/factory/... ./pkg/cni/...
 ```
 
