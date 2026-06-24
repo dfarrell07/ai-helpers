@@ -53,46 +53,43 @@ Run from the default branch (master/main). The script creates a
 new timestamped branch. Do not reuse branches from prior runs.
 
 **Important:** This script takes 5-30 minutes (longer if it
-auto-containerizes for a Go version mismatch). Both foreground
-and background Bash calls may be killed at 10 minutes. If the
-script is killed mid-run, check `git log` for commits already
-made and `git status` for uncommitted changes — commit them
-and continue to Phase 4. Do NOT re-run the script.
+auto-containerizes). Launch it as a detached process so it is
+not killed by Bash tool timeouts:
 
-Use `run_in_background: true` and do not poll the output
-repeatedly — wait for the completion notification or check
-back after 10 minutes.
-
+**Launch** (returns immediately):
 ```bash
-#!/bin/bash
-set -euo pipefail
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -z "$REPO_ROOT" ] && echo "ERROR: Not in a git repo" && exit 1
-# Validate REPO_ROOT is a Go project, not a workspace meta-repo
 if ! [[ -f "$REPO_ROOT/go.mod" || -f "$REPO_ROOT/go-controller/go.mod" ]]; then
   echo "ERROR: $REPO_ROOT has no go.mod — are you in a workspace root instead of the target repo?"
   exit 1
 fi
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 [ -z "$SCRIPT" ] && echo "ERROR: k8s-rebase.sh not found" && exit 1
-exec bash "$SCRIPT" $ARGUMENTS
+mkdir -p "$REPO_ROOT/.rebase-tmp"
+nohup bash "$SCRIPT" $ARGUMENTS > "$REPO_ROOT/.rebase-tmp/phase03.log" 2>&1 &
+echo $! > "$REPO_ROOT/.rebase-tmp/phase03.pid"
+echo "Launched PID $(cat "$REPO_ROOT/.rebase-tmp/phase03.pid")"
 ```
 
-Exit 0: already at target. Exit 1: error. **Exit 2: success —
-proceed to Phase 4.** The Bash tool displays exit 2 as an error
-but it means Phase 0-3 completed. If the output is truncated,
-check `cat .rebase-tmp/phase03-result.txt` — if it says "EXIT 2",
-the script succeeded. Check `git log` for rebase commits.
-Do NOT re-run the script. Do NOT run the autofix script or make
-manual go.mod changes before Phase 0-3 completes — the rebase
-script handles all module bumps, codegen, and version references.
-Running autofix early creates duplicate commits.
+**Check** (run every 3-5 minutes until done):
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+if kill -0 $(cat "$REPO_ROOT/.rebase-tmp/phase03.pid" 2>/dev/null) 2>/dev/null; then
+  echo "Still running..."; tail -3 "$REPO_ROOT/.rebase-tmp/phase03.log"
+else
+  echo "Done"; cat "$REPO_ROOT/.rebase-tmp/phase03-result.txt" 2>/dev/null; tail -10 "$REPO_ROOT/.rebase-tmp/phase03.log"
+fi
+```
 
-If the script was killed (no result file, no "EXIT 2" in output),
-check `git log` for what WAS committed and `git status` for
-uncommitted changes. If rebase commits exist but codegen or
-version ref commits are missing, commit the staged changes
-yourself and continue to Phase 4 — do NOT re-run the script.
+When the check shows "Done", look at the last lines of the log.
+**Exit 2 = success** — proceed to Phase 4. Exit 1 = error.
+Check `cat .rebase-tmp/phase03-result.txt` — if it says "EXIT 2",
+the script completed all phases. Check `git log` for rebase
+commits. Do NOT re-run the script. Do NOT run the autofix script
+or make manual go.mod changes before Phase 0-3 completes — the
+rebase script handles all module bumps, codegen, and version
+references. Running autofix early creates duplicate commits.
 Do NOT manually update K8S_VERSION or other version references
 — the autofix script (Step 2) handles these and will choose the
 correct values (e.g., v1.36.1 if v1.36.2 KIND images aren't
@@ -313,7 +310,17 @@ unprivileged containers. Do NOT pass `./pkg/...` or `./...`
 directly. Each agent uses the validate script's `--test-only`
 flag, which handles containerization, feature gate exports,
 timeout scaling, and output capture automatically.
-Use `run_in_background: true` for each Bash call.
+
+Tests can take 10-60 minutes. Use `timeout: 600000` for small
+package groups. For the biggest package (>30k lines), use
+nohup to avoid the 10-minute timeout:
+```bash
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+REPO_ROOT=$(git rev-parse --show-toplevel)
+nohup bash "$SCRIPT" --test-only ./pkg/ovn > "$REPO_ROOT/.rebase-tmp/test-ovn.log" 2>&1 &
+echo $! > "$REPO_ROOT/.rebase-tmp/test-ovn.pid"
+```
+Check with: `kill -0 $(cat .rebase-tmp/test-ovn.pid) 2>/dev/null && echo running || echo done`
 
 Split packages across agents by test line count (`wc -l
 *_test.go`). Each containerized `go test` compilation uses
@@ -325,20 +332,20 @@ biggest package (e.g., pkg/ovn root, 56k lines) — it causes
 swap thrashing that slows tests 5-6x. Rely on CI for it.
 Run 2 sequential agents for the remaining packages:
 ```bash
-SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-# Agent 1: sub-packages (~30k lines)
+# Agent 1: sub-packages (~30k lines), timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...
-# Agent 2 (after Agent 1 completes): everything else
+# Agent 2 (after Agent 1 completes): everything else, timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/clustermanager/...
 ```
 
-**32GB+ RAM:** run 3 agents in parallel, including the biggest:
+**32GB+ RAM:** run 3 agents in parallel, including the biggest
+via nohup:
 ```bash
-# Agent 1: biggest package alone
-bash "$SCRIPT" --test-only ./pkg/ovn
-# Agent 2: sub-packages
+# Agent 1: biggest package alone (nohup — takes 10-30 min)
+nohup bash "$SCRIPT" --test-only ./pkg/ovn > .rebase-tmp/test-ovn.log 2>&1 &
+# Agent 2: sub-packages, timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...
-# Agent 3: everything else
+# Agent 3: everything else, timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/clustermanager/...
 ```
 
