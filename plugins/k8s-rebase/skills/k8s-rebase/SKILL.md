@@ -298,40 +298,45 @@ Use ONLY the packages from the discovery snippet above — it
 filters out `root_pkgs` which need CAP_NET_ADMIN (network
 namespaces) and will always fail with "permission denied" in
 unprivileged containers. Do NOT pass `./pkg/...` or `./...`
-directly. Split the filtered packages across subagents — count
-test lines per package (`wc -l *_test.go`), cap ~30k lines per
-agent. Use at least 3 agents. Give the biggest package its own
-dedicated agent — it needs the full timeout. Each agent uses
-the validate script's `--test-only` flag, which handles
-containerization, feature gate exports, timeout scaling, and
-output capture automatically:
+directly. Each agent uses the validate script's `--test-only`
+flag, which handles containerization, feature gate exports,
+timeout scaling, and output capture automatically.
+Use `run_in_background: true` for each Bash call.
+
+Split packages across agents by test line count (`wc -l
+*_test.go`). Each containerized `go test` compilation uses
+~5GB RAM. Check available memory (`free -h`) first:
+
+**<=16GB RAM:** run agents sequentially (one at a time, wait
+for each to complete before starting the next). Skip the
+biggest package (e.g., pkg/ovn root, 56k lines) — it causes
+swap thrashing that slows tests 5-6x. Rely on CI for it.
+Run 2 sequential agents for the remaining packages:
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-# Agent 1: biggest package alone (e.g., ./pkg/ovn for ovnk)
+# Agent 1: sub-packages (~30k lines)
+bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...
+# Agent 2 (after Agent 1 completes): everything else
+bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/clustermanager/...
+```
+
+**32GB+ RAM:** run 3 agents in parallel, including the biggest:
+```bash
+# Agent 1: biggest package alone
 bash "$SCRIPT" --test-only ./pkg/ovn
-# Agent 2: sub-packages of the biggest
+# Agent 2: sub-packages
 bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...
 # Agent 3: everything else
 bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/clustermanager/...
 ```
-These commands auto-containerize and can take 10-30 minutes.
-Use `run_in_background: true` or `timeout: 600000` for each
-Bash call. Do NOT combine the biggest package with others —
-Go compiles the entire package for each `go test` invocation,
-so the compile time for a 56k-line package plus other packages
-can exceed the 60-minute container timeout.
-
-**Resource warning:** each containerized `go test` needs ~5GB
-RAM for compilation. Running 3 in parallel needs ~15GB free.
-If the machine has limited RAM, run test agents sequentially
-instead of in parallel to avoid OOM/timeout from swap thrashing.
 
 Results are in `.rebase-tmp/test-only-*.log`. Do NOT run raw
 `go test` inside containers — stdout piping across container
 boundaries loses output. The `--test-only` flag writes to a log
 file on the mounted volume, so results are always readable.
 
-The following agents run in parallel alongside the test agents.
+The following gate agents are read-only (no compilation) and
+can run alongside test agents without adding memory pressure.
 Find the gate prompt directory, `cat` each file below, and
 launch one subagent per file with its contents as the prompt.
 Prepend the repo path to each prompt.
