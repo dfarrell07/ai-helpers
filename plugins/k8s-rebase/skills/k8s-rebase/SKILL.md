@@ -104,6 +104,18 @@ repo's CI config in `openshift/release` or compare with an
 existing manual rebase PR for the correct `openshift-X.Y`
 version in `.ci-operator.yaml` and Dockerfiles.
 
+**Gate:** After the script finishes (or is killed), verify the
+rebase is complete before proceeding:
+```bash
+GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
+  -path "*/k8s-rebase/gates/step1-rebase" -type d 2>/dev/null | head -1)
+```
+Gate files:
+- `rebase-completeness.md` (count)
+
+If any check fails, fix the issue (commit staged changes,
+re-run codegen, etc.) before proceeding.
+
 ---
 
 ## Steps 2–5: Validation and Fixes

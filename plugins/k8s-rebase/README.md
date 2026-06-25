@@ -42,7 +42,7 @@ runs from the plugin.
 | `scripts/k8s-rebase-validate.sh` | Build/lint/vet/test across all modules |
 | `scripts/k8s-rebase-review.sh` | Antagonistic review via `claude -p` |
 | `scripts/k8s-rebase-review-prompt.md` | Review agent prompt template |
-| `gates/step{2,3,4}-*/*.md` | Subagent verification prompts (21 files) |
+| `gates/step{1,2,3,4}-*/*.md` | Subagent verification prompts (22 files) |
 | `docs/k8s-rebase-patterns.md` | Breakage patterns for k8s 1.33-1.36 |
 
 ## Tested against
