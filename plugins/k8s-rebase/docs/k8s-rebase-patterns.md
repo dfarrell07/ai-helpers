@@ -47,6 +47,7 @@ When rebasing to k8s 1.37+, update these files:
 | CRD name validation lost | `not-default created` (should be rejected) | Re-insert `metadata.name: pattern: ^default$` after codegen |
 | CRD codegen annotation | `verify-update-codegen` fails (`git diff`) | Re-run codegen to update `controller-gen.kubebuilder.io/version` |
 | Informer coalescing | Hybrid-overlay test timeout (2s) | Increase `Eventually` timeout (2s → 5s) |
+| NewSimpleClientset deprecated | `NewSimpleClientset` has deprecation warning | Replace with `NewClientset` in test files |
 | Webhook builder API | `too many arguments` in NewWebhookManagedBy | Move object from .For() to constructor arg (now generic) |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
@@ -458,3 +459,19 @@ interface, otherwise use `WithCustomValidator` as a bridge.
 
 Symptom: `too many arguments` or `not enough arguments` in
 `NewWebhookManagedBy`.
+
+### NewSimpleClientset deprecated (k8s 1.36)
+
+`fake.NewSimpleClientset` is deprecated in favor of
+`fake.NewClientset` which supports field management and
+server-side apply testing. The function signature is the same
+(`NewClientset(objects ...runtime.Object)`), so this is a
+straightforward rename. Affects test files that create fake
+k8s or custom clientsets.
+
+```go
+// Old
+fakeClient := fakekubeclient.NewSimpleClientset()
+// New
+fakeClient := fakekubeclient.NewClientset()
+```
