@@ -566,7 +566,11 @@ fix_kubevirt_version() {
   if grep -q 'KUBEVIRT_VERSION:-"v[0-9]' "$kind_common"; then
     local current
     current=$(grep -oE 'KUBEVIRT_VERSION:-"v[^"]+' "$kind_common" | head -1 | sed 's/.*:-"//' || true)
-    sed -i '/^[[:space:]]*#/!s/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"v[^"]*"}/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"nightly"}/' "$kind_common"
+    # Add TODO comment before the version line, then change the version
+    sed -i '/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"v[^"]*"}/{
+      i\    # TODO: move back to stable once KubeVirt ships a release compatible with this k8s version
+      s/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"v[^"]*"}/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"nightly"}/
+    }' "$kind_common"
     echo ":: Changed KubeVirt ${current} → nightly (pinned stable may not support this k8s version)"
   fi
 }
