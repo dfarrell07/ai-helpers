@@ -161,13 +161,16 @@ resources that the controller doesn't support yet).
 **Import deduplication:** If a file imports the same package
 twice (bare + aliased, e.g., `"k8s.io/.../errors"` and
 `k8serrors "k8s.io/.../errors"`), remove the duplicate and
-update references. Do NOT use `replace_all` for this — it
-causes double-substitution (e.g., `k8serrors` → `k8sk8serrors`).
-Instead, remove the bare import line and update only the
-specific references that used the bare name. More generally,
-avoid `replace_all` on patterns that can span multiple lines
-(e.g., `fmt.Fprintf(GinkgoWriter,`) — it inserts text mid-call
-and breaks the syntax.
+update references. **Do NOT use `replace_all`** unless the old
+and new strings are completely disjoint. It matches already-
+modified lines and doubles up:
+- `v1alpha1.` → `infv1alpha1.` also hits `infv1alpha1.` →
+  `infinfv1alpha1.`
+- Adding `_, _ =` prefix hits lines already prefixed →
+  `_, _ = _, _ = fmt.Fprintf(...)`
+- `k8serrors` → `k8sk8serrors` (import alias doubling)
+Use targeted per-line edits or `sed` with anchored patterns
+instead.
 
 When converting types, read the FULL struct definition and map
 ALL fields. Check test files for the same type changes — test
