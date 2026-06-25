@@ -357,7 +357,7 @@ while IFS= read -r gomod; do
         if command -v golangci-lint &>/dev/null; then
           vendor_flag=""
           [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && vendor_flag="--modules-download-mode=vendor"
-          run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose $vendor_flag --timeout=15m0s" || step_failed=1
+          run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --max-same-issues 0 $vendor_flag --timeout=15m0s" || step_failed=1
         else
           echo "  WARNING: golangci-lint not available — skipping lint"
         fi
@@ -369,7 +369,7 @@ while IFS= read -r gomod; do
             if command -v golangci-lint &>/dev/null; then
               vendor_flag=""
               [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && vendor_flag="--modules-download-mode=vendor"
-              run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose $vendor_flag --timeout=15m0s" || step_failed=1
+              run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --max-same-issues 0 $vendor_flag --timeout=15m0s" || step_failed=1
             else
               step_failed=1
             fi

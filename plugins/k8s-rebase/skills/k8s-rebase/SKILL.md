@@ -291,6 +291,9 @@ SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh"
 
 Fix every reported issue. The lint version bump surfaces
 pre-existing issues — fix them all, they will block CI.
+golangci-lint v2 defaults to showing only 3 instances of each
+error type. The validate script overrides this with
+`--max-same-issues 0` so all issues appear in one run.
 
 **Nilness dead code:** The bumped golangci-lint catches `if err
 != nil` blocks where err is guaranteed nil. Remove the entire
