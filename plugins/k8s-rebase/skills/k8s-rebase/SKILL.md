@@ -164,7 +164,10 @@ twice (bare + aliased, e.g., `"k8s.io/.../errors"` and
 update references. Do NOT use `replace_all` for this — it
 causes double-substitution (e.g., `k8serrors` → `k8sk8serrors`).
 Instead, remove the bare import line and update only the
-specific references that used the bare name.
+specific references that used the bare name. More generally,
+avoid `replace_all` on patterns that can span multiple lines
+(e.g., `fmt.Fprintf(GinkgoWriter,`) — it inserts text mid-call
+and breaks the syntax.
 
 When converting types, read the FULL struct definition and map
 ALL fields. Check test files for the same type changes — test
