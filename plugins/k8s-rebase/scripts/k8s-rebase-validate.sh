@@ -563,7 +563,6 @@ fi
 echo ""
 if [[ "$ERRORS_FOUND" -eq 0 ]]; then
   echo "All validation passes. No Phase 4 fixups needed."
-  cleanup
   exit 0
 else
   echo "Errors found. Summary: $SUMMARY"

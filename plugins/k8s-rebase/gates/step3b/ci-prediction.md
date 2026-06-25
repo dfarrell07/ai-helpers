@@ -7,9 +7,12 @@ fail in CI due to:
   missing CRDs, stale FRR images, kubeadm format)?
 - Feature gates not disabled in a test package that uses
   informers or watch-based patterns with fake clientsets?
-  (Not all fake clientset packages need gates — only those
-  that create informers. Don't flag packages that just use
-  fake clientsets for simple CRUD operations.)
+  Only flag packages that create informers AND lack gate
+  setup. Do NOT flag packages that just use fake clientsets
+  for simple CRUD operations — most test suites don't need
+  SetFromMap. The autofix script's Layer 4 output lists
+  packages it already checked; if the autofix said "no gates
+  needed" for a package, don't flag it again.
 - Stale codegen output? If hack/update-codegen.sh or a
   Makefile codegen/generate/manifests target exists, check
   that git log shows a codegen commit. If the repo has a
