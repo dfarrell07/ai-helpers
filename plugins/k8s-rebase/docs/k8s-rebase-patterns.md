@@ -47,6 +47,7 @@ When rebasing to k8s 1.37+, update these files:
 | CRD name validation lost | `not-default created` (should be rejected) | Re-insert `metadata.name: pattern: ^default$` after codegen |
 | CRD codegen annotation | `verify-update-codegen` fails (`git diff`) | Re-run codegen to update `controller-gen.kubebuilder.io/version` |
 | Informer coalescing | Hybrid-overlay test timeout (2s) | Increase `Eventually` timeout (2s → 5s) |
+| Webhook builder API | `too many arguments` in NewWebhookManagedBy | Move object from .For() to constructor arg (now generic) |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
 ## Feature Gates (recurring)
@@ -432,3 +433,28 @@ been tested. OTE may have its own breakage patterns distinct
 from go-controller (e.g., `openshift/origin` test API changes).
 OTE is sometimes bumped as a separate PR by a different
 engineer (see CORENET-7293).
+
+### Webhook builder API change (controller-runtime v0.24)
+
+`ctrl.NewWebhookManagedBy` is now generic — the object moves
+from `.For()` into the constructor as a type parameter:
+```go
+// Old (controller-runtime v0.22)
+ctrl.NewWebhookManagedBy(mgr).
+    For(&MyType{}).
+    WithValidator(&MyValidator{}).
+    Complete()
+
+// New (controller-runtime v0.24)
+ctrl.NewWebhookManagedBy(mgr, &MyType{}).
+    WithValidator(&MyValidator{}).
+    Complete()
+```
+The `.For()` method is removed. `WithValidator` now takes a
+generic `admission.Validator[T]` instead of the old interface.
+`WithCustomValidator` still exists but is deprecated — prefer
+`WithValidator` if the validator implements the new generic
+interface, otherwise use `WithCustomValidator` as a bridge.
+
+Symptom: `too many arguments` or `not enough arguments` in
+`NewWebhookManagedBy`.
