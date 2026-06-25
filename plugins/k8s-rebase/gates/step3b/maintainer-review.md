@@ -9,12 +9,11 @@ Check:
 - Is there any scope creep (changes beyond what the rebase needs)?
 
 Note: the autofix script applies known rebase patterns that ARE
-required. These are NOT scope creep: MetalLB version bumps,
-KubeVirt nightly pinning, KIND image version changes,
-K8S_VERSION adjustments, feature gate additions,
-RelaxedServiceNameValidation probes, kubeadm v1beta4 migration,
-CRD validation fixes, ObservedGeneration updates. See the
-patterns doc for why each is needed.
+required — these are NOT scope creep. Read the patterns doc
+(find k8s-rebase-patterns.md in the plugin directory) for the
+full list. Any change that matches a documented pattern is
+expected, even if it touches e2e infrastructure, version
+references, or test configuration.
 
 List your findings with specific commit SHAs and file:line refs.
 Do not just say "would approve" — explain what you checked.

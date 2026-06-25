@@ -6,11 +6,10 @@ modified, read the full function and trace data flow. Flag:
 - Variables assigned but never used
 - Error values checked in one path but ignored in another
 
-The autofix applies documented patterns (ObservedGeneration,
-x/exp→stdlib, FieldsV1, feature gates, e2e infra) that are
-intentionally targeted changes. Only flag inconsistencies
-WITHIN a modified function — not missing changes in unrelated
-functions or callers.
+The autofix applies documented patterns (see the patterns doc)
+that are intentionally targeted changes. Only flag
+inconsistencies WITHIN a modified function — not missing
+changes in unrelated functions or callers.
 
 List each function you checked and your finding. Do not just
 say "no issues" — show what you traced.

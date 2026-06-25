@@ -8,13 +8,11 @@ Read the autofix commit diff. For each Go function it modified:
     compared but not propagated when the struct is copied, a
     variable assigned but never used.
 
-The autofix script applies documented patterns that modify
-specific code paths. These are intentional targeted changes,
-not incomplete fixes: ObservedGeneration (5 specific edits),
-AddToScheme→Install, x/exp→stdlib, FieldsV1 API updates.
-Only flag a function as "partial" if the change is logically
-inconsistent within the function itself — not just because
-it doesn't touch every caller.
+The autofix script applies documented patterns (see the patterns
+doc) that modify specific code paths. These are intentional
+targeted changes, not incomplete fixes. Only flag a function as
+"partial" if the change is logically inconsistent within the
+function itself — not just because it doesn't touch every caller.
 
 List each function you checked and your finding. Count functions
 with genuinely partial changes. Report count.

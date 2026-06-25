@@ -1,14 +1,14 @@
 If e2e infrastructure was modified (kind-common.sh, kind.yaml.j2,
-e2e-kind.sh), verify each change:
+e2e-kind.sh), read the patterns doc (find k8s-rebase-patterns.md
+in the plugin directory) for the expected state of each component.
+Verify each modified file matches what the patterns doc prescribes.
 
-- MetalLB: version bumped to v0.16.0+? METALLB_UPSTREAM_FRR_IMAGE
-  variable added? install_metallb references updated?
-- KubeVirt: KUBEVIRT_VERSION set to "nightly"?
-- kubeadm: ALL extraArgs and kubeletExtraArgs in v1beta4 list
-  format (- name: / value:)? ALL Configuration kinds have
-  apiVersion: kubeadm.k8s.io/v1beta4?
-- RelaxedServiceNameValidation: probe function in e2e-kind.sh?
-  featureGates in kind.yaml.j2?
+Common e2e components to check:
+- MetalLB: version and FRR image consistent with patterns doc?
+- KubeVirt: version pin matches patterns doc recommendation?
+- kubeadm: extraArgs format matches required kubeadm API version?
+- KIND: version and feature gates match patterns doc?
+- Test skips: any conditional skips added for version compatibility?
 
 List each item checked and whether it passes. Report issues.
 
