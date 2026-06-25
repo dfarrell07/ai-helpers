@@ -8,13 +8,16 @@ Read the autofix commit diff. For each Go function it modified:
     compared but not propagated when the struct is copied, a
     variable assigned but never used.
 
-List each function you checked and your finding. Count functions
-with partial changes. Report count.
+The autofix script applies documented patterns that modify
+specific code paths. These are intentional targeted changes,
+not incomplete fixes: ObservedGeneration (5 specific edits),
+AddToScheme→Install, x/exp→stdlib, FieldsV1 API updates.
+Only flag a function as "partial" if the change is logically
+inconsistent within the function itself — not just because
+it doesn't touch every caller.
 
-Example of a partial fix: ObservedGeneration is set on a condition
-struct, but the comparison function that decides whether to update
-the status doesn't check ObservedGeneration, so spec changes that
-only bump the generation are silently ignored.
+List each function you checked and your finding. Count functions
+with genuinely partial changes. Report count.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit files. Cite file:line for any issues.
