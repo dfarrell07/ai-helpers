@@ -27,16 +27,16 @@ COMMIT="$1"
 shift
 ORIGINAL_ERROR="$*"
 
-# Verify COMMIT is reachable from HEAD (guards against branch-switching)
-if ! git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" HEAD 2>/dev/null; then
-  echo "ERROR: commit $COMMIT is not reachable from HEAD ($(git -C "$REPO_ROOT" rev-parse --short HEAD))" >&2
-  echo "ERROR: Are you on the rebase branch? Current branch: $(git -C "$REPO_ROOT" branch --show-current)" >&2
-  exit 1
-fi
-
 # Pre-fetch evidence deterministically
 export DIFF
 MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null || git -C "$REPO_ROOT" merge-base "$COMMIT" main 2>/dev/null || echo "$COMMIT~10")
+
+# Verify COMMIT is on the rebase branch (not a master/main commit)
+if git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" "$MERGE_BASE" 2>/dev/null; then
+  echo "ERROR: commit $COMMIT is on master/main, not the rebase branch" >&2
+  echo "ERROR: Current branch: $(git -C "$REPO_ROOT" branch --show-current), HEAD: $(git -C "$REPO_ROOT" rev-parse --short HEAD)" >&2
+  exit 1
+fi
 DIFF=$(git -C "$REPO_ROOT" diff "$MERGE_BASE".."$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" \
   ':!*/vendor/*' ':!*generated*' ':!*clientset*' ':!*informer*' ':!*lister*' \
   ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*' | head -2000)
