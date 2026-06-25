@@ -53,3 +53,4 @@ package-lock.json
 # Various logs and metrics tracking info
 *.log
 .anonymous_id
+.rebase-tmp/

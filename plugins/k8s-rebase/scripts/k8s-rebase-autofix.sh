@@ -1202,7 +1202,7 @@ fix_mocks() {
 run_vet() {
   # Run go vet on all modules to catch semantic errors (format strings,
   # type mismatches) that grep-based checks miss.
-  # Skip if local Go is too old — Step 3 re-validation auto-containerizes.
+  # Skip if local Go is too old — re-validation auto-containerizes.
   local required_go
   required_go=$(grep "^go " "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}')
   local current_go
@@ -1212,7 +1212,7 @@ run_vet() {
     req_minor=$(echo "$required_go" | cut -d. -f2)
     cur_minor=$(echo "$current_go" | cut -d. -f2)
     if [[ "$cur_minor" -lt "$req_minor" ]] 2>/dev/null; then
-      echo ":: Skipping go vet (Go $current_go < $required_go required — Step 3 re-validation will check)"
+      echo ":: Skipping go vet (Go $current_go < $required_go required — re-validation will check)"
       return 0
     fi
   fi
@@ -1259,12 +1259,12 @@ patterns. See docs/k8s-rebase-patterns.md for details."
 
 # ── Main ───────────────────────────────────────────────────────────
 
-# Guard: refuse to run if Phase 0-3 (k8s-rebase.sh) isn't complete.
+# Guard: refuse to run if the rebase script (k8s-rebase.sh) isn't complete.
 # Uncommitted go.mod/vendor changes mean the rebase script is still
-# running or failed partway. The agent should finish Phase 0-3 and
+# running or failed partway. The agent should finish the rebase script and
 # commit all changes before running autofix.
 if git status --short | grep -qE "go\.mod|go\.sum|vendor/"; then
-  echo "ERROR: Uncommitted go.mod/vendor changes — Phase 0-3 not complete."
+  echo "ERROR: Uncommitted go.mod/vendor changes — rebase script not complete."
   echo "Finish k8s-rebase.sh and commit all module changes before running autofix."
   echo ""
   git status --short | grep -E "go\.mod|go\.sum|vendor/" | head -5

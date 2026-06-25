@@ -7,12 +7,12 @@
 # Run from any Go repo with k8s.io dependencies. The script auto-detects
 # go.mod files, codegen scripts, and vendor directories.
 #
-# Handles Phases 0-3 (deterministic). Phase 4 (build validation and
-# fixups) is handled by the companion skill or manually.
+# Handles the automated rebase (deterministic). Validation and
+# fixes) are handled by the companion skill or manually.
 #
 # Exit codes: 0 = already at target (nothing to do)
 #             1 = error
-#             2 = mechanical steps done, Phase 4 needed
+#             2 = mechanical rebase done, validation needed
 
 set -euo pipefail
 
@@ -490,7 +490,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   if [[ "$CODEGEN_RAN" -eq 1 ]] && [[ -f "$CODEGEN_DIR/.mockery.yaml" ]]; then
     if ! find "$CODEGEN_DIR/pkg/crd" -path "*/mocks/*.go" 2>/dev/null | grep -q .; then
       info "Codegen deleted mock files — running mockery..."
-      make -C "$CODEGEN_DIR" mocksgen 2>/dev/null || info "WARNING: mockery failed — Phase 4 agent will regenerate mocks"
+      make -C "$CODEGEN_DIR" mocksgen 2>/dev/null || info "WARNING: mockery failed — the agent will regenerate mocks"
     fi
   fi
 
@@ -525,7 +525,7 @@ elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
       if make -C "$REPO_ROOT" "$target" >> "$CODEGEN_LOG" 2>&1; then
         CODEGEN_RAN=1
       else
-        info "WARNING: make $target failed — Phase 4 will fix"
+        info "WARNING: make $target failed — the agent will fix"
         CODEGEN_FAILED=1
       fi
     fi
@@ -736,7 +736,7 @@ fi
 
 # ── Phase 3b: Detect new feature gates (info only) ────────────────
 # Scans vendored feature gate definitions for new default-true gates.
-# The autofix (Phase 4 Step 2) handles disabling via GATE_DEPS —
+# The autofix handles disabling via GATE_DEPS —
 # this is informational logging only.
 
 KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1 || true)
@@ -773,6 +773,6 @@ if [[ -n "$(git status --porcelain)" ]]; then
   echo "WARNING:   uncommitted changes exist (git commit may have failed in container)"
 fi
 echo ""
-echo "RESULT: EXIT 2 — mechanical rebase done, proceed to Phase 4"
+echo "RESULT: EXIT 2 — mechanical rebase done, proceed to validation"
 echo "EXIT 2" > "$REBASE_TMP/phase03-result.txt"
 exit 2

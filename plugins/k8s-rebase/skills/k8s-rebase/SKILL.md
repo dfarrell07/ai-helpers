@@ -9,9 +9,10 @@ allowed-tools: Bash, Read, Agent
 # Kubernetes Rebase
 
 Automates the k8s dependency rebase for Go projects that consume
-`k8s.io/*` packages. Phases 0-3 (mechanical) and known fix
-patterns run via scripts. The agent handles compilation errors
-and any issues the scripts can't fix automatically.
+`k8s.io/*` packages. The automated rebase script handles
+mechanical work (dep bumps, codegen, version refs). The agent
+handles compilation errors, autofix patterns, lint, testing,
+and review.
 
 **Arguments:** $ARGUMENTS
 
@@ -50,7 +51,7 @@ without those flags to avoid duplicates.
 
 ---
 
-## Phase 0-3: Mechanical Rebase
+## Step 1: Deterministic Rebase
 
 Run from the default branch (master/main). The script creates a
 new timestamped branch. Do not reuse branches from prior runs.
@@ -86,15 +87,15 @@ fi
 ```
 
 When the check shows "Done", look at the last lines of the log.
-**Exit 2 = success** — proceed to Phase 4. Exit 1 = error.
+**Exit 2 = success** — proceed to validation. Exit 1 = error.
 Check `cat .rebase-tmp/phase03-result.txt` — if it says "EXIT 2",
 the script completed all phases. Check `git log` for rebase
 commits. Do NOT re-run the script. Do NOT run the autofix script
-or make manual go.mod changes before Phase 0-3 completes — the
+or make manual go.mod changes before the rebase script completes — the
 rebase script handles all module bumps, codegen, and version
 references. Running autofix early creates duplicate commits.
 Do NOT manually update K8S_VERSION or other version references
-— the autofix script (Step 2) handles these and will choose the
+— the autofix script handles these and will choose the
 correct values (e.g., v1.36.1 if v1.36.2 KIND images aren't
 published yet).
 
@@ -105,7 +106,7 @@ version in `.ci-operator.yaml` and Dockerfiles.
 
 ---
 
-## Phase 4: Build Validation and Fixups
+## Steps 2–5: Validation and Fixes
 
 Every step ends with subagent verification. The step is not
 complete until all subagents report zero issues.
@@ -125,7 +126,7 @@ complete until all subagents report zero issues.
   they need Go tools (build, vet, lint, test).
 - If you cannot launch subagents, run the gate checks inline.
 
-### Step 1: Fix compilation errors
+### Step 2: Fix compilation errors
 
 Use `timeout: 600000` (10 min) for validation commands, or
 `run_in_background: true` if they auto-containerize.
@@ -141,7 +142,7 @@ fi
 
 Exit 0: no errors. Exit 1: errors in `.rebase-tmp/summary.txt`.
 Use `--quick` (~1 min, build + vet only) during fix iterations.
-Full validation runs in Step 3.
+Full validation runs in the lint/test step.
 
 If summary contains `## CODEGEN FAILURE`, fix the codegen script
 (e.g. remove dropped flags), re-run codegen, commit, re-validate.
@@ -204,7 +205,7 @@ wave. Prepend the repo path to each prompt so the subagent
 knows where to look.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
-  -path "*/k8s-rebase/gates/step1" -type d 2>/dev/null | head -1)
+  -path "*/k8s-rebase/gates/step2-compilation" -type d 2>/dev/null | head -1)
 cat "$GATE_DIR/build-vet.md"  # read this, use as subagent prompt
 ```
 Gate files:
@@ -218,7 +219,7 @@ Count gates must report 0. Judge gates must cite evidence.
 Investigate all concerns before proceeding. To add a gate:
 create a new `.md` file in step1/ and add it to this list.
 
-### Step 2: Run autofix script
+### Step 3: Apply autofix patterns
 
 Use `timeout: 600000` — the autofix auto-containerizes and
 runs go vet internally.
@@ -248,7 +249,7 @@ and launch one subagent per file with its contents as the prompt.
 All in one parallel wave. Prepend the repo path to each prompt.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
-  -path "*/k8s-rebase/gates/step2" -type d 2>/dev/null | head -1)
+  -path "*/k8s-rebase/gates/step3-autofix" -type d 2>/dev/null | head -1)
 ```
 Gate files:
 - `autofix-result.md` (count)
@@ -263,12 +264,12 @@ Gate files:
 Count gates must report 0. Judge gates must cite evidence.
 Investigate all concerns before proceeding.
 
-### Step 3: Lint, test, and review
+### Step 4: Lint, test, and review
 
 Fix lint issues first (they're fast to iterate on), then launch
 one parallel wave that verifies everything at once.
 
-**3a. Lint iteration:**
+**4a. Lint iteration:**
 
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
@@ -289,7 +290,7 @@ manually. Go's test cache can return stale passes.
 Iterate with `--quick` for build+vet, `--no-test` to include
 lint. Repeat until `--no-test` exits 0.
 
-**3b. Parallel verification wave:** Once `--no-test` passes,
+**4b. Verification wave:** Once 4a passes,
 launch ALL of the following subagents in one parallel wave.
 No modifications happen after this point — everything runs
 simultaneously.
@@ -374,7 +375,7 @@ launch one subagent per file with its contents as the prompt.
 Prepend the repo path to each prompt.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
-  -path "*/k8s-rebase/gates/step3b" -type d 2>/dev/null | head -1)
+  -path "*/k8s-rebase/gates/step4-verification" -type d 2>/dev/null | head -1)
 ```
 Gate files:
 - `cleanliness.md` (count)
@@ -407,9 +408,9 @@ If any test agent reports failures or timeouts:
   same test file changed in the rebase (`git diff master -- path/to/test.go`).
   If unchanged, it's pre-existing — don't fix. Do NOT checkout
   master — switching branches corrupts later steps.
-- Fix genuine rebase failures and re-run from 3a.
+- Fix genuine rebase failures and re-run from 4a.
 
-**3c. Independent review:** Once 3b passes, run the antagonistic
+**4c. Independent review:** Once 4b passes, run the antagonistic
 review script. This invokes a separate Claude instance with fresh
 context for a truly independent second opinion:
 
@@ -422,7 +423,7 @@ fi
 
 APPROVE means proceed. REJECT means investigate the stated reason.
 
-### Step 4: Done
+### Step 5: Cleanup
 
 ```bash
 rm -rf .rebase-tmp/

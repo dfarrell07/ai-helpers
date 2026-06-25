@@ -1,5 +1,5 @@
 #!/bin/bash
-# k8s-rebase-review.sh — Phase 4 step 4: antagonistic review
+# k8s-rebase-review.sh — Antagonistic review
 #
 # For each fix commit, loads the review prompt template, substitutes
 # variables with pre-fetched evidence, invokes claude -p as a separate

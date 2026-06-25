@@ -1,5 +1,5 @@
 #!/bin/bash
-# k8s-rebase-validate.sh — Phase 4: collect and categorize errors
+# k8s-rebase-validate.sh — Collect and categorize validation errors
 #
 # Runs build, lint, and test for all modules. Captures output to logs.
 # Parses logs to extract actionable errors. Writes categorized summary.
@@ -320,7 +320,7 @@ if [[ "$MODE" == "test-only" ]]; then
   run_test_only
 fi
 
-echo "━━━━ Phase 4: Build Validation ━━━━"
+echo "━━━━ Build Validation ━━━━"
 echo ""
 
 step_failed=0
@@ -562,7 +562,7 @@ fi
 
 echo ""
 if [[ "$ERRORS_FOUND" -eq 0 ]]; then
-  echo "All validation passes. No Phase 4 fixups needed."
+  echo "All validation passes. No fixups needed."
   exit 0
 else
   echo "Errors found. Summary: $SUMMARY"
