@@ -686,8 +686,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       fi
       # Also update ANY Dockerfile still referencing a stale OCP stream.
       # Handles both patterns: openshift-X.Y (builder tag) and ocp/X.Y: (base image)
-      for ci_file in Dockerfile.openshift Dockerfile.daemon.openshift Dockerfile Dockerfile.microshift; do
-        [[ -f "$ci_file" ]] || continue
+      for ci_file in $(find . -maxdepth 2 -name "Dockerfile*" -not -path "*/vendor/*" | sed 's|^\./||' | sort); do
         _fixed=0
         # Pattern 1: openshift-X.Y (builder image tag suffix)
         if grep -qE "openshift-[0-9.]+" "$ci_file" && ! grep -q "openshift-${target_ocp}" "$ci_file"; then
