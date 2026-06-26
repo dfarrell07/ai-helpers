@@ -420,7 +420,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*"); do
         info "Committed: Sync ${mod_dir} go.mod after dependency rebase"
       else
         info "WARNING: git commit failed — unstaging to prevent contamination"
-      git reset HEAD 2>/dev/null || true
+        git reset HEAD 2>/dev/null || true
       fi
     fi
   fi
