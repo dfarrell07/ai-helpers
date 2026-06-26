@@ -299,7 +299,8 @@ fix_fieldsv1() {
   echo ":: Fixing FieldsV1.Raw in $(echo "$files" | wc -l) files"
   for f in $files; do
     # Read access: .FieldsV1.Raw → .FieldsV1.GetRawBytes()
-    sed -i 's/\.FieldsV1\.Raw\b/.FieldsV1.GetRawBytes()/g' "$f"
+    # Skip lines where .Raw is on the left side of an assignment
+    sed -i '/\.FieldsV1\.Raw\s*=/!s/\.FieldsV1\.Raw\b/.FieldsV1.GetRawBytes()/g' "$f"
     # Construction: &metav1.FieldsV1{Raw: []byte(`...`)} → metav1.NewFieldsV1(`...`)
     sed -i 's/&metav1\.FieldsV1{Raw: \[\]byte(\(`[^`]*`\))}/metav1.NewFieldsV1(\1)/g' "$f"
   done
@@ -478,23 +479,26 @@ fix_kind_image() {
   if [[ -z "$kind_tag" ]]; then
     local OLD=$((NEW-1))
     local revert_tag="v1.${OLD}.1"
-    echo ":: kindest/node:v1.${NEW}.* not available — reverting K8S_VERSION to ${revert_tag}"
-    # Revert all v1.NEW.* K8S_VERSION references (any patch) to the old version.
-    # Include docs — they tell users how to create KIND clusters.
-    for f in $(grep -rlnE "v1\.${NEW}\.[0-9]+" \
+    echo ":: kindest/node:v1.${NEW}.* not available — reverting KIND refs to ${revert_tag}"
+    # Only revert KIND-related version refs, not all version strings.
+    # Target: kindest/node image tags, K8S_VERSION variables, kind config.
+    for f in $(grep -rlnE "kindest/node:v1\.${NEW}\.|K8S_VERSION.*v1\.${NEW}\." \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor); do
-      sed -i -E "s|v1\.${NEW}\.[0-9]+|${revert_tag}|g" "$f"
+      sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
+      sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${revert_tag}|g" "$f"
     done
   else
-    # Replace any v1.NEW.* K8S_VERSION with the available kind_tag.
-    # Phase 3 may have set K8S_VERSION to the go.mod patch (e.g., v1.36.2)
-    # but the KIND image may only exist for a lower patch (e.g., v1.36.1).
+    # Replace KIND-related v1.NEW.* refs with the available kind_tag.
+    # The rebase script may have set K8S_VERSION to the go.mod patch
+    # (e.g., v1.36.2) but the KIND image may only exist for a lower
+    # patch (e.g., v1.36.1).
     local _changed=0
-    for f in $(grep -rlnE "v1\.${NEW}\.[0-9]+" \
+    for f in $(grep -rlnE "kindest/node:v1\.${NEW}\.|K8S_VERSION.*v1\.${NEW}\." \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor | grep -v go.mod); do
-      sed -i -E "s|v1\.${NEW}\.[0-9]+|${kind_tag}|g" "$f"
+      sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
+      sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${kind_tag}|g" "$f"
       _changed=1
     done
     if [[ "$_changed" -eq 1 ]]; then
@@ -890,7 +894,7 @@ fix_addtoscheme() {
       [[ -z "$pkg_alias" ]] && continue
       # Find the import path for this alias
       local import_path
-      import_path=$(sed -n '/^import/,/^)/{/'"$pkg_alias"'/{ s/.*"\(.*\)".*/\1/; p; }}' "$f" | head -1)
+      import_path=$(sed -n '/^import/,/^)/{/^[[:space:]]*'"$pkg_alias"' "/{ s/.*"\(.*\)".*/\1/; p; }}' "$f" | head -1)
       [[ -z "$import_path" ]] && continue
       # Check if Install exists in the vendored source
       local vendor_dir
