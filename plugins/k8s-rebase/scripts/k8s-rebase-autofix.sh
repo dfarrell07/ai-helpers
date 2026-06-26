@@ -179,7 +179,7 @@ run_checks() {
   r "x/exp imports" "$(grep -rn 'golang.org/x/exp' --include='*.go' . | grep -v vendor | wc -l)"
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
   r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
-  r "Bare Eventf" "$(grep -rn 'Eventf(.*\.Error())' --include='*.go' . | grep -v vendor | grep -v '%s\|%v' | wc -l)"
+  r "Bare Eventf" "$(grep -rn 'Eventf(.*\.Error())' --include='*.go' . | grep -v vendor | grep -v '%[svdqxXoOfFeEgGtTp]' | wc -l)"
   r "NewSimpleClientset" "$(grep -rn 'NewSimpleClientset' --include='*_test.go' . | grep -v vendor | wc -l)"
   local NEW OLD
   NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
@@ -311,7 +311,7 @@ fix_fieldsv1() {
 fix_eventf() {
   local files
   files=$(grep -rln 'Eventf(.*\.Error())' --include='*.go' . | grep -v vendor | while read f; do
-    grep 'Eventf(.*\.Error())' "$f" | grep -qv '%s\|%v' && echo "$f"
+    grep 'Eventf(.*\.Error())' "$f" | grep -qv '%[svdqxXoOfFeEgGtTp]' && echo "$f"
   done)
   [[ -z "$files" ]] && return 0
   echo ":: Fixing bare Eventf format strings"
@@ -328,7 +328,7 @@ fix_eventf() {
       else
         echo ":: WARNING: Complex Eventf at $f:$lineno (needs manual fix — extra args before .Error())"
       fi
-    done < <(grep -n 'Eventf(.*\.Error())' "$f" | grep -v '%s\|%v')
+    done < <(grep -n 'Eventf(.*\.Error())' "$f" | grep -v '%[svdqxXoOfFeEgGtTp]')
   done
 }
 
