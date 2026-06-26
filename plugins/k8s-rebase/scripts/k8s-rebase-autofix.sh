@@ -493,12 +493,10 @@ fix_kind_image() {
     # Only revert KIND-related version refs in files that reference
     # kindest/node — don't touch K8S_VERSION in files that use it
     # for kubectl downloads or conformance suite selection.
-    # Find files with kindest/node (for tag sed) or K8S_VERSION (for variable sed)
-    for f in $(grep -rln "kindest/node\|K8S_VERSION" \
+    for f in $(grep -rln "kindest/node" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
-      # Only change K8S_VERSION in scripts/Makefiles, not docs
       [[ "$f" != *.md ]] && sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${revert_tag}|g" "$f"
     done
   else
@@ -507,11 +505,10 @@ fix_kind_image() {
     # (e.g., v1.36.2) but the KIND image may only exist for a lower
     # patch (e.g., v1.36.1).
     local _changed=0
-    for f in $(grep -rln "kindest/node\|K8S_VERSION" \
+    for f in $(grep -rln "kindest/node" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor | grep -v go.mod); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
-      # Only change K8S_VERSION in scripts/Makefiles, not docs
       [[ "$f" != *.md ]] && sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${kind_tag}|g" "$f"
       _changed=1
     done

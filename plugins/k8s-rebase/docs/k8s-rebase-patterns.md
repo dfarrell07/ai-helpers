@@ -109,9 +109,11 @@ if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
 
 ## Version-Specific Patterns
 
-### WithConditions (network-policy-api v0.2.0)
+### WithConditions + ObservedGeneration (network-policy-api v0.2.0)
 
-`WithConditions` now takes `*ConditionApplyConfiguration`. Convert
+`WithConditions` now takes `*ConditionApplyConfiguration`. The
+autofix adds `.WithObservedGeneration(anp.Generation)` to ANP/BANP
+status condition builders if missing. Convert
 with builder, mapping ALL 6 fields:
 ```go
 metaapplyv1.Condition().
