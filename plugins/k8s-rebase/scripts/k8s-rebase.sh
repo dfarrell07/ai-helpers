@@ -14,6 +14,8 @@
 #             1 = error
 #             2 = mechanical rebase done, validation needed
 
+# -e: fail fast on unexpected errors (autofix/validate omit -e
+# because they must continue past failures to collect all results)
 set -euo pipefail
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
