@@ -632,7 +632,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         if [[ "$OLD_LINT" != "$lint_target" ]]; then
           old_lint_bare="${OLD_LINT#v}"
           new_lint_bare="${lint_target#v}"
-          sed -i "s|${OLD_LINT}|${lint_target}|g; s|${old_lint_bare}|${new_lint_bare}|g" "$lintscript"
+          sed -i "s|${OLD_LINT}|${lint_target}|g; s|\b${old_lint_bare}\b|${new_lint_bare}|g" "$lintscript"
           CHANGED_FILES+="$lintscript"$'\n'
           info "  Updated golangci-lint: $OLD_LINT → $lint_target in $lintscript"
         fi
@@ -729,6 +729,7 @@ fi
 
 cd "$REPO_ROOT" || exit 1
 # Add only the files we modified (more precise than git add -A)
+CHANGED_FILES=$(echo "$CHANGED_FILES" | grep -v '^$' | sort -u)
 if [[ -n "$CHANGED_FILES" ]]; then
   echo "$CHANGED_FILES" | while IFS= read -r f; do
     [[ -n "$f" ]] && git add "$f" 2>/dev/null || true
