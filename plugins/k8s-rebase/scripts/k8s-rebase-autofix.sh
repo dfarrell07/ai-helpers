@@ -493,7 +493,7 @@ fix_kind_image() {
     # Only revert KIND-related version refs in files that reference
     # kindest/node — don't touch K8S_VERSION in files that use it
     # for kubectl downloads or conformance suite selection.
-    for f in $(grep -rln "kindest/node" \
+    for f in $(grep -rln "kindest/node\|K8S_VERSION" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
@@ -505,7 +505,7 @@ fix_kind_image() {
     # (e.g., v1.36.2) but the KIND image may only exist for a lower
     # patch (e.g., v1.36.1).
     local _changed=0
-    for f in $(grep -rln "kindest/node" \
+    for f in $(grep -rln "kindest/node\|K8S_VERSION" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor | grep -v go.mod); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
@@ -513,9 +513,7 @@ fix_kind_image() {
       _changed=1
     done
     if [[ "$_changed" -eq 1 ]]; then
-      echo ":: Updated kindest/node refs to ${kind_tag} in files mentioning kindest/node."
-      echo "   NOTE: K8S_VERSION in other scripts (install-kind.sh, upgrade-ovn.sh, CI workflows)"
-      echo "   may still reference the go.mod version. Check and update those manually if needed."
+      echo ":: Updated kindest/node and K8S_VERSION refs to ${kind_tag} (go.mod patch not published as KIND image yet)"
     fi
   fi
 }
