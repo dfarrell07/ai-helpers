@@ -62,6 +62,7 @@ and then apply to all subsequent repos automatically.
 | Informer coalescing | Hybrid-overlay test timeout (2s) | Increase `Eventually` timeout (2s → 5s) |
 | NewSimpleClientset deprecated | `NewSimpleClientset` has deprecation warning | Replace with `NewClientset` in test files |
 | Webhook builder API | `too many arguments` in NewWebhookManagedBy | Move object from .For() to constructor arg (now generic) |
+| Vendor verify in container | `vendor not in sync` (container-only) | False positive — re-run on host to confirm |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
 
 ## Feature Gates (recurring)
@@ -410,6 +411,15 @@ repo): exclude `vendor/` from Snyk scanning. See CORENET-7277
 
 This is NOT a rebase bug — don't try to fix it in the repo.
 Report it as a known CI blocker.
+
+### Vendor verification false positives in containers (recurring)
+
+When the validate script auto-containerizes (Go version mismatch),
+`make verify-go-mod-vendor` may report vendor drift that doesn't
+exist on the host. The container's empty module cache resolves
+slightly different dependency trees. The validate script flags
+these with a NOTE. Re-run `make verify-go-mod-vendor` on the host
+to confirm before treating it as a real error.
 
 ### Cross-repo dependency ordering (recurring)
 

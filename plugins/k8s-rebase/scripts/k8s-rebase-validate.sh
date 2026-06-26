@@ -484,6 +484,10 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
     run_validation "${ci_dir##*/}-vendor" "make -C $ci_dir verify-go-mod-vendor" || step_failed=1
     if [[ "$step_failed" -eq 1 ]]; then
       echo "## VENDOR VERIFICATION ERRORS ($ci_dir)" >> "$SUMMARY"
+      if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
+        echo "NOTE: vendor mismatch in container may be a false positive (different Go cache)." >> "$SUMMARY"
+        echo "Verify on host: make -C $ci_dir verify-go-mod-vendor" >> "$SUMMARY"
+      fi
       tail -10 "$REBASE_TMP/${ci_dir##*/}-vendor.log" >> "$SUMMARY"
       echo "" >> "$SUMMARY"
       ERRORS_FOUND=1
