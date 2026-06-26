@@ -332,7 +332,7 @@ rebase_module() {
   while IFS= read -r cmd; do
     cmd_num=$((cmd_num + 1))
     printf "\r:: [%d/%d] %s" "$cmd_num" "$num_cmds" "$(echo "$cmd" | awk '{print $2}' | sed 's/@.*//')"
-    eval "$cmd" >> "$REBASE_TMP/go-get.log" 2>&1 || info "  WARNING: $cmd failed (continuing)"
+    $cmd >> "$REBASE_TMP/go-get.log" 2>&1 || info "  WARNING: $cmd failed (continuing)"
     cmd_log+="$cmd"$'\n'
   done <<< "$commands"
   echo ""

@@ -478,9 +478,10 @@ fix_kind_image() {
     local OLD=$((NEW-1))
     local revert_tag="v1.${OLD}.1"
     echo ":: kindest/node:v1.${NEW}.* not available — reverting KIND refs to ${revert_tag}"
-    # Only revert KIND-related version refs, not all version strings.
-    # Target: kindest/node image tags, K8S_VERSION variables, kind config.
-    for f in $(grep -rlnE "kindest/node:v1\.${NEW}\.|K8S_VERSION.*v1\.${NEW}\." \
+    # Only revert KIND-related version refs in files that reference
+    # kindest/node — don't touch K8S_VERSION in files that use it
+    # for kubectl downloads or conformance suite selection.
+    for f in $(grep -rln "kindest/node" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
@@ -492,7 +493,7 @@ fix_kind_image() {
     # (e.g., v1.36.2) but the KIND image may only exist for a lower
     # patch (e.g., v1.36.1).
     local _changed=0
-    for f in $(grep -rlnE "kindest/node:v1\.${NEW}\.|K8S_VERSION.*v1\.${NEW}\." \
+    for f in $(grep -rln "kindest/node" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor | grep -v go.mod); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
