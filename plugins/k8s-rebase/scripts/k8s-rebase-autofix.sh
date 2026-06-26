@@ -1270,7 +1270,8 @@ patterns. See docs/k8s-rebase-patterns.md for details."
     fi
     echo ":: Committing: $(echo "$msg" | head -1)"
     if ! git commit -s --trailer "$AI_TRAILER" -m "$msg"; then
-      echo "WARNING: git commit failed — changes staged but uncommitted"
+      echo "WARNING: git commit failed — unstaging to prevent contamination"
+      git reset HEAD 2>/dev/null || true
     fi
   fi
 }

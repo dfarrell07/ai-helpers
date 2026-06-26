@@ -376,7 +376,8 @@ EOF
 )"; then
       info "Committed: Rebase ${module_path} to k8s ${K8S_MAJOR_MINOR}"
     else
-      info "WARNING: git commit failed — changes staged but uncommitted"
+      info "WARNING: git commit failed — unstaging to prevent contamination"
+      git reset HEAD 2>/dev/null || true
     fi
   else
     info "No changes in $module_path (already up to date)"
@@ -418,7 +419,8 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*"); do
       if git commit -s --trailer "$AI_TRAILER" -m "Sync ${mod_dir} go.mod after dependency rebase"; then
         info "Committed: Sync ${mod_dir} go.mod after dependency rebase"
       else
-        info "WARNING: git commit failed — changes staged but uncommitted"
+        info "WARNING: git commit failed — unstaging to prevent contamination"
+      git reset HEAD 2>/dev/null || true
       fi
     fi
   fi
@@ -491,7 +493,8 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     if git commit -s --trailer "$AI_TRAILER" -m "$CODEGEN_MSG"; then
       info "Committed: $CODEGEN_MSG"
     else
-      info "WARNING: git commit failed — codegen changes staged but uncommitted"
+      info "WARNING: git commit failed — unstaging to prevent contamination"
+      git reset HEAD 2>/dev/null || true
     fi
   fi
 
@@ -510,7 +513,8 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     if git commit -s --trailer "$AI_TRAILER" -m "Regenerate mocks and restore CRD metadata for k8s ${K8S_MAJOR_MINOR}"; then
       info "Committed: Regenerate mocks and restore CRD metadata"
     else
-      info "WARNING: git commit failed — changes staged but uncommitted"
+      info "WARNING: git commit failed — unstaging to prevent contamination"
+      git reset HEAD 2>/dev/null || true
     fi
   fi
 
@@ -552,7 +556,8 @@ elif CODEGEN_MAKEFILE=$(
     if git commit -s --trailer "$AI_TRAILER" -m "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"; then
       info "Committed: Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
     else
-      info "WARNING: git commit failed — changes staged but uncommitted"
+      info "WARNING: git commit failed — unstaging to prevent contamination"
+      git reset HEAD 2>/dev/null || true
     fi
   fi
 
@@ -743,7 +748,8 @@ EOF
 )"; then
       info "Committed: Update version references for k8s ${K8S_MAJOR_MINOR}"
     else
-      info "WARNING: git commit failed — changes staged but uncommitted"
+      info "WARNING: git commit failed — unstaging to prevent contamination"
+      git reset HEAD 2>/dev/null || true
     fi
   fi
 fi
