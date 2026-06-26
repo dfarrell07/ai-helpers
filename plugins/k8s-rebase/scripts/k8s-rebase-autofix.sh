@@ -387,6 +387,8 @@ fix_lint_version() {
   local lint_sh
   lint_sh=$(find . -name "lint.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
   [[ -z "$lint_sh" ]] && return 0
+  local LATEST_LINT
+  LATEST_LINT=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   local lint_ver test_yml
   lint_ver=$(grep -oE 'VERSION=v[0-9.]+' "$lint_sh" | head -1 | sed 's/VERSION=//')
 
@@ -401,8 +403,6 @@ fix_lint_version() {
     local lint_minor
     lint_minor=$(echo "$lint_ver" | sed 's/v[0-9]*\.//' | cut -d. -f1)
     if [[ "$lint_ver" == v2.* ]] && (( lint_minor < 12 )) 2>/dev/null; then
-      local LATEST_LINT
-      LATEST_LINT=$(curl -sf "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
       if [[ -n "$LATEST_LINT" ]]; then
         echo ":: Bumping golangci-lint: $lint_ver → $LATEST_LINT (Go 1.${required_go} requires newer build)"
         sed -i "s/VERSION=${lint_ver}/VERSION=${LATEST_LINT}/" "$lint_sh"
@@ -445,7 +445,7 @@ fix_lint_version() {
         echo "   The container image can't parse Go 1.${required_go} code."
       fi
       # Bump GOLANGCI_LINT_VERSION in Makefile from v1 to v2
-      local latest_v2="${LATEST_LINT:-latest}"
+      local latest_v2="${LATEST_LINT:-v2.12.0}"
       if grep -qE "GOLANGCI_LINT_VERSION.*= *v1\." "$REPO_ROOT/Makefile" 2>/dev/null; then
         echo ":: Bumping Makefile GOLANGCI_LINT_VERSION from v1 to ${latest_v2}"
         sed -i -E "s|(GOLANGCI_LINT_VERSION.*= *)v1\.[0-9.]+|\1${latest_v2}|" "$REPO_ROOT/Makefile"
@@ -1314,7 +1314,10 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   # Version-specific fixes — conditional on finding the pattern.
   # These skip automatically when the pattern doesn't exist (e.g.,
   # already fixed in a prior rebase, or project doesn't use the API).
-  # For k8s 1.37+: add new fix functions here.
+  # Adding a new fix: (1) add a fix_* function that checks before
+  # acting and is idempotent, (2) add a matching r() check to
+  # run_checks, (3) add the call here or in the "always run" block
+  # below if it isn't covered by go build/vet verification.
   fix_addtoscheme
   fix_newsimpleclientset
   fix_conformance_renames

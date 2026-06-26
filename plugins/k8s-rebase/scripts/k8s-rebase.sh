@@ -227,6 +227,8 @@ if [[ -n "$(git status --porcelain | grep -v "^?? \.rebase-tmp/" | grep -v "^?? 
 fi
 
 # Discover controller-runtime version — find the latest patch for the computed minor
+# controller-runtime v0.N maps to k8s 1.(N+12):
+# v0.22/k8s1.34, v0.23/k8s1.35, v0.24/k8s1.36, ...
 CR_MINOR=$((K8S_MINOR - 12))
 CR_VERSION=""
 # Try patch versions from highest to lowest
