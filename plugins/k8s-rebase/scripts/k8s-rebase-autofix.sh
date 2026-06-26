@@ -607,7 +607,7 @@ relaxedServiceNameValidationActive() {
 PROBE
 )
   # Use awk to insert after the target line (avoids sed escaping issues)
-  awk -v n="$insert_after" -v newfn="$probe_func" 'NR==n { print; print newfn; next } 1' "$e2e_kind" > "${e2e_kind}.tmp" && chmod --reference="$e2e_kind" "${e2e_kind}.tmp" && mv "${e2e_kind}.tmp" "$e2e_kind"
+  awk -v n="$insert_after" -v newfn="$probe_func" 'NR==n { print; print newfn; next } 1' "$e2e_kind" > "${e2e_kind}.tmp" && { chmod --reference="$e2e_kind" "${e2e_kind}.tmp" 2>/dev/null || true; } && mv "${e2e_kind}.tmp" "$e2e_kind"
 
   # Insert skip block before the final groomTestList call
   local groom_line
@@ -630,14 +630,14 @@ fi
 SKIP
 )
   export SKIP_BLOCK_TEXT="$skip_block"
-  awk -v n="$groom_line" 'NR==n { print ENVIRON["SKIP_BLOCK_TEXT"] } 1' "$e2e_kind" > "${e2e_kind}.tmp" && chmod --reference="$e2e_kind" "${e2e_kind}.tmp" && mv "${e2e_kind}.tmp" "$e2e_kind"
+  awk -v n="$groom_line" 'NR==n { print ENVIRON["SKIP_BLOCK_TEXT"] } 1' "$e2e_kind" > "${e2e_kind}.tmp" && { chmod --reference="$e2e_kind" "${e2e_kind}.tmp" 2>/dev/null || true; } && mv "${e2e_kind}.tmp" "$e2e_kind"
   unset SKIP_BLOCK_TEXT
 
   # Best-effort: add featureGates to kind.yaml.j2
   local kind_yaml
   kind_yaml=$(find . -name "kind.yaml.j2" -path "*/contrib/*" | head -1)
   if [[ -n "$kind_yaml" ]] && ! grep -q "RelaxedServiceNameValidation" "$kind_yaml"; then
-    awk '/^networking:/ { print "featureGates:"; print "  RelaxedServiceNameValidation: true"; print "" } 1' "$kind_yaml" > "${kind_yaml}.tmp" && chmod --reference="$kind_yaml" "${kind_yaml}.tmp" && mv "${kind_yaml}.tmp" "$kind_yaml"
+    awk '/^networking:/ { print "featureGates:"; print "  RelaxedServiceNameValidation: true"; print "" } 1' "$kind_yaml" > "${kind_yaml}.tmp" && { chmod --reference="$kind_yaml" "${kind_yaml}.tmp" 2>/dev/null || true; } && mv "${kind_yaml}.tmp" "$kind_yaml"
     echo ":: Added RelaxedServiceNameValidation to kind.yaml.j2 (best-effort)"
   fi
 }

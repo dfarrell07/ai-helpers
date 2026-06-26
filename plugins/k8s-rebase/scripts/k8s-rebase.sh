@@ -140,7 +140,8 @@ for pkg in "k8s.io/api " "k8s.io/client-go " "k8s.io/apimachinery "; do
 done
 OLD_MINOR=$(echo "$OLD_API_VERSION" | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//' || true)
 [[ -z "$OLD_MINOR" ]] && die "Cannot detect current k8s minor from $PRIMARY_GOMOD"
-OLD_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}')
+OLD_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}' || true)
+[[ -z "$OLD_GO_VERSION" ]] && die "Cannot detect Go version from $PRIMARY_GOMOD"
 
 info "Current: k8s.io/api $OLD_API_VERSION (k8s 1.${OLD_MINOR}), Go $OLD_GO_VERSION"
 info "Target:  k8s.io/api $API_VERSION (k8s $K8S_FULL)"
@@ -403,7 +404,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*"); do
   mod_dir=$(dirname "$gomod" | sed 's|^\./||')
   if grep -q '\.\./.*go-controller\|\.\./' "$gomod" 2>/dev/null; then
     banner "Phase 1: Re-tidy $mod_dir (replace directive sync)"
-    cd "$REPO_ROOT/$mod_dir" && go mod tidy && cd "$REPO_ROOT"
+    (cd "$REPO_ROOT/$mod_dir" && go mod tidy) || info "WARNING: go mod tidy failed in $mod_dir — continuing"
     if [[ -n "$(git status --porcelain -- "$mod_dir")" ]]; then
       git add "$mod_dir"
       if git commit -s --trailer "$AI_TRAILER" -m "Sync ${mod_dir} go.mod after dependency rebase"; then
@@ -582,8 +583,8 @@ while IFS= read -r file; do
 done < <(grep -rln "\b${OLD_SHORT}\b" --include="*.md" docs/ 2>/dev/null | grep -v vendor || true)
 
 # Go version update (if changed)
-NEW_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}')
-if [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
+NEW_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}' || true)
+if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
   info "Go version changed: $OLD_GO_VERSION → $NEW_GO_VERSION"
   OLD_GO_SHORT=$(echo "$OLD_GO_VERSION" | grep -oE '[0-9]+\.[0-9]+')
   NEW_GO_SHORT=$(echo "$NEW_GO_VERSION" | grep -oE '[0-9]+\.[0-9]+')
