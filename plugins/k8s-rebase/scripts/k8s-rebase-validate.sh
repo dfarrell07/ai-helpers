@@ -420,7 +420,7 @@ while IFS= read -r gomod; do
             echo "  Vendor changed — testing all non-privileged packages..."
             while IFS= read -r pkg; do
               [[ -z "$pkg" ]] && continue
-              if [[ -n "$ROOT_PKGS" ]] && echo "$pkg" | grep -qE "^(${ROOT_PKGS%|})"; then
+              if [[ -n "$ROOT_PKGS" ]] && echo "$pkg" | grep -qE "^(${ROOT_PKGS%|})$"; then
                 echo "  Skipping privileged: $pkg"
                 continue
               fi
