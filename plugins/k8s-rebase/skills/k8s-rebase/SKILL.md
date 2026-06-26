@@ -88,7 +88,8 @@ fi
 ```
 
 When the check shows "Done", look at the last lines of the log.
-**Exit 2 = success** — proceed to validation. Exit 1 = error.
+**Exit 0** = already at target version, nothing to do — stop.
+**Exit 2** = success — proceed to validation. **Exit 1** = error.
 Check `cat .rebase-tmp/step1-result.txt` — if it says "EXIT 2",
 the script completed all phases. Check `git log` for rebase
 commits. Do NOT re-run the script. Do NOT run the autofix script
@@ -319,8 +320,6 @@ First, discover test packages:
 TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
 ROOT_PKGS=""
 [ -n "$TEST_GO_SH" ] && ROOT_PKGS=$(sed -n '/root_pkgs=(/,/)/p' "$TEST_GO_SH" | grep -oE 'pkg/[^"]+' | tr '\n' '|')
-GATE_EXPORTS=""
-[ -n "$TEST_GO_SH" ] && GATE_EXPORTS=$(grep "^export KUBE_FEATURE_" "$TEST_GO_SH" | tr '\n' '; ')
 for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | sort); do
   echo "=== $mod_dir ==="
   for pkg in $(cd "$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -exec dirname {} \; | sort -u); do
@@ -349,6 +348,8 @@ nohup bash "$SCRIPT" --test-only ./pkg/ovn > "$REPO_ROOT/.rebase-tmp/test-ovn.lo
 echo $! > "$REPO_ROOT/.rebase-tmp/test-ovn.pid"
 ```
 Check with: `kill -0 $(cat .rebase-tmp/test-ovn.pid) 2>/dev/null && echo running || echo done`
+The nohup log (`test-ovn.log`) has the PASS/FAIL verdict.
+Detailed test output is in `.rebase-tmp/test-only-*.log`.
 
 Split packages across agents by test line count (`wc -l
 *_test.go`). Each containerized `go test` compilation uses
@@ -408,7 +409,8 @@ Gate files:
 All count-checks must be 0. Investigate judgment concerns.
 If any test agent reports failures or timeouts:
 - **Timeout** likely means a feature gate issue (informer hang).
-  Check that all gates from GATE_DEPS are disabled in the
+  Check that all gates from the `GATE_DEPS` map in
+  `k8s-rebase-autofix.sh` are disabled in the
   failing package's test suite.
 - **Flaky failure**: re-run the specific failing test individually
   (`go test -count=1 -run TestName ./pkg/...`). If it passes on
