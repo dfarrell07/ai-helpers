@@ -11,7 +11,7 @@ set -uo pipefail
 
 AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
 grep -qF '.gitconfig' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$REPO_ROOT/.git/info/exclude"
 

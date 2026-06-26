@@ -1,6 +1,6 @@
 # Kubernetes Rebase Breakage Patterns
 
-Common breakage from k8s 1.33-1.36 rebases. Update after each
+Common breakage patterns from k8s rebases. Update after each
 rebase with new patterns discovered.
 
 ## Extending for a New k8s Version

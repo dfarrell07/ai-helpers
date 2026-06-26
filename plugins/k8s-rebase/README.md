@@ -12,7 +12,7 @@ Automate Kubernetes dependency rebases for Go projects that consume
 Run from the root of any Go repo with `k8s.io/*` dependencies.
 Example: `/k8s-rebase:k8s-rebase 1.36.0`
 
-The skill creates a branch with separate commits for each phase:
+The skill creates a branch with separate commits for each step:
 dependency bumps, codegen, version references, and code fixes.
 No files need to be installed in the target repo — everything
 runs from the plugin.
@@ -43,7 +43,7 @@ runs from the plugin.
 | `scripts/k8s-rebase-review.sh` | Antagonistic review via `claude -p` |
 | `scripts/k8s-rebase-review-prompt.md` | Review agent prompt template |
 | `gates/step{1,2,3,4}-*/*.md` | Subagent verification prompts (22 files) |
-| `docs/k8s-rebase-patterns.md` | Breakage patterns for k8s 1.33-1.36 |
+| `docs/k8s-rebase-patterns.md` | Breakage patterns for k8s rebases |
 
 ## Tested against
 

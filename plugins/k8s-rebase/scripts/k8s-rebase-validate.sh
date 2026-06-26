@@ -53,7 +53,7 @@ mkdir -p "$REBASE_TMP"
 grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
 
 # Auto-containerize if local Go is too old for the repo's go.mod
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 REQUIRED_GO=""
 for gm in go-controller/go.mod go.mod; do
   [[ -f "$gm" ]] && REQUIRED_GO=$(grep "^go " "$gm" | awk '{print $2}') && break
@@ -213,7 +213,7 @@ categorize_errors() {
   fi
 }
 
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 
 # ── --test-only: run tests for specific packages and exit ───────────
 run_test_only() {

@@ -714,7 +714,7 @@ if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then
   info "  Reconciled setup-envtest to release-0.${CR_MINOR_RECONCILE}"
 fi
 
-cd "$REPO_ROOT"
+cd "$REPO_ROOT" || exit 1
 # Add only the files we modified (more precise than git add -A)
 if [[ -n "$CHANGED_FILES" ]]; then
   echo "$CHANGED_FILES" | while IFS= read -r f; do
