@@ -28,6 +28,8 @@ done
 [[ -z "$PRIMARY_GOMOD" ]] && PRIMARY_GOMOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l "k8s.io/" {} \; | head -1)
 MODULE_ROOT="."
 [[ -n "$PRIMARY_GOMOD" ]] && MODULE_ROOT=$(dirname "$PRIMARY_GOMOD")
+K8S_MINOR=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//' || true)
+K8S_MAJOR_MINOR="1.${K8S_MINOR:-??}"
 
 # Auto-containerize if local Go is too old for the repo's go.mod
 REQUIRED_GO=""
@@ -182,7 +184,6 @@ run_checks() {
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
   r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
   r "Bare Eventf" "$(grep -rn 'Eventf(.*\.Error())' --include='*.go' . | grep -v vendor | grep -v '%[svdqxXoOfFeEgGtTp]' | wc -l)"
-  r "NewSimpleClientset" "$(grep -rn 'NewSimpleClientset' --include='*_test.go' . | grep -v vendor | wc -l)"
   local NEW OLD
   NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   if [[ -n "$NEW" ]]; then
@@ -496,7 +497,8 @@ fix_kind_image() {
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
-      sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${revert_tag}|g" "$f"
+      # Only change K8S_VERSION in scripts/Makefiles, not docs
+      [[ "$f" != *.md ]] && sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${revert_tag}|g" "$f"
     done
   else
     # Replace KIND-related v1.NEW.* refs with the available kind_tag.
@@ -508,7 +510,8 @@ fix_kind_image() {
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor | grep -v go.mod); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
-      sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${kind_tag}|g" "$f"
+      # Only change K8S_VERSION in scripts/Makefiles, not docs
+      [[ "$f" != *.md ]] && sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${kind_tag}|g" "$f"
       _changed=1
     done
     if [[ "$_changed" -eq 1 ]]; then
@@ -597,67 +600,14 @@ fix_kubevirt_version() {
 }
 
 fix_relaxed_service_name_validation() {
-  local e2e_kind
-  e2e_kind=$(find . -name "e2e-kind.sh" -path "*/test/scripts/*" | head -1)
-  [[ -z "$e2e_kind" ]] && return 0
-  grep -q "relaxedServiceNameValidationActive" "$e2e_kind" && return 0
-
-  echo ":: Adding RelaxedServiceNameValidation probe and conditional skip to $(basename "$e2e_kind")"
-
-  # Insert probe function after groomTestList's closing brace
-  local insert_after
-  insert_after=$(awk '/^groomTestList\(\)/,/^}/ { line=NR } END { print line }' "$e2e_kind")
-  [[ -z "$insert_after" || "$insert_after" == "0" ]] && return 0
-
-  local probe_func
-  probe_func=$(cat <<'PROBE'
-
-relaxedServiceNameValidationActive() {
-  local kubeconfig="${KUBECONFIG:-${HOME}/ovn.conf}"
-  local probe_service="1ovn-relaxed-svc-probe"
-  kubectl --kubeconfig="${kubeconfig}" -n default delete service "${probe_service}" --ignore-not-found=true >/dev/null 2>&1 || true
-  if kubectl --kubeconfig="${kubeconfig}" -n default create service clusterip "${probe_service}" --tcp=80:80 >/dev/null 2>&1; then
-    kubectl --kubeconfig="${kubeconfig}" -n default delete service "${probe_service}" --ignore-not-found=true >/dev/null 2>&1 || true
-    return 0
-  fi
-  return 1
-}
-PROBE
-)
-  # Use awk to insert after the target line (avoids sed escaping issues)
-  awk -v n="$insert_after" -v newfn="$probe_func" 'NR==n { print; print newfn; next } 1' "$e2e_kind" > "${e2e_kind}.tmp" && { chmod --reference="$e2e_kind" "${e2e_kind}.tmp" 2>/dev/null || true; } && mv "${e2e_kind}.tmp" "$e2e_kind"
-
-  # Insert skip block before the final groomTestList call
-  local groom_line
-  groom_line=$(grep -n 'SKIPPED_TESTS=.*groomTestList' "$e2e_kind" | tail -1 | cut -d: -f1 || true)
-  [[ -z "$groom_line" ]] && return 0
-
-  local skip_block
-  skip_block=$(cat <<'SKIP'
-RELAXED_SERVICE_NAME_VALIDATION_DNS_TEST="
-\[sig-network\].*DNS.*should work with a service name that starts with a digit.*\[FeatureGate:RelaxedServiceNameValidation\] \[Beta\]
-"
-
-if relaxedServiceNameValidationActive; then
-	echo "RelaxedServiceNameValidation is active"
-else
-	echo "RelaxedServiceNameValidation not active; skipping digit-prefixed Service DNS test"
-	SKIPPED_TESTS=$SKIPPED_TESTS$RELAXED_SERVICE_NAME_VALIDATION_DNS_TEST
-fi
-
-SKIP
-)
-  export SKIP_BLOCK_TEXT="$skip_block"
-  awk -v n="$groom_line" 'NR==n { print ENVIRON["SKIP_BLOCK_TEXT"] } 1' "$e2e_kind" > "${e2e_kind}.tmp" && { chmod --reference="$e2e_kind" "${e2e_kind}.tmp" 2>/dev/null || true; } && mv "${e2e_kind}.tmp" "$e2e_kind"
-  unset SKIP_BLOCK_TEXT
-
-  # Best-effort: add featureGates to kind.yaml.j2
+  # Add RelaxedServiceNameValidation gate to kind.yaml.j2.
+  # k8s 1.36: beta/default-true, but KIND needs explicit enablement.
   local kind_yaml
   kind_yaml=$(find . -name "kind.yaml.j2" -path "*/contrib/*" | head -1)
-  if [[ -n "$kind_yaml" ]] && ! grep -q "RelaxedServiceNameValidation" "$kind_yaml"; then
-    awk '/^networking:/ { print "featureGates:"; print "  RelaxedServiceNameValidation: true"; print "" } 1' "$kind_yaml" > "${kind_yaml}.tmp" && { chmod --reference="$kind_yaml" "${kind_yaml}.tmp" 2>/dev/null || true; } && mv "${kind_yaml}.tmp" "$kind_yaml"
-    echo ":: Added RelaxedServiceNameValidation to kind.yaml.j2 (best-effort)"
-  fi
+  [[ -z "$kind_yaml" ]] && return 0
+  grep -q "RelaxedServiceNameValidation" "$kind_yaml" && return 0
+  awk '/^networking:/ { print "featureGates:"; print "  RelaxedServiceNameValidation: true"; print "" } 1' "$kind_yaml" > "${kind_yaml}.tmp" && { chmod --reference="$kind_yaml" "${kind_yaml}.tmp" 2>/dev/null || true; } && mv "${kind_yaml}.tmp" "$kind_yaml"
+  echo ":: Added RelaxedServiceNameValidation to kind.yaml.j2"
 }
 
 fix_kubeadm_v1beta4() {
@@ -920,16 +870,6 @@ fix_addtoscheme() {
   done
 }
 
-fix_newsimpleclientset() {
-  local files
-  files=$(grep -rln 'NewSimpleClientset' --include='*_test.go' . | grep -v vendor)
-  [[ -z "$files" ]] && return 0
-  for f in $files; do
-    sed -i 's/NewSimpleClientset/NewClientset/g' "$f"
-    echo ":: Fixed NewSimpleClientset → NewClientset in $f"
-  done
-}
-
 fix_conformance_renames() {
   # SupportAdminNetworkPolicy* → SupportClusterNetworkPolicy* (all variants)
   # SupportBaselineAdminNetworkPolicy* → SupportClusterNetworkPolicy* (merged)
@@ -1185,14 +1125,17 @@ fix_imports() {
         gci_args+=(--custom-order)
       fi
     fi
-    [[ ${#gci_args[@]} -eq 0 ]] && gci_args=(-s standard -s default)
-    # gci localmodule needs to run from a dir with go.mod
-    local gci_dir="."
-    [[ -n "$PRIMARY_GOMOD" ]] && gci_dir="$(dirname "$PRIMARY_GOMOD")"
-    echo ":: Running gci on modified files (${gci_args[*]})"
-    for f in $modified; do
-      [[ -f "$f" ]] && (cd "$gci_dir" && gci write "${gci_args[@]}" "$REPO_ROOT/$f") 2>/dev/null || true
-    done
+    if [[ ${#gci_args[@]} -eq 0 ]]; then
+      echo ":: Skipping gci (not configured in project lint config)"
+    else
+      # gci localmodule needs to run from a dir with go.mod
+      local gci_dir="."
+      [[ -n "$PRIMARY_GOMOD" ]] && gci_dir="$(dirname "$PRIMARY_GOMOD")"
+      echo ":: Running gci on modified files (${gci_args[*]})"
+      for f in $modified; do
+        [[ -f "$f" ]] && (cd "$gci_dir" && gci write "${gci_args[@]}" "$REPO_ROOT/$f") 2>/dev/null || true
+      done
+    fi
   else
     echo ":: WARNING: gci not available — import ordering may need manual fix"
   fi
@@ -1266,15 +1209,12 @@ run_vet() {
 }
 
 fix_uncommitted() {
+  local custom_msg="${1:-}"
   if [[ -n "$(git status --short | grep -v '^[?]')" ]]; then
     git add -A
-    # Use a descriptive message based on what actually changed
     local changed_files
     changed_files=$(git diff --cached --name-only)
-    local msg="Apply automated k8s rebase fixes
-
-Fixes applied by k8s-rebase-autofix.sh for known breakage
-patterns. See docs/k8s-rebase-patterns.md for details."
+    local msg="${custom_msg:-Apply automated k8s rebase fixes}"
     # If only a few Go files changed with small diffs, likely just
     # import reordering from a second autofix run
     local changed_count diff_lines
@@ -1315,50 +1255,44 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   echo "━━━━ Phase B: Applying fixes ━━━━"
   echo ""
 
-  # Generic fixes — permanent, apply to any k8s rebase
+  # ── Group 1: Code fixes (deprecated APIs, build errors, CRDs, codegen)
+  # fix_imports MUST be here — fix_xexp deletes imports, goimports adds
+  # stdlib replacements. Without goimports, intermediate state won't compile.
   fix_xexp            # x/exp → stdlib migration
   fix_reflect_ptr     # reflect.Ptr deprecation
   fix_fieldsv1        # FieldsV1.Raw API change
   fix_eventf          # go vet format string fixes
-  fix_docs_version    # stale version in docs table
-  fix_version_refs    # stale v1.X refs in CI/scripts
-  fix_go_version      # Go version in CI/Dockerfiles
-  fix_kind_image      # kindest/node image tag
-  fix_kind_version    # KIND binary version
-  fix_feature_gates   # feature gate insertion
-
-  # Version-specific fixes — conditional on finding the pattern.
-  # These skip automatically when the pattern doesn't exist (e.g.,
-  # already fixed in a prior rebase, or project doesn't use the API).
-  # Adding a new fix: (1) add a fix_* function that checks before
-  # acting and is idempotent, (2) add a matching r() check to
-  # run_checks, (3) add the call here or in the "always run" block
-  # below if it isn't covered by go build/vet verification.
-  fix_addtoscheme          # permanent (SA1019 deprecation)
-  fix_newsimpleclientset   # k8s 1.36+ (deprecation warning)
+  fix_addtoscheme     # permanent (SA1019 deprecation)
   fix_conformance_renames  # network-policy-api v0.2.0+
   fix_banp_egresspeer      # network-policy-api v0.2.0+
   fix_obsgen               # network-policy-api v0.2.0+
+  fix_crd_int64_validation     # k8s 1.36+ (stricter CRD validation)
+  fix_crd_name_validation      # permanent (codegen strips hand-edits)
+  fix_network_policy_api_crds  # network-policy-api v0.2.0+
+  fix_bounding_dirs            # k8s 1.36+ (deepcopy-gen flag removed)
+  fix_mocks                    # permanent (codegen can delete mocks)
+  fix_imports
 fi
+fix_uncommitted "Fix deprecated APIs and build errors for k8s ${K8S_MAJOR_MINOR}"
 
-# Always run — not covered by Go code verification checks.
-# Permanent: fix_lint_version, fix_imports, fix_metallb_version,
-#   fix_kubevirt_version (version bumps needed every rebase)
-# k8s 1.36+: fix_relaxed_service_name_validation, fix_kubeadm_v1beta4
-#   (can be removed once all repos have merged these changes)
-fix_lint_version
-fix_imports
+# ── Group 2: Feature gates (test-only changes)
+fix_feature_gates
+fix_uncommitted "Disable new default-true feature gates for k8s ${K8S_MAJOR_MINOR}"
+
+# ── Group 3: CI infrastructure
+fix_kind_image      # kindest/node image tag
+fix_kind_version    # KIND binary version
 fix_metallb_version
 fix_kubevirt_version
 fix_relaxed_service_name_validation
 fix_kubeadm_v1beta4
-fix_network_policy_api_crds  # network-policy-api v0.2.0+
-fix_crd_int64_validation     # k8s 1.36+ (stricter CRD validation)
-fix_crd_name_validation      # permanent (codegen strips hand-edits)
-fix_bounding_dirs            # k8s 1.36+ (deepcopy-gen flag removed)
-fix_mocks                    # permanent (codegen can delete mocks)
+fix_uncommitted "Update CI infrastructure for k8s ${K8S_MAJOR_MINOR}"
 
-# Regenerate third-party licenses if the target has it (deps changed)
+# ── Group 4: Version refs, lint, licenses
+fix_docs_version    # stale version in docs table
+fix_version_refs    # stale v1.X refs in CI/scripts
+fix_go_version      # Go version in CI/Dockerfiles
+fix_lint_version
 for _makefile in $(find . -name "Makefile" -not -path "*/vendor/*" -maxdepth 3); do
   _mdir=$(dirname "$_makefile")
   if grep -q "^third-party-licenses:" "$_makefile" 2>/dev/null; then
@@ -1367,9 +1301,7 @@ for _makefile in $(find . -name "Makefile" -not -path "*/vendor/*" -maxdepth 3);
     rm -f "$_mdir"/.third-party-licenses.*.mod "$_mdir"/.third-party-licenses.*.sum 2>/dev/null
   fi
 done
-
-# Commit if anything changed
-fix_uncommitted
+fix_uncommitted "Update version references and lint for k8s ${K8S_MAJOR_MINOR}"
 
 echo ""
 echo "━━━━ Phase B.5: Compiler check ━━━━"

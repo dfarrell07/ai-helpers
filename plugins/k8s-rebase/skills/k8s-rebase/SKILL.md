@@ -152,6 +152,16 @@ complete until all subagents report zero issues.
   they need Go tools (build, vet, lint, test).
 - If you cannot launch subagents, run the gate checks inline.
 
+**Commit discipline:**
+- One commit per distinct fix. Don't bundle unrelated changes.
+- Check the project's commit message guidelines (CONTRIBUTING.md
+  or docs). Fall back to `git log --oneline -20` to see what
+  format is actually used. Follow whatever the project specifies.
+- Each commit should compile independently (`go build ./...`).
+- After the rebase script completes (Step 1), check if the
+  project requires a specific commit message format and reword
+  the mechanical commits if needed.
+
 ### Step 2: Fix compilation errors
 
 Use `timeout: 600000` (10 min) for validation commands, or

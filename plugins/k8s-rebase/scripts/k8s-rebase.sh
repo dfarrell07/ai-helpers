@@ -510,8 +510,8 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
-    if git commit -s --trailer "$AI_TRAILER" -m "Regenerate mocks and restore CRD metadata for k8s ${K8S_MAJOR_MINOR}"; then
-      info "Committed: Regenerate mocks and restore CRD metadata"
+    if git commit -s --trailer "$AI_TRAILER" -m "Post-codegen cleanup for k8s ${K8S_MAJOR_MINOR}"; then
+      info "Committed: Post-codegen cleanup"
     else
       info "WARNING: git commit failed — unstaging to prevent contamination"
       git reset HEAD 2>/dev/null || true
