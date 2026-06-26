@@ -101,7 +101,8 @@ run_checks() {
   else
     r "Conformance old names" "0"
   fi
-  r "AddToScheme in factory" "$(grep 'anpapi.AddToScheme' go-controller/pkg/factory/factory.go 2>/dev/null | wc -l)"
+  local _factory=$(find . -name "factory.go" -path "*/factory/*" -not -path "*/vendor/*" | head -1)
+  r "AddToScheme in factory" "$(grep 'anpapi.AddToScheme' "$_factory" 2>/dev/null | wc -l)"
   # Only check conformance AddToScheme if conformance module uses v0.2.0+
   if (( _conf_npa_minor >= 2 )) 2>/dev/null; then
     r "AddToScheme in conformance" "$(grep 'AddToScheme' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
@@ -110,7 +111,8 @@ run_checks() {
   fi
   # Only flag shared EgressPeer in BANP test if the split type exists in vendor
   if grep -rq "BaselineAdminNetworkPolicyEgressPeer" "$MODULE_ROOT/vendor/sigs.k8s.io/network-policy-api/" 2>/dev/null; then
-    r "BANP wrong EgressPeer" "$(grep 'AdminNetworkPolicyEgressPeer' go-controller/pkg/ovn/baseline_admin_network_policy_test.go 2>/dev/null | grep -vc Baseline)"
+    local _banp_test=$(find . -name "baseline_admin_network_policy_test.go" -not -path "*/vendor/*" | head -1)
+    r "BANP wrong EgressPeer" "$(grep 'AdminNetworkPolicyEgressPeer' "$_banp_test" 2>/dev/null | grep -vc Baseline)"
   else
     r "BANP wrong EgressPeer" "0"
   fi
@@ -162,7 +164,8 @@ run_checks() {
   r "Gates in SetFromMap files" "$_gsfm"
   # Check ObservedGeneration completeness: need at least 5 references
   # (2 assignments + 1 comparison + 2 propagations). Fewer means partial fix.
-  local _obsgen_file="go-controller/pkg/ovn/controller/admin_network_policy/status.go"
+  local _obsgen_file
+  _obsgen_file=$(find . -name "status.go" -path "*/admin_network_policy/*" -not -path "*/vendor/*" | head -1)
   local _obsgen_count=0
   [[ -f "$_obsgen_file" ]] && _obsgen_count=$(grep -c 'ObservedGeneration' "$_obsgen_file" 2>/dev/null || true)
   if [[ -f "$_obsgen_file" ]] && [[ "$_obsgen_count" -gt 0 ]] && [[ "$_obsgen_count" -lt 5 ]]; then
@@ -933,8 +936,9 @@ fix_obsgen() {
   # Handles both patterns:
   #   Builder chain: .WithObservedGeneration(anp.Generation)
   #   Struct literal: newCondition.ObservedGeneration = anp.Generation
-  local file="go-controller/pkg/ovn/controller/admin_network_policy/status.go"
-  [[ -f "$file" ]] || return 0
+  local file
+  file=$(find . -name "status.go" -path "*/admin_network_policy/*" -not -path "*/vendor/*" | head -1)
+  [[ -z "$file" ]] && return 0
   grep -q 'WithObservedGeneration\|\.ObservedGeneration' "$file" && return 0
 
   echo ":: Fixing ObsGen in $file"
@@ -1371,7 +1375,7 @@ else
         echo "  $name: Add .WithObservedGeneration(anp.Generation) to the metav1apply.Condition() builder chain."
         echo "    ObservedGeneration is on ConditionApplyConfiguration (k8s.io/client-go/applyconfigurations/meta/v1),"
         echo "    NOT on the ANP/BANP status struct. File:"
-        grep -L 'WithObservedGeneration' go-controller/pkg/ovn/controller/admin_network_policy/status.go 2>/dev/null | sed 's/^/    /'
+        find . -name "status.go" -path "*/admin_network_policy/*" -not -path "*/vendor/*" -exec grep -L 'WithObservedGeneration' {} \; 2>/dev/null | sed 's/^/    /'
         ;;
       *"x/exp"*)
         echo "  $name: Migrate these imports to stdlib (maps, slices, cmp):"
