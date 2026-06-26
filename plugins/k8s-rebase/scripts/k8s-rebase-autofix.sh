@@ -327,7 +327,7 @@ fix_eventf() {
       content=$(echo "$match" | cut -d: -f2-)
       commas=$(echo "$content" | sed 's/\.Error().*//' | tr -cd ',' | wc -c)
       if [[ "$commas" -le 3 ]]; then
-        sed -i "${lineno}s/,\( *\)\([a-zA-Z_][a-zA-Z_0-9.]*\.Error()\))/,\1\"%s\", \2)/" "$f"
+        sed -i "${lineno}s/,\( *\)\([a-zA-Z_][a-zA-Z_0-9.]*\)\.Error())/,\1\"%v\", \2)/" "$f"
       else
         echo ":: WARNING: Complex Eventf at $f:$lineno (needs manual fix — extra args before .Error())"
       fi
