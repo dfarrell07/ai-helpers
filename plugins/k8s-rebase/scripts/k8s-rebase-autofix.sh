@@ -546,7 +546,9 @@ fix_metallb_version() {
   [[ -z "$current_metallb" ]] && return 0
 
   local latest_metallb
-  latest_metallb=$(curl -sf "https://api.github.com/repos/metallb/metallb/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[0-9][^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
+  # /releases/latest returns Helm chart releases (metallb-chart-*),
+  # not code releases. Use /releases and filter for v-prefixed tags.
+  latest_metallb=$(curl -sf "https://api.github.com/repos/metallb/metallb/releases?per_page=20" 2>/dev/null | grep -oE '"tag_name": "v[0-9][^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
   [[ -z "$latest_metallb" ]] && { echo ":: WARNING: Could not fetch latest MetalLB version (GitHub API may be rate-limited)"; return 0; }
 
   if [[ "$current_metallb" != "$latest_metallb" ]]; then
