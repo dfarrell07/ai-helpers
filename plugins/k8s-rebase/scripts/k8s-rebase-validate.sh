@@ -90,7 +90,6 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
   fi
 fi
 
-
 export GOWORK=off
 SUMMARY="$REBASE_TMP/summary.txt"
 ERRORS_FOUND=0
