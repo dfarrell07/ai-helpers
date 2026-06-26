@@ -342,11 +342,11 @@ rebase_module() {
   # When bumped, go mod tidy may fail with "unknown revision v0.0.0"
   # for staging deps not yet in go.mod. Retry by resolving each.
   local tidy_attempts=0
-  while ! go mod tidy 2>${REBASE_TMP}/tidy.log; do
+  while ! go mod tidy 2>"${REBASE_TMP}/tidy.log"; do
     local missing_mod
-    missing_mod=$(grep "unknown revision v0.0.0" ${REBASE_TMP}/tidy.log | grep -oE 'k8s\.io/[a-z][-a-z]*' | head -1 || true)
+    missing_mod=$(grep "unknown revision v0.0.0" "${REBASE_TMP}/tidy.log" | grep -oE 'k8s\.io/[a-z][-a-z]*' | head -1 || true)
     if [[ -z "$missing_mod" ]] || [[ $tidy_attempts -ge 10 ]]; then
-      cat ${REBASE_TMP}/tidy.log >&2
+      cat "${REBASE_TMP}/tidy.log" >&2
       die "go mod tidy failed in $(basename "$gomod" .mod)"
     fi
     info "  Resolving staging dep: ${missing_mod}@${API_VERSION}"
