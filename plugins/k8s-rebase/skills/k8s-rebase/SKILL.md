@@ -70,6 +70,7 @@ if ! [[ -f "$REPO_ROOT/go.mod" || -f "$REPO_ROOT/go-controller/go.mod" ]]; then
 fi
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 [ -z "$SCRIPT" ] && echo "ERROR: k8s-rebase.sh not found" && exit 1
+[ -z "$ARGUMENTS" ] && echo "ERROR: Version argument required (e.g., 1.36.0)" && exit 1
 mkdir -p "$REPO_ROOT/.rebase-tmp"
 nohup bash "$SCRIPT" $ARGUMENTS > "$REPO_ROOT/.rebase-tmp/step1.log" 2>&1 &
 echo $! > "$REPO_ROOT/.rebase-tmp/step1.pid"
@@ -116,6 +117,10 @@ Gate files:
 If any check fails, fix the issue (commit staged changes,
 re-run codegen, etc.) before proceeding.
 
+Also check `.rebase-tmp/summary.txt` for `## CODEGEN FAILURE`.
+If present, fix the codegen script (e.g., remove dropped flags),
+re-run codegen, commit, and re-verify.
+
 ---
 
 ## Steps 2–5: Validation and Fixes
@@ -155,9 +160,6 @@ fi
 Exit 0: no errors. Exit 1: errors in `.rebase-tmp/summary.txt`.
 Use `--quick` (~1 min, build + vet only) during fix iterations.
 Full validation runs in the lint/test step.
-
-If summary contains `## CODEGEN FAILURE`, fix the codegen script
-(e.g. remove dropped flags), re-run codegen, commit, re-validate.
 
 Fix compilation errors from ALL modules (find all go.mod files).
 If errors appear in `/go/pkg/mod/` paths (not the project's own
@@ -229,7 +231,8 @@ Gate files:
 
 Count gates must report 0. Judge gates must cite evidence.
 Investigate all concerns before proceeding. To add a gate:
-create a new `.md` file in step1/ and add it to this list.
+create a new `.md` file in `step2-compilation/` and add it
+to this list.
 
 ### Step 3: Apply autofix patterns
 
