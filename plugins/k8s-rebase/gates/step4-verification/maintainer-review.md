@@ -18,4 +18,5 @@ references, or test configuration.
 List your findings with specific commit SHAs and file:line refs.
 Do not just say "would approve" — explain what you checked.
 
-Rules: you are read-only — do not edit files.
+Rules: you are read-only — do not edit files. Cite file:line
+for any issues.

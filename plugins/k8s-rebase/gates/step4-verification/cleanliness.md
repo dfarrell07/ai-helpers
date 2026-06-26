@@ -7,4 +7,4 @@ Run on the host, NOT in a container. Count:
 Report all three counts.
 
 Rules: report specific counts, not "looks good." You are
-read-only — do not edit files.
+read-only — do not edit files. Cite file:line for any issues.
