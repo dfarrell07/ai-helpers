@@ -40,7 +40,7 @@ and then apply to all subsequent repos automatically.
 | go vet format string | `non-constant format string` | `"%s", msg` or `%v` |
 | go vet format type | `%q has arg of wrong type` | Use `%v` for non-string types |
 | Deprecated API | `SA1019: X is deprecated` | Check vendored `// Deprecated:` comment |
-| x/exp migration | `inline: cannot inline` | Migrate to stdlib `maps` (NOT disable linter) |
+| x/exp migration | `cannot find package "golang.org/x/exp/..."` or `inline: cannot inline` | Migrate to stdlib `maps`/`slices`/`cmp` (NOT disable linter) |
 | Nilness dead code | `nilness: impossible condition` | Remove dead `if err != nil` blocks |
 | Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag from script, re-run codegen |
 | Codegen field removed | `unknown field X in struct literal` | Remove field from Go code, re-run codegen |
@@ -135,7 +135,7 @@ Convert field-by-field. Check `_test.go` files too.
 | Old | New |
 |---|---|
 | `SupportAdminNetworkPolicy` | `SupportClusterNetworkPolicy` |
-| `SupportBaselineAdminNetworkPolicy` | (removed) |
+| `SupportBaselineAdminNetworkPolicy` | `SupportClusterNetworkPolicy` (merged with ANP, dedup after) |
 | `ConformanceProfileName` type cast | `CNPConformanceProfileName` |
 
 The v0.2.0 conformance suite also expects `ClusterNetworkPolicy`
@@ -195,9 +195,6 @@ Remove flag from `hack/update-codegen.sh`, re-run codegen.
 - `maps.Copy/Clone` → same, change import
 - `maps.Clear(m)` → `clear(m)`
 - `constraints.Ordered` → `cmp.Ordered`
-- `reflect.Ptr` → `reflect.Pointer`
-- `.FieldsV1.Raw` → `.FieldsV1.GetRawBytes()` (read access)
-- `&metav1.FieldsV1{Raw: []byte(...)}` → `metav1.NewFieldsV1(...)` (construction)
 
 **Import placement:** `"maps"`, `"slices"`, `"cmp"` are stdlib —
 merge them alphabetically into the stdlib import group. Do NOT
@@ -206,7 +203,17 @@ was (that was the third-party section).
 
 After migration: `go mod tidy && go mod vendor` to remove x/exp.
 The autofix script handles this migration automatically.
-Use `--userns=keep-id` with podman.
+
+### Deprecated stdlib/apimachinery symbols (recurring)
+
+These deprecations often surface during k8s rebases but are
+not x/exp-related:
+
+- `reflect.Ptr` → `reflect.Pointer` (Go 1.18+ deprecated alias)
+- `.FieldsV1.Raw` → `.FieldsV1.GetRawBytes()` (read access)
+- `&metav1.FieldsV1{Raw: []byte(...)}` → `metav1.NewFieldsV1(...)` (construction)
+
+The autofix script handles these automatically.
 
 **Map iteration ordering:** `x/exp/maps.Keys()` returned `[]T`
 directly. Stdlib `maps.Keys()` returns `iter.Seq[T]` which
