@@ -1,6 +1,8 @@
 #!/bin/bash
 # k8s-rebase-autofix.sh — Apply known fix patterns after a k8s rebase
 #
+# Usage: k8s-rebase-autofix.sh (no arguments — run from repo root)
+#
 # Runs the verification block as a diagnostic, applies deterministic
 # fixes for every non-zero check, then re-verifies. Outputs PASS/FAIL.
 #

@@ -5,7 +5,7 @@
 # variables with pre-fetched evidence, invokes claude -p as a separate
 # process (fresh context), and parses the APPROVE/REJECT verdict.
 #
-# Usage: k8s-rebase-review.sh <commit-hash> <original-error>
+# Usage: k8s-rebase-review.sh <commit-hash> <original-error...>
 #
 # Exit codes: 0 = APPROVE, 1 = REJECT (reason on stdout)
 
