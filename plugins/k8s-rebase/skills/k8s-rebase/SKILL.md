@@ -417,15 +417,16 @@ If any test agent reports failures or timeouts:
 - **Container timing flake**: tests with tight timing margins
   (e.g., 1s context timeout racing a 5×200ms retry loop) flake
   in containers but pass on bare metal CI. Check if the test
-  code changed in the rebase (`git diff master -- path/to/test.go`).
-  If identical on master, it's pre-existing — fix it if it
-  blocks you (increase timeout, not relax assertion) but note
-  it's pre-existing in the commit message so the maintainer
+  code changed in the rebase (use
+  `git diff $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main) -- path/to/test.go`).
+  If identical on the base branch, it's pre-existing — fix it
+  if it blocks you (increase timeout, not relax assertion) but
+  note it's pre-existing in the commit message so the maintainer
   can split it out.
 - **Pre-existing failure**: if it fails consistently, check if the
-  same test file changed in the rebase (`git diff master -- path/to/test.go`).
+  same test file changed in the rebase (same merge-base diff).
   If unchanged, it's pre-existing — don't fix. Do NOT checkout
-  master — switching branches corrupts later steps.
+  master/main — switching branches corrupts later steps.
 - Fix genuine rebase failures and re-run from 4a.
 
 **4c. Independent review:** Once 4b passes, run the antagonistic
