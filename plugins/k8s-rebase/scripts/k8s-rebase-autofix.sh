@@ -1215,13 +1215,14 @@ fix_uncommitted() {
     local changed_files
     changed_files=$(git diff --cached --name-only)
     local msg="${custom_msg:-Apply automated k8s rebase fixes}"
-    # If only a few Go files changed with small diffs, likely just
-    # import reordering from a second autofix run
-    local changed_count diff_lines
-    changed_count=$(echo "$changed_files" | wc -l)
-    diff_lines=$(git diff --cached --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-    if [[ "$changed_count" -le 3 ]] && [[ "$diff_lines" -le 30 ]] && ! echo "$changed_files" | grep -qvE '\.go$'; then
-      msg="Reorder imports after k8s rebase fixes"
+    # Auto-detect import-only changes when no custom message given
+    if [[ -z "$custom_msg" ]]; then
+      local changed_count diff_lines
+      changed_count=$(echo "$changed_files" | wc -l)
+      diff_lines=$(git diff --cached --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
+      if [[ "$changed_count" -le 3 ]] && [[ "$diff_lines" -le 30 ]] && ! echo "$changed_files" | grep -qvE '\.go$'; then
+        msg="Reorder imports after k8s rebase fixes"
+      fi
     fi
     echo ":: Committing: $(echo "$msg" | head -1)"
     if ! git commit -s --trailer "$AI_TRAILER" -m "$msg"; then
