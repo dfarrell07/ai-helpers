@@ -623,16 +623,18 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     info "  WARNING: Could not fetch latest golangci-lint version (API rate limited?). Lint version not bumped."
   fi
   if [[ -n "$LATEST_LINT" ]]; then
+    # Pre-fetch latest v1 tag for repos that use v1 (avoids duplicate API calls)
+    LATEST_LINT_V1=""
+    if [[ "$LATEST_LINT" == v2.* ]]; then
+      LATEST_LINT_V1=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
+    fi
     while IFS= read -r lintscript; do
       [[ -z "$lintscript" ]] && continue
       OLD_LINT=$(grep -oE 'VERSION=v[0-9]+\.[0-9]+\.[0-9]+' "$lintscript" | head -1 | sed 's/VERSION=//' || true)
       if [[ -n "$OLD_LINT" ]] && [[ "$OLD_LINT" != "$LATEST_LINT" ]]; then
-        # If lint.sh uses v1, keep v1 — v2 has different defaults
-        # that surface pre-existing issues and fail CI.
         lint_target="$LATEST_LINT"
         if [[ "$OLD_LINT" == v1.* ]] && [[ "$LATEST_LINT" == v2.* ]]; then
-          lint_target=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
-          [[ -z "$lint_target" ]] && lint_target="$OLD_LINT"
+          lint_target="${LATEST_LINT_V1:-$OLD_LINT}"
         fi
         if [[ "$OLD_LINT" != "$lint_target" ]]; then
           old_lint_bare="${OLD_LINT#v}"
@@ -651,8 +653,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       [[ -z "$OLD_MK_LINT" ]] && continue
       target_lint="$LATEST_LINT"
       if [[ "$OLD_MK_LINT" == v1.* ]] && [[ "$LATEST_LINT" == v2.* ]]; then
-        target_lint=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
-        [[ -z "$target_lint" ]] && target_lint="$OLD_MK_LINT"
+        target_lint="${LATEST_LINT_V1:-$OLD_MK_LINT}"
       fi
       if [[ "$OLD_MK_LINT" != "$target_lint" ]]; then
         sed -i "s|${OLD_MK_LINT}|${target_lint}|g" "$mkfile"
@@ -766,7 +767,6 @@ if [[ -n "$KNOWN_FEATURES" ]]; then
     [[ -z "$gate" ]] && continue
     NEW_GATES+=("$gate")
   done < <(awk '
-    /^\t[A-Z][a-zA-Z0-9]*Feature = / { gate = $1 }
     /^\t[A-Z][a-zA-Z0-9]*: \{/ { gsub(/:.*/, "", $1); gate = $1 }
     !/\/\// && /Default: true/ && /MustParse\("1\.'"${K8S_MINOR}"'"\)/ { print gate }
   ' "$KNOWN_FEATURES" | sort -u)
