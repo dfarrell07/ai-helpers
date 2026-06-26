@@ -725,11 +725,10 @@ if grep -q "ENVTEST_K8S_VERSION" "$REPO_ROOT/Makefile" 2>/dev/null; then
 fi
 
 # Reconcile setup-envtest release branch (tracks controller-runtime).
-CR_MINOR_RECONCILE=$((K8S_MINOR - 12))
 if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then
-  sed -i "s|setup-envtest@release-[0-9.]*|setup-envtest@release-0.${CR_MINOR_RECONCILE}|g" "$REPO_ROOT/Makefile"
+  sed -i "s|setup-envtest@release-[0-9.]*|setup-envtest@release-0.${CR_MINOR}|g" "$REPO_ROOT/Makefile"
   CHANGED_FILES+="Makefile"$'\n'
-  info "  Reconciled setup-envtest to release-0.${CR_MINOR_RECONCILE}"
+  info "  Reconciled setup-envtest to release-0.${CR_MINOR}"
 fi
 
 cd "$REPO_ROOT" || exit 1
