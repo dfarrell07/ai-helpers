@@ -1,7 +1,7 @@
 Verify the deterministic rebase script completed correctly.
 Report a count for each check:
 
-1. Result file: does `.rebase-tmp/phase03-result.txt` exist
+1. Result file: does `.rebase-tmp/step1-result.txt` exist
    and contain "EXIT 2"? (0 = yes, 1 = missing or wrong)
 2. Uncommitted changes: count from `git status --short`
    (exclude untracked files with `?`). Any staged-but-

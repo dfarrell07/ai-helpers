@@ -71,24 +71,24 @@ fi
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 [ -z "$SCRIPT" ] && echo "ERROR: k8s-rebase.sh not found" && exit 1
 mkdir -p "$REPO_ROOT/.rebase-tmp"
-nohup bash "$SCRIPT" $ARGUMENTS > "$REPO_ROOT/.rebase-tmp/phase03.log" 2>&1 &
-echo $! > "$REPO_ROOT/.rebase-tmp/phase03.pid"
-echo "Launched PID $(cat "$REPO_ROOT/.rebase-tmp/phase03.pid")"
+nohup bash "$SCRIPT" $ARGUMENTS > "$REPO_ROOT/.rebase-tmp/step1.log" 2>&1 &
+echo $! > "$REPO_ROOT/.rebase-tmp/step1.pid"
+echo "Launched PID $(cat "$REPO_ROOT/.rebase-tmp/step1.pid")"
 ```
 
 **Check** (run every 3-5 minutes until done):
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
-if kill -0 $(cat "$REPO_ROOT/.rebase-tmp/phase03.pid" 2>/dev/null) 2>/dev/null; then
-  echo "Still running..."; tail -3 "$REPO_ROOT/.rebase-tmp/phase03.log"
+if kill -0 $(cat "$REPO_ROOT/.rebase-tmp/step1.pid" 2>/dev/null) 2>/dev/null; then
+  echo "Still running..."; tail -3 "$REPO_ROOT/.rebase-tmp/step1.log"
 else
-  echo "Done"; cat "$REPO_ROOT/.rebase-tmp/phase03-result.txt" 2>/dev/null; tail -10 "$REPO_ROOT/.rebase-tmp/phase03.log"
+  echo "Done"; cat "$REPO_ROOT/.rebase-tmp/step1-result.txt" 2>/dev/null; tail -10 "$REPO_ROOT/.rebase-tmp/step1.log"
 fi
 ```
 
 When the check shows "Done", look at the last lines of the log.
 **Exit 2 = success** — proceed to validation. Exit 1 = error.
-Check `cat .rebase-tmp/phase03-result.txt` — if it says "EXIT 2",
+Check `cat .rebase-tmp/step1-result.txt` — if it says "EXIT 2",
 the script completed all phases. Check `git log` for rebase
 commits. Do NOT re-run the script. Do NOT run the autofix script
 or make manual go.mod changes before the rebase script completes — the
