@@ -513,9 +513,9 @@ fix_kind_image() {
       _changed=1
     done
     if [[ "$_changed" -eq 1 ]]; then
-      echo ":: Updated K8S_VERSION to ${kind_tag} (kindest/node image for go.mod patch not published yet)"
-      echo "   Code targets k8s $(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}'), CI cluster runs ${kind_tag}."
-      echo "   This is safe for patch version differences. Update when the image is published."
+      echo ":: Updated kindest/node refs to ${kind_tag} in files mentioning kindest/node."
+      echo "   NOTE: K8S_VERSION in other scripts (install-kind.sh, upgrade-ovn.sh, CI workflows)"
+      echo "   may still reference the go.mod version. Check and update those manually if needed."
     fi
   fi
 }

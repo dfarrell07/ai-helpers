@@ -113,7 +113,9 @@ if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
 
 `WithConditions` now takes `*ConditionApplyConfiguration`. The
 autofix adds `.WithObservedGeneration(anp.Generation)` to ANP/BANP
-status condition builders if missing. Convert
+status condition builders if missing. This is specific to
+ANP/BANP status code, not project-internal CRD controllers
+(UDN, VTEP, EgressQoS have their own status patterns). Convert
 with builder, mapping ALL 6 fields:
 ```go
 metaapplyv1.Condition().
