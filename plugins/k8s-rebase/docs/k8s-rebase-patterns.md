@@ -17,6 +17,19 @@ When rebasing to k8s 1.37+, update these files:
 3. **`scripts/k8s-rebase.sh`** — only if the mechanical rebase
    needs changes (unlikely — it's version-generic).
 
+**How to discover new patterns:** Run the skill on a test repo
+and observe what breaks. Common sources of new patterns:
+- `go build` errors from renamed/removed types or functions
+- `go vet` errors from stricter format string checking
+- golangci-lint surfacing newly detectable issues
+- Tests hanging → new feature gate needs disabling (the rebase
+  script prints "New default-true feature gates" at the end)
+- e2e tests failing → KIND/MetalLB/KubeVirt version skew
+- CI `verify` jobs failing → codegen output changed
+
+Most patterns are discovered on the first repo (usually ovnk)
+and then apply to all subsequent repos automatically.
+
 ## Pattern Table
 
 | Category | What breaks | How to fix |

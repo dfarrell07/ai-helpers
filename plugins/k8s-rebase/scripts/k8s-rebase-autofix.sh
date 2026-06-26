@@ -398,7 +398,7 @@ fix_lint_version() {
       local LATEST_LINT
       LATEST_LINT=$(curl -sf "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
       # Fallback if API is rate-limited: use a known-good version for Go 1.26+
-      [[ -z "$LATEST_LINT" ]] && LATEST_LINT="v2.12.2"
+      [[ -z "$LATEST_LINT" ]] && LATEST_LINT="latest"
       if [[ -n "$LATEST_LINT" ]]; then
         echo ":: Bumping golangci-lint: $lint_ver → $LATEST_LINT (Go 1.${required_go} requires newer build)"
         sed -i "s/VERSION=${lint_ver}/VERSION=${LATEST_LINT}/" "$lint_sh"
@@ -434,14 +434,14 @@ fix_lint_version() {
         if grep -q "GOLANGCI_LINT_VERSION" "$REPO_ROOT/Makefile" 2>/dev/null; then
           sed -i 's|echo "linter can only be run within a container.*|GOFLAGS="" GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) 2>/dev/null \&\& GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache golangci-lint run --verbose --timeout=15m0s|g' "$REPO_ROOT/Makefile"
         else
-          sed -i "s|echo \"linter can only be run within a container.*|GOFLAGS=\"\" GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@v2.12.2 2>/dev/null \&\& GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache golangci-lint run --verbose --timeout=15m0s|g" "$REPO_ROOT/Makefile"
+          sed -i "s|echo \"linter can only be run within a container.*|GOFLAGS=\"\" GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION:-latest} 2>/dev/null \&\& GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache golangci-lint run --verbose --timeout=15m0s|g" "$REPO_ROOT/Makefile"
         fi
       else
         echo ":: WARNING: lint.sh uses golangci-lint $lint_ver (built with Go <1.26)."
         echo "   The container image can't parse Go 1.${required_go} code."
       fi
       # Bump GOLANGCI_LINT_VERSION in Makefile from v1 to v2
-      local latest_v2="${LATEST_LINT:-v2.12.2}"
+      local latest_v2="${LATEST_LINT:-latest}"
       if grep -qE "GOLANGCI_LINT_VERSION.*= *v1\." "$REPO_ROOT/Makefile" 2>/dev/null; then
         echo ":: Bumping Makefile GOLANGCI_LINT_VERSION from v1 to ${latest_v2}"
         sed -i -E "s|(GOLANGCI_LINT_VERSION.*= *)v1\.[0-9.]+|\1${latest_v2}|" "$REPO_ROOT/Makefile"
