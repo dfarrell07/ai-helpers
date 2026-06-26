@@ -178,6 +178,7 @@ run_checks() {
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
   r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
   r "Bare Eventf" "$(grep -rn 'Eventf(.*\.Error())' --include='*.go' . | grep -v vendor | grep -v '%s\|%v' | wc -l)"
+  r "NewSimpleClientset" "$(grep -rn 'NewSimpleClientset' --include='*_test.go' . | grep -v vendor | wc -l)"
   local NEW OLD
   NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   if [[ -n "$NEW" ]]; then
