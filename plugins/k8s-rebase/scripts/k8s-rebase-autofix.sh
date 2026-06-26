@@ -535,7 +535,7 @@ fix_metallb_version() {
   [[ -z "$current_metallb" ]] && return 0
 
   local latest_metallb
-  latest_metallb=$(curl -sf "https://api.github.com/repos/metallb/metallb/releases" 2>/dev/null | grep -oE '"tag_name": "v[0-9][^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
+  latest_metallb=$(curl -sf "https://api.github.com/repos/metallb/metallb/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[0-9][^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   [[ -z "$latest_metallb" ]] && { echo ":: WARNING: Could not fetch latest MetalLB version"; return 0; }
 
   if [[ "$current_metallb" != "$latest_metallb" ]]; then
@@ -1210,10 +1210,11 @@ fix_mocks() {
   mock_dir=$(dirname "$mockery_config")
   if ! find "$mock_dir/pkg/crd" -name "mocks" -type d 2>/dev/null | grep -q .; then
     echo ":: Mock directories missing — running mockery..."
-    if make -C "$mock_dir" mocksgen 2>/dev/null; then
+    if make -C "$mock_dir" mocksgen > "$REBASE_TMP/mocksgen.log" 2>&1; then
       echo ":: Mockery regenerated mocks"
     else
       echo ":: WARNING: mockery failed — agent must regenerate mocks"
+      tail -5 "$REBASE_TMP/mocksgen.log" 2>/dev/null
     fi
   fi
 }
