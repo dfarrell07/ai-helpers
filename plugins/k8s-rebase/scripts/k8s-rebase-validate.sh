@@ -397,6 +397,7 @@ while IFS= read -r gomod; do
       # fall back to go test without -race for non-privileged packages.
       # Source feature gate env vars from test-go.sh so fake clientsets work.
       run_validation "${mod_name}-test" "make -C $mod_dir $test_target" || {
+        step_failed=1
         if grep -q "sudo" "$REBASE_TMP/${mod_name}-test.log" 2>/dev/null; then
           echo "  NOTE: make test needs sudo/privileged container for some packages"
           GATE_EXPORTS=""
@@ -440,7 +441,9 @@ while IFS= read -r gomod; do
           fi
           if [[ -n "$TEST_PKGS" ]]; then
             echo "  Testing:$TEST_PKGS"
-            run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && go test -mod vendor -timeout ${VALIDATION_TIMEOUT} ${TEST_PKGS} -count=1" || step_failed=1
+            if run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && go test -mod vendor -timeout ${VALIDATION_TIMEOUT} ${TEST_PKGS} -count=1"; then
+              step_failed=0
+            fi
           else
             echo "  No non-privileged test packages found"
           fi

@@ -94,6 +94,7 @@ if [[ "$VERSION_INPUT" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
   K8S_MAJOR="${BASH_REMATCH[1]}"
   K8S_MINOR="${BASH_REMATCH[2]}"
   K8S_PATCH="${BASH_REMATCH[4]:-0}"
+  [[ "$K8S_MAJOR" != "1" ]] && die "Expected k8s major version 1, got $K8S_MAJOR"
 else
   die "Invalid version format: $VERSION_INPUT (expected X.Y or X.Y.Z)"
 fi
@@ -138,7 +139,7 @@ fi
 # Detect version from k8s.io/api, client-go, or apimachinery (in priority order)
 OLD_API_VERSION=""
 for pkg in "k8s.io/api " "k8s.io/client-go " "k8s.io/apimachinery "; do
-  OLD_API_VERSION=$(grep "$pkg" "$PRIMARY_GOMOD" 2>/dev/null | head -1 | awk '{print $2}' || true)
+  OLD_API_VERSION=$(grep "$pkg" "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | head -1 | awk '{print $2}' || true)
   [[ -n "$OLD_API_VERSION" ]] && break
 done
 OLD_MINOR=$(echo "$OLD_API_VERSION" | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//' || true)
