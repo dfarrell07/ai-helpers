@@ -362,7 +362,7 @@ differently, making hybrid-overlay tests that expect a specific
 sequence of flow sync calls flaky. Symptom: test times out at
 2 seconds waiting for expected OVS commands that were coalesced
 into a single event. Fix: increase the `Eventually` timeout
-(e.g., 2s → 5s) and add a comment explaining the coalescing.
+(e.g., 2s → 5s). Agent handles this in Step 4 (not autofix).
 This is a test timing issue, not a logic bug.
 
 ### E2e framework changes (k8s 1.35)
