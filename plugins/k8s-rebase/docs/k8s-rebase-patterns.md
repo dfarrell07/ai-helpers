@@ -303,12 +303,8 @@ Symptom: conformance test fails creating Service named `1kubernetes`:
 ```
 Service "1kubernetes" is invalid: metadata.name: Invalid value
 ```
-Fix: add a probe function to `e2e-kind.sh` that creates a
-digit-prefixed Service to test if the API server accepts it. If
-not, skip only the exact DNS test that exercises this gate. Also
-add `featureGates: RelaxedServiceNameValidation: true` to
-`kind.yaml.j2` as a best-effort (may not work for custom images).
-The autofix script injects both the probe and the skip.
+Fix: add `featureGates: RelaxedServiceNameValidation: true` to
+`kind.yaml.j2`. The autofix script handles this automatically.
 
 ### KubeVirt secondary interface IPv6 test fix (k8s 1.36, one-time)
 
