@@ -462,7 +462,16 @@ fi
 
 APPROVE means proceed. REJECT means investigate the stated reason.
 
-### Step 5: Cleanup
+### Step 5: PR and cleanup
+
+When opening or updating the PR, include a description that
+helps reviewers and satisfies AI disclosure requirements:
+
+- Summary of what k8s version was bumped and which modules
+- Which changes are mechanical (deps, codegen, version refs)
+  vs hand-crafted fixes
+- "Special notes for your reviewer" section disclosing AI usage
+- Link to the skill if applicable
 
 ```bash
 rm -rf .rebase-tmp/
