@@ -13,6 +13,8 @@ AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 cd "$REPO_ROOT" || exit 1
 export GOWORK=off
+REBASE_TMP="$REPO_ROOT/.rebase-tmp"
+mkdir -p "$REBASE_TMP"
 grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
 grep -qF '.gitconfig' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$REPO_ROOT/.git/info/exclude"
 
@@ -429,7 +431,6 @@ fix_lint_version() {
   # Replace the Makefile's no-op else branch with go install,
   # AND bump GOLANGCI_LINT_VERSION from v1 to v2.
   if [[ -n "$lint_ver" ]] && [[ "$lint_ver" == v1.* ]]; then
-    local required_go
     required_go=$(grep "^go " "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
     if [[ -n "$required_go" ]] && [[ "$required_go" -ge 26 ]] 2>/dev/null; then
       if grep -q "can only be run within a container" "$REPO_ROOT/Makefile" 2>/dev/null; then

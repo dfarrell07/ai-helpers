@@ -8,7 +8,7 @@
 # go.mod files, codegen scripts, and vendor directories.
 #
 # Handles the automated rebase (deterministic). Validation and
-# fixes) are handled by the companion skill or manually.
+# fixes are handled by the companion skill or manually.
 #
 # Exit codes: 0 = already at target (nothing to do)
 #             1 = error
@@ -709,7 +709,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         fi
         [[ "$_fixed" -eq 1 ]] && info "  Updated OCP stream in $ci_file → ${target_ocp}" && CHANGED_FILES+="$ci_file"$'\n'
       done
-    elif [[ -z "$target_ocp" ]]; then
+    else
       info "  NOTE: CI builder image uses golang-${NEW_GO_SHORT}-openshift-${old_ocp}."
       info "  Could not detect OCP target — verify this image exists."
     fi
