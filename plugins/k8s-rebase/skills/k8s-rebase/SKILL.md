@@ -464,8 +464,9 @@ APPROVE means proceed. REJECT means investigate the stated reason.
 
 ### Step 5: PR and cleanup
 
-Create or update the PR. Generate the title and body from the
-actual commits on the branch:
+Generate a `gh pr create` command for the user to review and run.
+Do NOT run it directly. Show the full command with title and body
+so the user can review, edit, and execute it themselves:
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
