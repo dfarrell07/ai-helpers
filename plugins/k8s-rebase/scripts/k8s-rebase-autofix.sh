@@ -12,6 +12,7 @@ set -uo pipefail
 AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 cd "$REPO_ROOT" || exit 1
+export GOWORK=off
 grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
 grep -qF '.gitconfig' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$REPO_ROOT/.git/info/exclude"
 
@@ -902,6 +903,16 @@ fix_addtoscheme() {
   done
 }
 
+fix_newsimpleclientset() {
+  local files
+  files=$(grep -rln 'NewSimpleClientset' --include='*_test.go' . | grep -v vendor)
+  [[ -z "$files" ]] && return 0
+  for f in $files; do
+    sed -i 's/NewSimpleClientset/NewClientset/g' "$f"
+    echo ":: Fixed NewSimpleClientset → NewClientset in $f"
+  done
+}
+
 fix_conformance_renames() {
   # SupportAdminNetworkPolicy* → SupportClusterNetworkPolicy* (all variants)
   # SupportBaselineAdminNetworkPolicy* → SupportClusterNetworkPolicy* (merged)
@@ -1302,6 +1313,7 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   # already fixed in a prior rebase, or project doesn't use the API).
   # For k8s 1.37+: add new fix functions here.
   fix_addtoscheme
+  fix_newsimpleclientset
   fix_conformance_renames
   fix_banp_egresspeer
   fix_obsgen

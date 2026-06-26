@@ -109,6 +109,9 @@ banner "Phase 0: Prerequisites"
 
 cd "$REPO_ROOT" || die "Cannot cd to $REPO_ROOT"
 
+# Disable Go workspace mode so each module is resolved independently
+export GOWORK=off
+
 # Find the primary go.mod (first one with k8s.io deps)
 PRIMARY_GOMOD=""
 for candidate in go-controller/go.mod go.mod; do
@@ -512,7 +515,12 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     echo "Fix the codegen script (e.g. removed flags) and re-run codegen." >> "$REBASE_TMP/summary.txt"
     echo "" >> "$REBASE_TMP/summary.txt"
   fi
-elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
+elif CODEGEN_MAKEFILE=$(
+    for mf in "$REPO_ROOT/Makefile" "$REPO_ROOT/$(dirname "$PRIMARY_GOMOD")/Makefile"; do
+      grep -qE "^(generate|manifests):" "$mf" 2>/dev/null && echo "$mf" && break
+    done
+  ) && [[ -n "$CODEGEN_MAKEFILE" ]]; then
+  CODEGEN_MAKEDIR=$(dirname "$CODEGEN_MAKEFILE")
   banner "Phase 2: Code Generation (make)"
 
   # controller-gen projects use make generate/manifests instead of
@@ -521,9 +529,9 @@ elif grep -qE "^(generate|manifests):" "$REPO_ROOT/Makefile" 2>/dev/null; then
   CODEGEN_FAILED=0
   CODEGEN_LOG="$REBASE_TMP/codegen.log"
   for target in generate manifests; do
-    if grep -q "^${target}:" "$REPO_ROOT/Makefile"; then
-      info "Running make $target..."
-      if make -C "$REPO_ROOT" "$target" >> "$CODEGEN_LOG" 2>&1; then
+    if grep -q "^${target}:" "$CODEGEN_MAKEFILE"; then
+      info "Running make $target in $CODEGEN_MAKEDIR..."
+      if make -C "$CODEGEN_MAKEDIR" "$target" >> "$CODEGEN_LOG" 2>&1; then
         CODEGEN_RAN=1
       else
         info "WARNING: make $target failed — the agent will fix"
