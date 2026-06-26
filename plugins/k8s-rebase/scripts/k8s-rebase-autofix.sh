@@ -1324,14 +1324,18 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   # acting and is idempotent, (2) add a matching r() check to
   # run_checks, (3) add the call here or in the "always run" block
   # below if it isn't covered by go build/vet verification.
-  fix_addtoscheme
-  fix_newsimpleclientset
-  fix_conformance_renames
-  fix_banp_egresspeer
-  fix_obsgen
+  fix_addtoscheme          # permanent (SA1019 deprecation)
+  fix_newsimpleclientset   # k8s 1.36+ (deprecation warning)
+  fix_conformance_renames  # network-policy-api v0.2.0+
+  fix_banp_egresspeer      # network-policy-api v0.2.0+
+  fix_obsgen               # network-policy-api v0.2.0+
 fi
 
-# Always run — not covered by Go code verification checks
+# Always run — not covered by Go code verification checks.
+# Permanent: fix_lint_version, fix_imports, fix_metallb_version,
+#   fix_kubevirt_version (version bumps needed every rebase)
+# k8s 1.36+: fix_relaxed_service_name_validation, fix_kubeadm_v1beta4
+#   (can be removed once all repos have merged these changes)
 fix_lint_version
 fix_imports
 fix_metallb_version

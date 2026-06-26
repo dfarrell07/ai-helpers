@@ -26,6 +26,8 @@ code fresh without prior assumptions.
 **Container commands:** When running containers, always use
 `podman` with `--userns=keep-id`. Never use `docker run` —
 it creates root-owned files that break subsequent operations.
+`--security-opt label=disable` is required for SELinux hosts
+(container writes to bind-mounted repo dirs fail without it).
 ```
 podman run --rm --security-opt label=disable --userns=keep-id -v "$(pwd):$(pwd)" -w "$(pwd)" docker.io/library/golang:VERSION ...
 ```
@@ -55,6 +57,12 @@ without those flags to avoid duplicates.
 
 Run from the default branch (master/main). The script creates a
 new timestamped branch. Do not reuse branches from prior runs.
+
+**Recovery:** If a run fails mid-way through Steps 2-4, check
+`git log` on the rebase branch. The mechanical rebase commits
+from Step 1 are always safe. To resume: start a new session on
+the same branch and continue from the failed step. To restart:
+`git checkout master && git branch -D <branch>` and re-run.
 
 **Important:** This script takes 5-30 minutes (longer if it
 auto-containerizes). Launch it as a detached process so it is
