@@ -480,7 +480,7 @@ Adapt the title and body to the project's convention (check
 CONTRIBUTING.md). If the PR already exists, suggest `gh pr edit`.
 
 **After pushing**, if the user wants to monitor CI, suggest:
-`/loop 5m check CI status on the PR with gh pr checks, explore any failing jobs max carefully with gh run view --log-failed, determine if failures are rebase-related or pre-existing`
+`/loop 5m check CI on the PR, explore any failures max carefully, find root causes`
 
 ```bash
 rm -rf .rebase-tmp/
