@@ -122,6 +122,12 @@ run_validation() {
 
   local step_timeout="$VALIDATION_TIMEOUT"
   [[ "$name" == *-lint ]] && step_timeout="$LINT_TIMEOUT"
+  # Shell timeout 2m longer than Go test timeout so Go can dump
+  # goroutine stacks before being killed
+  if [[ "$name" == *-test || "$name" == test-only-* ]]; then
+    local mins="${step_timeout%m}"
+    step_timeout="$((mins + 2))m"
+  fi
 
   echo ":: Running: $name (timeout: $step_timeout)"
   local rc=0
