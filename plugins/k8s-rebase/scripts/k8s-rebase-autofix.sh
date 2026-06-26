@@ -58,7 +58,7 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
         "$GO_IMAGE" \
         bash "$SCRIPT_PATH"
     else
-      echo ":: WARNING: Go $CURRENT_GO < $REQUIRED_GO and no container runtime — go vet/goimports will be skipped"
+      echo ":: WARNING: Go $CURRENT_GO < $REQUIRED_GO and no container runtime — go vet/goimports skipped. Install Go $REQUIRED_GO+ or podman/docker."
     fi
   fi
 fi
@@ -537,7 +537,7 @@ fix_metallb_version() {
 
   local latest_metallb
   latest_metallb=$(curl -sf "https://api.github.com/repos/metallb/metallb/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[0-9][^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
-  [[ -z "$latest_metallb" ]] && { echo ":: WARNING: Could not fetch latest MetalLB version"; return 0; }
+  [[ -z "$latest_metallb" ]] && { echo ":: WARNING: Could not fetch latest MetalLB version (GitHub API may be rate-limited)"; return 0; }
 
   if [[ "$current_metallb" != "$latest_metallb" ]]; then
     echo ":: Bumping MetalLB: $current_metallb → $latest_metallb"

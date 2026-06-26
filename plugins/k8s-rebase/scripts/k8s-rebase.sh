@@ -242,7 +242,7 @@ done
 if [[ -n "$CR_VERSION" ]]; then
   info "Controller-runtime: $CR_VERSION (formula + latest patch)"
 else
-  info "Controller-runtime: v0.${CR_MINOR}.x not on proxy, will use latest"
+  info "Controller-runtime: v0.${CR_MINOR}.x not on proxy — may not be released yet. Will use latest available."
 fi
 
 # Create branch (append timestamp if name taken)
@@ -332,7 +332,7 @@ rebase_module() {
   while IFS= read -r cmd; do
     cmd_num=$((cmd_num + 1))
     printf "\r:: [%d/%d] %s" "$cmd_num" "$num_cmds" "$(echo "$cmd" | awk '{print $2}' | sed 's/@.*//')"
-    $cmd >> "$REBASE_TMP/go-get.log" 2>&1 || info "  WARNING: $cmd failed (continuing)"
+    $cmd >> "$REBASE_TMP/go-get.log" 2>&1 || info "  WARNING: $cmd failed (see .rebase-tmp/go-get.log)"
     cmd_log+="$cmd"$'\n'
   done <<< "$commands"
   echo ""
@@ -359,7 +359,7 @@ rebase_module() {
     go mod vendor >> "$REBASE_TMP/vendor.log" 2>&1
     if [[ -x "$REPO_ROOT/go-controller/hack/verify-go-mod-vendor.sh" ]] && [[ "$module_dir" == "go-controller" ]]; then
       info "Verifying vendor..."
-      "$REPO_ROOT/go-controller/hack/verify-go-mod-vendor.sh" || info "WARNING: vendor verification failed"
+      "$REPO_ROOT/go-controller/hack/verify-go-mod-vendor.sh" || info "WARNING: vendor verification failed — run hack/verify-go-mod-vendor.sh to see details"
     fi
   fi
 
@@ -711,7 +711,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       done
     else
       info "  NOTE: CI builder image uses golang-${NEW_GO_SHORT}-openshift-${old_ocp}."
-      info "  Could not detect OCP target — verify this image exists."
+      info "  Could not detect OCP target — check openshift/release CI configs for the correct stream."
     fi
   fi
 fi
