@@ -497,7 +497,7 @@ fix_kind_image() {
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
-      [[ "$f" != *.md ]] && sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${revert_tag}|g" "$f"
+      [[ "$f" != *.md ]] && sed -i -E "s#(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*\"?|K8S_VERSION:[[:space:]]*)v1\.${NEW}\.[0-9]+#\1${revert_tag}#g" "$f"
     done
   else
     # Replace KIND-related v1.NEW.* refs with the available kind_tag.
