@@ -1305,17 +1305,17 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   echo "━━━━ Phase B: Applying fixes ━━━━"
   echo ""
 
-  # Generic fixes — apply to any k8s rebase, any project
-  fix_xexp
-  fix_reflect_ptr
-  fix_fieldsv1
-  fix_eventf
-  fix_docs_version
-  fix_version_refs
-  fix_go_version
-  fix_kind_image
-  fix_kind_version
-  fix_feature_gates
+  # Generic fixes — permanent, apply to any k8s rebase
+  fix_xexp            # x/exp → stdlib migration
+  fix_reflect_ptr     # reflect.Ptr deprecation
+  fix_fieldsv1        # FieldsV1.Raw API change
+  fix_eventf          # go vet format string fixes
+  fix_docs_version    # stale version in docs table
+  fix_version_refs    # stale v1.X refs in CI/scripts
+  fix_go_version      # Go version in CI/Dockerfiles
+  fix_kind_image      # kindest/node image tag
+  fix_kind_version    # KIND binary version
+  fix_feature_gates   # feature gate insertion
 
   # Version-specific fixes — conditional on finding the pattern.
   # These skip automatically when the pattern doesn't exist (e.g.,
@@ -1342,15 +1342,11 @@ fix_metallb_version
 fix_kubevirt_version
 fix_relaxed_service_name_validation
 fix_kubeadm_v1beta4
-fix_network_policy_api_crds
-fix_crd_int64_validation
-fix_crd_name_validation
-
-# Remove deprecated codegen flags and regenerate if needed
-fix_bounding_dirs
-
-# Regenerate mocks if codegen deleted them (belt-and-suspenders with k8s-rebase.sh)
-fix_mocks
+fix_network_policy_api_crds  # network-policy-api v0.2.0+
+fix_crd_int64_validation     # k8s 1.36+ (stricter CRD validation)
+fix_crd_name_validation      # permanent (codegen strips hand-edits)
+fix_bounding_dirs            # k8s 1.36+ (deepcopy-gen flag removed)
+fix_mocks                    # permanent (codegen can delete mocks)
 
 # Regenerate third-party licenses if the target has it (deps changed)
 for _makefile in $(find . -name "Makefile" -not -path "*/vendor/*" -maxdepth 3); do
