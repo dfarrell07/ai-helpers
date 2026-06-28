@@ -509,7 +509,7 @@ fix_kind_image() {
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor | grep -v go.mod); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
-      [[ "$f" != *.md ]] && sed -i -E "s|(K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)v1\.${NEW}\.[0-9]+|\1${kind_tag}|g" "$f"
+      [[ "$f" != *.md ]] && sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
       _changed=1
     done
     if [[ "$_changed" -eq 1 ]]; then
