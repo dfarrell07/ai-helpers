@@ -164,8 +164,8 @@ complete until all subagents report zero issues.
 
 ### Step 2: Fix compilation errors
 
-Use `timeout: 600000` (10 min) for validation commands, or
-`run_in_background: true` if they auto-containerize.
+Use `timeout: 600000` (10 min) for validation commands. If lint
+auto-containerizes, it may take 12+ min — use nohup like Step 1.
 
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
@@ -373,8 +373,9 @@ Split packages across agents by test line count (`wc -l
 *_test.go`). Each containerized `go test` compilation uses
 ~5GB RAM. Check available memory (`free -h`) first:
 
-**<=16GB RAM:** run agents sequentially (one at a time, wait
-for each to complete before starting the next). The validate
+**<=16GB RAM:** run agents sequentially. pkg/ovn is prone to
+OVSDB timeout flakes under memory pressure — these are
+container timing issues, not rebase bugs. The validate
 script automatically limits compiler parallelism (GOMAXPROCS=2)
 for large packages to reduce memory pressure. Cap each agent
 at ~30k test lines. Run 4 sequential agents:
