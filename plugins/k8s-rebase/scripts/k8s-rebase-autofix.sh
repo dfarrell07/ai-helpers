@@ -1056,6 +1056,11 @@ fix_feature_gates() {
     if grep -q 'unrecognized feature gate: WatchListClient' "$tf"; then
       sed -i 's/unrecognized feature gate: WatchListClient/unrecognized feature gate/' "$tf"
     fi
+
+    # Update stale error messages that name a single gate.
+    if grep -q 'Failed to disable WatchListClient feature gate' "$tf"; then
+      sed -i 's/Failed to disable WatchListClient feature gate/Failed to disable feature gates/' "$tf"
+    fi
   done
 
   # ── Layer 4: Warn about test packages that may need gates ──

@@ -40,6 +40,7 @@ and then apply to all subsequent repos automatically.
 | go vet format string | `non-constant format string` | `"%s", msg` or `%v` |
 | go vet format type | `%q has arg of wrong type` | Use `%v` for non-string types |
 | Deprecated API | `SA1019: X is deprecated` | Check vendored `// Deprecated:` comment |
+| NewSimpleClientset | `SA1019` on generated fakes | Replace with `NewClientset` — check vendored source for `// Deprecated:` first (not all fakes deprecate it) |
 | x/exp migration | `cannot find package "golang.org/x/exp/..."` or `inline: cannot inline` | Migrate to stdlib `maps`/`slices`/`cmp` (NOT disable linter) |
 | Nilness dead code | `nilness: impossible condition` | Remove dead `if err != nil` blocks |
 | Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag from script, re-run codegen |
@@ -48,11 +49,12 @@ and then apply to all subsequent repos automatically.
 | Feature gate (missing) | Tests hang (no gate setup) | Add `t.Setenv` for all gates to suite file |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
 | golangci-lint v1/v2 | v2 config rejected by v1 binary | Makefile may use v1 import path while lint.sh uses v2 container — update both if migrating |
+| ST1005 error string casing | Lowercased error string breaks matching code | Before fixing ST1005, grep for the OLD error string in all Go files — update matches too |
 | golangci-lint v1 + Go 1.26 | container image can't parse Go 1.26 | Replace Makefile no-op else with `go install @$(VERSION) && golangci-lint run` |
 | CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | New Go versions may only exist for newer OCP streams (e.g., 1.26 → openshift-5.0, not 4.22) |
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
-| library-go interface | `does not implement SharedIndexInformer` | BLOCKER: bump library-go after upstream merges interface PR |
+| library-go interface | `does not implement SharedIndexInformer` | Bump library-go to latest; if still missing, vendor-patch the method (see below) |
 | Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Fix is in openshift/release, not the repo — exclude vendor from snyk |
 | OTE module | downstream `openshift/` module needs separate bump | Run skill on downstream fork, OTE go.mod bumped alongside |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
@@ -80,16 +82,28 @@ Fix: add `t.Setenv("KUBE_FEATURE_<gate>", "false")` to the
 suite's `TestX` function. The autofix warns about these packages
 but doesn't auto-fix (not all fake clientset tests need gates).
 
+**envtest suites do NOT need gate disabling.** `envtest.Environment`
+starts a real kube-apiserver binary that handles feature gates
+natively. Only tests using fake clientsets need manual gate
+disabling — the autofix detects these automatically.
+
 SetFromMap validates parent-dep consistency — disabling a parent
 without its deps causes a validation error. All gates must be in
 SetFromMap, but only add gates that exist in vendored k8s code
 (removed gates cause "unrecognized feature gate" errors).
 
 **Known problematic gates:**
-- **WatchListClient** (k8s 1.35)
-- **AtomicFIFO** (k8s 1.36). Dependents:
-  `StaleControllerConsistency{Job,ReplicaSet,StatefulSet,DaemonSet}`.
-  SetFromMap (all gates — parents + deps):
+- **WatchListClient** (k8s 1.35) — in `k8s.io/client-go`
+- **AtomicFIFO** (k8s 1.36) — in `k8s.io/client-go`. Dependents:
+  `StaleControllerConsistency{Job,ReplicaSet,StatefulSet,DaemonSet}`
+  exist only in `k8s.io/kubernetes` (server-side kube-controller-manager
+  gates). Only repos that vendor `k8s.io/kubernetes` (e.g., ovnk, INFW)
+  need the dependents. Repos that only vendor `k8s.io/client-go` (e.g.,
+  CNO, CNCC, multus) should NOT add them — they don't exist in the
+  client-side feature gate registry and would cause "unrecognized
+  feature gate" errors in SetFromMap.
+
+  SetFromMap for repos vendoring `k8s.io/kubernetes` (all gates):
 ```go
 if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
     "WatchListClient":                      false,
@@ -102,6 +116,8 @@ if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
     t.Fatalf("Failed to disable feature gates: %v", err)
 }
 ```
+  Repos vendoring only `k8s.io/client-go`: use only the parent
+  gates (WatchListClient, AtomicFIFO) in SetFromMap.
 
 **Gates that do NOT need disabling (k8s 1.36):**
 `UnlockWhileProcessingFIFO`, `ClientsAllowCARotation`,
@@ -320,6 +336,13 @@ virt-launcher pod's Multus `network-status` annotation instead
 of VMI status. Test-only change — OVN allocation is correct.
 The autofix does not handle this (too complex for sed/awk).
 
+Implementation: add a helper function that finds the virt-launcher
+pod via label selector `kubevirt.io/domain=<vmi.Name>`, reads the
+`k8s.v1.cni.cncf.io/network-status` annotation, and extracts IPs
+(filtering link-local). Use it for secondary interfaces (role !=
+Primary); keep `virtualMachineAddressesFromStatus` for primaries.
+The existing `podNetworkStatus` helper parses the annotation.
+
 ### kubeadm v1beta4 format (k8s 1.36)
 
 k8s 1.36 silently ignores v1beta3 `extraArgs` map format, causing
@@ -362,10 +385,12 @@ with controller-runtime v0.24.
 k8s 1.36 informer changes may cause flow sync events to coalesce
 differently, making hybrid-overlay tests that expect a specific
 sequence of flow sync calls flaky. Symptom: test times out at
-2 seconds waiting for expected OVS commands that were coalesced
-into a single event. Fix: increase the `Eventually` timeout
-(e.g., 2s → 5s). Agent handles this in Step 4 (not autofix).
-This is a test timing issue, not a logic bug.
+2 seconds waiting for expected OVS commands. Root cause: test
+race where flow sync expectations are registered after the API
+call that triggers the informer event (fixed upstream in
+ovn-kubernetes PR #6617). If the fix is in the base branch,
+timeout bumps are unnecessary. Agent handles remaining cases
+in Step 4 if needed.
 
 ### E2e framework changes (k8s 1.35)
 
@@ -419,6 +444,18 @@ library-go interfaces, or `verify-deps` fails with library-go
 diffs, it should tell the agent this is an upstream blocker
 rather than a fixable rebase issue.
 
+**Vendor-patch workaround:** If library-go's latest commit still
+doesn't implement the new interface, `go get` the latest anyway
+and add the missing method to the vendored source. For fake/mock
+types, the implementation is trivial (return zero values or
+closed channels). Mark the commit as temporary: "vendor patch
+until library-go publishes a k8s 1.XX compatible release."
+The patch is replaced when library-go is next vendored. Note:
+repos with required `verify-deps` CI will still fail because
+`go mod vendor` produces different output than the patched
+vendor tree. For those repos, wait for the upstream fix or
+ask CI admins to make the check optional temporarily.
+
 ### OTE downstream module (recurring)
 
 The downstream ovnk fork (`openshift/ovn-kubernetes`) has an
@@ -433,6 +470,48 @@ been tested. OTE may have its own breakage patterns distinct
 from go-controller (e.g., `openshift/origin` test API changes).
 OTE is sometimes bumped as a separate PR by a different
 engineer (see CORENET-7293).
+
+### ST1005 error string casing vs test assertions (recurring)
+
+staticcheck ST1005 requires error strings to not be capitalized.
+Rebases can surface this when lint config changes enable
+staticcheck or remove exclusions. Lowercasing an error string
+is a lint fix but can break test assertions that match the old
+string:
+```go
+// Old
+return fmt.Errorf("Failed to create: %v", err)
+
+// New (ST1005 fix)
+return fmt.Errorf("failed to create: %v", err)
+
+// Test — BROKEN (still expects old capitalization)
+Expect(err.Error()).To(ContainSubstring("Failed to create"))
+```
+
+Before lowercasing any error string for ST1005, grep for the OLD
+string in all Go files — not just tests. Production code may use
+`strings.Contains(err.Error(), "...")` for control flow. This is
+a semantic change, not just a lint fix.
+
+### golangci-lint v1→v2 config migration (recurring)
+
+When upgrading golangci-lint from v1 to v2, the config format
+changes:
+- Add `version: "2"` header
+- `linters-settings` → nested under `linters.settings`
+- Add `default: standard` under `linters` (replaces v1's
+  implicit default set; `enable`/`disable` become overrides)
+
+Separately, any lint version bump (even within v1 or within v2)
+can pull in stricter checks that surface new findings unrelated
+to the rebase. `--fix` auto-fix is incomplete for some checks.
+
+The skill's `fix_lint_version` bumps the lint tool version
+but does not migrate the `.golangci.yml` config. Config migration
+is left to the agent in Step 4 because the changes are project-
+specific. When facing config issues: fix the config to match the
+new version's expectations rather than suppressing new warnings.
 
 ### Webhook builder API change (controller-runtime v0.24)
 

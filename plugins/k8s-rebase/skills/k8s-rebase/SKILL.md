@@ -47,9 +47,9 @@ is gitignored. Use plain `git add -A` instead.
 `Assisted-by: Claude Code <noreply@anthropic.com>`.
 The scripts add it automatically. For manual commits use:
 `git commit -s --trailer "Assisted-by: Claude Code <noreply@anthropic.com>"`
-When amending, do NOT re-pass `-s` or `--trailer` — the
-existing trailers are preserved. Use `git commit --amend`
-without those flags to avoid duplicates.
+When amending, check `git log --oneline -1` first to confirm
+HEAD is the commit you intend to amend. Do NOT re-pass `-s`
+or `--trailer` — the existing trailers are preserved.
 
 ---
 
@@ -99,15 +99,23 @@ When the check shows "Done", look at the last lines of the log.
 **Exit 0** = already at target version, nothing to do — stop.
 **Exit 2** = success — proceed to validation. **Exit 1** = error.
 Check `cat .rebase-tmp/step1-result.txt` — if it says "EXIT 2",
-the script completed all phases. Check `git log` for rebase
-commits. Do NOT re-run the script. Do NOT run the autofix script
+the script completed all phases. **If the file is missing**, the
+script crashed mid-run. Check `tail -20 .rebase-tmp/step1.log`
+for the error. If `git log` shows the dep bump and codegen
+commits, those are safe. Manually verify version references
+(Dockerfiles, CI configs, lint version) since the script may
+have crashed before updating them, then proceed to Step 2.
+
+Do NOT re-run the script. Do NOT run the autofix script
 or make manual go.mod changes before the rebase script completes — the
 rebase script handles all module bumps, codegen, and version
 references. Running autofix early creates duplicate commits.
 Do NOT manually update K8S_VERSION or other version references
 — the autofix script handles these and will choose the
 correct values (e.g., v1.36.1 if v1.36.2 KIND images aren't
-published yet).
+published yet). The rebase script and autofix may set different
+K8S_VERSION patch levels (e.g., v1.36.2 then v1.36.1) — the
+autofix value is authoritative.
 
 If the output says "Could not detect OCP target", check the
 repo's CI config in `openshift/release` or compare with an
@@ -181,6 +189,11 @@ Use `--quick` (~1 min, build + vet only) during fix iterations.
 Full validation runs in the lint/test step.
 
 Fix compilation errors from ALL modules (find all go.mod files).
+Note: some modules (e.g., `test/e2e`) have gitignored vendor
+directories and won't compile locally. Errors in those modules
+(like unused variables) only surface in CI. Review `git diff`
+for changes to those modules before pushing.
+
 If errors appear in `/go/pkg/mod/` paths (not the project's own
 code), a direct dependency is incompatible with the bumped k8s
 packages. Extract the module path (between `/go/pkg/mod/` and
@@ -266,10 +279,18 @@ SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-autofix.sh" 
 Applies known fix patterns (code fixes, feature gates, lint
 version, CRD validation fixes, AND e2e infra: MetalLB, KubeVirt,
 RelaxedServiceNameValidation, kubeadm v1beta4).
-Outputs RESULT: PASS or FAIL. **Verify the script actually ran**
-— if the output is empty or the script wasn't found, the autofix
-was skipped and all its fixes are missing. If FAIL, fix remaining
-items and re-run until PASS. Check output for MetalLB FRR image warnings —
+Outputs RESULT: PASS or FAIL to terminal. The autofix does not
+write to summary.txt (that file comes from the validate script).
+FAIL is normal when the repo has patterns the autofix documents
+but cannot fix automatically (e.g., KubeVirt test changes) — the
+agent handles those in Step 4.
+**Verify the script actually ran** — if the output is empty or
+the script wasn't found, the autofix was skipped and all its
+fixes are missing. If FAIL, check `git log` for autofix commits
+— if any groups already committed, fix remaining items manually
+rather than re-running. Re-running duplicates the committed
+groups (new commits, not amends). Check output for MetalLB FRR
+image warnings —
 if the autofix bumped MetalLB, verify the FRR image variable
 matches what the new MetalLB version ships. Read the patterns doc
 for unfamiliar patterns:
@@ -317,9 +338,30 @@ golangci-lint v2 defaults to showing only 3 instances of each
 error type. The validate script overrides this with
 `--max-same-issues 0` so all issues appear in one run.
 
+**Expect progressive revelation:** Fixing build errors reveals
+vet errors, fixing those reveals lint errors, fixing those
+reveals more lint errors from dependent code. Plan for 3-5
+`--no-test` iterations. Group fixes by lint category (one
+commit per category, e.g., ST1005, QF1008, errcheck) rather
+than one commit per iteration.
+
+**Creating `.golangci.yml`:** If the project has no config file
+and errcheck flags many unchecked `fmt.Fprintf`/`.Close()` calls,
+create a `.golangci.yml` with `exclude-functions` rather than
+adding per-line `//nolint:errcheck` directives. Use
+`default: standard` (not `default: none`) to preserve the full
+default linter set — `default: none` silently disables linters
+that would otherwise run.
+
 **Nilness dead code:** The bumped golangci-lint catches `if err
 != nil` blocks where err is guaranteed nil. Remove the entire
 dead block. Do not simplify or restructure.
+
+**Error string casing (ST1005):** When lowercasing error strings
+for ST1005, grep for the OLD string in all Go files (not just
+tests). Both test assertions and production `strings.Contains`
+checks will break if the error text changes without updating
+the match.
 
 **Test caching:** Always use `-count=1` when running tests
 manually. Go's test cache can return stale passes.
@@ -352,13 +394,18 @@ Use ONLY the packages from the discovery snippet above — it
 filters out `root_pkgs` which need CAP_NET_ADMIN (network
 namespaces) and will always fail with "permission denied" in
 unprivileged containers. Do NOT pass `./pkg/...` or `./...`
-directly. Each agent uses the validate script's `--test-only`
+directly. Some repos (especially CNI plugins) have tests
+requiring privileges but don't define `root_pkgs`. If a test
+package fails with "operation not permitted" or "permission
+denied", skip that package — it needs capabilities (e.g.,
+CAP_NET_ADMIN) that containers lack. Other packages in the
+same repo may still pass. Each agent uses the validate script's `--test-only`
 flag, which handles containerization, feature gate exports,
 timeout scaling, and output capture automatically.
 
 Tests can take 10-60 minutes. Use `timeout: 600000` for small
-package groups. For the biggest package (>30k lines), use
-nohup to avoid the 10-minute timeout:
+package groups. For packages over ~20k test lines, use nohup
+to avoid the 10-minute Bash timeout:
 ```bash
 SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-validate.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
 REPO_ROOT=$(git rev-parse --show-toplevel)
@@ -393,7 +440,7 @@ bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/factory/... ./pkg/cni/...
 **32GB+ RAM:** run 3 agents in parallel, including the biggest
 via nohup:
 ```bash
-# Agent 1: biggest package alone (nohup — takes 10-30 min)
+# Agent 1: biggest package alone (nohup — takes 10-30+ min)
 nohup bash "$SCRIPT" --test-only ./pkg/ovn > .rebase-tmp/test-ovn.log 2>&1 &
 # Agent 2: sub-packages, timeout: 600000
 bash "$SCRIPT" --test-only ./pkg/ovn/controller/... ./pkg/ovn/topology/...

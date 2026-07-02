@@ -625,13 +625,31 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     --include="Dockerfile*" . \
     | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
 
-  # Bump golangci-lint version in lint scripts when Go version changes
+  # Bump golangci-lint version in lint scripts when Go version changes.
+  # Skip when Go >= 1.26 and project uses v1: the autofix script handles
+  # the full v1→v2 transition (lint.sh + Makefile + import paths).
+  # Bumping v1 here would create an intermediate commit that autofix
+  # immediately supersedes — touching the same files in two commits.
+  _skip_lint_bump=false
+  _go_minor=$(echo "$NEW_GO_SHORT" | cut -d. -f2)
+  if [[ -n "$_go_minor" ]] && [[ "$_go_minor" -ge 26 ]] 2>/dev/null; then
+    _any_v1=false
+    while IFS= read -r _ls; do
+      [[ -z "$_ls" ]] && continue
+      grep -qE 'VERSION=v1\.' "$_ls" 2>/dev/null && _any_v1=true && break
+    done < <(grep -rln "golangci-lint" --include="*.sh" . | grep -v vendor | grep -v "/\.git/" || true)
+    if [[ "$_any_v1" == true ]]; then
+      _skip_lint_bump=true
+      info "  golangci-lint v1→v2 migration deferred to autofix (Go >= 1.26)"
+    fi
+  fi
+
+  if [[ "$_skip_lint_bump" == false ]]; then
   LATEST_LINT=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   if [[ -z "$LATEST_LINT" ]]; then
     info "  WARNING: Could not fetch latest golangci-lint version (API rate limited?). Lint version not bumped."
   fi
   if [[ -n "$LATEST_LINT" ]]; then
-    # Pre-fetch latest v1 tag for repos that use v1 (avoids duplicate API calls)
     LATEST_LINT_V1=""
     if [[ "$LATEST_LINT" == v2.* ]]; then
       LATEST_LINT_V1=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
@@ -653,8 +671,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         fi
       fi
     done < <(grep -rln "golangci-lint" --include="*.sh" . | grep -v vendor | grep -v "/\.git/" || true)
-    # Also bump GOLANGCI_LINT_VERSION in Makefiles.
-    # If the Makefile uses the v1 import path, use latest v1 (not v2).
     while IFS= read -r mkfile; do
       [[ -z "$mkfile" ]] && continue
       OLD_MK_LINT=$(grep -oE 'GOLANGCI_LINT_VERSION\s*[:?]?=\s*v[0-9]+\.[0-9]+\.[0-9]+' "$mkfile" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
@@ -669,6 +685,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         info "  Updated golangci-lint: $OLD_MK_LINT → $target_lint in $mkfile"
       fi
     done < <(grep -rln "GOLANGCI_LINT_VERSION" --include="Makefile*" . | grep -v vendor | grep -v "/\.git/" || true)
+  fi
   fi
 
   # Reconcile Dockerfile ARG defaults with the new Go version.
