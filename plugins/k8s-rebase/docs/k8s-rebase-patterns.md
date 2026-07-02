@@ -61,7 +61,7 @@ and then apply to all subsequent repos automatically.
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
 | CRD name validation lost | `not-default created` (should be rejected) | Re-insert `metadata.name: pattern: ^default$` after codegen |
 | CRD codegen annotation | `verify-update-codegen` fails (`git diff`) | Re-run codegen to update `controller-gen.kubebuilder.io/version` |
-| Informer coalescing | Hybrid-overlay test timeout (2s) | Increase `Eventually` timeout (2s → 5s) |
+| Hybrid-overlay test race | Hybrid-overlay test timeout (2s) | Fixed upstream (PR #6617); bump timeout only if fix absent |
 | Webhook builder API | `too many arguments` in NewWebhookManagedBy | Move object from .For() to constructor arg (now generic) |
 | Vendor verify in container | `vendor not in sync` (container-only) | False positive — re-run on host to confirm |
 | e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
@@ -337,7 +337,7 @@ of VMI status. Test-only change — OVN allocation is correct.
 The autofix does not handle this (too complex for sed/awk).
 
 Implementation: add a helper function that finds the virt-launcher
-pod via label selector `kubevirt.io/domain=<vmi.Name>`, reads the
+pod via label selector `vm.kubevirt.io/name=<vmi.Name>`, reads the
 `k8s.v1.cni.cncf.io/network-status` annotation, and extracts IPs
 (filtering link-local). Use it for secondary interfaces (role !=
 Primary); keep `virtualMachineAddressesFromStatus` for primaries.
@@ -501,7 +501,7 @@ changes:
 - Add `version: "2"` header
 - `linters-settings` → nested under `linters.settings`
 - Add `default: standard` under `linters` (replaces v1's
-  implicit default set; `enable`/`disable` become overrides)
+  implicit default set; `enable`/`disable` are additive on top)
 
 Separately, any lint version bump (even within v1 or within v2)
 can pull in stricter checks that surface new findings unrelated

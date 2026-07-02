@@ -1058,8 +1058,8 @@ fix_feature_gates() {
     fi
 
     # Update stale error messages that name a single gate.
-    if grep -q 'Failed to disable WatchListClient feature gate' "$tf"; then
-      sed -i 's/Failed to disable WatchListClient feature gate/Failed to disable feature gates/' "$tf"
+    if grep -q 'Failed to disable .* feature gate' "$tf"; then
+      sed -i 's/Failed to disable .* feature gate/Failed to disable feature gates/' "$tf"
     fi
   done
 

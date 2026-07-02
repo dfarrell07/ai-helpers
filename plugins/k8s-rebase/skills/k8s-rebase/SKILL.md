@@ -48,8 +48,8 @@ is gitignored. Use plain `git add -A` instead.
 The scripts add it automatically. For manual commits use:
 `git commit -s --trailer "Assisted-by: Claude Code <noreply@anthropic.com>"`
 When amending, check `git log --oneline -1` first to confirm
-HEAD is the commit you intend to amend. Do NOT re-pass `-s`
-or `--trailer` — the existing trailers are preserved.
+HEAD is the commit you intend to amend. Use `--no-edit` to
+preserve existing trailers. Do NOT re-pass `-s` or `--trailer`.
 
 ---
 
@@ -338,12 +338,11 @@ golangci-lint v2 defaults to showing only 3 instances of each
 error type. The validate script overrides this with
 `--max-same-issues 0` so all issues appear in one run.
 
-**Expect progressive revelation:** Fixing build errors reveals
-vet errors, fixing those reveals lint errors, fixing those
-reveals more lint errors from dependent code. Plan for 3-5
-`--no-test` iterations. Group fixes by lint category (one
-commit per category, e.g., ST1005, QF1008, errcheck) rather
-than one commit per iteration.
+**Expect multiple iterations:** Each `--no-test` run may surface
+new errors after fixing the previous batch — fixing one issue
+can unmask others. Plan for 3-5 iterations. Group fixes by
+lint category (one commit per category, e.g., ST1005, QF1008,
+errcheck) rather than one commit per iteration.
 
 **Creating `.golangci.yml`:** If the project has no config file
 and errcheck flags many unchecked `fmt.Fprintf`/`.Close()` calls,
