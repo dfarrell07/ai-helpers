@@ -168,13 +168,13 @@ done
 
 # Verify target version exists on Go module proxy
 info "Checking Go module proxy for $API_VERSION..."
-if ! curl -sf --connect-timeout 10 "https://proxy.golang.org/k8s.io/api/@v/${API_VERSION}.info" > /dev/null 2>&1; then
+if ! curl -sf --retry 2 --connect-timeout 10 "https://proxy.golang.org/k8s.io/api/@v/${API_VERSION}.info" > /dev/null 2>&1; then
   die "k8s.io/api@${API_VERSION} not found on Go module proxy. Version may not be released yet."
 fi
 info "Target version confirmed on proxy"
 
 # Check Go version — if too old, re-exec inside the official Go container
-REQUIRED_GO=$(curl -sf --connect-timeout 10 "https://raw.githubusercontent.com/kubernetes/kubernetes/v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}/go.mod" 2>/dev/null | grep "^go " | awk '{print $2}' || true)
+REQUIRED_GO=$(curl -sf --retry 2 --connect-timeout 10 "https://raw.githubusercontent.com/kubernetes/kubernetes/v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}/go.mod" 2>/dev/null | grep "^go " | awk '{print $2}' || true)
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
 GO_OK=1
 if [[ -n "$REQUIRED_GO" ]]; then
@@ -234,7 +234,7 @@ CR_VERSION=""
 # Try patch versions from highest to lowest
 for patch in 9 8 7 6 5 4 3 2 1 0; do
   candidate="v0.${CR_MINOR}.${patch}"
-  if curl -sf --connect-timeout 10 "https://proxy.golang.org/sigs.k8s.io/controller-runtime/@v/${candidate}.info" > /dev/null 2>&1; then
+  if curl -sf --retry 2 --connect-timeout 10 "https://proxy.golang.org/sigs.k8s.io/controller-runtime/@v/${candidate}.info" > /dev/null 2>&1; then
     CR_VERSION="$candidate"
     break
   fi
@@ -645,14 +645,14 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   fi
 
   if [[ "$_skip_lint_bump" == false ]]; then
-  LATEST_LINT=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
+  LATEST_LINT=$(curl -sf --retry 2 --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   if [[ -z "$LATEST_LINT" ]]; then
     info "  WARNING: Could not fetch latest golangci-lint version (API rate limited?). Lint version not bumped."
   fi
   if [[ -n "$LATEST_LINT" ]]; then
     LATEST_LINT_V1=""
     if [[ "$LATEST_LINT" == v2.* ]]; then
-      LATEST_LINT_V1=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
+      LATEST_LINT_V1=$(curl -sf --retry 2 --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
     fi
     while IFS= read -r lintscript; do
       [[ -z "$lintscript" ]] && continue
@@ -708,7 +708,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     target_ocp=""
     # Detect OCP target from openshift/release ci-operator config
     for branch in master main; do
-      target_ocp=$(curl -sf --connect-timeout 10 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep 'name: "' | tail -1 | grep -oE '[0-9]+\.[0-9]+' || true)
+      target_ocp=$(curl -sf --retry 2 --connect-timeout 10 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep 'name: "' | tail -1 | grep -oE '[0-9]+\.[0-9]+' || true)
       [[ -n "$target_ocp" ]] && break
     done
     if [[ -n "$target_ocp" ]]; then

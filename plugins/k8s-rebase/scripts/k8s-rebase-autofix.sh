@@ -358,7 +358,9 @@ fix_version_refs() {
   local changed=0
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
-    sed -i -E "s|v1\.${OLD}\.[0-9]+|v1.${NEW}.0|g; s|v1\.${OLD}\b|v1.${NEW}|g" "$f"
+    # Skip K8S_VERSION and kindest/node lines — fix_kind_image owns
+    # those and sets them based on actual KIND image availability.
+    sed -i -E "/K8S_VERSION|kindest\/node/!{s|v1\.${OLD}\.[0-9]+|v1.${NEW}.0|g; s|v1\.${OLD}\b|v1.${NEW}|g}" "$f"
     changed=1
   done < <(grep -rln -E "v1\.${OLD}(\.[0-9]+)?\b" \
     --include="*.yml" --include="*.yaml" --include="*.sh" \
@@ -401,7 +403,7 @@ fix_lint_version() {
   lint_sh=$(find . -name "lint.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
   [[ -z "$lint_sh" ]] && return 0
   local LATEST_LINT
-  LATEST_LINT=$(curl -sf --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
+  LATEST_LINT=$(curl -sf --retry 2 --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   local lint_ver test_yml
   lint_ver=$(grep -oE 'VERSION=v[0-9.]+' "$lint_sh" | head -1 | sed 's/VERSION=//')
 
@@ -480,12 +482,24 @@ fix_kind_image() {
   NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   [[ -z "$NEW" ]] && return 0
   # Find the highest available kindest/node image for this minor version.
-  # One API call to list all tags, pick the highest patch.
-  local kind_tag=""
-  kind_tag=$(curl -sf "https://hub.docker.com/v2/repositories/kindest/node/tags?page_size=100&name=v1.${NEW}" 2>/dev/null \
-    | grep -oE "\"name\":\"v1\.${NEW}\.[0-9]+\"" \
-    | sed 's/"name":"//;s/"//' \
-    | sort -V | tail -1 || true)
+  # Try specific tags first (less rate-limit-prone than listing all),
+  # fall back to listing API.
+  local kind_tag="" go_mod_patch
+  go_mod_patch=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v0\.[0-9]+\.[0-9]+' | sed 's/v0\.[0-9]*\.//')
+  for _p in $(seq "${go_mod_patch:-2}" -1 0 | head -5); do
+    local _try="v1.${NEW}.${_p}"
+    if curl -sf -o /dev/null "https://hub.docker.com/v2/repositories/kindest/node/tags/${_try}" 2>/dev/null; then
+      kind_tag="$_try"
+      break
+    fi
+  done
+  # Fall back to listing API if per-tag checks all failed
+  if [[ -z "$kind_tag" ]]; then
+    kind_tag=$(curl -sf --retry 2 "https://hub.docker.com/v2/repositories/kindest/node/tags?page_size=100&name=v1.${NEW}" 2>/dev/null \
+      | grep -oE "\"name\":\"v1\.${NEW}\.[0-9]+\"" \
+      | sed 's/"name":"//;s/"//' \
+      | sort -V | tail -1 || true)
+  fi
   if [[ -z "$kind_tag" ]]; then
     local OLD=$((NEW-1))
     local revert_tag="v1.${OLD}.1"
@@ -528,7 +542,7 @@ fix_kind_version() {
   current_ver=$(grep -oE 'kind.sigs.k8s.io/dl/v[0-9.]+' "$install_script" | head -1 | sed 's|kind.sigs.k8s.io/dl/||')
   [[ -z "$current_ver" ]] && return 0
   local latest_ver
-  latest_ver=$(curl -sf "https://api.github.com/repos/kubernetes-sigs/kind/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
+  latest_ver=$(curl -sf --retry 2 "https://api.github.com/repos/kubernetes-sigs/kind/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   [[ -z "$latest_ver" ]] && return 0
   if [[ "$current_ver" != "$latest_ver" ]]; then
     echo ":: Bumping KIND binary: $current_ver → $latest_ver"
