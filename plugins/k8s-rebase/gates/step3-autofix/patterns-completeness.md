@@ -1,14 +1,17 @@
-Read the patterns doc (find k8s-rebase-patterns.md in the plugin
-directory). For each pattern the autofix claims to handle, verify
-the fix is COMPLETE in this repo — not just present but fully
-correct. This is the only patterns completeness review for Step 2.
+Check patterns NOT covered by other gates in this step:
 
-Check each applicable pattern:
-- Was the fix applied?
-- Is it complete (all instances, all related code paths)?
-- Does it match what the patterns doc prescribes?
+1. If conformance tests exist: are renames complete?
+   (SupportAdminNetworkPolicy → SupportClusterNetworkPolicy)
+2. If ANP/BANP status code exists: is ObservedGeneration
+   propagated in all condition builders?
+3. If AddToScheme calls exist: are deprecated ones replaced
+   with Install where the vendored source has Install?
+4. If EgressPeer types were changed: are ALL field mappings
+   complete (check struct definition in vendor)?
 
-Flag any partial fixes. List each pattern checked and your finding.
+Skip patterns already verified by other gates (x/exp,
+reflect.Ptr, FieldsV1, feature gates, CRDs, e2e infra).
 
-Rules: you are read-only — do not edit files. Cite file:line
-for any issues.
+Report count per pattern checked. Cite file:line for issues.
+
+Rules: you are read-only — do not edit files.
