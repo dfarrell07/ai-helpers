@@ -9,10 +9,10 @@ fail in CI due to:
   informers or watch-based patterns with fake clientsets?
   Only flag packages that create informers AND lack gate
   setup. Do NOT flag packages that just use fake clientsets
-  for simple CRUD operations — most test suites don't need
-  SetFromMap. The autofix script's Layer 4 output lists
-  packages it already checked; if the autofix said "no gates
-  needed" for a package, don't flag it again.
+  for simple CRUD operations. If hack/test-go.sh exports
+  KUBE_FEATURE_* env vars, those cover ALL packages when
+  run via `make test` — don't flag packages that are covered
+  by test-go.sh exports.
 - Stale codegen output? If hack/update-codegen.sh or a
   Makefile codegen/generate/manifests target exists, check
   that git log shows a codegen commit. If the repo has a
