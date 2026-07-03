@@ -9,7 +9,9 @@ modified, read the full function and trace data flow. Flag:
 The autofix applies documented patterns (see the patterns doc)
 that are intentionally targeted changes. Only flag
 inconsistencies WITHIN a modified function — not missing
-changes in unrelated functions or callers.
+changes in unrelated functions or callers. Code removed in the
+diff may reflect upstream changes merged before the rebase —
+check the current file, not just the diff.
 
 List each function you checked and your finding. Do not just
 say "no issues" — show what you traced.

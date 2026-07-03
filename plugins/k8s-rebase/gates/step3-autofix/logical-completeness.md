@@ -13,6 +13,9 @@ doc) that modify specific code paths. These are intentional
 targeted changes, not incomplete fixes. Only flag a function as
 "partial" if the change is logically inconsistent within the
 function itself — not just because it doesn't touch every caller.
+Code that appears deleted in the diff may have been removed on
+master before the rebase — check the current file state, not
+just the diff, before flagging a removal as a regression.
 
 List each function you checked and your finding. Count functions
 with genuinely partial changes. Report count.
