@@ -17,6 +17,7 @@
 # -e: fail fast on unexpected errors (autofix/validate omit -e
 # because they must continue past failures to collect all results)
 set -euo pipefail
+trap 'echo "ERROR: k8s-rebase.sh crashed at line $LINENO" >&2' ERR
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
