@@ -419,8 +419,10 @@ Split packages across agents by test line count (`wc -l
 *_test.go`). Each containerized `go test` compilation uses
 ~5GB RAM. Check available memory (`free -h`) first:
 
-**<=16GB RAM:** run agents sequentially. pkg/ovn is prone to
-OVSDB timeout flakes under memory pressure — these are
+**<=16GB RAM:** run test agents sequentially (gate read-only
+agents can still run in parallel — they don't compile).
+pkg/ovn is prone to OVSDB timeout flakes under memory
+pressure — these are
 container timing issues, not rebase bugs. The validate
 script automatically limits compiler parallelism (GOMAXPROCS=2)
 for large packages to reduce memory pressure. Cap each agent
