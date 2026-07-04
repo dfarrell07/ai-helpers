@@ -1191,8 +1191,9 @@ fix_mocks() {
 }
 
 run_vet() {
-  # Run go vet on all modules to catch semantic errors (format strings,
-  # type mismatches) that grep-based checks miss.
+  # Run go test -run='^$' (vet-only, no tests) on all modules.
+  # Stricter than standalone go vet — catches Eventf format/arg
+  # count mismatches and other printf-family issues.
   # Skip if local Go is too old — re-validation auto-containerizes.
   local required_go
   required_go=$(grep "^go " "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}')
@@ -1203,11 +1204,11 @@ run_vet() {
     req_minor=$(echo "$required_go" | cut -d. -f2)
     cur_minor=$(echo "$current_go" | cut -d. -f2)
     if [[ "$cur_minor" -lt "$req_minor" ]] 2>/dev/null; then
-      echo ":: Skipping go vet (Go $current_go < $required_go required — re-validation will check)"
+      echo ":: Skipping vet (Go $current_go < $required_go required — re-validation will check)"
       return 0
     fi
   fi
-  echo ":: Running go vet on all modules"
+  echo ":: Running vet (go test -run='^$') on all modules"
   local vet_failed=0
   for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
     local mod_dir
@@ -1218,7 +1219,7 @@ run_vet() {
       echo "  Skipping $mod_dir (vendor is gitignored)"
       continue
     fi
-    (cd "$mod_dir" && go vet ./...) 2>&1 || vet_failed=1
+    (cd "$mod_dir" && go test -run='^$' -count=1 ./...) 2>&1 || vet_failed=1
   done
   return "$vet_failed"
 }
@@ -1277,7 +1278,7 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_xexp            # x/exp → stdlib migration
   fix_reflect_ptr     # reflect.Ptr deprecation
   fix_fieldsv1        # FieldsV1.Raw API change
-  fix_eventf          # go vet format string fixes
+  fix_eventf          # vet format string fixes
   fix_addtoscheme     # permanent (SA1019 deprecation)
   fix_conformance_renames  # network-policy-api v0.2.0+
   fix_banp_egresspeer      # network-policy-api v0.2.0+
@@ -1343,7 +1344,7 @@ if [[ "$VET_FAILED" -eq 1 ]]; then
 fi
 
 if [[ "$CHECKS_PASSED" == "true" ]]; then
-  echo "RESULT: PASS (all checks + go vet clean)"
+  echo "RESULT: PASS (all checks + vet clean)"
   exit 0
 else
   echo ""
@@ -1377,7 +1378,7 @@ else
   done
   if [[ "$VET_FAILED" -eq 1 ]]; then
     echo ""
-    echo "  go vet errors found above — fix before proceeding"
+    echo "  vet errors found above — fix before proceeding"
   fi
   exit 1
 fi

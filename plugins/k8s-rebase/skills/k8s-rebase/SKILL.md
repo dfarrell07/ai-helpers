@@ -186,7 +186,10 @@ fi
 
 Exit 0: no errors. Exit 1: errors in `.rebase-tmp/summary.txt`.
 Use `--quick` (~1 min, build + vet only) during fix iterations.
-Full validation runs in the lint/test step.
+`--quick` runs `go vet` (fast). `--no-test` adds
+`go test -run='^$'` which catches stricter format string
+issues (e.g., Eventf arg count mismatches) that standalone
+`go vet` misses — without running any tests.
 
 Fix compilation errors from ALL modules (find all go.mod files).
 Note: some modules (e.g., `test/e2e`) have gitignored vendor

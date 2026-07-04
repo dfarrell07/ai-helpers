@@ -457,11 +457,30 @@ while IFS= read -r gomod; do
     categorize_errors "$REBASE_TMP/${mod_name}-build.log" "$mod_name build" "$step_failed"
   fi
 
-  # Always run go vet — catches type mismatches that go build misses
+  # go vet: fast, catches most issues. Always run.
   step_failed=0
   run_validation "${mod_name}-vet" "cd $mod_dir && go vet ./..." || step_failed=1
   categorize_errors "$REBASE_TMP/${mod_name}-vet.log" "$mod_name vet" "$step_failed"
 done < <(find . -name "go.mod" -not -path "*/vendor/*" | sort)
+
+# Stricter vet via go test (compiles test binaries, catches Eventf
+# format/arg mismatches that go vet misses). Skip in --quick mode
+# because test binary compilation is slow (~3 min for large repos).
+if [[ "$MODE" != "quick" ]]; then
+  while IFS= read -r gomod; do
+    [[ -z "$gomod" ]] && continue
+    mod_dir=$(dirname "$gomod")
+    # Skip modules with gitignored vendor (e.g., test/e2e)
+    if [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && git check-ignore -q "$REPO_ROOT/$mod_dir/vendor" 2>/dev/null; then
+      continue
+    fi
+    mod_name=$(basename "$mod_dir")
+    [[ "$mod_name" == "." ]] && mod_name=$(basename "$REPO_ROOT")
+    step_failed=0
+    run_validation "${mod_name}-test-vet" "cd $mod_dir && go test -run='^$' -count=1 ./..." || step_failed=1
+    categorize_errors "$REBASE_TMP/${mod_name}-test-vet.log" "$mod_name test-vet" "$step_failed"
+  done < <(find . -name "go.mod" -not -path "*/vendor/*" | sort)
+fi
 
 if [[ "$MODE" != "quick" ]]; then
 # ── CI parity checks ────────────────────────────────────────────────
