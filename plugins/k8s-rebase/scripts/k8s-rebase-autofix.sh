@@ -530,13 +530,15 @@ fix_kind_image() {
       | sed 's/"name":"//;s/"//' \
       | sort -V | tail -1 || true)
   fi
-  # Only override K8S_VERSION in repos that use KIND for cluster creation.
-  # K8S_VERSION is overloaded: ovnk uses it for KIND image selection,
-  # MCP uses it for kubectl download, INFW uses ENVTEST_K8S_VERSION for
-  # envtest. Only repos with kind-common.sh actually pass K8S_VERSION to
-  # `kind create cluster --image kindest/node:$K8S_VERSION`.
-  local has_kind_cluster
-  has_kind_cluster=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
+  # Only override K8S_VERSION in repos where it controls the KIND image.
+  # K8S_VERSION is overloaded: some repos use it for KIND image selection
+  # (kind create cluster --image kindest/node:$K8S_VERSION), others for
+  # kubectl download or envtest. The signal: does any non-vendor file
+  # contain BOTH K8S_VERSION and kindest/node?
+  local uses_k8s_version_for_kind=""
+  if grep -rql "K8S_VERSION" --include="*.sh" --include="*.yml" --include="*.yaml" --include="Makefile*" . 2>/dev/null | grep -v vendor | xargs grep -l "kindest/node" 2>/dev/null | grep -q .; then
+    uses_k8s_version_for_kind=1
+  fi
   if [[ -z "$kind_tag" ]]; then
     local OLD=$((NEW-1))
     local revert_tag="v1.${OLD}.1"
@@ -546,7 +548,7 @@ fix_kind_image() {
       | grep -v vendor); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
     done
-    if [[ -n "$has_kind_cluster" ]]; then
+    if [[ -n "$uses_k8s_version_for_kind" ]]; then
       for f in $(grep -rln "K8S_VERSION" \
         --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
         | grep -v vendor); do
@@ -561,7 +563,7 @@ fix_kind_image() {
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
       _changed=1
     done
-    if [[ -n "$has_kind_cluster" ]]; then
+    if [[ -n "$uses_k8s_version_for_kind" ]]; then
       for f in $(grep -rln "K8S_VERSION" \
         --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
         | grep -v vendor | grep -v go.mod); do
@@ -571,7 +573,7 @@ fix_kind_image() {
     fi
     if [[ "$_changed" -eq 1 ]]; then
       echo ":: Updated kindest/node refs to ${kind_tag}"
-      [[ -n "$has_kind_cluster" ]] && echo ":: Updated K8S_VERSION refs to ${kind_tag} (KIND cluster repo)"
+      [[ -n "$uses_k8s_version_for_kind" ]] && echo ":: Updated K8S_VERSION refs to ${kind_tag} (KIND cluster repo)"
     fi
   fi
 }
