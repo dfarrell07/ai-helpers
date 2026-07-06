@@ -536,7 +536,7 @@ fix_kind_image() {
   # kubectl download or envtest. The signal: does any non-vendor file
   # contain BOTH K8S_VERSION and kindest/node?
   local uses_k8s_version_for_kind=""
-  if grep -rql "K8S_VERSION" --include="*.sh" --include="*.yml" --include="*.yaml" --include="Makefile*" . 2>/dev/null | grep -v vendor | xargs grep -l "kindest/node" 2>/dev/null | grep -q .; then
+  if grep -rl "K8S_VERSION" --include="*.sh" --include="*.yml" --include="*.yaml" --include="Makefile*" . 2>/dev/null | grep -v vendor | xargs grep -l "kindest/node" 2>/dev/null | grep -q .; then
     uses_k8s_version_for_kind=1
   fi
   if [[ -z "$kind_tag" ]]; then
