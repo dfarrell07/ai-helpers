@@ -277,13 +277,9 @@ fix_xexp() {
   [[ -z "$files" ]] && return 0
   echo ":: Fixing x/exp imports in $(echo "$files" | wc -l) files"
   for f in $files; do
-    # Delete unnamed import lines — goimports will re-add the stdlib
-    # equivalents (maps, slices, cmp) in the correct import section.
-    # In-place replacement leaves them in the third-party section.
-    # Aliased imports (rare) fall back to in-place replacement.
-    sed -i '/^[[:space:]]*"golang\.org\/x\/exp\/maps"/d' "$f"
-    sed -i '/^[[:space:]]*"golang\.org\/x\/exp\/slices"/d' "$f"
-    sed -i '/^[[:space:]]*"golang\.org\/x\/exp\/constraints"/d' "$f"
+    # In-place replacement — always produces compilable code even if
+    # goimports fails to install. Import ends up in the wrong group
+    # (third-party instead of stdlib) but goimports/gci fix that.
     sed -i 's|"golang.org/x/exp/maps"|"maps"|g' "$f"
     sed -i 's|"golang.org/x/exp/slices"|"slices"|g' "$f"
     sed -i 's|"golang.org/x/exp/constraints"|"cmp"|g' "$f"
@@ -300,7 +296,7 @@ fix_xexp() {
     sed -i 's/\x00SCMV(/slices.Collect(maps.Values(/g' "$f"
     # maps.Clear → builtin clear
     sed -i 's/\bmaps\.Clear(\([^)]*\))/clear(\1)/g' "$f"
-    # Missing imports (maps, slices, cmp) and placement handled by goimports below
+    # Import grouping (maps/slices/cmp in stdlib section) handled by goimports below
   done
   # Remove x/exp from go.mod/vendor — needs Go toolchain
   for gomod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l 'golang.org/x/exp' {} \; | xargs -I{} dirname {}); do
@@ -1136,7 +1132,9 @@ fix_imports() {
 
   # Step 1: goimports adds missing imports
   if ! command -v goimports &>/dev/null; then
-    go install golang.org/x/tools/cmd/goimports@latest 2>/dev/null || true
+    if ! go install golang.org/x/tools/cmd/goimports@latest 2>/dev/null; then
+      echo ":: WARNING: goimports install failed — import grouping may be wrong"
+    fi
   fi
   if command -v goimports &>/dev/null; then
     echo ":: Running goimports on $(echo "$modified" | wc -l) modified files"
