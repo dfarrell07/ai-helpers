@@ -530,34 +530,48 @@ fix_kind_image() {
       | sed 's/"name":"//;s/"//' \
       | sort -V | tail -1 || true)
   fi
+  # Only override K8S_VERSION in repos that use KIND for cluster creation.
+  # K8S_VERSION is overloaded: ovnk uses it for KIND image selection,
+  # MCP uses it for kubectl download, INFW uses ENVTEST_K8S_VERSION for
+  # envtest. Only repos with kind-common.sh actually pass K8S_VERSION to
+  # `kind create cluster --image kindest/node:$K8S_VERSION`.
+  local has_kind_cluster
+  has_kind_cluster=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
   if [[ -z "$kind_tag" ]]; then
     local OLD=$((NEW-1))
     local revert_tag="v1.${OLD}.1"
     echo ":: kindest/node:v1.${NEW}.* not available — reverting KIND refs to ${revert_tag}"
-    # Only revert KIND-related version refs in files that reference
-    # kindest/node — don't touch K8S_VERSION in files that use it
-    # for kubectl downloads or conformance suite selection.
-    for f in $(grep -rln "kindest/node\|K8S_VERSION" \
+    for f in $(grep -rln "kindest/node" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
-      sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${revert_tag}#g" "$f"
     done
+    if [[ -n "$has_kind_cluster" ]]; then
+      for f in $(grep -rln "K8S_VERSION" \
+        --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
+        | grep -v vendor); do
+        sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${revert_tag}#g" "$f"
+      done
+    fi
   else
-    # Replace KIND-related v1.NEW.* refs with the available kind_tag.
-    # The rebase script may have set K8S_VERSION to the go.mod patch
-    # (e.g., v1.36.2) but the KIND image may only exist for a lower
-    # patch (e.g., v1.36.1).
     local _changed=0
-    for f in $(grep -rln "kindest/node\|K8S_VERSION" \
+    for f in $(grep -rln "kindest/node" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
       | grep -v vendor | grep -v go.mod); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
-      sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
       _changed=1
     done
+    if [[ -n "$has_kind_cluster" ]]; then
+      for f in $(grep -rln "K8S_VERSION" \
+        --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
+        | grep -v vendor | grep -v go.mod); do
+        sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
+        _changed=1
+      done
+    fi
     if [[ "$_changed" -eq 1 ]]; then
-      echo ":: Updated kindest/node and K8S_VERSION refs to ${kind_tag} (go.mod patch not published as KIND image yet)"
+      echo ":: Updated kindest/node refs to ${kind_tag}"
+      [[ -n "$has_kind_cluster" ]] && echo ":: Updated K8S_VERSION refs to ${kind_tag} (KIND cluster repo)"
     fi
   fi
 }
