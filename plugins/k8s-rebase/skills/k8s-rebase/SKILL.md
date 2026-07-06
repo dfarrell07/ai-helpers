@@ -425,6 +425,10 @@ Split packages across agents by test line count (`wc -l
 
 **<=16GB RAM:** run test agents sequentially (gate read-only
 agents can still run in parallel — they don't compile).
+On constrained machines, running 1 representative test group
+locally and relying on CI for full coverage is acceptable —
+the compile-only vet (go test -run='^$') in Step 3 already
+catches format string and type issues.
 pkg/ovn is prone to OVSDB timeout flakes under memory
 pressure — these are
 container timing issues, not rebase bugs. The validate

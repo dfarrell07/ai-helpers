@@ -593,6 +593,12 @@ fix_kind_version() {
   if [[ "$current_ver" != "$latest_ver" ]]; then
     echo ":: Bumping KIND binary: $current_ver → $latest_ver"
     sed -i "s|kind.sigs.k8s.io/dl/${current_ver}|kind.sigs.k8s.io/dl/${latest_ver}|g" "$install_script"
+    # Also update KIND_VERSION= assignments in workflow files
+    # (e.g., DPU offload workflow installs KIND inline)
+    for wf in $(grep -rln "KIND_VERSION=${current_ver}" --include="*.yml" --include="*.yaml" . 2>/dev/null | grep -v vendor); do
+      sed -i "s|KIND_VERSION=${current_ver}|KIND_VERSION=${latest_ver}|g" "$wf"
+      echo ":: Updated KIND_VERSION in $wf"
+    done
   fi
 }
 
@@ -1173,7 +1179,9 @@ fix_imports() {
 
   # Step 2: gci fixes import grouping to match project lint config
   if ! command -v gci &>/dev/null; then
-    go install github.com/daixiang0/gci@latest 2>/dev/null || true
+    if ! go install github.com/daixiang0/gci@latest 2>/dev/null; then
+      echo ":: WARNING: gci install failed — import grouping may not match project lint config"
+    fi
   fi
   if command -v gci &>/dev/null; then
     # Read gci sections from project's golangci config
@@ -1363,7 +1371,10 @@ for _makefile in $(find . -name "Makefile" -not -path "*/vendor/*" -maxdepth 3);
   _mdir=$(dirname "$_makefile")
   if grep -q "^third-party-licenses:" "$_makefile" 2>/dev/null; then
     echo ":: Regenerating third-party licenses in $_mdir"
-    GOTOOLCHAIN=auto make -C "$_mdir" third-party-licenses 2>/dev/null || echo "  WARNING: third-party-licenses failed (may need jq)"
+    if ! GOTOOLCHAIN=auto make -C "$_mdir" third-party-licenses 2>.rebase-tmp/licenses-err.log; then
+      echo "  WARNING: third-party-licenses failed"
+      tail -5 .rebase-tmp/licenses-err.log 2>/dev/null | sed 's/^/    /'
+    fi
     rm -f "$_mdir"/.third-party-licenses.*.mod "$_mdir"/.third-party-licenses.*.sum 2>/dev/null
   fi
 done
