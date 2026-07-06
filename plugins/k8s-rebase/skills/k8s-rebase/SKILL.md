@@ -475,6 +475,7 @@ Gate files:
 - `build-vet-recheck.md` (count)
 - `logical-consistency.md` (judge)
 - `ci-readiness.md` (judge)
+- `commit-messages.md` (count)
 
 All count-checks must be 0. Investigate judgment concerns.
 If any test agent reports failures or timeouts:
