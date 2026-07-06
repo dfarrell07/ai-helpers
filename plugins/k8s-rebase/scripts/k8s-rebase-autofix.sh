@@ -616,11 +616,20 @@ fix_metallb_version() {
 }
 
 fix_kubevirt_version() {
-  # No-op: keep the existing KubeVirt pin. CI will reveal if the
-  # pinned version is incompatible with this k8s release. The agent
-  # handles version changes in Step 4 based on CI results — see the
-  # "KubeVirt version incompatibility" entry in the patterns doc.
-  true
+  local kind_common
+  kind_common=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
+  [[ -z "$kind_common" ]] && return 0
+  grep -q 'KUBEVIRT_VERSION:-"v[0-9]' "$kind_common" || return 0
+  local current latest_stable
+  current=$(grep -oE 'KUBEVIRT_VERSION:-"v[^"]+' "$kind_common" | head -1 | sed 's/.*:-"//')
+  latest_stable=$(curl -sf --retry 2 --connect-timeout 10 \
+    "https://api.github.com/repos/kubevirt/kubevirt/releases/latest" \
+    | grep -oE '"tag_name": "v[0-9][^"]*"' | sed 's/.*"tag_name". "//;s/"$//' || true)
+  if [[ -n "$latest_stable" && "$latest_stable" != "$current" ]]; then
+    sed -i "s|KUBEVIRT_VERSION:-\"${current}\"|KUBEVIRT_VERSION:-\"${latest_stable}\"|" "$kind_common"
+    echo ":: Bumped KubeVirt ${current} → ${latest_stable} (latest stable)"
+    echo ":: If kv-live-migration lanes fail, switch to nightly manually"
+  fi
 }
 
 fix_relaxed_service_name_validation() {

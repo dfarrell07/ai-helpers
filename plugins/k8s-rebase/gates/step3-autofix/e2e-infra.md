@@ -5,8 +5,7 @@ Verify each modified file matches what the patterns doc prescribes.
 
 Common e2e components to check:
 - MetalLB: version and FRR image consistent with patterns doc?
-- KubeVirt: version pin unchanged from base branch? (autofix
-  does not touch KubeVirt — CI reveals compatibility)
+- KubeVirt: bumped to latest stable release? (not nightly)
 - kubeadm: extraArgs format matches required kubeadm API version?
 - KIND: version and feature gates match patterns doc?
 - Test skips: any conditional skips added for version compatibility?
