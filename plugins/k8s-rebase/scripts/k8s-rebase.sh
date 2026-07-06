@@ -809,6 +809,7 @@ fi
 # The autofix handles disabling via GATE_DEPS —
 # this is informational logging only.
 
+GATE_RANGE=$(seq $((OLD_MINOR + 1)) "$K8S_MINOR" | paste -sd'|')
 KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1 || true)
 NEW_GATES=()
 
@@ -818,12 +819,12 @@ if [[ -n "$KNOWN_FEATURES" ]]; then
     NEW_GATES+=("$gate")
   done < <(awk '
     /^\t[A-Z][a-zA-Z0-9]*: \{/ { gsub(/:.*/, "", $1); gate = $1 }
-    !/\/\// && /Default: true/ && /MustParse\("1\.'"${K8S_MINOR}"'"\)/ { print gate }
+    !/\/\// && /Default: true/ && /MustParse\("1\.('"$GATE_RANGE"')"\)/ { print gate }
   ' "$KNOWN_FEATURES" | sort -u)
+fi
 
-  if [[ ${#NEW_GATES[@]} -gt 0 ]]; then
-    info "New default-true feature gates in k8s 1.${K8S_MINOR}: ${NEW_GATES[*]}"
-  fi
+if [[ ${#NEW_GATES[@]} -gt 0 ]]; then
+  info "New default-true feature gates (1.${OLD_MINOR}→1.${K8S_MINOR}): ${NEW_GATES[*]}"
 fi
 
 # ── Summary ──────────────────────────────────────────────────────────
