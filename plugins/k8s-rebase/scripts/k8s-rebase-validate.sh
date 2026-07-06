@@ -591,6 +591,8 @@ if [[ "$MODE" == "full" ]]; then
   done
 fi
 
+cd "$REPO_ROOT" 2>/dev/null || true
+
 echo ""
 if [[ "$ERRORS_FOUND" -eq 0 ]]; then
   echo "All validation passes. No fixups needed."

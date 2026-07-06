@@ -1336,7 +1336,7 @@ for _makefile in $(find . -name "Makefile" -not -path "*/vendor/*" -maxdepth 3);
   _mdir=$(dirname "$_makefile")
   if grep -q "^third-party-licenses:" "$_makefile" 2>/dev/null; then
     echo ":: Regenerating third-party licenses in $_mdir"
-    make -C "$_mdir" third-party-licenses 2>/dev/null || echo "  WARNING: third-party-licenses failed (may need jq)"
+    GOTOOLCHAIN=auto make -C "$_mdir" third-party-licenses 2>/dev/null || echo "  WARNING: third-party-licenses failed (may need jq)"
     rm -f "$_mdir"/.third-party-licenses.*.mod "$_mdir"/.third-party-licenses.*.sum 2>/dev/null
   fi
 done

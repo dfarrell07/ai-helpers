@@ -10,7 +10,10 @@ e2e infrastructure, and version reference updates.
 Only flag a change as incorrect if the transformation itself is
 WRONG (e.g., wrong format verb, missing field, wrong import
 section), not because it's unfamiliar. If a change matches a
-documented pattern, it's expected.
+documented pattern, it's expected. K8S_VERSION patch-level
+differences (e.g., v1.36.2 in go.mod vs v1.36.1 for KIND) are
+expected — the autofix picks the latest available kindest/node
+tag. Do not flag this as a concern.
 
 List each transformation category you checked and your finding.
 
