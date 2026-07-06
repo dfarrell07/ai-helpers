@@ -306,13 +306,18 @@ handles the version bump and FRR image variable automatically.
 
 ### KubeVirt version incompatibility (recurring)
 
-Each k8s bump typically breaks the pinned stable KubeVirt version
-because KubeVirt CRDs lag behind k8s API changes. Symptom: VMs
-never reach readiness, 300s timeouts in kv-live-migration tests.
-Fix: change `KUBEVIRT_VERSION` in `kind-common.sh` from the pinned
-stable version (e.g. `v1.6.2`) to `nightly`. Revert to stable once
-KubeVirt releases a k8s-compatible version. The autofix script
-handles this automatically.
+The autofix keeps the existing KubeVirt pin — CI reveals whether
+it works on the new k8s version. Three phases:
+
+1. **Stable pin, CI passes** — nothing to do. Keep the pin.
+2. **Stable pin, CI fails** (VMs never reach readiness, 300s
+   timeouts in kv-live-migration tests) — change
+   `KUBEVIRT_VERSION` in `kind-common.sh` to `nightly` and add
+   a TODO comment above it.
+3. **Nightly pin from a previous rebase** — check if a newer
+   stable KubeVirt release has shipped (check the GitHub
+   releases page). If one exists, switch back from nightly to
+   that version and remove the TODO comment.
 
 ### RelaxedServiceNameValidation (k8s 1.36)
 

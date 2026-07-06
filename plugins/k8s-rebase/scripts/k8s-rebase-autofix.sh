@@ -616,19 +616,11 @@ fix_metallb_version() {
 }
 
 fix_kubevirt_version() {
-  local kind_common
-  kind_common=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
-  [[ -z "$kind_common" ]] && return 0
-  if grep -q 'KUBEVIRT_VERSION:-"v[0-9]' "$kind_common"; then
-    local current
-    current=$(grep -oE 'KUBEVIRT_VERSION:-"v[^"]+' "$kind_common" | head -1 | sed 's/.*:-"//' || true)
-    # Add TODO comment before the version line, then change the version
-    sed -i '/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"v[^"]*"}/{
-      i\    # TODO: move back to stable once KubeVirt ships a release compatible with this k8s version
-      s/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"v[^"]*"}/KUBEVIRT_VERSION=${KUBEVIRT_VERSION:-"nightly"}/
-    }' "$kind_common"
-    echo ":: Changed KubeVirt ${current} → nightly (pinned stable may not support this k8s version)"
-  fi
+  # No-op: keep the existing KubeVirt pin. CI will reveal if the
+  # pinned version is incompatible with this k8s release. The agent
+  # handles version changes in Step 4 based on CI results — see the
+  # "KubeVirt version incompatibility" entry in the patterns doc.
+  true
 }
 
 fix_relaxed_service_name_validation() {
