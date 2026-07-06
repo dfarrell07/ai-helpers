@@ -215,10 +215,12 @@ Remove flag from `hack/update-codegen.sh`, re-run codegen.
 - `maps.Clear(m)` → `clear(m)`
 - `constraints.Ordered` → `cmp.Ordered`
 
-**Import placement:** `"maps"`, `"slices"`, `"cmp"` are stdlib —
-merge them alphabetically into the stdlib import group. Do NOT
-leave them in the blank-line-separated group where `x/exp/maps`
-was (that was the third-party section).
+**Import placement:** `"maps"`, `"slices"`, `"cmp"` are stdlib.
+The autofix replaces import paths in-place (e.g., `"golang.org/
+x/exp/maps"` → `"maps"`), which leaves them in the third-party
+import group. goimports/gci move them to the stdlib group. If
+import grouping is wrong after the autofix, run `goimports -w`
+on the affected files.
 
 After migration: `go mod tidy && go mod vendor` to remove x/exp.
 The autofix script handles this migration automatically.

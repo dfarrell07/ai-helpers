@@ -1130,7 +1130,7 @@ fix_imports() {
   [[ -z "$modified" ]] && modified=$(git diff --name-only -- '*.go' | grep -v vendor | grep -v 'zz_generated')
   [[ -z "$modified" ]] && return 0
 
-  # Step 1: goimports adds missing imports
+  # Step 1: goimports fixes import grouping
   if ! command -v goimports &>/dev/null; then
     if ! go install golang.org/x/tools/cmd/goimports@latest 2>/dev/null; then
       echo ":: WARNING: goimports install failed — import grouping may be wrong"
