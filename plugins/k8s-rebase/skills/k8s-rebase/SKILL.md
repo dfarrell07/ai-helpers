@@ -115,7 +115,7 @@ The rebase script sets version refs to the go.mod version
 (e.g., v1.36.2). On repos with KIND cluster creation
 (kind-common.sh), the autofix then adjusts K8S_VERSION to
 match the latest available kindest/node image tag (e.g.,
-v1.36.1). On repos without KIND (MCP, INFW), K8S_VERSION
+v1.36.1). On repos without kind-common.sh, K8S_VERSION
 stays at the go.mod version for kubectl/envtest downloads.
 
 If the output says "Could not detect OCP target", check the
