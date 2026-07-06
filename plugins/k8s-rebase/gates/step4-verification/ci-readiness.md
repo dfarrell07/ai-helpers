@@ -5,6 +5,8 @@ those — focus on CI-specific gaps that only matter at ship time:
 
 1. Does any e2e test or CI config reference a hardcoded k8s
    version, KIND image tag, or container image that needs updating?
+   Check ALL workflow files for KIND binary version consistency:
+   `grep -rn 'kind.sigs.k8s.io/dl/v\|KIND_VERSION=v' .github/ --include="*.yml" 2>/dev/null`
 2. Are there test skips that should be added or removed for this
    k8s version?
 3. Are there patterns in the doc that the agent should have fixed
