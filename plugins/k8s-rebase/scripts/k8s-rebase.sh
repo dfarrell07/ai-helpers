@@ -33,6 +33,30 @@ die() { echo "ERROR: $*" >&2; exit 1; }
 info() { echo ":: $*"; }
 banner() { echo ""; echo "━━━━ $* ━━━━"; echo ""; }
 
+# Format commit messages per project convention. If CONTRIBUTING.md
+# requires "subcomponent: lowercase" prefixes, prepend the category.
+# Otherwise use action-verb sentence case (the default).
+_detect_commit_style() {
+  [[ -n "${_COMMIT_STYLE:-}" ]] && return
+  for _contrib in "$REPO_ROOT/docs/governance/CONTRIBUTING.md" "$REPO_ROOT/CONTRIBUTING.md"; do
+    if [[ -f "$_contrib" ]] && grep -qi 'prefixed with\|prefix.*component\|subcomponent:' "$_contrib" 2>/dev/null; then
+      _COMMIT_STYLE="prefix"
+      return
+    fi
+  done
+  _COMMIT_STYLE="plain"
+}
+format_msg() {
+  _detect_commit_style
+  local cat="$1" desc="$2"
+  if [[ "$_COMMIT_STYLE" == "prefix" ]]; then
+    desc="$(echo "${desc:0:1}" | tr '[:upper:]' '[:lower:]')${desc:1}"
+    echo "${cat}: ${desc}"
+  else
+    echo "$desc"
+  fi
+}
+
 # Save/restore CRD hand-edits across codegen.
 # controller-gen regenerates CRD YAMLs but can't express hand-edited
 # constraints like metadata.name patterns. These functions snapshot
@@ -370,7 +394,7 @@ rebase_module() {
   if [[ -n "$(git status --porcelain -- "$module_dir")" ]]; then
     git add "$module_dir"
     if git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
-Rebase ${module_path} to k8s ${K8S_MAJOR_MINOR}
+$(format_msg "deps" "Rebase ${module_path} to k8s ${K8S_MAJOR_MINOR}")
 
 ${cmd_log}go mod tidy
 EOF
@@ -417,7 +441,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*"); do
     (cd "$REPO_ROOT/$mod_dir" && go mod tidy) || info "WARNING: go mod tidy failed in $mod_dir — continuing"
     if [[ -n "$(git status --porcelain -- "$mod_dir")" ]]; then
       git add "$mod_dir"
-      if git commit -s --trailer "$AI_TRAILER" -m "Sync ${mod_dir} go.mod after dependency rebase"; then
+      if git commit -s --trailer "$AI_TRAILER" -m "$(format_msg "deps" "Sync ${mod_dir} go.mod after dependency rebase")"; then
         info "Committed: Sync ${mod_dir} go.mod after dependency rebase"
       else
         info "WARNING: git commit failed — unstaging to prevent contamination"
@@ -453,7 +477,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   CODEGEN_RAN=0
   CODEGEN_FAILED=0
   CODEGEN_LOG="$REBASE_TMP/codegen.log"
-  CODEGEN_MSG="Update codegen for k8s ${K8S_MAJOR_MINOR}"
+  CODEGEN_MSG="$(format_msg "codegen" "Update codegen for k8s ${K8S_MAJOR_MINOR}")"
 
   run_codegen() {
     for target in codegen generate update-codegen; do
@@ -479,7 +503,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
         sed -i "/^[[:space:]]*--${bad_flag}/d" "$CODEGEN_SCRIPT"
         if run_codegen; then
           CODEGEN_RAN=1
-          CODEGEN_MSG="Fix codegen for k8s ${K8S_MAJOR_MINOR}: remove dropped --${bad_flag} flag"
+          CODEGEN_MSG="$(format_msg "codegen" "Fix codegen for k8s ${K8S_MAJOR_MINOR}: remove dropped --${bad_flag} flag")"
         fi
       fi
     fi
@@ -511,7 +535,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
-    if git commit -s --trailer "$AI_TRAILER" -m "Post-codegen cleanup for k8s ${K8S_MAJOR_MINOR}"; then
+    if git commit -s --trailer "$AI_TRAILER" -m "$(format_msg "codegen" "Regenerate mocks and codegen output for k8s ${K8S_MAJOR_MINOR}")"; then
       info "Committed: Post-codegen cleanup"
     else
       info "WARNING: git commit failed — unstaging to prevent contamination"
@@ -554,7 +578,7 @@ elif CODEGEN_MAKEFILE=$(
   cd "$REPO_ROOT"
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
-    if git commit -s --trailer "$AI_TRAILER" -m "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"; then
+    if git commit -s --trailer "$AI_TRAILER" -m "$(format_msg "codegen" "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}")"; then
       info "Committed: Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}"
     else
       info "WARNING: git commit failed — unstaging to prevent contamination"
@@ -767,7 +791,7 @@ if [[ -n "$CHANGED_FILES" ]]; then
   done
   if [[ -n "$(git status --porcelain)" ]]; then
     if git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
-Update version references for k8s ${K8S_MAJOR_MINOR}
+$(format_msg "ci" "Update version references for k8s ${K8S_MAJOR_MINOR}")
 
 ${CHANGED_FILES}
 EOF

@@ -162,13 +162,13 @@ complete until all subagents report zero issues.
 
 **Commit discipline:**
 - One commit per distinct fix. Don't bundle unrelated changes.
-- Check the project's commit message guidelines (CONTRIBUTING.md
-  or docs). Fall back to `git log --oneline -20` to see what
-  format is actually used. Follow whatever the project specifies.
+- The scripts auto-detect the project's commit message convention
+  from CONTRIBUTING.md. If the project requires `subcomponent:`
+  prefixes, script commits use generic categories (`deps:`,
+  `codegen:`, `ci:`, `test:`). For your own commits, read
+  CONTRIBUTING.md and use specific sub-component names matching
+  the code you changed (e.g., `e2e:`, `hybrid-overlay:`).
 - Each commit should compile independently (`go build ./...`).
-- After the rebase script completes (Step 1), check if the
-  project requires a specific commit message format and reword
-  the mechanical commits if needed.
 
 ### Step 2: Fix compilation errors
 

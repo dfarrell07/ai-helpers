@@ -14,6 +14,28 @@ set -uo pipefail
 AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 cd "$REPO_ROOT" || exit 1
+
+# Format commit messages per project convention.
+_detect_commit_style() {
+  [[ -n "${_COMMIT_STYLE:-}" ]] && return
+  for _contrib in "$REPO_ROOT/docs/governance/CONTRIBUTING.md" "$REPO_ROOT/CONTRIBUTING.md"; do
+    if [[ -f "$_contrib" ]] && grep -qi 'prefixed with\|prefix.*component\|subcomponent:' "$_contrib" 2>/dev/null; then
+      _COMMIT_STYLE="prefix"
+      return
+    fi
+  done
+  _COMMIT_STYLE="plain"
+}
+format_msg() {
+  _detect_commit_style
+  local cat="$1" desc="$2"
+  if [[ "$_COMMIT_STYLE" == "prefix" ]]; then
+    desc="$(echo "${desc:0:1}" | tr '[:upper:]' '[:lower:]')${desc:1}"
+    echo "${cat}: ${desc}"
+  else
+    echo "$desc"
+  fi
+}
 export GOWORK=off
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
 mkdir -p "$REBASE_TMP"
@@ -1230,14 +1252,14 @@ fix_uncommitted() {
     git add -A
     local changed_files
     changed_files=$(git diff --cached --name-only)
-    local msg="${custom_msg:-Apply automated k8s rebase fixes}"
+    local msg="${custom_msg:-$(format_msg "deps" "Apply automated k8s rebase fixes")}"
     # Auto-detect import-only changes when no custom message given
     if [[ -z "$custom_msg" ]]; then
       local changed_count diff_lines
       changed_count=$(echo "$changed_files" | wc -l)
       diff_lines=$(git diff --cached --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
       if [[ "$changed_count" -le 3 ]] && [[ "$diff_lines" -le 30 ]] && ! echo "$changed_files" | grep -qvE '\.go$'; then
-        msg="Reorder imports after k8s rebase fixes"
+        msg="$(format_msg "deps" "Reorder imports after k8s rebase fixes")"
       fi
     fi
     echo ":: Committing: $(echo "$msg" | head -1)"
@@ -1290,11 +1312,11 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_mocks                    # permanent (codegen can delete mocks)
   fix_imports
 fi
-fix_uncommitted "Fix deprecated APIs and build errors for k8s ${K8S_MAJOR_MINOR}"
+fix_uncommitted "$(format_msg "deps" "Fix deprecated APIs and build errors for k8s ${K8S_MAJOR_MINOR}")"
 
 # ── Group 2: Feature gates (test-only changes)
 fix_feature_gates
-fix_uncommitted "Disable new default-true feature gates for k8s ${K8S_MAJOR_MINOR}"
+fix_uncommitted "$(format_msg "test" "Disable new default-true feature gates for k8s ${K8S_MAJOR_MINOR}")"
 
 # ── Group 3: CI infrastructure
 fix_kind_image      # kindest/node image tag
@@ -1303,7 +1325,7 @@ fix_metallb_version
 fix_kubevirt_version
 fix_relaxed_service_name_validation
 fix_kubeadm_v1beta4
-fix_uncommitted "Update CI infrastructure for k8s ${K8S_MAJOR_MINOR}"
+fix_uncommitted "$(format_msg "ci" "Update CI infrastructure for k8s ${K8S_MAJOR_MINOR}")"
 
 # ── Group 4: Version refs, lint, licenses
 fix_docs_version    # stale version in docs table
@@ -1318,7 +1340,7 @@ for _makefile in $(find . -name "Makefile" -not -path "*/vendor/*" -maxdepth 3);
     rm -f "$_mdir"/.third-party-licenses.*.mod "$_mdir"/.third-party-licenses.*.sum 2>/dev/null
   fi
 done
-fix_uncommitted "Update version references and lint for k8s ${K8S_MAJOR_MINOR}"
+fix_uncommitted "$(format_msg "ci" "Update version references and lint for k8s ${K8S_MAJOR_MINOR}")"
 
 echo ""
 echo "━━━━ Phase B.5: Compiler check ━━━━"
