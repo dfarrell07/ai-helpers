@@ -548,7 +548,7 @@ fix_kind_image() {
     done
     if [[ -n "$has_kind_cluster" ]]; then
       for f in $(grep -rln "K8S_VERSION" \
-        --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
+        --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
         | grep -v vendor); do
         sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${revert_tag}#g" "$f"
       done
@@ -563,7 +563,7 @@ fix_kind_image() {
     done
     if [[ -n "$has_kind_cluster" ]]; then
       for f in $(grep -rln "K8S_VERSION" \
-        --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile*" . \
+        --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
         | grep -v vendor | grep -v go.mod); do
         sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
         _changed=1
