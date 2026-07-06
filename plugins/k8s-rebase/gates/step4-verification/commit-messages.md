@@ -1,9 +1,10 @@
 Read the project's commit message guidelines:
 1. Check docs/governance/CONTRIBUTING.md, then CONTRIBUTING.md
+   at the repo root (ignore vendor/ copies)
 2. Look for explicit prefix convention, case rules, length limits
 3. If no guidelines found or no commit format section exists,
-   infer the convention from the base branch:
-   `git log --oneline -20 master` (or `main` if no master)
+   infer the convention from the base branch (exclude merges):
+   `git log --oneline --no-merges -20 master` (or `main`)
 
 If the convention is ambiguous or inconsistent in the project's
 own history (e.g., some commits have prefixes, some don't),
