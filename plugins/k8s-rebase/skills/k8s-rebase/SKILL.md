@@ -532,7 +532,7 @@ The PR body should include:
 Adapt the title and body to the project's convention (check
 CONTRIBUTING.md). If the PR already exists, suggest `gh pr edit`.
 
-**After pushing**, if the user wants to monitor CI, suggest:
+Always suggest the CI monitoring loop alongside the PR command:
 `/loop 5m check CI on the PR, explore any failures max carefully, find root causes`
 
 ```bash
