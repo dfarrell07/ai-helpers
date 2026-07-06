@@ -527,7 +527,7 @@ The PR body should include:
   vs hand-crafted fixes (read from `git log --oneline`)
 - "Special notes for your reviewer" section disclosing AI usage
   and that all commits have `Assisted-by: Claude Code` trailers
-- Review guidance (which commits to focus on, what to skip)
+- Review guidance (which commits to focus on, which are mechanical)
 
 Adapt the title and body to the project's convention (check
 CONTRIBUTING.md). If the PR already exists, suggest `gh pr edit`.
