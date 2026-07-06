@@ -1118,7 +1118,7 @@ fix_feature_gates() {
 
 fix_imports() {
   # Two-step import fix:
-  # 1. goimports: adds missing imports (after x/exp lines were deleted)
+  # 1. goimports: fixes import grouping (x/exp→stdlib replacements end up in wrong group)
   # 2. gci: orders imports to match the project's golangci-lint config
   #    (goimports only does 2 groups; gci handles the project-specific
   #    multi-group layout like stdlib/external/k8s.io/local)
@@ -1294,8 +1294,8 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   echo ""
 
   # ── Group 1: Code fixes (deprecated APIs, build errors, CRDs, codegen)
-  # fix_imports MUST be here — fix_xexp deletes imports, goimports adds
-  # stdlib replacements. Without goimports, intermediate state won't compile.
+  # fix_imports MUST be here — fix_xexp puts stdlib imports in wrong group,
+  # goimports fixes the grouping. Code compiles either way.
   fix_xexp            # x/exp → stdlib migration
   fix_reflect_ptr     # reflect.Ptr deprecation
   fix_fieldsv1        # FieldsV1.Raw API change
