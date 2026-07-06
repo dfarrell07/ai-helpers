@@ -110,12 +110,13 @@ Do NOT re-run the script. Do NOT run the autofix script
 or make manual go.mod changes before the rebase script completes — the
 rebase script handles all module bumps, codegen, and version
 references. Running autofix early creates duplicate commits.
-Do NOT manually update K8S_VERSION or other version references
-— the autofix script handles these and will choose the
-correct values (e.g., v1.36.1 if v1.36.2 KIND images aren't
-published yet). The rebase script and autofix may set different
-K8S_VERSION patch levels (e.g., v1.36.2 then v1.36.1) — the
-autofix value is authoritative.
+Do NOT manually update K8S_VERSION or other version references.
+The rebase script sets version refs to the go.mod version
+(e.g., v1.36.2). On repos with KIND cluster creation
+(kind-common.sh), the autofix then adjusts K8S_VERSION to
+match the latest available kindest/node image tag (e.g.,
+v1.36.1). On repos without KIND (MCP, INFW), K8S_VERSION
+stays at the go.mod version for kubectl/envtest downloads.
 
 If the output says "Could not detect OCP target", check the
 repo's CI config in `openshift/release` or compare with an
