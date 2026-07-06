@@ -8,6 +8,18 @@
 #
 # Exit codes: 0 = all checks pass (RESULT: PASS)
 #             1 = some checks remain (RESULT: FAIL with details)
+#
+# Fix function scope:
+#   Generic (any Go+k8s repo): fix_xexp, fix_reflect_ptr, fix_fieldsv1,
+#     fix_eventf, fix_addtoscheme, fix_imports, fix_bounding_dirs,
+#     fix_mocks, fix_go_version, fix_lint_version, fix_version_refs,
+#     fix_docs_version, fix_crd_int64_validation, fix_crd_name_validation
+#   Ecosystem (network-policy-api): fix_conformance_renames,
+#     fix_banp_egresspeer, fix_obsgen, fix_network_policy_api_crds
+#   Ecosystem (KIND e2e): fix_kind_image, fix_kind_version,
+#     fix_relaxed_service_name_validation, fix_kubeadm_v1beta4
+#   Ecosystem (client-go features): fix_feature_gates
+#   Repo-specific (ovnk): fix_kubevirt_version, fix_metallb_version
 
 set -uo pipefail
 
