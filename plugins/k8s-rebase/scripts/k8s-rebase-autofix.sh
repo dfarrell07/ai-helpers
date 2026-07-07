@@ -1310,7 +1310,7 @@ fix_uncommitted() {
     # Build commit body from tracked fix functions
     local body=""
     if [[ ${#_APPLIED[@]} -gt 0 ]]; then
-      body=$(printf '\n\nApplied: %s' "$(IFS=', '; echo "${_APPLIED[*]}")")
+      body=$(printf '\n\nApplied: %s' "$(printf '%s, ' "${_APPLIED[@]}" | sed 's/, $//')")
     fi
     _APPLIED=()
     echo ":: Committing: $(echo "$msg" | head -1)"
