@@ -528,6 +528,17 @@ is left to the agent in Step 4 because the changes are project-
 specific. When facing config issues: fix the config to match the
 new version's expectations rather than suppressing new warnings.
 
+**errcheck exclusions for v2:** golangci-lint v2's errcheck matches
+concrete types, not just interfaces — `(io.Closer).Close` does NOT
+cover `(*os.File).Close`. Before creating exclusions, grep the
+project for unchecked Close/Flush calls:
+`grep -rn '\.Close()\|\.Flush()' --include='*.go' . | grep -v vendor | grep -v 'if.*err'`
+Common exclusions: `fmt.Fprintf`, `fmt.Fprintln`,
+`(*os.File).Close`, `(*io.PipeWriter).Close`,
+`(*crypto/tls.Conn).Close`, `(io.Closer).Close`,
+`(io.WriteCloser).Close`, `(net.Conn).Close`,
+`(net.Listener).Close`, `(*bufio.Writer).Flush`.
+
 ### Webhook builder API change (controller-runtime v0.24)
 
 `ctrl.NewWebhookManagedBy` is now generic — the object moves
