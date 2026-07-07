@@ -39,6 +39,13 @@ ALL gates (parents + deps) must go in SetFromMap AND in env vars
 script handles this; do not remove gates from its SetFromMap
 calls.
 
+**Never add test skips to make CI green.** If a test fails,
+investigate and fix the root cause. Adding skip regexes or
+`t.Skip()` to suppress failures hides real issues and erodes
+maintainer trust. If the failure is pre-existing (same test
+fails on the base branch), note it in the commit message but
+do not skip it.
+
 **Git operations:** Never use negated pathspecs with `git add`
 (e.g., `git add -A -- . ':!dir'`). They fail when the path
 is gitignored. Use plain `git add -A` instead.

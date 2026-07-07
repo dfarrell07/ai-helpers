@@ -236,6 +236,10 @@ not x/exp-related:
 
 The autofix script handles these automatically.
 
+- `"k8s.io/klog"` → `"k8s.io/klog/v2"` (import path only — check
+  callers for `klog.V()` used as boolean or implicit `init()` flag
+  registration, which changed in v2). Not auto-fixed — manual check.
+
 **Map iteration ordering:** `x/exp/maps.Keys()` returned `[]T`
 directly. Stdlib `maps.Keys()` returns `iter.Seq[T]` which
 `slices.Collect` materializes. Both produce unspecified order,
