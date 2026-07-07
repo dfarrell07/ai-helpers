@@ -349,6 +349,14 @@ golangci-lint v2 defaults to showing only 3 instances of each
 error type. The validate script overrides this with
 `--max-same-issues 0` so all issues appear in one run.
 
+**Lint strategy:** Run lint ONCE, then analyze ALL errors before
+fixing any. Group errors by category (ST1005, QF1001, ioutil,
+etc.) and fix each category in one commit. Do NOT fix-run-fix
+iteratively — that produces many small commits and misses
+related issues. If the project has no `.golangci.yml` and the
+lint bump is v1→v2, create one with `version: "2"` and
+`default: standard` (see patterns doc for full format).
+
 **Expect multiple iterations:** Each `--no-test` run may surface
 new errors after fixing the previous batch — fixing one issue
 can unmask others. Plan for 3-5 iterations. Group fixes by
