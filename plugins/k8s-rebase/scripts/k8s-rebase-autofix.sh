@@ -600,13 +600,18 @@ fix_kind_version() {
   if [[ "$current_ver" != "$latest_ver" ]]; then
     echo ":: Bumping KIND binary: $current_ver → $latest_ver"
     sed -i "s|kind.sigs.k8s.io/dl/${current_ver}|kind.sigs.k8s.io/dl/${latest_ver}|g" "$install_script"
-    # Also update KIND_VERSION= assignments in workflow files
-    # (e.g., DPU offload workflow installs KIND inline)
-    for wf in $(grep -rln "KIND_VERSION=${current_ver}" --include="*.yml" --include="*.yaml" . 2>/dev/null | grep -v vendor); do
-      sed -i "s|KIND_VERSION=${current_ver}|KIND_VERSION=${latest_ver}|g" "$wf"
-      echo ":: Updated KIND_VERSION in $wf"
-    done
+    current_ver="$latest_ver"
   fi
+  # Update stale KIND_VERSION= in workflow files to match install-kind.sh
+  # (runs regardless — workflows can be stale even when install-kind.sh is current)
+  for wf in $(grep -rln 'KIND_VERSION=v' --include="*.yml" --include="*.yaml" . 2>/dev/null | grep -v vendor); do
+    local wf_ver
+    wf_ver=$(grep -oE 'KIND_VERSION=v[0-9.]+' "$wf" | head -1 | sed 's/KIND_VERSION=//')
+    if [[ -n "$wf_ver" ]] && [[ "$wf_ver" != "$current_ver" ]]; then
+      sed -i "s|KIND_VERSION=${wf_ver}|KIND_VERSION=${current_ver}|g" "$wf"
+      echo ":: Updated KIND_VERSION in $wf: $wf_ver → $current_ver"
+    fi
+  done
 }
 
 fix_metallb_version() {
