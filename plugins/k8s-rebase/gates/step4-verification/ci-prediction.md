@@ -9,7 +9,9 @@ fail in CI due to:
   informers or watch-based patterns with fake clientsets?
   Only flag packages that create informers AND lack gate
   setup. Do NOT flag packages that just use fake clientsets
-  for simple CRUD operations. If hack/test-go.sh exports
+  for simple CRUD operations. Search for test-go.sh at the
+  repo root AND under subdirectories (e.g., hack/test-go.sh
+  or go-controller/hack/test-go.sh). If it exports
   KUBE_FEATURE_* env vars, those cover ALL packages when
   run via `make test` — don't flag packages that are covered
   by test-go.sh exports.
