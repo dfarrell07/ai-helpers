@@ -1281,6 +1281,16 @@ run_vet() {
   return "$vet_failed"
 }
 
+# Track which fix functions modified files for commit bodies
+_APPLIED=()
+run_fix() {
+  local fn="$1" before after
+  before=$(git status --short | grep -v '^[?]' | md5sum)
+  "$fn"
+  after=$(git status --short | grep -v '^[?]' | md5sum)
+  [[ "$before" != "$after" ]] && _APPLIED+=("${fn#fix_}")
+}
+
 fix_uncommitted() {
   local custom_msg="${1:-}"
   if [[ -n "$(git status --short | grep -v '^[?]')" ]]; then
@@ -1297,11 +1307,19 @@ fix_uncommitted() {
         msg="$(format_msg "deps" "Reorder imports after k8s rebase fixes")"
       fi
     fi
+    # Build commit body from tracked fix functions
+    local body=""
+    if [[ ${#_APPLIED[@]} -gt 0 ]]; then
+      body=$(printf '\n\nApplied: %s' "$(IFS=', '; echo "${_APPLIED[*]}")")
+    fi
+    _APPLIED=()
     echo ":: Committing: $(echo "$msg" | head -1)"
-    if ! git commit -s --trailer "$AI_TRAILER" -m "$msg"; then
+    if ! git commit -s --trailer "$AI_TRAILER" -m "${msg}${body}"; then
       echo "WARNING: git commit failed — unstaging to prevent contamination"
       git reset HEAD 2>/dev/null || true
     fi
+  else
+    _APPLIED=()
   fi
 }
 
@@ -1332,41 +1350,41 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   # ── Group 1: Code fixes (deprecated APIs, build errors, CRDs, codegen)
   # fix_imports MUST be here — fix_xexp puts stdlib imports in wrong group,
   # goimports fixes the grouping. Code compiles either way.
-  fix_xexp            # x/exp → stdlib migration
-  fix_reflect_ptr     # reflect.Ptr deprecation
-  fix_fieldsv1        # FieldsV1.Raw API change
-  fix_eventf          # vet format string fixes
-  fix_addtoscheme     # permanent (SA1019 deprecation)
-  fix_conformance_renames  # network-policy-api v0.2.0+
-  fix_banp_egresspeer      # network-policy-api v0.2.0+
-  fix_obsgen               # network-policy-api v0.2.0+
-  fix_crd_int64_validation     # k8s 1.36+ (stricter CRD validation)
-  fix_crd_name_validation      # permanent (codegen strips hand-edits)
-  fix_network_policy_api_crds  # network-policy-api v0.2.0+
-  fix_bounding_dirs            # k8s 1.36+ (deepcopy-gen flag removed)
-  fix_mocks                    # permanent (codegen can delete mocks)
-  fix_imports
+  run_fix fix_xexp
+  run_fix fix_reflect_ptr
+  run_fix fix_fieldsv1
+  run_fix fix_eventf
+  run_fix fix_addtoscheme
+  run_fix fix_conformance_renames
+  run_fix fix_banp_egresspeer
+  run_fix fix_obsgen
+  run_fix fix_crd_int64_validation
+  run_fix fix_crd_name_validation
+  run_fix fix_network_policy_api_crds
+  run_fix fix_bounding_dirs
+  run_fix fix_mocks
+  run_fix fix_imports
 fi
 fix_uncommitted "$(format_msg "deps" "Fix deprecated APIs and build errors for k8s ${K8S_MAJOR_MINOR}")"
 
 # ── Group 2: Feature gates (test-only changes)
-fix_feature_gates
+run_fix fix_feature_gates
 fix_uncommitted "$(format_msg "test" "Disable new default-true feature gates for k8s ${K8S_MAJOR_MINOR}")"
 
 # ── Group 3: CI infrastructure
-fix_kind_image      # kindest/node image tag
-fix_kind_version    # KIND binary version
-fix_metallb_version
-fix_kubevirt_version
-fix_relaxed_service_name_validation
-fix_kubeadm_v1beta4
+run_fix fix_kind_image
+run_fix fix_kind_version
+run_fix fix_metallb_version
+run_fix fix_kubevirt_version
+run_fix fix_relaxed_service_name_validation
+run_fix fix_kubeadm_v1beta4
 fix_uncommitted "$(format_msg "ci" "Update CI infrastructure for k8s ${K8S_MAJOR_MINOR}")"
 
 # ── Group 4: Version refs, lint, licenses
-fix_docs_version    # stale version in docs table
-fix_version_refs    # stale v1.X refs in CI/scripts
-fix_go_version      # Go version in CI/Dockerfiles
-fix_lint_version
+run_fix fix_docs_version
+run_fix fix_version_refs
+run_fix fix_go_version
+run_fix fix_lint_version
 for _makefile in $(find . -name "Makefile" -not -path "*/vendor/*" -maxdepth 3); do
   _mdir=$(dirname "$_makefile")
   if grep -q "^third-party-licenses:" "$_makefile" 2>/dev/null; then
