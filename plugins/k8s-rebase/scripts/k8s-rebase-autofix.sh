@@ -1276,7 +1276,7 @@ run_vet() {
       echo "  Skipping $mod_dir (vendor is gitignored)"
       continue
     fi
-    (cd "$mod_dir" && go test -run='^$' -count=1 ./...) 2>&1 || vet_failed=1
+    (cd "$mod_dir" && GOMAXPROCS="${GOMAXPROCS:-2}" go test -run='^$' -count=1 ./...) 2>&1 || vet_failed=1
   done
   return "$vet_failed"
 }
@@ -1448,6 +1448,54 @@ else
         ;;
       *"Gates"*)
         echo "  $name: Feature gates missing. Check GATE_DEPS in autofix script."
+        ;;
+      *"Conformance old names"*)
+        echo "  $name: Rename SupportAdminNetworkPolicy → AdminNetworkPolicy in:"
+        grep -n 'SupportAdminNetworkPolicy' test/conformance/network_policy_v2_test.go 2>/dev/null | sed 's/^/    test\/conformance\/network_policy_v2_test.go:/' | sed 's/:/:/' | head -20
+        ;;
+      *"AddToScheme in factory"*)
+        echo "  $name: Remove anpapi.AddToScheme (now registered via scheme init):"
+        find . -name "factory.go" -path "*/factory/*" -not -path "*/vendor/*" -exec grep -n 'anpapi.AddToScheme' {} + 2>/dev/null | sed 's/^/    /'
+        ;;
+      *"AddToScheme in conformance"*)
+        echo "  $name: Remove AddToScheme calls (now registered via scheme init):"
+        grep -n 'AddToScheme' test/conformance/network_policy_v2_test.go 2>/dev/null | sed 's/^/    test\/conformance\/network_policy_v2_test.go:/' | head -20
+        ;;
+      *"BANP wrong EgressPeer"*)
+        echo "  $name: Change AdminNetworkPolicyEgressPeer → BaselineAdminNetworkPolicyEgressPeer:"
+        find . -name "baseline_admin_network_policy_test.go" -not -path "*/vendor/*" -exec grep -n 'AdminNetworkPolicyEgressPeer' {} + 2>/dev/null | grep -v Baseline | sed 's/^/    /'
+        ;;
+      *"reflect.Ptr"*)
+        echo "  $name: Replace reflect.Ptr → reflect.Pointer (deprecated in Go 1.18):"
+        grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | sed 's/^/    /'
+        ;;
+      *"FieldsV1.Raw"*)
+        echo "  $name: Replace FieldsV1.Raw with FieldsV1.Items or MarshalJSON():"
+        grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | sed 's/^/    /'
+        ;;
+      *"Stale docs ver"*)
+        echo "  $name: Update k8s version references in docs/features/requirements.md:"
+        grep -n "| *1\." docs/features/requirements.md 2>/dev/null | sed 's/^/    docs\/features\/requirements.md:/' | head -20
+        ;;
+      *"CRD format:int32"*)
+        echo "  $name: Change format: int32 → format: int64 for uint32 max fields:"
+        for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
+          awk '/format: int32/{line=NR; fmt=$0} /maximum: 4294967295/{if(NR==line+1) printf "    %s:%d: %s\n", FILENAME, line, fmt}' "$_crd" 2>/dev/null
+        done
+        ;;
+      *"CRD missing name"*)
+        echo "  $name: Restore metadata.name pattern validation in CRD(s):"
+        for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
+          awk '/^          metadata:/{m=NR} m && /^          [a-z]/ && !/pattern:/{printf "    %s:%d: metadata block missing pattern\n", FILENAME, m; m=0}' "$_crd" 2>/dev/null
+        done
+        ;;
+      *"E2e test"*)
+        echo "  $name: Replace virtualMachineAddressesFromStatus → virtLauncherNetworkStatusIPs:"
+        grep -n 'virtualMachineAddressesFromStatus' test/e2e/kubevirt.go 2>/dev/null | sed 's/^/    test\/e2e\/kubevirt.go:/' | head -20
+        ;;
+      *"Uncommitted"*)
+        echo "  $name: $count uncommitted changes — stage and commit:"
+        git status --short | grep -v '^[?]' | sed 's/^/    /'
         ;;
       *)
         echo "  $name: $count remaining (see patterns doc for fix)"

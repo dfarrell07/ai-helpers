@@ -477,7 +477,7 @@ if [[ "$MODE" != "quick" ]]; then
     mod_name=$(basename "$mod_dir")
     [[ "$mod_name" == "." ]] && mod_name=$(basename "$REPO_ROOT")
     step_failed=0
-    run_validation "${mod_name}-test-vet" "cd $mod_dir && go test -run='^$' -count=1 ./..." || step_failed=1
+    run_validation "${mod_name}-test-vet" "cd $mod_dir && GOMAXPROCS=${GOMAXPROCS:-2} go test -run='^$' -count=1 ./..." || step_failed=1
     categorize_errors "$REBASE_TMP/${mod_name}-test-vet.log" "$mod_name test-vet" "$step_failed"
   done < <(find . -name "go.mod" -not -path "*/vendor/*" | sort)
 fi
