@@ -503,6 +503,11 @@ fix_lint_version() {
         # Update container image tag if present (golangci/golangci-lint:vX)
         sed -i -E "s|golangci/golangci-lint:v1\.[0-9.]+|golangci/golangci-lint:${latest_v2}|" "$lint_sh"
       fi
+      # Remove v1-only CLI flags that don't exist in v2
+      if [[ -n "$lint_sh" ]] && grep -q '\-\-print-resources-usage' "$lint_sh" 2>/dev/null; then
+        echo ":: Removing --print-resources-usage (v1-only flag)"
+        sed -i 's/ *--print-resources-usage//g' "$lint_sh"
+      fi
     fi
   fi
 }
