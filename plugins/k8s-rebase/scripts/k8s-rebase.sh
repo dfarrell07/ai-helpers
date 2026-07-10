@@ -782,6 +782,44 @@ if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then
   info "  Reconciled setup-envtest to release-0.${CR_MINOR}"
 fi
 
+# ── Opportunistic Makefile tool bumps (not k8s-specific) ─────────────
+# These are not part of the k8s rebase itself but some repos (e.g.,
+# ovn-kubernetes-mcp) bundle test-infra version bumps with rebases.
+# Guarded by var existence — most repos don't have these and skip.
+
+# Sync GINKGO_VERSION from go.mod (consistency check, not a latest-bump).
+if grep -qE 'GINKGO_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
+  _gomod_ginkgo=$(grep 'onsi/ginkgo/v2' "$PRIMARY_GOMOD" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  _mk_ginkgo=$(grep -oE 'GINKGO_VERSION\s*[:?]?=\s*v[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  if [[ -n "$_gomod_ginkgo" ]] && [[ -n "$_mk_ginkgo" ]] && [[ "$_gomod_ginkgo" != "$_mk_ginkgo" ]]; then
+    sed -i -E "s|(GINKGO_VERSION\s*[:?]?=\s*)v[0-9]+\.[0-9]+\.[0-9]+|\1${_gomod_ginkgo}|" "$REPO_ROOT/Makefile"
+    CHANGED_FILES+="Makefile"$'\n'
+    info "  Synced GINKGO_VERSION: $_mk_ginkgo → $_gomod_ginkgo (from go.mod)"
+  fi
+fi
+
+# Bump Node.js and NPM to latest LTS (only repos with Node.js e2e tooling).
+if grep -qE 'NODE_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
+  _node_info=$(curl -sf --retry 2 --connect-timeout 10 "https://nodejs.org/dist/index.json" 2>/dev/null \
+    | tr '{}' '\n' | grep '"lts":"[A-Z]' | head -1 || true)
+  _latest_node=$(echo "$_node_info" | grep -oE '"version":"v[^"]+"' | sed 's/"version":"v//;s/"//' || true)
+  _latest_npm=$(echo "$_node_info" | grep -oE '"npm":"[^"]+"' | sed 's/"npm":"//;s/"//' || true)
+  _mk_node=$(grep -oE 'NODE_VERSION\s*[:?]?=\s*[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+  if [[ -n "$_latest_node" ]] && [[ -n "$_mk_node" ]] && [[ "$_latest_node" != "$_mk_node" ]]; then
+    sed -i -E "s|(NODE_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_node}|" "$REPO_ROOT/Makefile"
+    CHANGED_FILES+="Makefile"$'\n'
+    info "  Bumped NODE_VERSION: $_mk_node → $_latest_node (LTS)"
+  fi
+  if [[ -n "$_latest_npm" ]]; then
+    _mk_npm=$(grep -oE 'NPM_VERSION\s*[:?]?=\s*[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+    if [[ -n "$_mk_npm" ]] && [[ "$_latest_npm" != "$_mk_npm" ]]; then
+      sed -i -E "s|(NPM_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_npm}|" "$REPO_ROOT/Makefile"
+      CHANGED_FILES+="Makefile"$'\n'
+      info "  Bumped NPM_VERSION: $_mk_npm → $_latest_npm (bundled with Node $_latest_node)"
+    fi
+  fi
+fi
+
 cd "$REPO_ROOT" || exit 1
 # Add only the files we modified (more precise than git add -A)
 CHANGED_FILES=$(echo "$CHANGED_FILES" | grep -v '^$' | sort -u)
