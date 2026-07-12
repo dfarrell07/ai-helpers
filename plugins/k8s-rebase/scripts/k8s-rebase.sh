@@ -1,8 +1,9 @@
 #!/bin/bash
 # k8s-rebase.sh — Automate Kubernetes dependency rebase for Go projects
 #
-# Usage: k8s-rebase.sh <version>
+# Usage: k8s-rebase.sh [--bump-tools] <version>
 #   e.g.: k8s-rebase.sh 1.36.0
+#         k8s-rebase.sh --bump-tools 1.36.0
 #
 # Run from any Go repo with k8s.io dependencies. The script auto-detects
 # go.mod files, codegen scripts, and vendor directories.
@@ -108,13 +109,20 @@ restore_crd_metadata() {
 
 # ── Argument parsing ─────────────────────────────────────────────────
 
-if [[ $# -lt 1 ]]; then
-  echo "Usage: $SCRIPT_NAME <k8s-version>"
+BUMP_TOOLS=false
+VERSION_INPUT=""
+while [[ $# -gt 0 ]]; do
+  case "$1" in
+    --bump-tools) BUMP_TOOLS=true; shift ;;
+    *) VERSION_INPUT="$1"; shift ;;
+  esac
+done
+
+if [[ -z "$VERSION_INPUT" ]]; then
+  echo "Usage: $SCRIPT_NAME [--bump-tools] <k8s-version>"
   echo "  e.g.: $SCRIPT_NAME 1.36.0"
   exit 1
 fi
-
-VERSION_INPUT="$1"
 
 # Parse X.Y.Z or X.Y (default Z=0)
 if [[ "$VERSION_INPUT" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
@@ -235,7 +243,7 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
     -e GIT_COMMITTER_EMAIL="$(git config user.email)" \
     -e K8S_REBASE_IN_CONTAINER=1 \
     "$GO_IMAGE" \
-    bash "$SCRIPT_PATH" "$VERSION_INPUT"
+    bash "$SCRIPT_PATH" $([[ "$BUMP_TOOLS" == true ]] && echo "--bump-tools") "$VERSION_INPUT"
 fi
 info "Go version: $CURRENT_GO (>= ${REQUIRED_GO:-any} required)"
 
@@ -782,10 +790,12 @@ if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then
   info "  Reconciled setup-envtest to release-0.${CR_MINOR}"
 fi
 
-# ── Opportunistic Makefile tool bumps (not k8s-specific) ─────────────
+# ── Opportunistic Makefile tool bumps (--bump-tools only) ────────────
 # These are not part of the k8s rebase itself but some repos (e.g.,
 # ovn-kubernetes-mcp) bundle test-infra version bumps with rebases.
-# Guarded by var existence — most repos don't have these and skip.
+# Opt-in via --bump-tools. Guarded by var existence — most repos skip.
+
+if [[ "$BUMP_TOOLS" == true ]]; then
 
 # Sync GINKGO_VERSION from go.mod (consistency check, not a latest-bump).
 if grep -qE 'GINKGO_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
@@ -820,6 +830,8 @@ if grep -qE 'NODE_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
   fi
 fi
 
+fi # end --bump-tools
+
 cd "$REPO_ROOT" || exit 1
 # Add only the files we modified (more precise than git add -A)
 CHANGED_FILES=$(echo "$CHANGED_FILES" | grep -v '^$' | sort -u)
@@ -848,17 +860,21 @@ fi
 # this is informational logging only.
 
 GATE_RANGE=$(seq $((OLD_MINOR + 1)) "$K8S_MINOR" | paste -sd'|')
-KNOWN_FEATURES=$(find . -path "*/k8s.io/client-go/features/known_features.go" -not -path "*/.git/*" | head -1 || true)
+FEATURE_FILES=$(find . -path "*/k8s.io/*/features/*features*.go" -not -path "*/.git/*" -not -path "*/testdata/*" 2>/dev/null | sort)
 NEW_GATES=()
 
-if [[ -n "$KNOWN_FEATURES" ]]; then
+if [[ -n "$FEATURE_FILES" ]]; then
   while IFS= read -r gate; do
     [[ -z "$gate" ]] && continue
     NEW_GATES+=("$gate")
-  done < <(awk '
-    /^\t[A-Z][a-zA-Z0-9]*: \{/ { gsub(/:.*/, "", $1); gate = $1 }
-    !/\/\// && /Default: true/ && /MustParse\("1\.('"$GATE_RANGE"')"\)/ { print gate }
-  ' "$KNOWN_FEATURES" | sort -u)
+  done < <(
+    for _ff in $FEATURE_FILES; do
+      awk '
+        /^\t+[A-Z][a-zA-Z0-9]*: \{/ { gsub(/:.*/, "", $1); gate = $1 }
+        /^\t+[a-z].*: \{/ { gate = "" }
+        !/\/\// && / Default: true/ && /MustParse\("1\.('"$GATE_RANGE"')"\)/ { if (gate != "") print gate }
+      ' "$_ff"
+    done | sort -u)
 fi
 
 if [[ ${#NEW_GATES[@]} -gt 0 ]]; then

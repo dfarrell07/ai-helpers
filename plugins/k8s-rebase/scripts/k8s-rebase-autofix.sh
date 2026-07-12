@@ -662,15 +662,20 @@ fix_kubevirt_version() {
   kind_common=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
   [[ -z "$kind_common" ]] && return 0
   grep -q 'KUBEVIRT_VERSION:-"v[0-9]' "$kind_common" || return 0
-  local current latest_stable
+  local current current_minor latest_patch
   current=$(grep -oE 'KUBEVIRT_VERSION:-"v[^"]+' "$kind_common" | head -1 | sed 's/.*:-"//')
-  latest_stable=$(curl -sf --retry 2 --connect-timeout 10 \
-    "https://api.github.com/repos/kubevirt/kubevirt/releases/latest" \
-    | grep -oE '"tag_name": "v[0-9][^"]*"' | sed 's/.*"tag_name". "//;s/"$//' || true)
-  if [[ -n "$latest_stable" && "$latest_stable" != "$current" ]]; then
-    sed -i "s|KUBEVIRT_VERSION:-\"${current}\"|KUBEVIRT_VERSION:-\"${latest_stable}\"|" "$kind_common"
-    echo ":: Bumped KubeVirt ${current} → ${latest_stable} (latest stable)"
-    echo ":: If kv-live-migration lanes fail, switch to nightly manually"
+  # Only bump patches within the same minor — never cross minor boundaries.
+  # KubeVirt minors have different k8s compatibility matrices.
+  current_minor="${current%.*}"
+  latest_patch=$(curl -sf --retry 2 --connect-timeout 10 \
+    "https://api.github.com/repos/kubevirt/kubevirt/releases?per_page=30" 2>/dev/null \
+    | grep -oE '"tag_name": "v[0-9][^"]*"' | sed 's/"tag_name": "//;s/"//g' \
+    | grep "^${current_minor//./\\.}\." \
+    | grep -v '\-\(alpha\|beta\|rc\)' \
+    | sort -V | tail -1 || true)
+  if [[ -n "$latest_patch" && "$latest_patch" != "$current" ]]; then
+    sed -i "s|KUBEVIRT_VERSION:-\"${current}\"|KUBEVIRT_VERSION:-\"${latest_patch}\"|" "$kind_common"
+    echo ":: Bumped KubeVirt ${current} → ${latest_patch} (latest patch in ${current_minor}.x)"
   fi
 }
 

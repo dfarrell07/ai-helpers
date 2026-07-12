@@ -547,6 +547,33 @@ done
 
 fi # end MODE != quick
 
+# ── Test skip detection ─────────────────────────────────────────────
+# Agents must never add test skips during a rebase (SKILL.md rule).
+# Diff-based: only flags newly added skip calls, not pre-existing ones.
+
+SKIP_MERGE_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null \
+  || git -C "$REPO_ROOT" merge-base HEAD main 2>/dev/null \
+  || echo "HEAD~20")
+
+SKIP_HITS=$(git -C "$REPO_ROOT" diff "$SKIP_MERGE_BASE"..HEAD -- '*.go' ':!vendor/' \
+  | grep -E '^\+.*\bt\.Skip[f]?\s*\(|^\+.*\bginkgo\.Skip[f]?\s*\(|^\+.*\be2eskipper\.Skip[f]?\s*\(|^\+.*\bskipper\.Skip[f]?\s*\(' \
+  || true)
+
+if [[ -n "$SKIP_HITS" ]]; then
+  echo ""
+  echo "━━━━ Test Skip Detection ━━━━"
+  echo ""
+  echo "  FAIL — new test skips detected in branch diff"
+  {
+    echo "## TEST SKIPS ADDED (rebase policy violation)"
+    echo "Never add test skips to make CI green. Fix the root cause."
+    echo ""
+    echo "$SKIP_HITS"
+    echo ""
+  } >> "$SUMMARY"
+  ERRORS_FOUND=1
+fi
+
 # ── Privileged tests (--full only) ──────────────────────────────────
 if [[ "$MODE" == "full" ]]; then
   echo ""
