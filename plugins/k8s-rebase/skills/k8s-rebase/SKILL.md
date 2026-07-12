@@ -494,6 +494,7 @@ Gate files:
 - `gomod-diff-analysis.md` (judge)
 - `deprecated-imports.md` (count)
 - `go-version-check.md` (count)
+- `k8s-changelog.md` (judge)
 - `commit-messages.md` (count)
 
 All count-checks must be 0. Investigate judgment concerns.
