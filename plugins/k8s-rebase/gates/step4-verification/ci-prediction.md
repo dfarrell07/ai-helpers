@@ -23,11 +23,18 @@ fail in CI due to:
   version annotations in CRD manifests matching the vendored
   controller-tools version.
 
-Known ecosystem failures (not rebase bugs — report but don't fix):
-- `ci/prow/security` (Snyk) may fail after vendor update —
-  fix is in openshift/release, not this repo.
+Known ecosystem failures (report, may need manual fix):
+- `ci/prow/security` (Snyk) — check if `.snyk` exists in the
+  repo. If it uses per-file exclusions (not `vendor/**` glob),
+  warn that Snyk rules may flag new vendor files. Repos with
+  `vendor/**` glob exclusions are safe. Per-file repos may
+  need manual `.snyk` updates or a switch to the glob approach.
 - `ci/prow/verify-deps` may fail if library-go or other
-  plumbing repos haven't merged their k8s bump yet.
+  plumbing repos haven't merged their k8s bump yet. If the
+  skill used a vendor hand-patch (not a go.mod replace),
+  verify-deps WILL fail because `go mod vendor` regenerates
+  from source. The fix is a `replace` directive in go.mod
+  pointing to a fork with the compatibility fix.
 
 Check e2e test files, CI config (.github/workflows/test.yml),
 and KIND setup scripts. List each risk area checked and your
