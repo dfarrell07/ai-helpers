@@ -19,7 +19,8 @@ documentation changes, features behind alpha gates.
 
 For each concern found, check whether:
 1. The autofix already addresses it (check the diff)
-2. The repo actually uses the affected feature (grep source)
+2. The repo actually uses the affected feature (grep source
+   AND grep CI scripts like kind-common.sh for flags/defaults)
 
 Report format per dep:
   [dep] old → new: BREAKING / DEPRECATION / none found

@@ -492,6 +492,8 @@ Gate files:
 - `logical-consistency.md` (judge)
 - `ci-readiness.md` (judge)
 - `gomod-diff-analysis.md` (judge)
+- `deprecated-imports.md` (count)
+- `go-version-check.md` (count)
 - `commit-messages.md` (count)
 
 All count-checks must be 0. Investigate judgment concerns.
