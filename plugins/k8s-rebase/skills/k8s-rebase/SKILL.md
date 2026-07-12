@@ -325,6 +325,7 @@ Gate files:
 - `crd-validation.md` (count)
 - `logical-completeness.md` (count)
 - `e2e-infra.md` (judge)
+- `dep-release-notes.md` (judge)
 - `patterns-completeness.md` (judge)
 
 Count gates must report 0. Judge gates must cite evidence.
@@ -490,6 +491,7 @@ Gate files:
 - `build-vet-recheck.md` (count)
 - `logical-consistency.md` (judge)
 - `ci-readiness.md` (judge)
+- `gomod-diff-analysis.md` (judge)
 - `commit-messages.md` (count)
 
 All count-checks must be 0. Investigate judgment concerns.
