@@ -495,6 +495,7 @@ Gate files:
 - `deprecated-imports.md` (count)
 - `go-version-check.md` (count)
 - `k8s-changelog.md` (judge)
+- `dep-cve-check.md` (judge)
 - `commit-messages.md` (count)
 
 All count-checks must be 0. Investigate judgment concerns.
