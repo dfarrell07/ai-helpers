@@ -55,7 +55,7 @@ and then apply to all subsequent repos automatically.
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go to latest; if still missing, vendor-patch the method (see below) |
-| Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Fix is in openshift/release, not the repo — exclude vendor from snyk |
+| Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Check `.snyk` strategy: `vendor/**` glob is safe; per-file exclusions need updating |
 | OTE module | downstream `openshift/` module needs separate bump | Run skill on downstream fork, OTE go.mod bumped alongside |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
@@ -421,12 +421,18 @@ transitive dependencies. This is often pre-existing (fails on
 main too), but it blocks rebase PRs. Re-vendoring may also add
 new transitive deps that introduce additional findings.
 
-The fix is a CI config change in `openshift/release` (not the
-repo): exclude `vendor/` from Snyk scanning. See CORENET-7277
-/ `openshift/release#80462` (CNO-specific fix).
+The fix depends on the repo's `.snyk` strategy:
 
-This is NOT a rebase bug — don't try to fix it in the repo.
-Report it as a known CI blocker.
+- **`vendor/**` glob** (CNO, INF, ovnk): safe after re-vendoring.
+  If the repo has no `.snyk`, the fix is in `openshift/release`
+  (exclude vendor from Snyk). See CORENET-7277.
+- **Per-file exclusions** (CNCC, multus): fragile — new vendor
+  files aren't covered. Either add new exclusions to `.snyk` or
+  switch to the `vendor/**` glob (the dominant pattern, used by
+  4 of 6 networking repos).
+
+Check `.snyk` if it exists. Per-file repos will likely fail
+`ci/prow/security` after re-vendoring.
 
 ### Vendor verification false positives in containers (recurring)
 
