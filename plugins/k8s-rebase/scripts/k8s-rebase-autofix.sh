@@ -952,7 +952,12 @@ fix_addtoscheme() {
       local vendor_dir
       vendor_dir=$(find . -path "*/vendor/${import_path}" -type d | head -1)
       [[ -z "$vendor_dir" ]] && continue
-      if grep -rq 'Install.*=.*AddToScheme\|func Install\b' "$vendor_dir" 2>/dev/null; then
+      # Only rename if AddToScheme is actually REMOVED (not just deprecated).
+      # If AddToScheme still exists as a func or var, it compiles fine — skip.
+      if grep -rq 'func AddToScheme\b\|AddToScheme\s*=' "$vendor_dir" 2>/dev/null; then
+        continue
+      fi
+      if grep -rq 'func Install\b' "$vendor_dir" 2>/dev/null; then
         echo ":: Fixing ${pkg_alias}.AddToScheme → Install in $f"
         sed -i "s/${pkg_alias}\.AddToScheme/${pkg_alias}.Install/g" "$f"
       fi

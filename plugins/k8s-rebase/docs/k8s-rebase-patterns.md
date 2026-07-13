@@ -465,17 +465,23 @@ library-go interfaces, or `verify-deps` fails with library-go
 diffs, it should tell the agent this is an upstream blocker
 rather than a fixable rebase issue.
 
-**Vendor-patch workaround:** If library-go's latest commit still
-doesn't implement the new interface, `go get` the latest anyway
-and add the missing method to the vendored source. For fake/mock
-types, the implementation is trivial (return zero values or
-closed channels). Mark the commit as temporary: "vendor patch
-until library-go publishes a k8s 1.XX compatible release."
-The patch is replaced when library-go is next vendored. Note:
-repos with required `verify-deps` CI will still fail because
-`go mod vendor` produces different output than the patched
-vendor tree. For those repos, wait for the upstream fix or
-ask CI admins to make the check optional temporarily.
+**Replace directive workaround:** If library-go hasn't merged
+its k8s bump yet, use a `replace` directive in go.mod pointing
+to a fork that has the fix:
+
+```
+replace github.com/openshift/library-go => github.com/FORK/library-go v0.0.0-DATE-HASH
+```
+
+This is the standard approach used by manual rebases (e.g.,
+CNO PR #3017 uses `jubittajohn/library-go`). The `replace`
+survives `go mod vendor` because it directs the module system
+to fetch from the fork. Remove the `replace` when the official
+library-go merges its bump.
+
+**Do NOT hand-patch vendor/ directly.** CI runs `go mod vendor`
+which regenerates vendor from source, erasing patches. Repos
+with `verify-deps` CI will always fail vendor patches.
 
 ### OTE downstream module (recurring)
 
