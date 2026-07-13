@@ -483,6 +483,27 @@ library-go merges its bump.
 which regenerates vendor from source, erasing patches. Repos
 with `verify-deps` CI will always fail vendor patches.
 
+### Operator Framework repos (recurring)
+
+Repos using operator-sdk (e.g., ingress-node-firewall) have
+additional version references beyond k8s.io/* that need bumping:
+
+- `CONTROLLER_TOOLS_VERSION` in Makefile — tracks controller-gen
+- `OPERATOR_SDK_VERSION` in Makefile — tracks operator-sdk
+- `VERSION` (OCP release version) in Makefile
+- Bundle manifests (`bundle/`, `config/`) — regenerated via
+  `make bundle` after tooling bumps
+- `bundle.Dockerfile` — may reference OCP version
+
+Detection: check for a `PROJECT` file or `operator-sdk` in
+Makefile. If present, bump controller-tools and operator-sdk
+to latest compatible versions, then regenerate bundles.
+
+The rebase script does not currently automate these bumps.
+The agent should handle them in Step 2 if `go build` fails
+on controller-gen output, or in Step 4 if `verify-manifests`
+CI fails.
+
 ### OTE downstream module (recurring)
 
 The downstream ovnk fork (`openshift/ovn-kubernetes`) has an

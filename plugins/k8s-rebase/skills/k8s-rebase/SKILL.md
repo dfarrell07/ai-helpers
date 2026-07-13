@@ -558,6 +558,10 @@ The PR body should include:
   and that all commits have `Assisted-by: Claude Code` trailers
 - Review guidance (which commits to focus on, which are mechanical)
 
+For downstream OpenShift repos, include the Jira ticket
+(e.g., CORENET-XXXX) in the PR title — the merge bot requires
+`jira/valid-reference` to allow merge.
+
 Adapt the title and body to the project's convention (check
 CONTRIBUTING.md). If the PR already exists, suggest `gh pr edit`.
 
