@@ -845,7 +845,7 @@ fi # end --bump-tools
 
 cd "$REPO_ROOT" || exit 1
 # Add only the files we modified (more precise than git add -A)
-CHANGED_FILES=$(echo "$CHANGED_FILES" | grep -v '^$' | sort -u)
+CHANGED_FILES=$(echo "$CHANGED_FILES" | grep -v '^$' | sort -u || true)
 if [[ -n "$CHANGED_FILES" ]]; then
   echo "$CHANGED_FILES" | while IFS= read -r f; do
     [[ -n "$f" ]] && git add "$f" 2>/dev/null || true
