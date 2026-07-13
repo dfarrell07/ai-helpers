@@ -37,7 +37,7 @@ and then apply to all subsequent repos automatically.
 | Function renamed | `undefined: <OldName>` | Search-replace + import update |
 | Signature changed | `too many/few arguments` | Add missing param (often logger) |
 | Type divergence | `cannot use X as Y` | Convert ALL fields (check struct def) |
-| go vet format string | `non-constant format string` | `"%s", msg` or `%v` |
+| go vet format string | `non-constant format string` | `"%v", err` (prefer `%v` over `"%s", err.Error()`) |
 | go vet format type | `%q has arg of wrong type` | Use `%v` for non-string types |
 | Deprecated API | `SA1019: X is deprecated` | Check vendored `// Deprecated:` comment |
 | NewSimpleClientset | `SA1019` on generated fakes | Replace with `NewClientset` — check vendored source for `// Deprecated:` first (not all fakes deprecate it) |
