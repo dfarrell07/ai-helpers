@@ -10,7 +10,7 @@
 #             1 = some checks remain (RESULT: FAIL with details)
 #
 # Fix function scope:
-#   Generic (any Go+k8s repo): fix_xexp, fix_reflect_ptr, fix_fieldsv1,
+#   Generic (any Go+k8s repo): fix_xexp, fix_reflect_ptr, fix_klog_v2, fix_fieldsv1,
 #     fix_eventf, fix_addtoscheme, fix_imports, fix_bounding_dirs,
 #     fix_mocks, fix_go_version, fix_lint_version, fix_version_refs,
 #     fix_docs_version, fix_crd_int64_validation, fix_crd_name_validation
@@ -314,6 +314,16 @@ fix_xexp() {
   for gomod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l 'golang.org/x/exp' {} \; | xargs -I{} dirname {}); do
     echo ":: Running go mod tidy in $gomod_dir"
     (cd "$gomod_dir" && go mod tidy 2>/dev/null && [[ -d vendor ]] && go mod vendor 2>/dev/null) || true
+  done
+}
+
+fix_klog_v2() {
+  local files
+  files=$(grep -rln '"k8s.io/klog"' --include='*.go' . | grep -v vendor | grep -v '/v2')
+  [[ -z "$files" ]] && return 0
+  echo ":: Fixing klog v1 → v2 imports in $(echo "$files" | wc -l) files"
+  for f in $files; do
+    sed -i 's|"k8s.io/klog"|"k8s.io/klog/v2"|g' "$f"
   done
 }
 
@@ -1369,6 +1379,7 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   # goimports fixes the grouping. Code compiles either way.
   run_fix fix_xexp
   run_fix fix_reflect_ptr
+  run_fix fix_klog_v2
   run_fix fix_fieldsv1
   run_fix fix_eventf
   run_fix fix_addtoscheme

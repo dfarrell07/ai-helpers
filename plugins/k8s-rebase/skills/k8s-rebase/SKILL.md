@@ -216,6 +216,14 @@ conformance module may intentionally use a different version of
 `network-policy-api` than go-controller — bumping it to match
 can break CI (v0.2.0 conformance creates ClusterNetworkPolicy
 resources that the controller doesn't support yet).
+**NEVER modify files under vendor/ directly.** CI runs
+`go mod vendor` which regenerates vendor from source, erasing
+hand-patches. If a vendored dependency is missing a method or
+interface (e.g., library-go's SharedIndexInformer), this is a
+dependency chain blocker — the upstream dep hasn't published a
+k8s-compatible release yet. Report it as a blocker and move on.
+Do NOT vendor-patch; verify-deps CI will reject it.
+
 **Import deduplication:** If a file imports the same package
 twice (bare + aliased, e.g., `"k8s.io/.../errors"` and
 `k8serrors "k8s.io/.../errors"`), remove the duplicate and
