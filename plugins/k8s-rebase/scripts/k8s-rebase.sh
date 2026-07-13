@@ -327,7 +327,7 @@ derive_go_gets() {
     # pulling in API renames the controller doesn't support yet.
     echo "$pkg" | grep -q "network-policy-api" && continue
     cmds+=("go get ${pkg}")
-  done < <(grep -E "k8s\.io/|sigs\.k8s\.io/|github\.com/openshift/(api|client-go) " "$gomod" | \
+  done < <(grep -E "k8s\.io/|sigs\.k8s\.io/|github\.com/openshift/(api|client-go|library-go|build-machinery-go) " "$gomod" | \
            grep -v "=>" | \
            grep -vE "v[0-9]+\.${OLD_MINOR}\." | \
            awk '{print $1}' | sort -u)
@@ -754,6 +754,17 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       # Handles both patterns: openshift-X.Y (builder tag) and ocp/X.Y: (base image)
       for ci_file in $(find . -maxdepth 2 -name "Dockerfile*" -not -path "*/vendor/*" | sed 's|^\./||' | sort); do
         _fixed=0
+        # Skip legacy Dockerfiles with Go versions far behind the target.
+        # Dockerfile.rhel7 with golang-1.19 should not get openshift-5.0 tags.
+        _df_go=$(grep -oE 'golang-[0-9]+\.[0-9]+' "$ci_file" 2>/dev/null | head -1 | sed 's/golang-//' || true)
+        if [[ -n "$_df_go" ]]; then
+          _df_minor=$(echo "$_df_go" | cut -d. -f2)
+          _target_minor=$(echo "$NEW_GO_SHORT" | cut -d. -f2)
+          if [[ -n "$_df_minor" ]] && [[ -n "$_target_minor" ]] && (( _target_minor - _df_minor > 2 )) 2>/dev/null; then
+            info "  Skipping legacy $ci_file (Go $_df_go, target $NEW_GO_SHORT)"
+            continue
+          fi
+        fi
         # Pattern 1: openshift-X.Y (builder image tag suffix)
         if grep -qE "openshift-[0-9.]+" "$ci_file" && ! grep -q "openshift-${target_ocp}" "$ci_file"; then
           stale_ocp=$(grep -oE 'openshift-[0-9.]+' "$ci_file" | head -1 | sed 's/openshift-//')
