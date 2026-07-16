@@ -86,7 +86,7 @@ repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 cleanup_repo=""
 trap_cleanup() {
   if [[ -n "$cleanup_repo" ]]; then
-    warn "Interrupted — restoring $(basename "$cleanup_repo")"
+    warn "Interrupted — restoring $(repo_short "$cleanup_repo")"
     git -C "$cleanup_repo" reset --hard HEAD 2>/dev/null || true
     git -C "$cleanup_repo" clean -fd 2>/dev/null || true
   fi
@@ -173,7 +173,7 @@ default_branch() {
 }
 
 list_bump_branches() {
-  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | tr -d ' ' | sort -V
+  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | tr -d ' ' | sort -V || true
 }
 
 find_newest_branch() {
@@ -293,24 +293,23 @@ except (json.JSONDecodeError, ValueError):
 now = time.time() * 1000
 for s in data:
     cwd = s.get('cwd', '')
-    st = s.get('status', '?')
+    st = s.get('state') or s.get('status') or '?'
     pid = s.get('pid') or ''
     full_sid = s.get('sessionId', '?')
-    sid = full_sid[:12]
-    wf = s.get('waitingFor', '')
+    sid = s.get('id') or full_sid[:8]
     started = s.get('startedAt', 0)
     elapsed = int((now - started) / 60000) if started else 0
-    tag = st + ('[' + wf[:6] + ']' if wf else '')
-    print(f'{cwd}\t{tag}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
+    print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{sid}')
 " 2>/dev/null || true)
 }
 
 session_for_repo() {
   local repo="$1" short
   short=$(repo_short "$repo")
-  # Anchor match: /short followed by tab or /. to prevent prefix collisions
-  # (e.g., ovn-kubernetes matching ovn-kubernetes-mcp)
-  echo "$_session_cache" | grep -E "/${short}(/|\t)" | head -1
+  # Match /short/ (worktree path) or /short<TAB> (end of cwd field).
+  # Uses grep -F with two patterns to avoid regex tab escaping issues.
+  printf '%s\n' "$_session_cache" | grep -F "/${short}/" | head -1 && return
+  printf '%s\n' "$_session_cache" | grep -F $'/'"${short}"$'\t' | head -1
 }
 
 write_session_json() {
@@ -405,8 +404,23 @@ cmd_status() {
     short=$(repo_short "$repo")
     branch=$(find_newest_branch "$repo")
 
+    # Resolve session state early — needed even when no branch exists yet
+    local session_state="-"
+    local session_info
+    session_info=$(session_for_repo "$repo")
+    if [[ -n "$session_info" ]]; then
+      local tag mins
+      tag=$(echo "$session_info" | cut -f2)
+      mins=$(echo "$session_info" | cut -f3)
+      # Hide completed/stopped sessions older than STALE_SESSION_MINS
+      if [[ "$mins" =~ ^[0-9]+$ ]] && { [[ "$tag" != "done" && "$tag" != "stopped" ]] || [[ "$mins" -lt "$STALE_SESSION_MINS" ]]; }; then
+        session_state="$tag ${mins}m"
+      fi
+    fi
+
     if [[ -z "$branch" ]]; then
-      printf "%-40s %s\n" "$short" "(no branch)"
+      printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" \
+        "$short" "-" "-" "$session_state" "-" "-" "-" "-"
       continue
     fi
 
@@ -417,18 +431,6 @@ cmd_status() {
     local commits applied
     commits=$(git rev-list --count "$default_br".."$branch" 2>/dev/null || echo 0)
     applied=$(git log "$default_br".."$branch" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
-
-    local session_state="-"
-    local session_info
-    session_info=$(session_for_repo "$repo")
-    if [[ -n "$session_info" ]]; then
-      local tag mins
-      tag=$(echo "$session_info" | cut -f2)
-      mins=$(echo "$session_info" | cut -f3)
-      if [[ "$mins" =~ ^[0-9]+$ ]] && { [[ "$tag" != *"idle"* ]] || [[ "$mins" -lt "$STALE_SESSION_MINS" ]]; }; then
-        session_state="$tag ${mins}m"
-      fi
-    fi
 
     local gates="-"
     local gate_dir="$wdir/.rebase-tmp/gates"
@@ -572,8 +574,8 @@ cmd_clean() {
     local count
     count=$(wc -l < "$RESULTS_DIR/sessions.jsonl")
     if [[ "$count" -gt "$MAX_SESSION_LOG" ]]; then
-      tail -"$MAX_SESSION_LOG" "$RESULTS_DIR/sessions.jsonl" > "$RESULTS_DIR/sessions.jsonl.tmp"
-      mv "$RESULTS_DIR/sessions.jsonl.tmp" "$RESULTS_DIR/sessions.jsonl"
+      tail -"$MAX_SESSION_LOG" "$RESULTS_DIR/sessions.jsonl" > "$RESULTS_DIR/sessions.jsonl.tmp" \
+        && mv "$RESULTS_DIR/sessions.jsonl.tmp" "$RESULTS_DIR/sessions.jsonl"
       info "Trimmed session log to last 20 entries"
     fi
   fi
@@ -608,15 +610,15 @@ cmd_compare() {
   info "── $(repo_short "$repo"): $branch_a vs $branch_b ──"
   echo ""
 
-  printf "%-42s %6s %7s %s\n" "BRANCH" "COMMITS" "AUTOFIX" "K8S"
-  printf "%-42s %6s %7s %s\n" "------" "-------" "-------" "---"
+  printf "%-42s %7s %7s %s\n" "BRANCH" "COMMITS" "AUTOFIX" "K8S"
+  printf "%-42s %7s %7s %s\n" "------" "-------" "-------" "---"
   for b in "$branch_a" "$branch_b"; do
     local commits applied k8s_ver
     commits=$(git rev-list --count "$default_br".."$b" 2>/dev/null || echo 0)
     applied=$(git log "$default_br".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
     k8s_ver=$(git show "$b":go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
     [[ -z "$k8s_ver" ]] && k8s_ver=$(git show "$b":go-controller/go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
-    printf "%-42s %6s %7s %s\n" "$b" "$commits" "$applied" "${k8s_ver:-?}"
+    printf "%-42s %7s %7s %s\n" "$b" "$commits" "$applied" "${k8s_ver:-?}"
   done
 
   echo ""
@@ -640,7 +642,7 @@ cmd_compare() {
 cmd_gate_check() {
   check_prerequisites
   local fix_func="$1" repo="$2"
-  [[ -z "${AUTOFIX_TO_GATE[$fix_func]+x}" ]] && die "Unknown sensitivity function: $fix_func (run --help to list available)"
+  [[ -z "${AUTOFIX_TO_GATE[$fix_func]+x}" ]] && die "Unknown autofix function: $fix_func (run --help to list gate-check targets)"
 
   local gate_file="$PLUGIN_DIR/gates/${AUTOFIX_TO_GATE[$fix_func]}"
   [[ -f "$gate_file" ]] || die "Gate not found: $gate_file"
