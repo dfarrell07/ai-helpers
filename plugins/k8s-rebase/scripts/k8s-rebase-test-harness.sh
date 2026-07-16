@@ -195,7 +195,7 @@ work_dir_for() {
   local repo="$1" branch="$2"
   cd "$repo" 2>/dev/null || return 1
   local wt
-  wt=$(git worktree list 2>/dev/null | grep -F "$branch" | awk '{print $1}')
+  wt=$(git worktree list 2>/dev/null | grep -F "[$branch]" | awk '{print $1}' | head -1)
   echo "${wt:-$repo}"
 }
 
@@ -517,15 +517,8 @@ cmd_stop() {
     fi
 
     if $should_stop; then
-      local ppid ppid_cmd
-      ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-      ppid_cmd=$(ps -o comm= -p "$ppid" 2>/dev/null || true)
-      # Only kill the parent if it's a per-session wrapper (bg-pty-host),
-      # not a shared daemon that manages multiple sessions
-      if [[ -n "$ppid" && "$ppid" != "1" && "$ppid_cmd" == *"bg-pty"* ]] \
-         && ! echo "$my_ancestors" | grep -qw "$ppid"; then
-        kill "$ppid" 2>/dev/null; sleep 1; kill -9 "$ppid" 2>/dev/null || true
-      fi
+      # Kill the session process directly. Don't kill the parent —
+      # it may be a shared daemon managing multiple sessions.
       kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null || true
       claude rm "${full_sid:-$sid}" 2>/dev/null || true
       info "Killed $sid ($tag) — $cwd"
@@ -663,7 +656,7 @@ cmd_gate_check() {
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
     git revert --abort 2>/dev/null || git reset --hard HEAD 2>/dev/null
-    rm -f "$repo/.rebase-tmp/gates/"*.report 2>/dev/null
+    # Don't delete gate reports — they belong to prior skill runs
     cleanup_repo=""
     return 0
   fi
@@ -681,10 +674,12 @@ cmd_gate_check() {
   # "After your analysis, write your report" — added by gate persistence)
   gate_content=$(sed '/^After your analysis, write your report\. The repo path/,$d' "$gate_file") || {
     git reset --hard HEAD 2>/dev/null
+    cleanup_repo=""
     die "Cannot read gate file: $gate_file"
   }
   if [[ -z "$gate_content" ]]; then
     git reset --hard HEAD 2>/dev/null
+    cleanup_repo=""
     die "Gate content empty after stripping report section: $gate_file"
   fi
 
@@ -704,7 +699,7 @@ VERDICT: CLEAN")
 
   # Restore working tree and clean any stale gate report files
   git reset --hard HEAD 2>/dev/null || warn "git reset failed — repo may be dirty"
-  rm -f "$repo/.rebase-tmp/gates/"*.report 2>/dev/null
+  # Don't delete gate reports — they belong to prior skill runs
   cleanup_repo=""
 
   if [[ "$exit_code" -eq 124 ]]; then
