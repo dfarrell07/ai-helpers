@@ -14,7 +14,7 @@
 #   status    — show progress: commits, autofix count (commits with "Applied:"
 #               trailers marking which autofix function produced them)
 #   compare   — diff two rebase branches to detect regressions between runs
-#   sensitive — revert one autofix commit, re-run its gate, verify the gate
+#   gate-check — revert one autofix commit, re-run its gate, verify the gate
 #               catches the regression (gate sensitivity/quality test)
 #   stop/clean — tear down sessions (processes) and worktrees (git artifacts)
 
@@ -33,7 +33,7 @@ VERBOSE=false
 MIN_AVAILABLE_MB=2048       # warn if less available before launching
 STALE_SESSION_MINS=1440     # 24h — hide idle sessions older than this in status
 MAX_SESSION_LOG=20          # trim sessions.jsonl to this many entries during clean
-SENSITIVE_TIMEOUT=300       # 5min — max time for a gate check in sensitive tests
+GATE_CHECK_TIMEOUT=300       # 5min — max time for a gate check in gate-check tests
 
 DEFAULT_REPOS=(
   "$HOME/ovnk/ovn-org/ovn-kubernetes"
@@ -45,8 +45,8 @@ DEFAULT_REPOS=(
 )
 
 # Maps autofix functions to the gate that should detect their absence.
-# Used by `sensitive` to verify each gate catches regressions.
-declare -A SENSITIVITY_MAP=(
+# Used by `gate-check` to verify each gate catches regressions.
+declare -A AUTOFIX_TO_GATE=(
   [fix_crd_int64_validation]="step3-autofix/crd-validation.md"
   [fix_crd_name_validation]="step3-autofix/crd-validation.md"
   [fix_feature_gates]="step3-autofix/feature-gates.md"
@@ -68,10 +68,10 @@ die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 
 # Restore repo to its original branch on interrupt
-_cleanup_repo=""
+cleanup_repo=""
 trap_cleanup() {
-  if [[ -n "$_cleanup_repo" ]]; then
-    warn "Interrupted — repo $(basename "$_cleanup_repo") may need manual cleanup"
+  if [[ -n "$cleanup_repo" ]]; then
+    warn "Interrupted — repo $(basename "$cleanup_repo") may need manual cleanup"
     warn "Check: git stash list, git worktree list, git status"
   fi
 }
@@ -88,7 +88,7 @@ Commands:
   clean     [repo...]                      Remove leftover worktrees (git artifacts)
   compare   [--last] <repo>                Diff last two rebase branches
             <branch1> <branch2> <repo>     Diff specific branches
-  sensitive <autofix-fn> <repo>            Revert one fix, verify gate catches it
+  gate-check <autofix-fn> <repo>            Revert one fix, verify gate catches it
 
 Options:
   --build              Run go build/vet in status (off by default)
@@ -107,10 +107,10 @@ Examples:
   $(basename "$0") stop --all                  # Kill all harness sessions
   $(basename "$0") stop cluster-network-operator
   $(basename "$0") compare --last ~/ovnk/openshift/ingress-node-firewall
-  $(basename "$0") sensitive fix_xexp ~/ovnk/ovn-org/ovn-kubernetes
+  $(basename "$0") gate-check fix_xexp ~/ovnk/ovn-org/ovn-kubernetes
 
 Sensitivity functions:
-$(for fn in "${!SENSITIVITY_MAP[@]}"; do echo "  $fn → ${SENSITIVITY_MAP[$fn]}"; done | sort)
+$(for fn in "${!AUTOFIX_TO_GATE[@]}"; do echo "  $fn → ${AUTOFIX_TO_GATE[$fn]}"; done | sort)
 EOF
   exit 0
 }
@@ -160,7 +160,7 @@ list_bump_branches() {
   LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | tr -d ' ' | sort -V
 }
 
-find_latest_branch() {
+find_newest_branch() {
   local repo="$1"
   cd "$repo" 2>/dev/null || return 1
   # Active worktrees take priority
@@ -192,9 +192,9 @@ primary_gomod() {
   echo "$gomod"
 }
 
-reset_to_main() {
+reset_to_default() {
   local repo="$1"
-  _cleanup_repo="$repo"
+  cleanup_repo="$repo"
   cd "$repo" || die "Cannot cd to $repo"
 
   if [[ -f "$repo/.git/MERGE_HEAD" ]]; then
@@ -213,16 +213,16 @@ reset_to_main() {
     fi
   fi
 
-  local db
-  db=$(default_branch)
-  git checkout "$db" 2>/dev/null || die "Cannot checkout $db in $repo"
+  local default_br
+  default_br=$(default_branch)
+  git checkout "$default_br" 2>/dev/null || die "Cannot checkout $default_br in $repo"
 
   if ! git pull --ff-only 2>/dev/null; then
-    warn "git pull --ff-only failed in $(basename "$repo") — running against local $db"
+    warn "git pull --ff-only failed in $(basename "$repo") — running against local $default_br"
   fi
 
-  info "$(basename "$repo") → $db @ $(git rev-parse --short HEAD)"
-  _cleanup_repo=""
+  info "$(basename "$repo") → $default_br @ $(git rev-parse --short HEAD)"
+  cleanup_repo=""
 }
 
 remove_worktrees() {
@@ -237,10 +237,10 @@ remove_worktrees() {
     wt_branch=$(echo "$line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
 
     # Check if worktree has commits worth preserving
-    local db commit_count=0
-    db=$(default_branch)
+    local default_br commit_count=0
+    default_br=$(default_branch)
     if [[ -n "$wt_branch" ]]; then
-      commit_count=$(git log "$db".."$wt_branch" --oneline 2>/dev/null | wc -l)
+      commit_count=$(git log "$default_br".."$wt_branch" --oneline 2>/dev/null | wc -l)
     fi
 
     git worktree unlock "$wt_path" 2>/dev/null || true
@@ -291,7 +291,8 @@ for s in data:
 session_for_repo() {
   local repo="$1" short
   short=$(repo_short "$repo")
-  echo "$_session_cache" | grep -F "$short" | head -1
+  # Match on /short or /short/ to avoid ovn-kubernetes matching ovn-kubernetes-mcp
+  echo "$_session_cache" | grep -F "/$short" | head -1
 }
 
 write_session_json() {
@@ -332,12 +333,12 @@ cmd_run() {
     fi
 
     remove_worktrees "$repo"
-    reset_to_main "$repo"
+    reset_to_default "$repo"
 
-    local base db
-    db=$(default_branch)
+    local base default_br
+    default_br=$(default_branch)
     base=$(git rev-parse --short HEAD)
-    info "Base: $db @ $base → k8s $version"
+    info "Base: $default_br @ $base → k8s $version"
 
     local session_output session_id
     session_output=$(claude --bg \
@@ -372,14 +373,14 @@ cmd_status() {
 
   build_session_cache
 
-  printf "%-45s %5s %5s %18s %5s %5s %s\n" "REPO" "CMTS" "FIXES" "SESSION" "BUILD" "VET" "K8S"
-  printf "%-45s %5s %5s %18s %5s %5s %s\n" "----" "----" "-----" "-------" "-----" "---" "---"
+  printf "%-45s %7s %7s %18s %5s %5s %s\n" "REPO" "COMMITS" "APPLIED" "SESSION" "BUILD" "VET" "K8S"
+  printf "%-45s %7s %7s %18s %5s %5s %s\n" "----" "-------" "-------" "-------" "-----" "---" "---"
 
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || continue
-    local short branch wdir db
+    local short branch wdir default_br
     short=$(repo_short "$repo")
-    branch=$(find_latest_branch "$repo")
+    branch=$(find_newest_branch "$repo")
 
     if [[ -z "$branch" ]]; then
       printf "%-40s %s\n" "$short" "(no branch)"
@@ -388,11 +389,11 @@ cmd_status() {
 
     cd "$repo" || continue
     wdir=$(work_dir_for "$repo" "$branch")
-    db=$(default_branch)
+    default_br=$(default_branch)
 
     local commits applied
-    commits=$(git log "$db".."$branch" --oneline 2>/dev/null | wc -l)
-    applied=$(git log "$db".."$branch" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
+    commits=$(git log "$default_br".."$branch" --oneline 2>/dev/null | wc -l)
+    applied=$(git log "$default_br".."$branch" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
 
     local session_state="—"
     local session_info
@@ -414,25 +415,25 @@ cmd_status() {
     fi
 
     if $BUILD && [[ -n "$gomod" ]]; then
-      local gdir build_err
-      gdir=$(dirname "$gomod")
+      local gomod_dir build_err
+      gomod_dir=$(dirname "$gomod")
       # Verify we're testing the rebase branch, not main (worktree may have been cleaned)
       local actual_branch
-      actual_branch=$(git -C "$gdir" branch --show-current 2>/dev/null)
+      actual_branch=$(git -C "$gomod_dir" branch --show-current 2>/dev/null)
       if [[ -n "$actual_branch" && "$actual_branch" != "$branch" ]]; then
         warn "Build check skipped for $short — worktree gone, would test $actual_branch not $branch"
         build_ok="SKIP"; vet_ok="SKIP"
       else
-        build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go build ./... 2>&1) && build_ok="PASS" || { build_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
-        build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go vet ./... 2>&1) && vet_ok="PASS" || { vet_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
+        build_err=$(cd "$gomod_dir" && GOTOOLCHAIN=auto go build ./... 2>&1) && build_ok="PASS" || { build_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
+        build_err=$(cd "$gomod_dir" && GOTOOLCHAIN=auto go vet ./... 2>&1) && vet_ok="PASS" || { vet_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
       fi
     fi
 
-    printf "%-45s %5s %5s %18s %5s %5s %s\n" \
+    printf "%-45s %7s %7s %18s %5s %5s %s\n" \
       "$short" "$commits" "$applied" "$session_state" "$build_ok" "$vet_ok" "$k8s_ver"
 
     if $VERBOSE; then
-      git log "$db".."$branch" --oneline 2>/dev/null | sed 's/^/    /'
+      git log "$default_br".."$branch" --oneline 2>/dev/null | sed 's/^/    /'
     fi
   done
 }
@@ -538,7 +539,7 @@ cmd_clean() {
 # ── compare ──────────────────────────────────────────────────────────
 
 cmd_compare() {
-  local b1 b2 repo
+  local branch_a branch_b repo
 
   if [[ "$1" == "--last" ]]; then
     [[ $# -lt 2 ]] && die "Usage: compare --last <repo>"
@@ -546,27 +547,27 @@ cmd_compare() {
     cd "$repo" || die "Cannot cd to $repo"
     local branches
     branches=$(list_bump_branches | tail -2)
-    b1=$(echo "$branches" | head -1)
-    b2=$(echo "$branches" | tail -1)
-    [[ -z "$b1" || -z "$b2" || "$b1" == "$b2" ]] && die "Need at least 2 bump branches in $repo (run the skill twice first)"
+    branch_a=$(echo "$branches" | head -1)
+    branch_b=$(echo "$branches" | tail -1)
+    [[ -z "$branch_a" || -z "$branch_b" || "$branch_a" == "$branch_b" ]] && die "Need at least 2 bump branches in $repo (run the skill twice first)"
   else
     [[ $# -lt 3 ]] && die "Usage: compare <branch1> <branch2> <repo>"
-    b1="$1" b2="$2" repo="$3"
+    branch_a="$1" branch_b="$2" repo="$3"
     cd "$repo" || die "Cannot cd to $repo"
   fi
 
-  local db
-  db=$(default_branch)
+  local default_br
+  default_br=$(default_branch)
 
-  info "── $(repo_short "$repo"): $b1 vs $b2 ──"
+  info "── $(repo_short "$repo"): $branch_a vs $branch_b ──"
   echo ""
 
-  printf "%-42s %6s %7s %s\n" "BRANCH" "COMMITS" "AUTOFIX" "K8S"
+  printf "%-42s %6s %7s %s\n" "BRANCH" "COMMITS" "APPLIED" "K8S"
   printf "%-42s %6s %7s %s\n" "------" "-------" "-------" "---"
-  for b in "$b1" "$b2"; do
+  for b in "$branch_a" "$branch_b"; do
     local commits applied k8s_ver
-    commits=$(git log "$db".."$b" --oneline 2>/dev/null | wc -l)
-    applied=$(git log "$db".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
+    commits=$(git log "$default_br".."$b" --oneline 2>/dev/null | wc -l)
+    applied=$(git log "$default_br".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
     k8s_ver=$(git show "$b":go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
     [[ -z "$k8s_ver" ]] && k8s_ver=$(git show "$b":go-controller/go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
     printf "%-42s %6s %7s %s\n" "$b" "$commits" "$applied" "${k8s_ver:-?}"
@@ -574,23 +575,23 @@ cmd_compare() {
 
   echo ""
   echo "Diff:"
-  git diff "$b1".."$b2" --stat 2>/dev/null | tail -3
+  git diff "$branch_a".."$branch_b" --stat 2>/dev/null | tail -3
   echo ""
-  echo "Only in $b2:"
-  git log "$b1".."$b2" --oneline 2>/dev/null | head -10
+  echo "Only in $branch_b:"
+  git log "$branch_a".."$branch_b" --oneline 2>/dev/null | head -10
   echo ""
-  echo "Only in $b1:"
-  git log "$b2".."$b1" --oneline 2>/dev/null | head -10
+  echo "Only in $branch_a:"
+  git log "$branch_b".."$branch_a" --oneline 2>/dev/null | head -10
 }
 
-# ── sensitive ────────────────────────────────────────────────────────
+# ── gate-check ────────────────────────────────────────────────────────
 
-cmd_sensitive() {
+cmd_gate_check() {
   check_prerequisites
-  local fn="$1" repo="$2"
-  [[ -z "${SENSITIVITY_MAP[$fn]+x}" ]] && die "Unknown sensitivity function: $fn (run --help to list available)"
+  local fix_func="$1" repo="$2"
+  [[ -z "${AUTOFIX_TO_GATE[$fix_func]+x}" ]] && die "Unknown sensitivity function: $fix_func (run --help to list available)"
 
-  local gate_file="$PLUGIN_DIR/gates/${SENSITIVITY_MAP[$fn]}"
+  local gate_file="$PLUGIN_DIR/gates/${AUTOFIX_TO_GATE[$fix_func]}"
   [[ -f "$gate_file" ]] || die "Gate not found: $gate_file"
 
   cd "$repo" || die "Cannot cd to $repo"
@@ -601,40 +602,79 @@ cmd_sensitive() {
   [[ -n "$(git status --porcelain 2>/dev/null)" ]] && die "Dirty worktree in $repo — commit or stash first"
   [[ "$branch" =~ ^(main|master)$ ]] && die "On $branch — checkout a rebase branch first"
 
-  info "── Sensitivity: $fn on $short ($branch) ──"
+  info "── Sensitivity: $fix_func on $short ($branch) ──"
 
+  # Use --fixed-strings so function names aren't interpreted as regex
   local commit
-  commit=$(git log --format='%H' --grep="Applied:.*$fn" | head -1)
-  [[ -z "$commit" ]] && commit=$(git log --format='%H' --grep="$fn" | head -1)
-  [[ -z "$commit" ]] && { info "SKIP: no commit for $fn (autofix may not have fired on this repo)"; return 0; }
+  commit=$(git log --format='%H' --fixed-strings --grep="Applied: $fix_func" | head -1)
+  [[ -z "$commit" ]] && commit=$(git log --format='%H' --fixed-strings --grep="$fix_func" | head -1)
+  [[ -z "$commit" ]] && { info "SKIP: no commit for $fix_func (autofix may not have fired on this repo)"; return 0; }
 
   info "Reverting $(git log --oneline -1 "$commit")"
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
-    git revert --abort 2>/dev/null || git reset --hard HEAD 2>/dev/null
+    git revert --abort 2>/dev/null || git checkout -- . 2>/dev/null
     return 0
   fi
 
-  info "Running gate: ${SENSITIVITY_MAP[$fn]}"
-  mkdir -p "$RESULTS_DIR/sensitive"
-  local outfile="$RESULTS_DIR/sensitive/${fn}-$(basename "$repo")-$(date +%s).txt"
-  local output
-  output=$(timeout "$SENSITIVE_TIMEOUT" bash -c \
-    'printf "Repo: %s\n\n%s" "$1" "$(cat "$2")" | claude -p --output-format text 2>/dev/null' \
-    _ "$repo" "$gate_file" || echo "ERROR: claude -p failed or timed out")
+  info "Running gate: ${AUTOFIX_TO_GATE[$fix_func]}"
+  mkdir -p "$RESULTS_DIR/gate-check"
+  local outfile="$RESULTS_DIR/gate-check/${fix_func}-$(basename "$repo")-$(date +%s).txt"
 
-  git reset --hard HEAD 2>/dev/null || warn "git reset --hard failed — repo may be dirty"
+  # Read gate content up front so failures are caught before claude runs
+  local gate_content
+  gate_content=$(cat "$gate_file") || {
+    git reset --hard HEAD 2>/dev/null
+    die "Cannot read gate file: $gate_file"
+  }
+
+  # Request a structured verdict line instead of parsing free-form prose.
+  # The old approach used a regex on LLM output (e.g. matching "3 issues",
+  # "FAIL", or "file.go:42") which produced false PASS on incidental matches
+  # and false FAIL when the LLM rephrased its findings.
+  local prompt
+  prompt=$(printf 'Repo: %s\n\n%s\n\n%s' \
+    "$repo" "$gate_content" \
+    "After your analysis, end with exactly one of these on its own line:
+VERDICT: ISSUES_FOUND
+VERDICT: CLEAN")
+
+  local output exit_code=0
+  output=$(printf '%s' "$prompt" \
+    | timeout "$GATE_CHECK_TIMEOUT" claude -p --output-format text 2>/dev/null) \
+    || exit_code=$?
+
+  # Always restore the working tree after the gate check
+  git reset --hard HEAD 2>/dev/null || warn "git reset failed — repo may be dirty"
+
+  if [[ "$exit_code" -eq 124 ]]; then
+    error "TIMEOUT: gate exceeded ${GATE_CHECK_TIMEOUT}s (output: $outfile)"
+    echo "TIMEOUT after ${GATE_CHECK_TIMEOUT}s" > "$outfile"
+    return 1
+  fi
+  if [[ -z "$output" ]]; then
+    error "EMPTY: claude -p returned no output (output: $outfile)"
+    echo "EMPTY OUTPUT" > "$outfile"
+    return 1
+  fi
 
   echo "$output" > "$outfile"
   echo "$output" | tail -15
   echo ""
 
-  if echo "$output" | grep -qiE '[1-9][0-9]* (issue|finding|error|mismatch|missing)|found [1-9]|FAIL[^a-z]|\.(go|yaml|sh|md):[0-9]'; then
-    info "PASS: gate caught $fn (output: $outfile)"
-  else
-    error "FAIL: gate missed $fn (output: $outfile)"
-    return 1
-  fi
+  # Match the structured verdict instead of guessing from prose
+  local verdict
+  verdict=$(echo "$output" | grep -oE '^VERDICT: (ISSUES_FOUND|CLEAN)$' | tail -1)
+
+  case "$verdict" in
+    "VERDICT: ISSUES_FOUND")
+      info "PASS: gate caught $fix_func (output: $outfile)" ;;
+    "VERDICT: CLEAN")
+      error "FAIL: gate missed $fix_func (output: $outfile)"; return 1 ;;
+    *)
+      error "INCONCLUSIVE: no VERDICT line in output (output: $outfile)"
+      error "Manual review required"; return 1 ;;
+  esac
 }
 
 # ── Main ─────────────────────────────────────────────────────────────
@@ -663,7 +703,7 @@ case "$COMMAND" in
   clean)     cmd_clean "$@" ;;
   compare)   [[ $# -lt 1 ]] && die "Usage: $0 compare [--last] <repo> or <b1> <b2> <repo>"
              cmd_compare "$@" ;;
-  sensitive) [[ $# -lt 2 ]] && die "Usage: $0 sensitive <autofix-fn> <repo>"
-             cmd_sensitive "$1" "$2" ;;
+  gate-check) [[ $# -lt 2 ]] && die "Usage: $0 gate-check <autofix-fn> <repo>"
+             cmd_gate_check "$1" "$2" ;;
   *)         die "Unknown command: $COMMAND" ;;
 esac
