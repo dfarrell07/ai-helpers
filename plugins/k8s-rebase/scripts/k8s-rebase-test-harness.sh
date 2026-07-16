@@ -6,6 +6,16 @@
 # pipeline: scripts, subagents, gates, autofix, review.
 #
 # Usage: k8s-rebase-test-harness.sh <command> [options] [args...]
+#
+# Testing model:
+#   run       — launch background Claude sessions, each running the full
+#               k8s-rebase skill (deps, autofix, gates, review) in a worktree
+#   status    — show progress: commits, autofix count (commits with "Applied:"
+#               trailers marking which autofix function produced them)
+#   compare   — diff two rebase branches to detect regressions between runs
+#   sensitive — revert one autofix commit, re-run its gate, verify the gate
+#               catches the regression (gate sensitivity/quality test)
+#   stop/clean — tear down sessions (processes) and worktrees (git artifacts)
 
 set -uo pipefail
 
@@ -16,10 +26,10 @@ RESULTS_DIR="${RESULTS_DIR:-$HARNESS_HOME/.work/test-harness}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 BUILD=false
 VERBOSE=false
-MIN_AVAILABLE_MB=2048
-STALE_SESSION_MINS=1440
-MAX_SESSION_LOG=20
-SENSITIVE_TIMEOUT=300
+MIN_AVAILABLE_MB=2048       # warn if less available before launching
+STALE_SESSION_MINS=1440     # 24h — hide idle sessions older than this in status
+MAX_SESSION_LOG=20          # trim sessions.jsonl to this many entries during clean
+SENSITIVE_TIMEOUT=300       # 5min — max time for a gate check in sensitive tests
 
 DEFAULT_REPOS=(
   "$HOME/ovnk/ovn-org/ovn-kubernetes"
@@ -30,6 +40,8 @@ DEFAULT_REPOS=(
   "$HOME/ovnk/openshift/cluster-network-operator"
 )
 
+# Maps autofix functions to the gate that should detect their absence.
+# Used by `sensitive` to verify each gate catches regressions.
 declare -A SENSITIVITY_MAP=(
   [fix_crd_int64_validation]="step3-autofix/crd-validation.md"
   [fix_crd_name_validation]="step3-autofix/crd-validation.md"
@@ -170,6 +182,7 @@ work_dir_for() {
 
 primary_gomod() {
   local dir="$1" gomod
+  dir=$(cd "$dir" 2>/dev/null && pwd) || return 1
   gomod=$(find "$dir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' -not -path '*/test/*' 2>/dev/null | head -1)
   [[ -z "$gomod" ]] && gomod=$(find "$dir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' 2>/dev/null | head -1)
   echo "$gomod"
@@ -186,8 +199,11 @@ reset_to_main() {
 
   if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
     local stash_name="harness-$(date +%s)"
-    git stash push -u -m "$stash_name" 2>/dev/null || true
-    warn "Stashed uncommitted changes as '$stash_name' — use 'git stash list' to recover"
+    if git stash push -u -m "$stash_name" 2>/dev/null; then
+      warn "Stashed uncommitted changes as '$stash_name' — use 'git stash list' to recover"
+    else
+      die "Cannot stash uncommitted changes in $repo (git lock held?)"
+    fi
   fi
 
   local db
@@ -237,7 +253,7 @@ remove_worktrees() {
 
 _session_cache=""
 build_session_cache() {
-  _session_cache=$(claude agents --json 2>/dev/null | python3 -c "
+  _session_cache=$(timeout 10 claude agents --json 2>/dev/null | python3 -c "
 import json, sys, time
 try:
     data = json.load(sys.stdin)
@@ -344,8 +360,8 @@ cmd_status() {
 
   build_session_cache
 
-  printf "%-40s %4s %4s %15s %5s %5s %s\n" "REPO" "CMT" "AUTO" "SESSION" "BUILD" "VET" "K8S"
-  printf "%-40s %4s %4s %15s %5s %5s %s\n" "----" "---" "----" "-------" "-----" "---" "---"
+  printf "%-40s %5s %5s %15s %5s %5s %s\n" "REPO" "CMTS" "FIXES" "SESSION" "BUILD" "VET" "K8S"
+  printf "%-40s %5s %5s %15s %5s %5s %s\n" "----" "----" "-----" "-------" "-----" "---" "---"
 
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || continue
@@ -392,7 +408,7 @@ cmd_status() {
       build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go vet ./... 2>&1) && vet_ok="PASS" || { vet_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
     fi
 
-    printf "%-40s %4s %4s %15s %5s %5s %s\n" \
+    printf "%-40s %5s %5s %15s %5s %5s %s\n" \
       "$short" "$commits" "$applied" "$session_state" "$build_ok" "$vet_ok" "$k8s_ver"
 
     if $VERBOSE; then
