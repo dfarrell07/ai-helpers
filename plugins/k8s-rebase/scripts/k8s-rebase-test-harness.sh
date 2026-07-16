@@ -60,7 +60,7 @@ declare -A AUTOFIX_TO_GATE=(
   [fix_conformance_renames]="step3-autofix/patterns-completeness.md"
   [fix_banp_egresspeer]="step3-autofix/patterns-completeness.md"
   [fix_eventf]="step3-autofix/deprecated-api-remnants.md"
-  [fix_addtoscheme]="step3-autofix/deprecated-api-remnants.md"
+  [fix_addtoscheme]="step3-autofix/patterns-completeness.md"
   [fix_imports]="step3-autofix/deprecated-api-remnants.md"
   [fix_bounding_dirs]="step3-autofix/deprecated-api-remnants.md"
   [fix_mocks]="step3-autofix/patterns-completeness.md"
@@ -636,9 +636,8 @@ cmd_gate_check() {
   local default_br
   default_br=$(default_branch)
   local commit
-  commit=$(git log "origin/$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null \
-    || git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null \
-    | head -1)
+  commit=$( { git log "origin/$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null \
+    || git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null; } | head -1)
   [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for $fix_func (autofix may not have fired on this repo)"; return 0; }
 
   info "Reverting $(git log --oneline -1 "$commit")"
