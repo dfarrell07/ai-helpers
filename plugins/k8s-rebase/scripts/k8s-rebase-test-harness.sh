@@ -611,20 +611,22 @@ cmd_gate_check() {
   branch=$(git branch --show-current 2>/dev/null)
 
   [[ -n "$(git status --porcelain 2>/dev/null)" ]] && die "Dirty worktree in $repo — commit or stash first"
+  [[ -z "$branch" ]] && die "Detached HEAD in $repo — checkout a rebase branch first"
   [[ "$branch" =~ ^(main|master)$ ]] && die "On $branch — checkout a rebase branch first"
 
   info "── Sensitivity: $fix_func on $short ($branch) ──"
 
-  # Use --fixed-strings so function names aren't interpreted as regex
+  # Search ONLY for the Applied: trailer on the current branch
+  local default_br
+  default_br=$(default_branch)
   local commit
-  commit=$(git log --format='%H' --fixed-strings --grep="Applied: $fix_func" | head -1)
-  [[ -z "$commit" ]] && commit=$(git log --format='%H' --fixed-strings --grep="$fix_func" | head -1)
-  [[ -z "$commit" ]] && { info "SKIP: no commit for $fix_func (autofix may not have fired on this repo)"; return 0; }
+  commit=$(git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" | head -1)
+  [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for $fix_func (autofix may not have fired on this repo)"; return 0; }
 
   info "Reverting $(git log --oneline -1 "$commit")"
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
-    git revert --abort 2>/dev/null || git checkout -- . 2>/dev/null
+    git revert --abort 2>/dev/null || git reset --hard HEAD 2>/dev/null
     return 0
   fi
 
@@ -633,17 +635,17 @@ cmd_gate_check() {
   local outfile
   outfile="$RESULTS_DIR/gate-check/${fix_func}-$(basename "$repo")-$(date +%s).txt"
 
-  # Read gate content up front so failures are caught before claude runs
+  # Read gate content, stripping the report-write section to avoid
+  # conflicting VERDICT instructions (the gate says VERDICT: PASS/FAIL,
+  # we inject VERDICT: ISSUES_FOUND/CLEAN for sensitivity testing)
   local gate_content
-  gate_content=$(cat "$gate_file") || {
+  # Strip the report-write section appended to all gates (starts with
+  # "After your analysis, write your report" — added by gate persistence)
+  gate_content=$(sed '/^After your analysis, write your report\. The repo path/,$d' "$gate_file") || {
     git reset --hard HEAD 2>/dev/null
     die "Cannot read gate file: $gate_file"
   }
 
-  # Request a structured verdict line instead of parsing free-form prose.
-  # The old approach used a regex on LLM output (e.g. matching "3 issues",
-  # "FAIL", or "file.go:42") which produced false PASS on incidental matches
-  # and false FAIL when the LLM rephrased its findings.
   local prompt
   prompt=$(printf 'Repo: %s\n\n%s\n\n%s' \
     "$repo" "$gate_content" \
@@ -651,13 +653,16 @@ cmd_gate_check() {
 VERDICT: ISSUES_FOUND
 VERDICT: CLEAN")
 
+  # Wrap the entire pipeline in timeout (not just claude) to prevent
+  # hangs if claude blocks before reading stdin
   local output exit_code=0
-  output=$(printf '%s' "$prompt" \
-    | timeout "$GATE_CHECK_TIMEOUT" claude -p --output-format text 2>/dev/null) \
-    || exit_code=$?
+  output=$(timeout "$GATE_CHECK_TIMEOUT" bash -c \
+    'printf "%s" "$1" | claude -p --output-format text 2>/dev/null' \
+    _ "$prompt") || exit_code=$?
 
-  # Always restore the working tree after the gate check
+  # Restore working tree and clean any stale gate report files
   git reset --hard HEAD 2>/dev/null || warn "git reset failed — repo may be dirty"
+  rm -f "$repo/.rebase-tmp/gates/"*.report 2>/dev/null
 
   if [[ "$exit_code" -eq 124 ]]; then
     error "TIMEOUT: gate exceeded ${GATE_CHECK_TIMEOUT}s (output: $outfile)"
@@ -676,7 +681,8 @@ VERDICT: CLEAN")
 
   # Match the structured verdict instead of guessing from prose
   local verdict
-  verdict=$(echo "$output" | grep -oE '^VERDICT: (ISSUES_FOUND|CLEAN)$' | tail -1)
+  # Strip trailing whitespace before matching — LLMs sometimes add spaces
+  verdict=$(echo "$output" | sed 's/[[:space:]]*$//' | grep -oE '^VERDICT: (ISSUES_FOUND|CLEAN)$' | tail -1)
 
   case "$verdict" in
     "VERDICT: ISSUES_FOUND")
