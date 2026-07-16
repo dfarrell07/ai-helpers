@@ -332,7 +332,7 @@ cmd_run() {
   mkdir -p "$RESULTS_DIR" || die "Cannot create $RESULTS_DIR"
 
   for repo in "${repos[@]}"; do
-    [[ -d "$repo" ]] || { error "Not found: $repo"; continue; }
+    [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
     local short
     short=$(repo_short "$repo")
     local existing
@@ -411,7 +411,7 @@ cmd_status() {
     commits=$(git log "$default_br".."$branch" --oneline 2>/dev/null | wc -l)
     applied=$(git log "$default_br".."$branch" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
 
-    local session_state="—"
+    local session_state="-"
     local session_info
     session_info=$(session_for_repo "$repo")
     if [[ -n "$session_info" ]]; then
@@ -423,7 +423,7 @@ cmd_status() {
       fi
     fi
 
-    local gates="—"
+    local gates="-"
     local gate_dir="$wdir/.rebase-tmp/gates"
     if [[ -d "$gate_dir" ]]; then
       local gates_total gates_pass
@@ -432,7 +432,7 @@ cmd_status() {
       [[ "$gates_total" -gt 0 ]] && gates="${gates_pass}/${gates_total}"
     fi
 
-    local gomod k8s_ver="?" build_ok="—" vet_ok="—"
+    local gomod k8s_ver="?" build_ok="-" vet_ok="-"
     gomod=$(primary_gomod "$wdir")
     if [[ -n "$gomod" ]]; then
       k8s_ver=$(grep 'k8s.io/api ' "$gomod" 2>/dev/null | grep -v '=>' | head -1 | awk '{print $2}')
