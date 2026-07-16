@@ -58,6 +58,21 @@ declare -A AUTOFIX_TO_GATE=(
   [fix_lint_version]="step4-verification/ci-prediction.md"
   [fix_obsgen]="step3-autofix/patterns-completeness.md"
   [fix_conformance_renames]="step3-autofix/patterns-completeness.md"
+  [fix_banp_egresspeer]="step3-autofix/patterns-completeness.md"
+  [fix_eventf]="step3-autofix/deprecated-api-remnants.md"
+  [fix_addtoscheme]="step3-autofix/deprecated-api-remnants.md"
+  [fix_imports]="step3-autofix/deprecated-api-remnants.md"
+  [fix_bounding_dirs]="step3-autofix/deprecated-api-remnants.md"
+  [fix_mocks]="step3-autofix/patterns-completeness.md"
+  [fix_network_policy_api_crds]="step3-autofix/crd-validation.md"
+  [fix_kind_version]="step4-verification/ci-prediction.md"
+  [fix_metallb_version]="step4-verification/ci-prediction.md"
+  [fix_kubevirt_version]="step4-verification/ci-prediction.md"
+  [fix_relaxed_service_name_validation]="step4-verification/ci-prediction.md"
+  [fix_kubeadm_v1beta4]="step4-verification/ci-prediction.md"
+  [fix_docs_version]="step4-verification/version-completeness.md"
+  [fix_version_refs]="step4-verification/version-completeness.md"
+  [fix_go_version]="step4-verification/go-version-check.md"
 )
 
 info()  { echo ":: $*"; }
@@ -616,17 +631,21 @@ cmd_gate_check() {
 
   info "── Sensitivity: $fix_func on $short ($branch) ──"
 
-  # Search ONLY for the Applied: trailer on the current branch
+  # Search ONLY for the Applied: trailer on the current branch.
+  # Use origin/ prefix so the range is correct even if local main is stale.
   local default_br
   default_br=$(default_branch)
   local commit
-  commit=$(git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" | head -1)
+  commit=$(git log "origin/$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null \
+    || git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null \
+    | head -1)
   [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for $fix_func (autofix may not have fired on this repo)"; return 0; }
 
   info "Reverting $(git log --oneline -1 "$commit")"
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
     git revert --abort 2>/dev/null || git reset --hard HEAD 2>/dev/null
+    rm -f "$repo/.rebase-tmp/gates/"*.report 2>/dev/null
     return 0
   fi
 
@@ -645,6 +664,10 @@ cmd_gate_check() {
     git reset --hard HEAD 2>/dev/null
     die "Cannot read gate file: $gate_file"
   }
+  if [[ -z "$gate_content" ]]; then
+    git reset --hard HEAD 2>/dev/null
+    die "Gate content empty after stripping report section: $gate_file"
+  fi
 
   local prompt
   prompt=$(printf 'Repo: %s\n\n%s\n\n%s' \
