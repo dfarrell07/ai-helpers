@@ -86,8 +86,9 @@ repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 cleanup_repo=""
 trap_cleanup() {
   if [[ -n "$cleanup_repo" ]]; then
-    warn "Interrupted — repo $(basename "$cleanup_repo") may need manual cleanup"
-    warn "Check: git stash list, git worktree list, git status"
+    warn "Interrupted — restoring $(basename "$cleanup_repo")"
+    git -C "$cleanup_repo" reset --hard HEAD 2>/dev/null || true
+    git -C "$cleanup_repo" clean -fd 2>/dev/null || true
   fi
 }
 trap trap_cleanup EXIT
@@ -99,14 +100,14 @@ Usage: $(basename "$0") <command> [options] [args...]
 Commands:
   run       <version> [repo...]            Launch skill runs
   status    [repo...]                      Sessions + branch progress
-  stop      [repo...|--all|--stuck]        Kill sessions (processes + registry)
+  stop      [repo...|--all|--stuck]        Stop sessions (--stuck = running > 2h)
   clean     [repo...]                      Remove leftover worktrees (git artifacts)
   compare   [--last] <repo>                Diff last two rebase branches
             <branch1> <branch2> <repo>     Diff specific branches
   gate-check <autofix-fn> <repo>            Revert one fix, verify gate catches it
 
 Options:
-  --build              Run go build/vet in status (off by default)
+  --build              Include go build/vet in status (slow, ~30s per repo)
   -v, --verbose        Show commit subjects in status
   --plugin-dir D       Plugin path (default: auto-detected)
   --permission-mode M  Permission mode (default: bypassPermissions)
@@ -124,7 +125,7 @@ Examples:
   $(basename "$0") compare --last ~/ovnk/openshift/ingress-node-firewall
   $(basename "$0") gate-check fix_xexp ~/ovnk/ovn-org/ovn-kubernetes
 
-Sensitivity functions:
+Gate-check targets (autofix function -> gate file):
 $(for fn in "${!AUTOFIX_TO_GATE[@]}"; do echo "  $fn → ${AUTOFIX_TO_GATE[$fn]}"; done | sort)
 EOF
   exit 0
@@ -195,7 +196,7 @@ work_dir_for() {
   local repo="$1" branch="$2"
   cd "$repo" 2>/dev/null || return 1
   local wt
-  wt=$(git worktree list 2>/dev/null | grep -F "[$branch]" | awk '{print $1}' | head -1)
+  wt=$(git worktree list 2>/dev/null | grep -E "\[$branch( locked)?\]" | awk '{print $1}' | head -1)
   echo "${wt:-$repo}"
 }
 
@@ -256,7 +257,7 @@ remove_worktrees() {
     local default_br commit_count=0
     default_br=$(default_branch)
     if [[ -n "$wt_branch" ]]; then
-      commit_count=$(git log "$default_br".."$wt_branch" --oneline 2>/dev/null | wc -l)
+      commit_count=$(git rev-list --count "$default_br".."$wt_branch" 2>/dev/null || echo 0)
     fi
 
     git worktree unlock "$wt_path" 2>/dev/null || true
@@ -307,8 +308,9 @@ for s in data:
 session_for_repo() {
   local repo="$1" short
   short=$(repo_short "$repo")
-  # Match on /short or /short/ to avoid ovn-kubernetes matching ovn-kubernetes-mcp
-  echo "$_session_cache" | grep -F "/$short" | head -1
+  # Anchor match: /short followed by tab or /. to prevent prefix collisions
+  # (e.g., ovn-kubernetes matching ovn-kubernetes-mcp)
+  echo "$_session_cache" | grep -E "/${short}(/|\t)" | head -1
 }
 
 write_session_json() {
@@ -331,6 +333,7 @@ cmd_run() {
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
   mkdir -p "$RESULTS_DIR" || die "Cannot create $RESULTS_DIR"
 
+  build_session_cache
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
     local short
@@ -339,12 +342,11 @@ cmd_run() {
     existing=$(cd "$repo" && list_bump_branches | wc -l)
     info "── $short ($existing prior runs) ──"
 
-    # Check for active sessions on this repo to prevent races
-    build_session_cache
+    # Block on ANY session (including idle) — it may still own a worktree
     local active
-    active=$(echo "$_session_cache" | grep -F "/$short" | grep -v 'idle' | head -1 || true)
+    active=$(session_for_repo "$repo")
     if [[ -n "$active" ]]; then
-      warn "Active session found for $short — stop it first or wait"
+      warn "Session found for $short — stop it first (even idle sessions own worktrees)"
       continue
     fi
 
@@ -372,9 +374,14 @@ cmd_run() {
     fi
 
     write_session_json "$short" "$version" "$session_id" "$base"
-    info "Launched $session_id"
+    info "Launched $short → session $session_id"
     echo ""
   done
+
+  echo ""
+  info "Monitor progress:  $0 status"
+  info "With commit list:  $0 -v status"
+  info "Sessions typically complete in 15-45 minutes (idle = done)."
 }
 
 # ── status ───────────────────────────────────────────────────────────
@@ -389,7 +396,7 @@ cmd_status() {
 
   build_session_cache
 
-  printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" "REPO" "COMMITS" "APPLIED" "SESSION" "BUILD" "VET" "GATES" "K8S"
+  printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" "REPO" "COMMITS" "AUTOFIX" "SESSION" "BUILD" "VET" "GATES" "K8S"
   printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" "----" "-------" "-------" "-------" "-----" "---" "-----" "---"
 
   for repo in "${repos[@]}"; do
@@ -408,7 +415,7 @@ cmd_status() {
     default_br=$(default_branch)
 
     local commits applied
-    commits=$(git log "$default_br".."$branch" --oneline 2>/dev/null | wc -l)
+    commits=$(git rev-list --count "$default_br".."$branch" 2>/dev/null || echo 0)
     applied=$(git log "$default_br".."$branch" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
 
     local session_state="-"
@@ -428,7 +435,7 @@ cmd_status() {
     if [[ -d "$gate_dir" ]]; then
       local gates_total gates_pass
       gates_total=$(find "$gate_dir" -name '*.report' 2>/dev/null | wc -l)
-      gates_pass=$(grep -rlE '^(VERDICT|RESULT): PASS|: PASS$' "$gate_dir" 2>/dev/null | wc -l)
+      gates_pass=$(find "$gate_dir" -name '*.report' -exec grep -lE '^(VERDICT|RESULT): PASS$' {} + 2>/dev/null | wc -l)
       [[ "$gates_total" -gt 0 ]] && gates="${gates_pass}/${gates_total}"
     fi
 
@@ -492,7 +499,7 @@ cmd_stop() {
   done
 
   local killed=0
-  while IFS=$'\t' read -r cwd tag _elapsed pid sid full_sid; do
+  while IFS=$'\t' read -r cwd tag elapsed pid sid full_sid; do
     [[ -z "$pid" ]] && continue
     # Skip any PID in our own ancestor chain
     if echo "$my_ancestors" | grep -qw "$pid"; then
@@ -504,7 +511,8 @@ cmd_stop() {
     if $stop_all; then
       should_stop=true
     elif $stop_stuck; then
-      [[ "$tag" == *"waiting"* ]] && should_stop=true
+      # Match sessions running > 120 min — likely stuck on permission prompts or hangs
+      [[ "$elapsed" =~ ^[0-9]+$ ]] && [[ "$elapsed" -gt 120 ]] && should_stop=true
     else
       for t in "${targets[@]}"; do
         # Match session ID prefix or exact repo name in cwd path.
@@ -517,11 +525,13 @@ cmd_stop() {
     fi
 
     if $should_stop; then
-      # Kill the session process directly. Don't kill the parent —
-      # it may be a shared daemon managing multiple sessions.
-      kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null || true
-      claude rm "${full_sid:-$sid}" 2>/dev/null || true
-      info "Killed $sid ($tag) — $cwd"
+      # Use `claude stop` to halt session without destroying its worktree.
+      # `claude rm` would delete the worktree — that belongs to `clean`.
+      claude stop "${full_sid:-$sid}" 2>/dev/null \
+        || { kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null || true; }
+      local repo_name
+      repo_name=$(echo "$cwd" | sed "s|$HOME/ovnk/||" | sed 's|/\.claude/.*||')
+      info "Stopped ${repo_name:-$cwd} [session $sid]"
       killed=$((killed + 1))
     fi
   done <<< "$_session_cache"
@@ -540,13 +550,13 @@ cmd_clean() {
   local cleaned=0
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
-    # Skip repos with active sessions to avoid yanking worktrees from under them
+    # Block on ANY session (including idle) — it may still own a worktree
     local short
     short=$(repo_short "$repo")
     local active
-    active=$(echo "$_session_cache" | grep -F "/$short" | grep -v 'idle' | head -1 || true)
+    active=$(session_for_repo "$repo")
     if [[ -n "$active" ]]; then
-      warn "Active session on $short — skipping clean (stop it first)"
+      warn "Session on $short — skipping clean (stop it first, even idle sessions own worktrees)"
       continue
     fi
     cd "$repo" || continue
@@ -598,11 +608,11 @@ cmd_compare() {
   info "── $(repo_short "$repo"): $branch_a vs $branch_b ──"
   echo ""
 
-  printf "%-42s %6s %7s %s\n" "BRANCH" "COMMITS" "APPLIED" "K8S"
+  printf "%-42s %6s %7s %s\n" "BRANCH" "COMMITS" "AUTOFIX" "K8S"
   printf "%-42s %6s %7s %s\n" "------" "-------" "-------" "---"
   for b in "$branch_a" "$branch_b"; do
     local commits applied k8s_ver
-    commits=$(git log "$default_br".."$b" --oneline 2>/dev/null | wc -l)
+    commits=$(git rev-list --count "$default_br".."$b" 2>/dev/null || echo 0)
     applied=$(git log "$default_br".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
     k8s_ver=$(git show "$b":go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
     [[ -z "$k8s_ver" ]] && k8s_ver=$(git show "$b":go-controller/go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
@@ -610,14 +620,19 @@ cmd_compare() {
   done
 
   echo ""
-  echo "Diff:"
+  echo "File changes ($branch_a → $branch_b):"
   git diff "$branch_a".."$branch_b" --stat 2>/dev/null | tail -3
+  local new_count missing_count
   echo ""
-  echo "Only in $branch_b:"
+  echo "New in $branch_b (not in $branch_a):"
   git log "$branch_a".."$branch_b" --oneline 2>/dev/null | head -10
+  new_count=$(git rev-list --count "$branch_a".."$branch_b" 2>/dev/null || echo 0)
+  [[ "$new_count" -gt 10 ]] && echo "  ... and $((new_count - 10)) more"
   echo ""
-  echo "Only in $branch_a:"
+  echo "Missing from $branch_b (was in $branch_a):"
   git log "$branch_b".."$branch_a" --oneline 2>/dev/null | head -10
+  missing_count=$(git rev-list --count "$branch_b".."$branch_a" 2>/dev/null || echo 0)
+  [[ "$missing_count" -gt 10 ]] && echo "  ... and $((missing_count - 10)) more"
 }
 
 # ── gate-check ────────────────────────────────────────────────────────
@@ -693,13 +708,13 @@ VERDICT: CLEAN")
   # Wrap the entire pipeline in timeout (not just claude) to prevent
   # hangs if claude blocks before reading stdin
   local output exit_code=0
-  output=$(timeout "$GATE_CHECK_TIMEOUT" bash -c \
+  output=$(timeout -k 10 "$GATE_CHECK_TIMEOUT" bash -c \
     'printf "%s" "$1" | claude -p --output-format text 2>/dev/null' \
     _ "$prompt") || exit_code=$?
 
-  # Restore working tree and clean any stale gate report files
+  # Restore working tree: reset tracked files, clean untracked (claude -p may create files)
   git reset --hard HEAD 2>/dev/null || warn "git reset failed — repo may be dirty"
-  # Don't delete gate reports — they belong to prior skill runs
+  git clean -fd 2>/dev/null || true
   cleanup_repo=""
 
   if [[ "$exit_code" -eq 124 ]]; then
