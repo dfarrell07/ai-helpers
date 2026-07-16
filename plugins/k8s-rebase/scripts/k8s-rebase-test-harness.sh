@@ -342,7 +342,7 @@ cmd_run() {
     # Check for active sessions on this repo to prevent races
     build_session_cache
     local active
-    active=$(echo "$_session_cache" | grep -F "$short" | grep -v 'idle' | head -1 || true)
+    active=$(echo "$_session_cache" | grep -F "/$short" | grep -v 'idle' | head -1 || true)
     if [[ -n "$active" ]]; then
       warn "Active session found for $short — stop it first or wait"
       continue
@@ -517,10 +517,13 @@ cmd_stop() {
     fi
 
     if $should_stop; then
-      local ppid
+      local ppid ppid_cmd
       ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-      # SIGTERM first, then SIGKILL after brief grace
-      if [[ -n "$ppid" && "$ppid" != "1" ]] && ! echo "$my_ancestors" | grep -qw "$ppid"; then
+      ppid_cmd=$(ps -o comm= -p "$ppid" 2>/dev/null || true)
+      # Only kill the parent if it's a per-session wrapper (bg-pty-host),
+      # not a shared daemon that manages multiple sessions
+      if [[ -n "$ppid" && "$ppid" != "1" && "$ppid_cmd" == *"bg-pty"* ]] \
+         && ! echo "$my_ancestors" | grep -qw "$ppid"; then
         kill "$ppid" 2>/dev/null; sleep 1; kill -9 "$ppid" 2>/dev/null || true
       fi
       kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null || true
@@ -531,6 +534,7 @@ cmd_stop() {
   done <<< "$_session_cache"
 
   [[ "$killed" -eq 0 ]] && info "No matching sessions found"
+  return 0
 }
 
 # ── clean ────────────────────────────────────────────────────────────
@@ -572,6 +576,7 @@ cmd_clean() {
   fi
 
   [[ "$cleaned" -eq 0 ]] && info "Nothing to clean"
+  return 0
 }
 
 # ── compare ──────────────────────────────────────────────────────────
@@ -659,6 +664,7 @@ cmd_gate_check() {
     info "SKIP: revert conflicts (later commits modified the same files)"
     git revert --abort 2>/dev/null || git reset --hard HEAD 2>/dev/null
     rm -f "$repo/.rebase-tmp/gates/"*.report 2>/dev/null
+    cleanup_repo=""
     return 0
   fi
 
