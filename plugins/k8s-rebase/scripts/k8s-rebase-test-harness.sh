@@ -174,6 +174,10 @@ reset_to_main() {
   _cleanup_repo="$repo"
   cd "$repo" || die "Cannot cd to $repo"
 
+  if [[ -f "$repo/.git/MERGE_HEAD" ]]; then
+    die "Merge in progress in $repo — resolve or abort (git merge --abort) first"
+  fi
+
   if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
     local stash_name="harness-$(date +%s)"
     git stash push -u -m "$stash_name" 2>/dev/null || true
@@ -255,17 +259,9 @@ session_for_repo() {
 }
 
 write_session_json() {
-  local repo="$1" version="$2" sid="$3" base="$4"
-  python3 -c "
-import json, sys, datetime
-print(json.dumps({
-    'repo': sys.argv[1],
-    'version': sys.argv[2],
-    'sid': sys.argv[3],
-    'time': datetime.datetime.utcnow().strftime('%Y-%m-%dT%H:%M:%SZ'),
-    'base': sys.argv[4]
-}))
-" "$repo" "$version" "$sid" "$base" >> "$RESULTS_DIR/sessions.jsonl"
+  printf '{"repo":"%s","version":"%s","sid":"%s","time":"%s","base":"%s"}\n' \
+    "$1" "$2" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$4" \
+    >> "$RESULTS_DIR/sessions.jsonl"
 }
 
 # ── run ──────────────────────────────────────────────────────────────
@@ -289,6 +285,15 @@ cmd_run() {
     local existing
     existing=$(cd "$repo" && list_bump_branches | wc -l | tr -d ' ')
     info "── $short ($existing prior runs) ──"
+
+    # Check for active sessions on this repo to prevent races
+    build_session_cache
+    local active
+    active=$(echo "$_session_cache" | grep -F "$short" | grep -v 'idle' | head -1 || true)
+    if [[ -n "$active" ]]; then
+      warn "Active session found for $short — stop it first or wait"
+      continue
+    fi
 
     remove_worktrees "$repo"
     reset_to_main "$repo"
@@ -366,8 +371,10 @@ cmd_status() {
 
     local gomod k8s_ver="?" build_ok="—" vet_ok="—"
     gomod=$(primary_gomod "$wdir")
-    [[ -n "$gomod" ]] && k8s_ver=$(grep 'k8s.io/api ' "$gomod" 2>/dev/null | awk '{print $2}')
-    : "${k8s_ver:=?}"
+    if [[ -n "$gomod" ]]; then
+      k8s_ver=$(grep 'k8s.io/api ' "$gomod" 2>/dev/null | grep -v '=>' | head -1 | awk '{print $2}')
+      : "${k8s_ver:=?}"
+    fi
 
     if $BUILD && [[ -n "$gomod" ]]; then
       local gdir
@@ -391,7 +398,11 @@ cmd_stop() {
   local targets=("$@")
   local stop_all=false stop_stuck=false
 
-  case "${targets[0]:-}" in
+  if [[ ${#targets[@]} -eq 0 ]]; then
+    die "Usage: $0 stop [repo...|--all|--stuck]"
+  fi
+
+  case "${targets[0]}" in
     --all)   stop_all=true; targets=() ;;
     --stuck) stop_stuck=true; targets=() ;;
   esac
@@ -431,15 +442,12 @@ cmd_stop() {
     fi
 
     if $should_stop; then
-      if [[ -n "$pid" ]]; then
-        local ppid
-        ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
-        # Only kill the parent if it's NOT in our ancestor chain
-        if [[ -n "$ppid" && "$ppid" != "1" ]] && ! echo "$my_ancestors" | grep -qw "$ppid"; then
-          kill -9 "$ppid" 2>/dev/null || true
-        fi
-        kill -9 "$pid" 2>/dev/null || true
+      local ppid
+      ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+      if [[ -n "$ppid" && "$ppid" != "1" ]] && ! echo "$my_ancestors" | grep -qw "$ppid"; then
+        kill -9 "$ppid" 2>/dev/null || true
       fi
+      kill -9 "$pid" 2>/dev/null || true
       claude rm "${full_sid:-$sid}" 2>/dev/null || true
       info "Killed $sid ($tag) — $cwd"
     fi
@@ -455,10 +463,12 @@ cmd_clean() {
   local cleaned=0
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || continue
+    cd "$repo" || continue
+    git worktree prune 2>/dev/null || true
     local before after
-    before=$(cd "$repo" && git worktree list 2>/dev/null | grep -c '\.claude/worktrees' || true)
+    before=$(git worktree list 2>/dev/null | grep -c '\.claude/worktrees' || true)
     remove_worktrees "$repo"
-    after=$(cd "$repo" && git worktree list 2>/dev/null | grep -c '\.claude/worktrees' || true)
+    after=$(git worktree list 2>/dev/null | grep -c '\.claude/worktrees' || true)
     cleaned=$((cleaned + before - after))
   done
 
@@ -507,8 +517,8 @@ cmd_compare() {
     local c a v
     c=$(git log "$db".."$b" --oneline 2>/dev/null | wc -l | tr -d ' ')
     a=$(git log "$db".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
-    v=$(git show "$b":go.mod 2>/dev/null | grep 'k8s.io/api ' | awk '{print $2}')
-    [[ -z "$v" ]] && v=$(git show "$b":go-controller/go.mod 2>/dev/null | grep 'k8s.io/api ' | awk '{print $2}')
+    v=$(git show "$b":go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
+    [[ -z "$v" ]] && v=$(git show "$b":go-controller/go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
     printf "%-42s %6s %7s %s\n" "$b" "$c" "$a" "${v:-?}"
   done
 
@@ -551,7 +561,7 @@ cmd_sensitive() {
   info "Reverting $(git log --oneline -1 "$commit")"
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
-    git checkout -- . 2>/dev/null
+    git revert --abort 2>/dev/null || git reset --hard HEAD 2>/dev/null
     return 0
   fi
 
@@ -559,11 +569,10 @@ cmd_sensitive() {
   mkdir -p "$RESULTS_DIR/sensitive"
   local outfile="$RESULTS_DIR/sensitive/${fn}-$(basename "$repo")-$(date +%s).txt"
   local output
-  output=$(printf "Repo: %s\n\n%s" "$repo" "$(cat "$gate_file")" \
-    | claude -p --output-format text 2>/dev/null || echo "ERROR: claude -p failed")
+  output=$(timeout 300 bash -c "printf 'Repo: %s\n\n%s' '$repo' \"\$(cat '$gate_file')\" \
+    | claude -p --output-format text 2>/dev/null" || echo "ERROR: claude -p failed or timed out")
 
-  git checkout -- . 2>/dev/null
-  git clean -fd 2>/dev/null
+  git reset --hard HEAD 2>/dev/null
 
   echo "$output" > "$outfile"
   echo "$output" | tail -15
