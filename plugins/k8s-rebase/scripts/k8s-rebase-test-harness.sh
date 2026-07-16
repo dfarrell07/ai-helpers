@@ -304,11 +304,12 @@ for s in data:
 }
 
 session_for_repo() {
-  local repo="$1" short
+  local repo="$1" short line
   short=$(repo_short "$repo")
   # Match /short/ (worktree path) or /short<TAB> (end of cwd field).
-  # Uses grep -F with two patterns to avoid regex tab escaping issues.
-  printf '%s\n' "$_session_cache" | grep -F "/${short}/" | head -1 && return
+  # Capture output to avoid pipefail+SIGPIPE issues with `&& return`.
+  line=$(printf '%s\n' "$_session_cache" | grep -F "/${short}/" | head -1)
+  [[ -n "$line" ]] && { echo "$line"; return; }
   printf '%s\n' "$_session_cache" | grep -F $'/'"${short}"$'\t' | head -1
 }
 
@@ -576,7 +577,7 @@ cmd_clean() {
     if [[ "$count" -gt "$MAX_SESSION_LOG" ]]; then
       tail -"$MAX_SESSION_LOG" "$RESULTS_DIR/sessions.jsonl" > "$RESULTS_DIR/sessions.jsonl.tmp" \
         && mv "$RESULTS_DIR/sessions.jsonl.tmp" "$RESULTS_DIR/sessions.jsonl"
-      info "Trimmed session log to last 20 entries"
+      info "Trimmed session log to last $MAX_SESSION_LOG entries"
     fi
   fi
 
@@ -682,7 +683,7 @@ cmd_gate_check() {
   fi
 
   info "Running gate: ${AUTOFIX_TO_GATE[$fix_func]}"
-  mkdir -p "$RESULTS_DIR/gate-check"
+  mkdir -p "$RESULTS_DIR/gate-check" || die "Cannot create $RESULTS_DIR/gate-check"
   local outfile
   outfile="$RESULTS_DIR/gate-check/${fix_func}-$(basename "$repo")-$(date +%s).txt"
 
