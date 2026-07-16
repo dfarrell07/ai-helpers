@@ -49,7 +49,7 @@ warn()  { echo "WARNING: $*" >&2; }
 error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
 
-repo_short() { echo "${1/#$HOME\/ovnk\//}"; }
+repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 
 # Restore repo to its original branch on interrupt
 _cleanup_repo=""
@@ -141,7 +141,7 @@ default_branch() {
 }
 
 list_bump_branches() {
-  LC_ALL=C git branch | grep 'bump' | sed 's/^[* +]*//' | tr -d ' ' | sort -V
+  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | tr -d ' ' | sort -V
 }
 
 find_latest_branch() {
@@ -241,6 +241,8 @@ build_session_cache() {
 import json, sys, time
 try:
     data = json.load(sys.stdin)
+    if not isinstance(data, list):
+        sys.exit(0)
 except (json.JSONDecodeError, ValueError):
     sys.exit(0)
 now = time.time() * 1000
@@ -320,6 +322,7 @@ cmd_run() {
     if [[ "$session_id" == "unknown" ]]; then
       error "Failed to launch session for $short"
       error "claude --bg output: $session_output"
+      warn "Check 'claude agents' for orphaned sessions"
       continue
     fi
 
