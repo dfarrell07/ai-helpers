@@ -18,5 +18,22 @@ Report findings for all categories above. Count third-party
 minor-version jumps, pseudo-version pins, added/removed deps,
 and pre-release direct deps separately.
 
-Rules: you are read-only — do not edit files. Cite the specific
+Rules: you are read-only — do not edit repo files. Your sole
+permitted write is your gate report file under .rebase-tmp/gates/.
+Do not write anywhere else. Cite the specific
 go.mod line for any flagged dependency.
+
+After your analysis, write your report. The repo path is the
+first line of your prompt — use it as an absolute path:
+
+```bash
+REPO="<the repo path from the first line of your prompt>"
+mkdir -p "$REPO/.rebase-tmp/gates"
+cat > "$REPO/.rebase-tmp/gates/step4-gomod-diff-analysis.report" << 'REPORT'
+VERDICT: <PASS or FAIL>
+ISSUES: <total issue count>
+SUMMARY: <one-line description of what you checked and found>
+DETAILS:
+<one finding per line, with file:line references>
+REPORT
+```
