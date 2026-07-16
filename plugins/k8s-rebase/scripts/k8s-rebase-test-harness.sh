@@ -100,7 +100,7 @@ Usage: $(basename "$0") <command> [options] [args...]
 Commands:
   run       <version> [repo...]            Launch skill runs
   status    [repo...]                      Sessions + branch progress
-  stop      [repo...|--all|--stuck]        Stop sessions (--stuck = running > 2h)
+  stop      <repo...|--all|--stuck>        Stop sessions (--stuck = running > 2h)
   clean     [repo...]                      Remove leftover worktrees (git artifacts)
   compare   [--last] <repo>                Diff last two rebase branches
             <branch1> <branch2> <repo>     Diff specific branches
@@ -602,6 +602,8 @@ cmd_compare() {
     [[ $# -lt 3 ]] && die "Usage: compare <branch1> <branch2> <repo>"
     branch_a="$1" branch_b="$2" repo="$3"
     cd "$repo" || die "Cannot cd to $repo"
+    git rev-parse --verify "$branch_a" &>/dev/null || die "Branch not found: $branch_a"
+    git rev-parse --verify "$branch_b" &>/dev/null || die "Branch not found: $branch_b"
   fi
 
   local default_br
@@ -635,6 +637,7 @@ cmd_compare() {
   git log "$branch_b".."$branch_a" --oneline 2>/dev/null | head -10
   missing_count=$(git rev-list --count "$branch_b".."$branch_a" 2>/dev/null || echo 0)
   [[ "$missing_count" -gt 10 ]] && echo "  ... and $((missing_count - 10)) more"
+  return 0
 }
 
 # ── gate-check ────────────────────────────────────────────────────────
