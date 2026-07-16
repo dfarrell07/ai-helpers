@@ -294,7 +294,7 @@ now = time.time() * 1000
 for s in data:
     cwd = s.get('cwd', '')
     st = s.get('state') or s.get('status') or '?'
-    pid = s.get('pid') or ''
+    pid = s.get('pid', '')
     full_sid = s.get('sessionId', '?')
     sid = s.get('id') or full_sid[:8]
     started = s.get('startedAt', 0)
@@ -333,6 +333,7 @@ cmd_run() {
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
   mkdir -p "$RESULTS_DIR" || die "Cannot create $RESULTS_DIR"
 
+  local launched=0
   build_session_cache
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
@@ -356,7 +357,7 @@ cmd_run() {
     local base default_br
     default_br=$(default_branch)
     base=$(git rev-parse --short HEAD)
-    info "Base: $default_br @ $base → k8s $version"
+    info "Base: $default_br @ $base -> k8s $version"
 
     local session_output session_id
     session_output=$(claude --bg \
@@ -374,14 +375,20 @@ cmd_run() {
     fi
 
     write_session_json "$short" "$version" "$session_id" "$base"
-    info "Launched $short → session $session_id"
+    info "Launched $short -> session $session_id"
+    launched=$((launched + 1))
     echo ""
   done
 
-  echo ""
-  info "Monitor progress:  $0 status"
-  info "With commit list:  $0 -v status"
-  info "Sessions typically complete in 15-45 minutes (idle = done)."
+  if [[ "$launched" -gt 0 ]]; then
+    echo ""
+    info "Monitor progress:  $0 status"
+    info "With commit list:  $0 -v status"
+    info "Sessions typically complete in 15-45 minutes (idle = done)."
+  else
+    echo ""
+    warn "No sessions launched — check warnings above"
+  fi
 }
 
 # ── status ───────────────────────────────────────────────────────────
@@ -605,6 +612,7 @@ cmd_compare() {
     cd "$repo" || die "Cannot cd to $repo"
     git rev-parse --verify "$branch_a" &>/dev/null || die "Branch not found: $branch_a"
     git rev-parse --verify "$branch_b" &>/dev/null || die "Branch not found: $branch_b"
+    [[ "$branch_a" == "$branch_b" ]] && die "Both branches are the same: $branch_a"
   fi
 
   local default_br
@@ -625,7 +633,7 @@ cmd_compare() {
   done
 
   echo ""
-  echo "File changes ($branch_a → $branch_b):"
+  echo "File changes ($branch_a -> $branch_b):"
   git diff "$branch_a".."$branch_b" --stat 2>/dev/null | tail -3
   local new_count missing_count
   echo ""
