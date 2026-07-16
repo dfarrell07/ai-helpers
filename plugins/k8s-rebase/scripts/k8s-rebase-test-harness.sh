@@ -16,6 +16,10 @@ RESULTS_DIR="${RESULTS_DIR:-$HARNESS_HOME/.work/test-harness}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 BUILD=false
 VERBOSE=false
+MIN_AVAILABLE_MB=2048
+STALE_SESSION_MINS=1440
+MAX_SESSION_LOG=20
+SENSITIVE_TIMEOUT=300
 
 DEFAULT_REPOS=(
   "$HOME/ovnk/ovn-org/ovn-kubernetes"
@@ -55,7 +59,7 @@ trap_cleanup() {
     warn "Check: git stash list, git worktree list, git status"
   fi
 }
-trap trap_cleanup INT TERM
+trap trap_cleanup EXIT
 
 usage() {
   cat <<EOF
@@ -64,8 +68,8 @@ Usage: $(basename "$0") <command> [options] [args...]
 Commands:
   run       <version> [repo...]            Launch skill runs
   status    [repo...]                      Sessions + branch progress
-  stop      [repo...|--all|--stuck]        Kill sessions
-  clean     [repo...]                      Remove leftover worktrees
+  stop      [repo...|--all|--stuck]        Kill sessions (processes + registry)
+  clean     [repo...]                      Remove leftover worktrees (git artifacts)
   compare   [--last] <repo>                Diff last two rebase branches
             <branch1> <branch2> <repo>     Diff specific branches
   sensitive <autofix-fn> <repo>            Revert one fix, verify gate catches it
@@ -101,10 +105,12 @@ check_prerequisites() {
   command -v claude &>/dev/null || die "claude CLI not found in PATH"
   command -v python3 &>/dev/null || die "python3 not found in PATH"
   command -v git &>/dev/null || die "git not found in PATH"
+  command -v curl &>/dev/null || die "curl not found in PATH"
+  command -v timeout &>/dev/null || die "timeout not found in PATH (install coreutils)"
 
   local avail_mb
   avail_mb=$(free -m 2>/dev/null | awk '/Mem:/{print $7}')
-  if [[ -n "$avail_mb" && "$avail_mb" -lt 2048 ]]; then
+  if [[ -n "$avail_mb" && "$avail_mb" -lt "$MIN_AVAILABLE_MB" ]]; then
     warn "Low memory: ${avail_mb}MB available. Each session uses ~500MB + subagents."
     warn "Consider stopping other sessions first: $0 stop --all"
   fi
@@ -135,7 +141,7 @@ default_branch() {
 }
 
 list_bump_branches() {
-  git branch | grep 'bump' | sed 's/^[* +]*//' | tr -d ' ' | sort -t- -k3
+  LC_ALL=C git branch | grep 'bump' | sed 's/^[* +]*//' | tr -d ' ' | sort -V
 }
 
 find_latest_branch() {
@@ -211,7 +217,7 @@ remove_worktrees() {
     local db commit_count=0
     db=$(default_branch)
     if [[ -n "$wt_branch" ]]; then
-      commit_count=$(git log "$db".."$wt_branch" --oneline 2>/dev/null | wc -l | tr -d ' ')
+      commit_count=$(git log "$db".."$wt_branch" --oneline 2>/dev/null | wc -l)
     fi
 
     git worktree unlock "$wt_path" 2>/dev/null || true
@@ -283,7 +289,7 @@ cmd_run() {
     local short
     short=$(repo_short "$repo")
     local existing
-    existing=$(cd "$repo" && list_bump_branches | wc -l | tr -d ' ')
+    existing=$(cd "$repo" && list_bump_branches | wc -l)
     info "── $short ($existing prior runs) ──"
 
     # Check for active sessions on this repo to prevent races
@@ -354,7 +360,7 @@ cmd_status() {
     db=$(default_branch)
 
     local commits applied
-    commits=$(git log "$db".."$branch" --oneline 2>/dev/null | wc -l | tr -d ' ')
+    commits=$(git log "$db".."$branch" --oneline 2>/dev/null | wc -l)
     applied=$(git log "$db".."$branch" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
 
     local session_state="—"
@@ -364,7 +370,7 @@ cmd_status() {
       local tag mins
       tag=$(echo "$session_info" | cut -f2)
       mins=$(echo "$session_info" | cut -f3)
-      if [[ "$mins" =~ ^[0-9]+$ ]] && { [[ "$tag" != *"idle"* ]] || [[ "$mins" -lt 1440 ]]; }; then
+      if [[ "$mins" =~ ^[0-9]+$ ]] && { [[ "$tag" != *"idle"* ]] || [[ "$mins" -lt "$STALE_SESSION_MINS" ]]; }; then
         session_state="$tag ${mins}m"
       fi
     fi
@@ -377,10 +383,10 @@ cmd_status() {
     fi
 
     if $BUILD && [[ -n "$gomod" ]]; then
-      local gdir
+      local gdir build_err
       gdir=$(dirname "$gomod")
-      (cd "$gdir" && GOTOOLCHAIN=auto go build ./... 2>/dev/null) && build_ok="PASS" || build_ok="FAIL"
-      (cd "$gdir" && GOTOOLCHAIN=auto go vet ./... 2>/dev/null) && vet_ok="PASS" || vet_ok="FAIL"
+      build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go build ./... 2>&1) && build_ok="PASS" || { build_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
+      build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go vet ./... 2>&1) && vet_ok="PASS" || { vet_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
     fi
 
     printf "%-40s %4s %4s %15s %5s %5s %s\n" \
@@ -420,7 +426,8 @@ cmd_stop() {
     _pid=$(ps -o ppid= -p "$_pid" 2>/dev/null | tr -d ' ')
   done
 
-  echo "$_session_cache" | while IFS=$'\t' read -r cwd tag _elapsed pid sid full_sid; do
+  local killed=0
+  while IFS=$'\t' read -r cwd tag _elapsed pid sid full_sid; do
     [[ -z "$pid" ]] && continue
     # Skip any PID in our own ancestor chain
     if echo "$my_ancestors" | grep -qw "$pid"; then
@@ -444,14 +451,18 @@ cmd_stop() {
     if $should_stop; then
       local ppid
       ppid=$(ps -o ppid= -p "$pid" 2>/dev/null | tr -d ' ')
+      # SIGTERM first, then SIGKILL after brief grace
       if [[ -n "$ppid" && "$ppid" != "1" ]] && ! echo "$my_ancestors" | grep -qw "$ppid"; then
-        kill -9 "$ppid" 2>/dev/null || true
+        kill "$ppid" 2>/dev/null; sleep 1; kill -9 "$ppid" 2>/dev/null || true
       fi
-      kill -9 "$pid" 2>/dev/null || true
+      kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null || true
       claude rm "${full_sid:-$sid}" 2>/dev/null || true
       info "Killed $sid ($tag) — $cwd"
+      killed=$((killed + 1))
     fi
-  done
+  done <<< "$_session_cache"
+
+  [[ "$killed" -eq 0 ]] && info "No matching sessions found"
 }
 
 # ── clean ────────────────────────────────────────────────────────────
@@ -475,8 +486,8 @@ cmd_clean() {
   if [[ -f "$RESULTS_DIR/sessions.jsonl" ]]; then
     local count
     count=$(wc -l < "$RESULTS_DIR/sessions.jsonl")
-    if [[ "$count" -gt 20 ]]; then
-      tail -20 "$RESULTS_DIR/sessions.jsonl" > "$RESULTS_DIR/sessions.jsonl.tmp"
+    if [[ "$count" -gt "$MAX_SESSION_LOG" ]]; then
+      tail -"$MAX_SESSION_LOG" "$RESULTS_DIR/sessions.jsonl" > "$RESULTS_DIR/sessions.jsonl.tmp"
       mv "$RESULTS_DIR/sessions.jsonl.tmp" "$RESULTS_DIR/sessions.jsonl"
       info "Trimmed session log to last 20 entries"
     fi
@@ -514,12 +525,12 @@ cmd_compare() {
   printf "%-42s %6s %7s %s\n" "BRANCH" "COMMITS" "AUTOFIX" "K8S"
   printf "%-42s %6s %7s %s\n" "------" "-------" "-------" "---"
   for b in "$b1" "$b2"; do
-    local c a v
-    c=$(git log "$db".."$b" --oneline 2>/dev/null | wc -l | tr -d ' ')
-    a=$(git log "$db".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
-    v=$(git show "$b":go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
-    [[ -z "$v" ]] && v=$(git show "$b":go-controller/go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
-    printf "%-42s %6s %7s %s\n" "$b" "$c" "$a" "${v:-?}"
+    local commits applied k8s_ver
+    commits=$(git log "$db".."$b" --oneline 2>/dev/null | wc -l)
+    applied=$(git log "$db".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
+    k8s_ver=$(git show "$b":go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
+    [[ -z "$k8s_ver" ]] && k8s_ver=$(git show "$b":go-controller/go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
+    printf "%-42s %6s %7s %s\n" "$b" "$commits" "$applied" "${k8s_ver:-?}"
   done
 
   echo ""
@@ -569,10 +580,11 @@ cmd_sensitive() {
   mkdir -p "$RESULTS_DIR/sensitive"
   local outfile="$RESULTS_DIR/sensitive/${fn}-$(basename "$repo")-$(date +%s).txt"
   local output
-  output=$(timeout 300 bash -c "printf 'Repo: %s\n\n%s' '$repo' \"\$(cat '$gate_file')\" \
-    | claude -p --output-format text 2>/dev/null" || echo "ERROR: claude -p failed or timed out")
+  output=$(timeout "$SENSITIVE_TIMEOUT" bash -c \
+    'printf "Repo: %s\n\n%s" "$1" "$(cat "$2")" | claude -p --output-format text 2>/dev/null' \
+    _ "$repo" "$gate_file" || echo "ERROR: claude -p failed or timed out")
 
-  git reset --hard HEAD 2>/dev/null
+  git reset --hard HEAD 2>/dev/null || warn "git reset --hard failed — repo may be dirty"
 
   echo "$output" > "$outfile"
   echo "$output" | tail -15
