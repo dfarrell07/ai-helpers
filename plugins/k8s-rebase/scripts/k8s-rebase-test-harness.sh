@@ -507,7 +507,10 @@ cmd_stop() {
       [[ "$tag" == *"waiting"* ]] && should_stop=true
     else
       for t in "${targets[@]}"; do
-        if [[ "$sid" == "$t"* ]] || [[ "$cwd" == *"/$t" ]] || [[ "$cwd" == *"/$t/"* ]]; then
+        # Match session ID prefix or exact repo name in cwd path.
+        # Use /$t/ or /$t at end — but exclude parent-dir matches by
+        # requiring $t to be followed by / .claude or end-of-string
+        if [[ "$sid" == "$t"* ]] || [[ "$cwd" == *"/$t" ]] || [[ "$cwd" == *"/$t/.claude"* ]]; then
           should_stop=true; break
         fi
       done
@@ -536,9 +539,19 @@ cmd_clean() {
   local repos=("$@")
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
 
+  build_session_cache
   local cleaned=0
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
+    # Skip repos with active sessions to avoid yanking worktrees from under them
+    local short
+    short=$(repo_short "$repo")
+    local active
+    active=$(echo "$_session_cache" | grep -F "/$short" | grep -v 'idle' | head -1 || true)
+    if [[ -n "$active" ]]; then
+      warn "Active session on $short — skipping clean (stop it first)"
+      continue
+    fi
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
     local before after
@@ -640,6 +653,7 @@ cmd_gate_check() {
     || git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null; } | head -1)
   [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for $fix_func (autofix may not have fired on this repo)"; return 0; }
 
+  cleanup_repo="$repo"
   info "Reverting $(git log --oneline -1 "$commit")"
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
@@ -685,6 +699,7 @@ VERDICT: CLEAN")
   # Restore working tree and clean any stale gate report files
   git reset --hard HEAD 2>/dev/null || warn "git reset failed — repo may be dirty"
   rm -f "$repo/.rebase-tmp/gates/"*.report 2>/dev/null
+  cleanup_repo=""
 
   if [[ "$exit_code" -eq 124 ]]; then
     error "TIMEOUT: gate exceeded ${GATE_CHECK_TIMEOUT}s (output: $outfile)"
