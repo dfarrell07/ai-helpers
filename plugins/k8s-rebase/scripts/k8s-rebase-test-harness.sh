@@ -205,7 +205,8 @@ reset_to_default() {
   fi
 
   if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-    local stash_name="harness-$(date +%s)"
+    local stash_name
+    stash_name="harness-$(date +%s)"
     if git stash push -u -m "$stash_name" 2>/dev/null; then
       warn "Stashed uncommitted changes as '$stash_name' — use 'git stash list' to recover"
     else
@@ -377,7 +378,7 @@ cmd_status() {
   printf "%-45s %7s %7s %18s %5s %5s %s\n" "----" "-------" "-------" "-------" "-----" "---" "---"
 
   for repo in "${repos[@]}"; do
-    [[ -d "$repo" ]] || continue
+    [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
     local short branch wdir default_br
     short=$(repo_short "$repo")
     branch=$(find_newest_branch "$repo")
@@ -513,7 +514,7 @@ cmd_clean() {
 
   local cleaned=0
   for repo in "${repos[@]}"; do
-    [[ -d "$repo" ]] || continue
+    [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
     local before after
@@ -595,6 +596,7 @@ cmd_gate_check() {
   [[ -f "$gate_file" ]] || die "Gate not found: $gate_file"
 
   cd "$repo" || die "Cannot cd to $repo"
+  git rev-parse --git-dir &>/dev/null || die "Not a git repository: $repo"
   local short branch
   short=$(repo_short "$repo")
   branch=$(git branch --show-current 2>/dev/null)
@@ -619,7 +621,8 @@ cmd_gate_check() {
 
   info "Running gate: ${AUTOFIX_TO_GATE[$fix_func]}"
   mkdir -p "$RESULTS_DIR/gate-check"
-  local outfile="$RESULTS_DIR/gate-check/${fix_func}-$(basename "$repo")-$(date +%s).txt"
+  local outfile
+  outfile="$RESULTS_DIR/gate-check/${fix_func}-$(basename "$repo")-$(date +%s).txt"
 
   # Read gate content up front so failures are caught before claude runs
   local gate_content
