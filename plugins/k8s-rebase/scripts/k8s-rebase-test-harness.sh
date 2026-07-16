@@ -1,4 +1,5 @@
 #!/bin/bash
+# Requires bash 4+ (associative arrays), Linux coreutils (sort -V, free, timeout).
 # k8s-rebase-test-harness.sh — Launch, monitor, and validate skill runs
 #
 # Launches standalone Claude Code sessions (claude --bg) to run the
@@ -23,6 +24,9 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_HOME="$(cd "$PLUGIN_DIR/../.." && pwd)"
 RESULTS_DIR="${RESULTS_DIR:-$HARNESS_HOME/.work/test-harness}"
+# bypassPermissions required — the skill runs bash scripts, go build, git ops.
+# This means .claude/ configs in target repos execute with full access.
+# Only run against trusted repos.
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 BUILD=false
 VERBOSE=false
