@@ -416,8 +416,16 @@ cmd_status() {
     if $BUILD && [[ -n "$gomod" ]]; then
       local gdir build_err
       gdir=$(dirname "$gomod")
-      build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go build ./... 2>&1) && build_ok="PASS" || { build_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
-      build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go vet ./... 2>&1) && vet_ok="PASS" || { vet_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
+      # Verify we're testing the rebase branch, not main (worktree may have been cleaned)
+      local actual_branch
+      actual_branch=$(git -C "$gdir" branch --show-current 2>/dev/null)
+      if [[ -n "$actual_branch" && "$actual_branch" != "$branch" ]]; then
+        warn "Build check skipped for $short — worktree gone, would test $actual_branch not $branch"
+        build_ok="SKIP"; vet_ok="SKIP"
+      else
+        build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go build ./... 2>&1) && build_ok="PASS" || { build_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
+        build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go vet ./... 2>&1) && vet_ok="PASS" || { vet_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
+      fi
     fi
 
     printf "%-45s %5s %5s %18s %5s %5s %s\n" \
@@ -540,7 +548,7 @@ cmd_compare() {
     branches=$(list_bump_branches | tail -2)
     b1=$(echo "$branches" | head -1)
     b2=$(echo "$branches" | tail -1)
-    [[ -z "$b1" || -z "$b2" || "$b1" == "$b2" ]] && die "Need at least 2 bump branches in $repo"
+    [[ -z "$b1" || -z "$b2" || "$b1" == "$b2" ]] && die "Need at least 2 bump branches in $repo (run the skill twice first)"
   else
     [[ $# -lt 3 ]] && die "Usage: compare <branch1> <branch2> <repo>"
     b1="$1" b2="$2" repo="$3"
