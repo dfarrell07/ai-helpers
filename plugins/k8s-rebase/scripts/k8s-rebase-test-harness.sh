@@ -142,7 +142,7 @@ check_prerequisites() {
 
   local avail_mb
   avail_mb=$(free -m 2>/dev/null | awk '/Mem:/{print $7}')
-  if [[ -n "$avail_mb" && "$avail_mb" -lt "$MIN_AVAILABLE_MB" ]]; then
+  if [[ -n "$avail_mb" ]] && [[ "$avail_mb" =~ ^[0-9]+$ ]] && [[ "$avail_mb" -lt "$MIN_AVAILABLE_MB" ]]; then
     warn "Low memory: ${avail_mb}MB available. Each session uses ~500MB + subagents."
     warn "Consider stopping other sessions first: $0 stop --all"
   fi
@@ -299,7 +299,7 @@ for s in data:
     sid = s.get('id') or full_sid[:8]
     started = s.get('startedAt', 0)
     elapsed = int((now - started) / 60000) if started else 0
-    print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{sid}')
+    print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
 " 2>/dev/null || true)
 }
 
@@ -760,9 +760,9 @@ while [[ $# -gt 0 ]]; do
   case "$1" in
     --build)           BUILD=true; shift ;;
     -v|--verbose)      VERBOSE=true; shift ;;
-    --plugin-dir)      PLUGIN_DIR="$2"; shift 2 ;;
-    --permission-mode) PERMISSION_MODE="$2"; shift 2 ;;
-    --results-dir)     RESULTS_DIR="$2"; shift 2 ;;
+    --plugin-dir)      [[ $# -ge 2 ]] || die "--plugin-dir requires an argument"; PLUGIN_DIR="$2"; shift 2 ;;
+    --permission-mode) [[ $# -ge 2 ]] || die "--permission-mode requires an argument"; PERMISSION_MODE="$2"; shift 2 ;;
+    --results-dir)     [[ $# -ge 2 ]] || die "--results-dir requires an argument"; RESULTS_DIR="$2"; shift 2 ;;
     -h|--help)         usage ;;
     -*)                die "Unknown option: $1" ;;
     *)                 break ;;
