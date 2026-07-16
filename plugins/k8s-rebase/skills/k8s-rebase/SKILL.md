@@ -175,8 +175,9 @@ complete until all subagents report zero issues.
 - Judgment agents must cite the specific file:line or diff hunk
   for each concern — "no issues found" requires listing what
   was actually checked.
-- Gate subagents are read-only — they verify and report, but
-  must NOT edit files. The main agent applies fixes.
+- Gate subagents are read-only — they must NOT edit repo files.
+  Their sole permitted write is their gate report file under
+  `.rebase-tmp/gates/`. The main agent applies fixes.
 - If ANY judgment agent flags a concern, the main agent MUST
   investigate and either fix it or explain why it's not an
   issue before proceeding. Do not dismiss judgment concerns.

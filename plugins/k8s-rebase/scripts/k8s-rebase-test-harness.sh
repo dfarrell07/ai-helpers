@@ -374,8 +374,8 @@ cmd_status() {
 
   build_session_cache
 
-  printf "%-45s %7s %7s %18s %5s %5s %s\n" "REPO" "COMMITS" "APPLIED" "SESSION" "BUILD" "VET" "K8S"
-  printf "%-45s %7s %7s %18s %5s %5s %s\n" "----" "-------" "-------" "-------" "-----" "---" "---"
+  printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" "REPO" "COMMITS" "APPLIED" "SESSION" "BUILD" "VET" "GATES" "K8S"
+  printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" "----" "-------" "-------" "-------" "-----" "---" "-----" "---"
 
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
@@ -408,6 +408,15 @@ cmd_status() {
       fi
     fi
 
+    local gates="—"
+    local gate_dir="$wdir/.rebase-tmp/gates"
+    if [[ -d "$gate_dir" ]]; then
+      local gates_total gates_pass
+      gates_total=$(find "$gate_dir" -name '*.report' 2>/dev/null | wc -l)
+      gates_pass=$(grep -rl '^VERDICT: PASS' "$gate_dir" 2>/dev/null | wc -l)
+      [[ "$gates_total" -gt 0 ]] && gates="${gates_pass}/${gates_total}"
+    fi
+
     local gomod k8s_ver="?" build_ok="—" vet_ok="—"
     gomod=$(primary_gomod "$wdir")
     if [[ -n "$gomod" ]]; then
@@ -430,8 +439,8 @@ cmd_status() {
       fi
     fi
 
-    printf "%-45s %7s %7s %18s %5s %5s %s\n" \
-      "$short" "$commits" "$applied" "$session_state" "$build_ok" "$vet_ok" "$k8s_ver"
+    printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" \
+      "$short" "$commits" "$applied" "$session_state" "$build_ok" "$vet_ok" "$gates" "$k8s_ver"
 
     if $VERBOSE; then
       git log "$default_br".."$branch" --oneline 2>/dev/null | sed 's/^/    /'

@@ -18,4 +18,22 @@ with the golang container if the local Go version is too old.
 Report total error count from non-skipped modules only.
 
 Rules: report specific counts, not "looks good." You are
-read-only — do not edit files. Cite file:line for any issues.
+read-only — do not edit repo files. Your sole permitted write
+is your gate report file under .rebase-tmp/gates/. Do not write
+anywhere else. Cite file:line for any issues.
+
+After your analysis, write your report. The repo path is the
+first line of your prompt — use it as an absolute path (do not
+use $(pwd) which may change between tool calls):
+
+```bash
+REPO="<the repo path from the first line of your prompt>"
+mkdir -p "$REPO/.rebase-tmp/gates"
+cat > "$REPO/.rebase-tmp/gates/step2-build-vet.report" << 'REPORT'
+VERDICT: <PASS or FAIL>
+ISSUES: <total error count>
+SUMMARY: <one-line: N build errors, M vet errors across K modules>
+DETAILS:
+<one finding per line, with file:line references>
+REPORT
+```
