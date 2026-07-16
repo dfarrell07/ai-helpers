@@ -196,6 +196,9 @@ reset_to_main() {
   if [[ -f "$repo/.git/MERGE_HEAD" ]]; then
     die "Merge in progress in $repo — resolve or abort (git merge --abort) first"
   fi
+  if [[ -d "$repo/.git/rebase-merge" || -d "$repo/.git/rebase-apply" ]]; then
+    die "Rebase in progress in $repo — resolve or abort (git rebase --abort) first"
+  fi
 
   if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
     local stash_name="harness-$(date +%s)"
@@ -237,6 +240,11 @@ remove_worktrees() {
     fi
 
     git worktree unlock "$wt_path" 2>/dev/null || true
+    # Check for uncommitted work before force-removing
+    if [[ -d "$wt_path" ]] && [[ -n "$(git -C "$wt_path" status --porcelain 2>/dev/null)" ]]; then
+      warn "Worktree $wt_path has uncommitted changes — skipping (use git worktree remove --force manually)"
+      continue
+    fi
     git worktree remove "$wt_path" 2>/dev/null \
       || git worktree remove "$wt_path" --force 2>/dev/null \
       || { warn "Could not remove worktree: $wt_path"; continue; }
@@ -360,8 +368,8 @@ cmd_status() {
 
   build_session_cache
 
-  printf "%-40s %5s %5s %15s %5s %5s %s\n" "REPO" "CMTS" "FIXES" "SESSION" "BUILD" "VET" "K8S"
-  printf "%-40s %5s %5s %15s %5s %5s %s\n" "----" "----" "-----" "-------" "-----" "---" "---"
+  printf "%-45s %5s %5s %18s %5s %5s %s\n" "REPO" "CMTS" "FIXES" "SESSION" "BUILD" "VET" "K8S"
+  printf "%-45s %5s %5s %18s %5s %5s %s\n" "----" "----" "-----" "-------" "-----" "---" "---"
 
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || continue
@@ -408,7 +416,7 @@ cmd_status() {
       build_err=$(cd "$gdir" && GOTOOLCHAIN=auto go vet ./... 2>&1) && vet_ok="PASS" || { vet_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
     fi
 
-    printf "%-40s %5s %5s %15s %5s %5s %s\n" \
+    printf "%-45s %5s %5s %18s %5s %5s %s\n" \
       "$short" "$commits" "$applied" "$session_state" "$build_ok" "$vet_ok" "$k8s_ver"
 
     if $VERBOSE; then
