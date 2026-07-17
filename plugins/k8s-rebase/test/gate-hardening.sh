@@ -210,12 +210,88 @@ VERDICT: CLEAN")
   esac
 }
 
+cmd_all() {
+  local repo="$1"
+  [[ -d "$repo" ]] || die "Not found: $repo"
+  cd "$repo" || die "Cannot cd to $repo"
+  git rev-parse --git-dir &>/dev/null || die "Not a git repository: $repo"
+
+  local branch default_br range
+  branch=$(git branch --show-current 2>/dev/null)
+  [[ -z "$branch" ]] && die "Detached HEAD — checkout a rebase branch first"
+  [[ "$branch" =~ ^(main|master)$ ]] && die "On $branch — checkout a rebase branch first"
+  default_br=$(default_branch)
+  range="origin/${default_br}..${branch}"
+  git rev-parse --verify "origin/$default_br" &>/dev/null || range="${default_br}..${branch}"
+
+  load_fix_desc
+  local pass=0 fail=0 skip=0 total=0
+
+  info "── Sweep: $(repo_short "$repo") ($branch) ──"
+  printf "%-30s %-8s %s\n" "TAG" "RESULT" "DETAILS"
+  printf "%-30s %-8s %s\n" "---" "------" "-------"
+
+  for tag in $(printf '%s\n' "${!TAG_TO_GATE[@]}" | sort); do
+    total=$((total + 1))
+    local desc="${FIX_DESC[$tag]:-$tag}"
+
+    # Check if this tag has an Applied: trailer on this branch
+    local has_trailer=false
+    git log "$range" --format='%b' --fixed-strings --grep="$desc" 2>/dev/null | grep -qF "Applied:" && has_trailer=true
+    if ! $has_trailer; then
+      git log "$range" --format='%b' --fixed-strings --grep="$tag" 2>/dev/null | grep -qF "Applied:" && has_trailer=true
+    fi
+
+    if ! $has_trailer; then
+      printf "%-30s %-8s %s\n" "$tag" "SKIP" "no Applied: trailer"
+      skip=$((skip + 1))
+      continue
+    fi
+
+    # Run cmd_check in a subshell so die doesn't kill the sweep
+    local result
+    result=$( cmd_check "$tag" "$repo" 2>&1 ) && rc=0 || rc=$?
+    if echo "$result" | grep -q "PASS:"; then
+      printf "%-30s %-8s %s\n" "$tag" "PASS" "gate caught regression"
+      pass=$((pass + 1))
+    elif echo "$result" | grep -q "FAIL:"; then
+      printf "%-30s %-8s %s\n" "$tag" "FAIL" "gate missed regression"
+      fail=$((fail + 1))
+    elif echo "$result" | grep -q "SKIP:"; then
+      printf "%-30s %-8s %s\n" "$tag" "SKIP" "$(echo "$result" | grep "SKIP:" | head -1 | sed 's/.*SKIP: //')"
+      skip=$((skip + 1))
+    else
+      printf "%-30s %-8s %s\n" "$tag" "ERROR" "unexpected output"
+      fail=$((fail + 1))
+    fi
+  done
+
+  echo ""
+  info "Summary: $pass PASS, $fail FAIL, $skip SKIP (of $total tags)"
+  [[ "$fail" -gt 0 ]] && return 1
+  return 0
+}
+
 # ── Main ──
 
 case "${1:-}" in
   --list|-l) cmd_list ;;
-  --help|-h) echo "Usage: $(basename "$0") <fix-tag> <repo>"; echo "       $(basename "$0") --list"; exit 0 ;;
-  "") echo "Usage: $(basename "$0") <fix-tag> <repo>"; echo "       $(basename "$0") --list"; exit 1 ;;
+  --all)     [[ $# -lt 2 ]] && die "Usage: $(basename "$0") --all <repo>"
+             cmd_all "$2" ;;
+  --help|-h)
+    cat <<USAGE
+Usage: $(basename "$0") <tag> <repo>              Revert autofix, run gate
+       $(basename "$0") --all <repo>              Sweep all tags
+       $(basename "$0") <tag> --vs <file> <repo>  A/B test gate prompts
+       $(basename "$0") --list                    Show all tags
+USAGE
+    exit 0 ;;
+  "") cat <<USAGE
+Usage: $(basename "$0") <tag> <repo>              Revert autofix, run gate
+       $(basename "$0") --all <repo>              Sweep all tags
+       $(basename "$0") --list                    Show all tags
+USAGE
+    exit 1 ;;
   *) [[ $# -lt 2 ]] && die "Usage: $(basename "$0") <fix-tag> <repo>"
      cmd_check "$1" "$2" ;;
 esac
