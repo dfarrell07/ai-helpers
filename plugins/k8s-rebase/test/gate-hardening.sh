@@ -4,7 +4,7 @@
 #
 # Usage:
 #   gate-hardening.sh --without <spec...> <repo>      Run skill with knowledge removed
-#   gate-hardening.sh --compare <a> <b> <repo>        AI court: judge branch differences
+#   gate-hardening.sh --compare <result> <known-good> <repo>  AI court: judge differences
 #   gate-hardening.sh --list                          Show removable knowledge
 #
 # Examples:
@@ -121,7 +121,7 @@ mutate_plugin() {
         $has_all && continue
         local key="${spec#pattern:}"
         local heading="${TAG_TO_PATTERN[$key]:-}"
-        [[ -z "$heading" ]] && { rm -rf "$dest"; die "Unknown pattern key: $key"; }
+        [[ -z "$heading" ]] && { rm -rf "$dest"; die "Unknown pattern key: $key (run --list to see available)"; }
         local pfile="$dest/docs/k8s-rebase-patterns.md"
         if ! grep -qF "### $heading" "$pfile" 2>/dev/null; then
           rm -rf "$dest"; die "Pattern heading '$heading' not found in patterns.md"
@@ -141,7 +141,7 @@ mutate_plugin() {
         local ftag="${spec#fn:}"
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
         if ! grep -q "^fix_${ftag}()" "$afile" 2>/dev/null; then
-          rm -rf "$dest"; die "Function fix_${ftag}() not found in autofix.sh"
+          rm -rf "$dest"; die "Function fix_${ftag}() not found in autofix.sh (run --list to see available)"
         fi
         awk -v fn="fix_${ftag}" '
           $0 ~ "^"fn"\\(\\)" { print $0; print "  return 0"; skip=1; next }
@@ -225,7 +225,8 @@ cmd_without() {
   [[ -f "$harness" ]] || die "Harness not found: $harness"
 
   info "Launching skill run..."
-  PLUGIN_DIR="$mutated" bash "$harness" run "$version" "$repo"
+  PLUGIN_DIR="$mutated" RESULTS_DIR="$RESULTS_DIR" PERMISSION_MODE="$PERMISSION_MODE" \
+    bash "$harness" run "$version" "$repo"
 
   echo ""
   info "Mutated plugin at: $mutated"
@@ -241,6 +242,7 @@ cmd_compare() {
   cd "$repo" || die "Cannot cd to $repo"
   git rev-parse --verify "$result_branch" &>/dev/null || die "Branch not found: $result_branch"
   git rev-parse --verify "$known_good" &>/dev/null || die "Branch not found: $known_good"
+  [[ "$result_branch" == "$known_good" ]] && die "Both branches are the same: $result_branch"
 
   info "── Compare: $result_branch vs $known_good on $(repo_short "$repo") ──"
 
@@ -284,7 +286,7 @@ End with: VERDICT: PASS (no regressions) or VERDICT: FAIL (regressions found)" \
     case "$verdict" in
       "VERDICT: PASS") info "PASS: no regressions found" ;;
       "VERDICT: FAIL") error "FAIL: regressions detected"; return 1 ;;
-      *) warn "INCONCLUSIVE: could not determine verdict"; return 1 ;;
+      *) error "INCONCLUSIVE: could not determine verdict"; return 1 ;;
     esac
     return 0
   fi
@@ -366,7 +368,10 @@ $diff_stat"
   info "Jury: $pass_votes PASS, $fail_votes FAIL"
   info "Court record: $court_dir"
 
-  if [[ "$pass_votes" -gt "$fail_votes" ]]; then
+  if [[ "$pass_votes" -eq 0 && "$fail_votes" -eq 0 ]]; then
+    error "INCONCLUSIVE: all jurors abstained (claude -p may have failed)"
+    return 1
+  elif [[ "$pass_votes" -gt "$fail_votes" ]]; then
     info "VERDICT: PASS (majority)"
     return 0
   else
@@ -379,7 +384,7 @@ $diff_stat"
 
 usage() {
   echo "Usage: $(basename "$0") --without <spec...> <repo>      Run skill with knowledge removed"
-  echo "       $(basename "$0") --compare <a> <b> <repo>        AI court: judge differences"
+  echo "       $(basename "$0") --compare <result> <known-good> <repo>        AI court: judge differences"
   echo "       $(basename "$0") --list                          Show removable knowledge"
 }
 

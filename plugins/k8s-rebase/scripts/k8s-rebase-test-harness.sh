@@ -153,7 +153,7 @@ remove_worktrees() {
     fi
     git worktree remove "$wt_path" 2>/dev/null \
       || git worktree remove "$wt_path" --force 2>/dev/null \
-      || { warn "Could not remove worktree: $wt_path"; continue; }
+      || { warn "Could not remove worktree: $wt_path (use git worktree remove --force manually)"; continue; }
 
     if [[ "$commit_count" -gt 0 ]]; then
       info "Removed worktree: $(basename "$wt_path") (branch $wt_branch preserved, $commit_count commits)"
