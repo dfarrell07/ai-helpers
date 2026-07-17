@@ -477,7 +477,7 @@ cmd_compare() {
   for b in "$branch_a" "$branch_b"; do
     local commits applied k8s_ver
     commits=$(git rev-list --count "$default_br".."$b" 2>/dev/null || echo 0)
-    applied=$(git log "$default_br".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
+    applied=$(git log "$default_br".."$b" --oneline --grep='Applied:' 2>/dev/null | wc -l)
     k8s_ver=$(git show "$b":go.mod 2>/dev/null | awk '/k8s\.io\/api / && !/=>/ {print $2; exit}')
     [[ -z "$k8s_ver" ]] && k8s_ver=$(git show "$b":go-controller/go.mod 2>/dev/null | awk '/k8s\.io\/api / && !/=>/ {print $2; exit}')
     printf "%-42s %7s %7s %s\n" "$b" "$commits" "$applied" "${k8s_ver:-?}"
