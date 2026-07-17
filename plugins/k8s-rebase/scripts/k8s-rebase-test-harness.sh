@@ -34,7 +34,9 @@ cleanup_head=""
 trap_cleanup() {
   if [[ -n "$cleanup_repo" ]]; then
     warn "Interrupted — restoring $(repo_short "$cleanup_repo")"
-    git -C "$cleanup_repo" reset --hard "${cleanup_head:-HEAD}" 2>/dev/null || true
+    # Use checkout (not reset --hard) to avoid moving the current branch pointer
+    # to a commit from a different branch
+    git -C "$cleanup_repo" checkout "${cleanup_head:-HEAD}" 2>/dev/null || true
     git -C "$cleanup_repo" clean -fd 2>/dev/null || true
   fi
 }
