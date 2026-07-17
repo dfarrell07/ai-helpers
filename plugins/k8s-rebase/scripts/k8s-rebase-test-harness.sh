@@ -11,7 +11,6 @@ RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." && pwd)/.work/test-harness}
 # Only run against trusted repos.
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 VERBOSE=false
-GATE_CHECK_TIMEOUT=300
 
 DEFAULT_REPOS=(
   "$HOME/ovnk/ovn-org/ovn-kubernetes"
@@ -20,37 +19,6 @@ DEFAULT_REPOS=(
   "$HOME/ovnk/openshift/ingress-node-firewall"
   "$HOME/ovnk/openshift/cloud-network-config-controller"
   "$HOME/ovnk/openshift/cluster-network-operator"
-)
-
-# Maps autofix functions to the gate that should detect their absence.
-# Used by `gate-check` to verify each gate catches regressions.
-declare -A AUTOFIX_TO_GATE=(
-  [fix_crd_int64_validation]="step3-autofix/crd-validation.md"
-  [fix_crd_name_validation]="step3-autofix/crd-validation.md"
-  [fix_feature_gates]="step3-autofix/feature-gates.md"
-  [fix_xexp]="step3-autofix/deprecated-api-remnants.md"
-  [fix_reflect_ptr]="step3-autofix/deprecated-api-remnants.md"
-  [fix_fieldsv1]="step3-autofix/deprecated-api-remnants.md"
-  [fix_klog_v2]="step3-autofix/deprecated-api-remnants.md"
-  [fix_kind_image]="step4-verification/ci-prediction.md"
-  [fix_lint_version]="step4-verification/ci-prediction.md"
-  [fix_obsgen]="step3-autofix/patterns-completeness.md"
-  [fix_conformance_renames]="step3-autofix/patterns-completeness.md"
-  [fix_banp_egresspeer]="step3-autofix/patterns-completeness.md"
-  [fix_eventf]="step3-autofix/deprecated-api-remnants.md"
-  [fix_addtoscheme]="step3-autofix/patterns-completeness.md"
-  [fix_imports]="step3-autofix/deprecated-api-remnants.md"
-  [fix_bounding_dirs]="step3-autofix/deprecated-api-remnants.md"
-  [fix_mocks]="step3-autofix/patterns-completeness.md"
-  [fix_network_policy_api_crds]="step3-autofix/crd-validation.md"
-  [fix_kind_version]="step4-verification/ci-prediction.md"
-  [fix_metallb_version]="step4-verification/ci-prediction.md"
-  [fix_kubevirt_version]="step4-verification/ci-prediction.md"
-  [fix_relaxed_service_name_validation]="step4-verification/ci-prediction.md"
-  [fix_kubeadm_v1beta4]="step4-verification/ci-prediction.md"
-  [fix_docs_version]="step4-verification/version-completeness.md"
-  [fix_version_refs]="step4-verification/version-completeness.md"
-  [fix_go_version]="step4-verification/go-version-check.md"
 )
 
 info()  { echo ":: $*"; }
@@ -83,13 +51,9 @@ Commands:
   clean     [repo...]                      Remove leftover worktrees (git artifacts)
   compare   [--last] <repo>                Diff last two rebase branches
             <branch1> <branch2> <repo>     Diff specific branches
-  gate-check <autofix-fn> <repo>            Revert one fix, verify gate catches it
 
 Options:
   -v, --verbose        Show commit subjects in status
-  --plugin-dir D       Plugin path (default: auto-detected)
-  --permission-mode M  Permission mode (default: bypassPermissions)
-  --results-dir D      Results directory (default: .work/test-harness/)
   -h, --help           Show this help
 
 Examples:
@@ -100,10 +64,6 @@ Examples:
   $(basename "$0") stop --all                  # Kill all harness sessions
   $(basename "$0") stop cluster-network-operator
   $(basename "$0") compare --last ~/ovnk/openshift/ingress-node-firewall
-  $(basename "$0") gate-check fix_xexp ~/ovnk/ovn-org/ovn-kubernetes
-
-Gate-check targets (autofix function -> gate file):
-$(for fn in "${!AUTOFIX_TO_GATE[@]}"; do echo "  $fn → ${AUTOFIX_TO_GATE[$fn]}"; done | sort)
 EOF
   exit 0
 }
@@ -533,130 +493,11 @@ cmd_compare() {
   return 0
 }
 
-# ── gate-check ────────────────────────────────────────────────────────
-
-cmd_gate_check() {
-  command -v claude &>/dev/null || die "claude CLI not found in PATH"
-  local fix_func="$1" repo="$2"
-  [[ -z "${AUTOFIX_TO_GATE[$fix_func]+x}" ]] && die "Unknown autofix function: $fix_func (run --help to list gate-check targets)"
-
-  local gate_file="$PLUGIN_DIR/gates/${AUTOFIX_TO_GATE[$fix_func]}"
-  [[ -f "$gate_file" ]] || die "Gate not found: $gate_file"
-
-  cd "$repo" || die "Cannot cd to $repo"
-  git rev-parse --git-dir &>/dev/null || die "Not a git repository: $repo"
-  local short branch
-  short=$(repo_short "$repo")
-  branch=$(git branch --show-current 2>/dev/null)
-
-  [[ -n "$(git status --porcelain 2>/dev/null)" ]] && die "Dirty worktree in $repo — commit or stash first"
-  [[ -z "$branch" ]] && die "Detached HEAD in $repo — checkout a rebase branch first"
-  [[ "$branch" =~ ^(main|master)$ ]] && die "On $branch — checkout a rebase branch first"
-
-  info "── Sensitivity: $fix_func on $short ($branch) ──"
-
-  # Search ONLY for the Applied: trailer on the current branch.
-  # Use origin/ prefix so the range is correct even if local main is stale.
-  local default_br
-  default_br=$(default_branch)
-  local commit
-  commit=$( { git log "origin/$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null \
-    || git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null; } | head -1)
-  [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for $fix_func (autofix may not have fired on this repo)"; return 0; }
-
-  # Capture original HEAD so we can restore even if claude -p makes commits
-  local original_head
-  original_head=$(git rev-parse HEAD)
-  cleanup_repo="$repo"
-  cleanup_head="$original_head"
-  info "Reverting $(git log --oneline -1 "$commit")"
-  if ! git revert --no-commit "$commit" 2>/dev/null; then
-    info "SKIP: revert conflicts (later commits modified the same files)"
-    git revert --abort 2>/dev/null || git reset --hard "$original_head" 2>/dev/null
-    cleanup_repo="" cleanup_head=""
-    return 0
-  fi
-
-  info "Running gate: ${AUTOFIX_TO_GATE[$fix_func]}"
-  mkdir -p "$RESULTS_DIR/gate-check" || die "Cannot create $RESULTS_DIR/gate-check"
-  local outfile
-  outfile="$RESULTS_DIR/gate-check/${fix_func}-$(basename "$repo")-$(date +%s).txt"
-
-  # Read gate content, stripping the report-write section to avoid
-  # conflicting VERDICT instructions (the gate says VERDICT: PASS/FAIL,
-  # we inject VERDICT: ISSUES_FOUND/CLEAN for sensitivity testing)
-  local gate_content
-  # Strip the report-write section appended to all gates (starts with
-  # "After your analysis, write your report" — added by gate persistence)
-  gate_content=$(sed '/^After your analysis, write your report\. The repo path/,$d' "$gate_file") || {
-    git reset --hard "$original_head" 2>/dev/null
-    cleanup_repo="" cleanup_head=""
-    die "Cannot read gate file: $gate_file"
-  }
-  if [[ -z "$gate_content" ]]; then
-    git reset --hard "$original_head" 2>/dev/null
-    cleanup_repo="" cleanup_head=""
-    die "Gate content empty after stripping report section: $gate_file"
-  fi
-
-  local prompt
-  prompt=$(printf 'Repo: %s\n\n%s\n\n%s' \
-    "$repo" "$gate_content" \
-    "After your analysis, end with exactly one of these on its own line:
-VERDICT: ISSUES_FOUND
-VERDICT: CLEAN")
-
-  # Wrap the entire pipeline in timeout (not just claude) to prevent
-  # hangs if claude blocks before reading stdin
-  local output exit_code=0
-  output=$(timeout -k 10 "$GATE_CHECK_TIMEOUT" bash -c \
-    'printf "%s" "$1" | claude -p --permission-mode "$2" --output-format text 2>/dev/null' \
-    _ "$prompt" "$PERMISSION_MODE") || exit_code=$?
-
-  # Restore to original HEAD (not current HEAD, which may have moved if claude -p committed)
-  git reset --hard "$original_head" 2>/dev/null || warn "git reset failed — repo may be dirty"
-  git clean -fd 2>/dev/null || true
-  cleanup_repo="" cleanup_head=""
-
-  if [[ "$exit_code" -eq 124 ]]; then
-    error "TIMEOUT: gate exceeded ${GATE_CHECK_TIMEOUT}s (output: $outfile)"
-    echo "TIMEOUT after ${GATE_CHECK_TIMEOUT}s" > "$outfile"
-    return 1
-  fi
-  if [[ -z "$output" ]]; then
-    error "EMPTY: claude -p returned no output (output: $outfile)"
-    echo "EMPTY OUTPUT" > "$outfile"
-    return 1
-  fi
-
-  echo "$output" > "$outfile"
-  echo "$output" | tail -15
-  echo ""
-
-  # Match the structured verdict instead of guessing from prose
-  local verdict
-  # Strip leading+trailing whitespace before matching — LLMs sometimes indent or pad
-  verdict=$(echo "$output" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -oE '^VERDICT: (ISSUES_FOUND|CLEAN)$' | tail -1)
-
-  case "$verdict" in
-    "VERDICT: ISSUES_FOUND")
-      info "PASS: gate caught $fix_func (output: $outfile)" ;;
-    "VERDICT: CLEAN")
-      error "FAIL: gate missed $fix_func (output: $outfile)"; return 1 ;;
-    *)
-      error "INCONCLUSIVE: no VERDICT line in output (output: $outfile)"
-      error "Manual review required"; return 1 ;;
-  esac
-}
-
 # ── Main ─────────────────────────────────────────────────────────────
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
     -v|--verbose)      VERBOSE=true; shift ;;
-    --plugin-dir)      [[ $# -ge 2 ]] || die "--plugin-dir requires an argument"; PLUGIN_DIR="$2"; shift 2 ;;
-    --permission-mode) [[ $# -ge 2 ]] || die "--permission-mode requires an argument"; PERMISSION_MODE="$2"; shift 2 ;;
-    --results-dir)     [[ $# -ge 2 ]] || die "--results-dir requires an argument"; RESULTS_DIR="$2"; shift 2 ;;
     -h|--help)         usage ;;
     -*)                die "Unknown option: $1" ;;
     *)                 break ;;
@@ -674,7 +515,5 @@ case "$COMMAND" in
   clean)     cmd_clean "$@" ;;
   compare)   [[ $# -lt 1 ]] && die "Usage: $0 compare [--last] <repo> or <b1> <b2> <repo>"
              cmd_compare "$@" ;;
-  gate-check) [[ $# -lt 2 ]] && die "Usage: $0 gate-check <autofix-fn> <repo>"
-             cmd_gate_check "$1" "$2" ;;
   *)         die "Unknown command: $COMMAND" ;;
 esac
