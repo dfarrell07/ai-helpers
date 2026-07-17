@@ -491,14 +491,34 @@ $details
     return 0
   fi
 
+  # Collect gate prompts for failed/no-verdict gates
+  local gate_prompts=""
+  for f in "$gate_dir"/*.report; do
+    [[ -f "$f" ]] || continue
+    local name verdict
+    name=$(basename "$f" .report)
+    verdict=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
+    if [[ "$verdict" != *"PASS"* ]]; then
+      local prompt_file
+      prompt_file=$(find "$PLUGIN_DIR/gates" -name "${name#step[0-9]-}.md" -o -name "${name}.md" 2>/dev/null | head -1)
+      if [[ -f "$prompt_file" ]]; then
+        gate_prompts+="GATE PROMPT FOR $name:
+$(head -15 "$prompt_file")
+---
+"
+      fi
+    fi
+  done
+
   # Also gather branch info
   local branch
   branch=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
   local default_br
   default_br=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo main)
-  local commits=""
+  local commits="" gomod_diff=""
   if [[ -n "$branch" ]]; then
     commits=$(git log "${default_br}..${branch}" --oneline 2>/dev/null)
+    gomod_diff=$(git diff "${default_br}..${branch}" -- go.mod 2>/dev/null | head -80)
   fi
 
   # Launch analyst agent
@@ -513,27 +533,33 @@ GATE RESULTS ($pass pass, $fail fail, $no_verdict no verdict out of $total):
 
 $report_summary
 
+GATE PROMPTS (for failed/no-verdict gates):
+${gate_prompts:-None collected}
+
+GO.MOD CHANGES:
+${gomod_diff:-No go.mod diff available}
+
 COMMITS ON THE REBASE BRANCH:
 $commits
 
 ANALYSIS TASKS:
-1. For each FAILED gate: Is the failure caused by the removed knowledge,
-   or would it fail regardless? Is the gate prompt detecting the right thing?
-2. For each NO VERDICT gate: Why didn't it produce a verdict? Is the gate
-   prompt too complex? Did the subagent time out?
-3. PATTERN DETECTION: Are multiple gates catching the same underlying issue?
-   Is there redundancy? Are there gaps where NO gate catches an issue?
-4. GATE IMPROVEMENT SUGGESTIONS: For each failure, suggest a specific
-   improvement to the gate prompt that would make it more reliable.
-   Be concrete — show the current wording and proposed replacement.
-5. SELF-SUFFICIENCY ASSESSMENT: Based on the commits and gate results,
-   can the agent handle this rebase without the removed knowledge?
-   What specific knowledge is essential vs discoverable?
+1. For each FAILED gate: Read the gate prompt above. Quote the specific
+   prompt language that triggered the failure. Is the failure caused by
+   the removed knowledge, or would it fail regardless?
+2. For each NO VERDICT gate: Is the prompt too complex for a single pass?
+   Should it be split? Did the subagent likely time out?
+3. FALSE NEGATIVES: Which passing gates SHOULD have failed given the
+   mutation? What did the go.mod diff change that no gate checks?
+4. GATE PROMPT FIXES: For each problematic gate, quote the current
+   wording and show a concrete replacement.
+5. SELF-SUFFICIENCY: Can the agent handle this rebase without the
+   removed knowledge? Use: ESSENTIAL (failed on all repos),
+   DISCOVERABLE (agent found it independently on at least one repo),
+   UNKNOWN (not enough data).
 
-End with a structured summary:
-ESSENTIAL_KNOWLEDGE: <list of fns/patterns the agent CANNOT discover>
-DISCOVERABLE: <list of fns/patterns the agent CAN discover>
-GATE_IMPROVEMENTS: <list of specific gate prompt changes to make>
+ESSENTIAL_KNOWLEDGE: <list with evidence>
+DISCOVERABLE: <list with evidence>
+GATE_IMPROVEMENTS: <numbered list of quote-current/propose-replacement>
 VERDICT: SELF_SUFFICIENT or NEEDS_HELP"
 
   local analysis_output
@@ -553,6 +579,31 @@ VERDICT: SELF_SUFFICIENT or NEEDS_HELP"
   local analysis_file="$RESULTS_DIR/analyses/$(echo "$short" | tr '/' '-')-$(date +%s).txt"
   echo "$analysis_output" > "$analysis_file" 2>/dev/null
   info "Analysis saved: $analysis_file"
+
+  # Adversarial reviewer
+  info "Launching adversarial review..."
+  local adversarial_output
+  adversarial_output=$(printf '%s' "You are a skeptical reviewer. Challenge this gate analysis:
+
+ANALYSIS:
+$analysis_output
+
+GATE RESULTS:
+$report_summary
+
+Find what the analyst MISSED or got wrong:
+- Any false negative (passing gate that should have failed)?
+- Are proposed gate improvements actually better, or do they risk false positives?
+- Is the SELF_SUFFICIENT verdict justified?
+Be specific. Quote claims and rebut with evidence." \
+    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
+
+  if [[ -n "$adversarial_output" ]]; then
+    echo ""
+    info "── Adversarial Review ──"
+    echo "$adversarial_output"
+    echo "$adversarial_output" >> "$analysis_file" 2>/dev/null
+  fi
 
   # Extract gate improvements if any
   local improvements
@@ -594,12 +645,76 @@ cmd_matrix_status() {
   fi
 }
 
+# ── --cross-analyze (patterns across runs) ─────────────────────────
+
+cmd_cross_analyze() {
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local tsv="$state_dir/results.tsv"
+  [[ -f "$tsv" ]] || die "No results.tsv found. Run --without first."
+
+  local -A spec_pass spec_fail spec_total
+  local -A repo_pass repo_fail repo_total
+  local -A matrix
+  local specs=() repos=()
+  local -A seen_spec seen_repo
+
+  while IFS=$'\t' read -r _ts spec repo verdict _detail; do
+    [[ -z "$spec" ]] && continue
+    local v="UNKNOWN"
+    case "$verdict" in
+      *PASS*) v="PASS" ;; *FAIL*) v="FAIL" ;; *SKIP*) v="SKIP" ;;
+      *DONE*) v="DONE" ;; *) v="?" ;;
+    esac
+    if [[ -z "${seen_spec[$spec]+x}" ]]; then seen_spec[$spec]=1; specs+=("$spec"); fi
+    if [[ -z "${seen_repo[$repo]+x}" ]]; then seen_repo[$repo]=1; repos+=("$repo"); fi
+    spec_total[$spec]=$(( ${spec_total[$spec]:-0} + 1 ))
+    repo_total[$repo]=$(( ${repo_total[$repo]:-0} + 1 ))
+    case "$v" in
+      PASS|DONE) spec_pass[$spec]=$(( ${spec_pass[$spec]:-0} + 1 ))
+                 repo_pass[$repo]=$(( ${repo_pass[$repo]:-0} + 1 )) ;;
+      FAIL)      spec_fail[$spec]=$(( ${spec_fail[$spec]:-0} + 1 ))
+                 repo_fail[$repo]=$(( ${repo_fail[$repo]:-0} + 1 )) ;;
+    esac
+    matrix["$spec|$repo"]="$v"
+  done < "$tsv"
+
+  info "── Cross-Analysis: ${#specs[@]} specs x ${#repos[@]} repos ──"
+  echo ""
+
+  printf "%-22s" "SPEC"
+  for r in "${repos[@]}"; do printf " %-6s" "${r##*/}"; done
+  printf "  %s\n" "CLASS"
+  printf '%0.s-' {1..100}; echo ""
+
+  for s in "${specs[@]}"; do
+    printf "%-22s" "$s"
+    local p=${spec_pass[$s]:-0} f=${spec_fail[$s]:-0}
+    for r in "${repos[@]}"; do
+      printf " %-6s" "${matrix["$s|$r"]:-·}"
+    done
+    local class="NO-DATA"
+    if [[ $f -eq 0 && $p -gt 0 ]]; then class="REDUNDANT"
+    elif [[ $p -eq 0 && $f -gt 0 ]]; then class="ESSENTIAL"
+    elif [[ $f -gt 0 && $p -gt 0 ]]; then class="MIXED"
+    fi
+    printf "  %s\n" "$class"
+  done
+
+  echo ""
+  info "Repos:"
+  for r in "${repos[@]}"; do
+    local p=${repo_pass[$r]:-0} f=${repo_fail[$r]:-0} t=${repo_total[$r]:-0}
+    printf "  %-40s %d pass, %d fail (of %d)\n" "$r" "$p" "$f" "$t"
+  done
+}
+
 # ── Main ──
 
 usage() {
   echo "Usage: $(basename "$0") --without <spec...> <repo>      Run skill with knowledge removed"
   echo "       $(basename "$0") --compare <result> <known-good> <repo>  AI court: judge differences"
   echo "       $(basename "$0") --analyze <repo> [--context '...']     Deep gate report analysis"
+  echo "       $(basename "$0") --cross-analyze                        Patterns across all runs"
   echo "       $(basename "$0") --matrix-status                        Show matrix test progress"
   echo "       $(basename "$0") --list                                 Show removable knowledge"
 }
@@ -609,6 +724,7 @@ case "${1:-}" in
   --without)          shift; cmd_without "$@" ;;
   --compare)          shift; cmd_compare "$@" ;;
   --analyze)          shift; cmd_analyze "$@" ;;
+  --cross-analyze)    cmd_cross_analyze ;;
   --matrix-status)    cmd_matrix_status ;;
   --help|-h)          usage; exit 0 ;;
   *)                  usage; exit 1 ;;
