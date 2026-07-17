@@ -117,7 +117,7 @@ reset_to_default() {
   cleanup_head=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse HEAD)
   local default_br
   default_br=$(default_branch)
-  git checkout "$default_br" 2>/dev/null || die "Cannot checkout $default_br in $repo"
+  git checkout "$default_br" &>/dev/null || die "Cannot checkout $default_br in $repo"
 
   if ! GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>/dev/null; then
     warn "git pull --ff-only failed in $(repo_short "$repo") — running against local $default_br"
