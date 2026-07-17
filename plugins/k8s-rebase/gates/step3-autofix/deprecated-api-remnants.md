@@ -5,23 +5,25 @@ surfaced by the k8s dependency bump. Discover issues dynamically
 First, find all module directories:
   `find . -name go.mod -not -path '*/vendor/*' -not -path '*/.cache/*' -exec dirname {} \;`
 
-Step 1 — Build check (most reliable):
+Step 1 — Build + vet check (catches compile-breaking changes):
   In each module directory, run:
   `go build ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
-  Any "undefined", type mismatch, or import error is a finding.
-  The compiler knows exactly what changed in the new deps.
-  If Go is unavailable or wrong version, note as SKIPPED.
-
-Step 2 — Vet check:
-  In each module directory, run:
   `go vet ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
-  Count warnings. This catches format string errors, unreachable
-  code, and other issues surfaced by the new dep versions.
+  Any error is a finding. If Go is unavailable, note as SKIPPED.
 
-Step 3 — Deprecated symbol scan:
+Step 2 — Discover deprecated symbols via web search:
+  Read the Go version from go.mod (`go` directive) and the k8s
+  version from the k8s.io/api dependency. Then search the web:
+  - "Go <version> deprecated functions stdlib changes"
+  - "kubernetes <version> breaking changes deprecated APIs"
+  Build a list of deprecated symbols/imports from the results.
+  For each, grep non-vendor Go files:
+  `grep -rn '<pattern>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+
+Step 3 — Vendor deprecated-symbol scan:
   Extract deprecated function/type names from vendor:
   `grep -rn '// Deprecated:' vendor/k8s.io/ --include='*.go' 2>/dev/null | grep -oP 'func \K\w+|type \K\w+' | sort -u | head -30`
-  For each symbol found, check if non-vendor code uses it:
+  For each symbol, check if non-vendor code uses it:
   `grep -rn '<symbol>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
 Step 4 — Promoted x/ package check:

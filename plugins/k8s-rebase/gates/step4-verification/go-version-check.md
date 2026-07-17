@@ -22,7 +22,11 @@ the repo and check for implications.
    Just note the Go version bump and its implications for
    stdlib additions.
 
-Report any mismatches or migration opportunities.
+VERDICT criteria: FAIL if go.mod files have inconsistent Go
+versions, or Makefiles/Dockerfiles use a Go version that
+doesn't match go.mod. Migration opportunities (x/ packages,
+CI workflow improvements) are informational — report them
+in DETAILS but do not FAIL for them alone.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

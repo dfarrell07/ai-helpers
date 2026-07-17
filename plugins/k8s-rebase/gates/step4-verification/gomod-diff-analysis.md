@@ -18,6 +18,11 @@ Report findings for all categories above. Count third-party
 minor-version jumps, pseudo-version pins, added/removed deps,
 and pre-release direct deps separately.
 
+VERDICT criteria: FAIL if any non-k8s direct dependency has an
+unexpected major-version jump, or if a direct dep moved to a
+pseudo-version without explanation. PASS otherwise — flagged
+items in categories 3-5 are informational, not blockers.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite the specific
