@@ -231,7 +231,11 @@ for s in data:
 session_for_repo() {
   local repo="$1" short line
   short=$(repo_short "$repo")
-  line=$(printf '%s\n' "$_session_cache" | grep -F $'/'"${short}"$'\t' | head -1)
+  # Match cwd ending with /short (+ tab separator) or containing /short/ (worktree)
+  line=$(printf '%s\n' "$_session_cache" | grep -F "/${short}/" | head -1)
+  if [[ -z "$line" ]]; then
+    line=$(printf '%s\n' "$_session_cache" | grep -F $'/'"${short}"$'\t' | head -1)
+  fi
   [[ -n "$line" ]] && echo "$line"
 }
 
@@ -606,8 +610,8 @@ VERDICT: CLEAN")
   # hangs if claude blocks before reading stdin
   local output exit_code=0
   output=$(timeout -k 10 "$GATE_CHECK_TIMEOUT" bash -c \
-    'printf "%s" "$1" | claude -p --output-format text 2>/dev/null' \
-    _ "$prompt") || exit_code=$?
+    'printf "%s" "$1" | claude -p --permission-mode "$2" --output-format text 2>/dev/null' \
+    _ "$prompt" "$PERMISSION_MODE") || exit_code=$?
 
   # Restore to original HEAD (not current HEAD, which may have moved if claude -p committed)
   git reset --hard "$original_head" 2>/dev/null || warn "git reset failed — repo may be dirty"
