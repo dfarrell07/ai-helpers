@@ -49,7 +49,7 @@ Usage: $(basename "$0") <command> [options] [args...]
 Commands:
   run       <version> [repo...]            Launch skill runs
   status    [repo...]                      Sessions + branch progress
-  stop      <repo...|--all>                Stop sessions (--all = harness repos only)
+  stop      <repo...|--all>                Stop rebase sessions
   clean     [repo...]                      Remove leftover worktrees (git artifacts)
   compare   [--last] <repo>                Diff last two rebase branches
             <branch1> <branch2> <repo>     Diff specific branches
