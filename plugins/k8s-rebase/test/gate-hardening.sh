@@ -15,7 +15,7 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
+PLUGIN_DIR="${PLUGIN_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." && pwd)/.work/test-harness}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 
@@ -333,8 +333,12 @@ $diff_stat"
 
   wait "$pid_pros" "$pid_def" 2>/dev/null || true
   local prosecution defense
-  prosecution=$(cat "$court_dir/prosecution.txt")
-  defense=$(cat "$court_dir/defense.txt")
+  prosecution=$(cat "$court_dir/prosecution.txt" 2>/dev/null)
+  defense=$(cat "$court_dir/defense.txt" 2>/dev/null)
+  if [[ -z "$prosecution" && -z "$defense" ]]; then
+    error "Both prosecution and defense produced empty output — claude -p may have failed"
+    return 1
+  fi
 
   # Phase B: Judge (fact-check only)
   info "Phase B: Judge (fact-checking)..."
