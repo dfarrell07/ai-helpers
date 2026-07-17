@@ -4,7 +4,7 @@
 #
 # Launches standalone Claude Code sessions (claude --bg) to run the
 # k8s-rebase skill on target repos. Each session runs the full skill
-# pipeline: scripts, subagents, gates, autofix, review.
+# pipeline: deps, autofix, gates, review.
 #
 # Usage: k8s-rebase-test-harness.sh <command> [options] [args...]
 #
@@ -211,7 +211,6 @@ primary_gomod() {
 
 reset_to_default() {
   local repo="$1"
-  cleanup_repo="$repo"
   cd "$repo" || die "Cannot cd to $repo"
 
   if [[ -f "$repo/.git/MERGE_HEAD" ]]; then
@@ -231,11 +230,14 @@ reset_to_default() {
     fi
   fi
 
+  # Set cleanup_repo AFTER precondition checks — the trap must not
+  # run git reset on state the script didn't create
+  cleanup_repo="$repo"
   local default_br
   default_br=$(default_branch)
   git checkout "$default_br" 2>/dev/null || die "Cannot checkout $default_br in $repo"
 
-  if ! git pull --ff-only 2>/dev/null; then
+  if ! GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>/dev/null; then
     warn "git pull --ff-only failed in $(basename "$repo") — running against local $default_br"
   fi
 
@@ -299,7 +301,7 @@ for s in data:
     full_sid = s.get('sessionId', '?')
     sid = s.get('id') or full_sid[:8]
     started = s.get('startedAt', 0)
-    elapsed = int((now - started) / 60000) if started else 0
+    elapsed = max(0, int((now - started) / 60000)) if started else 0
     print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
 " 2>/dev/null || true)
 }
@@ -584,8 +586,8 @@ cmd_clean() {
     count=$(wc -l < "$RESULTS_DIR/sessions.jsonl")
     if [[ "$count" -gt "$MAX_SESSION_LOG" ]]; then
       tail -"$MAX_SESSION_LOG" "$RESULTS_DIR/sessions.jsonl" > "$RESULTS_DIR/sessions.jsonl.tmp" \
-        && mv "$RESULTS_DIR/sessions.jsonl.tmp" "$RESULTS_DIR/sessions.jsonl"
-      info "Trimmed session log to last $MAX_SESSION_LOG entries"
+        && mv "$RESULTS_DIR/sessions.jsonl.tmp" "$RESULTS_DIR/sessions.jsonl" \
+        && info "Trimmed session log to last $MAX_SESSION_LOG entries"
     fi
   fi
 
@@ -611,8 +613,8 @@ cmd_compare() {
     [[ $# -lt 3 ]] && die "Usage: compare <branch1> <branch2> <repo>"
     branch_a="$1" branch_b="$2" repo="$3"
     cd "$repo" || die "Cannot cd to $repo"
-    git rev-parse --verify "$branch_a" &>/dev/null || die "Branch not found: $branch_a"
-    git rev-parse --verify "$branch_b" &>/dev/null || die "Branch not found: $branch_b"
+    git rev-parse --verify -- "$branch_a" &>/dev/null || die "Branch not found: $branch_a"
+    git rev-parse --verify -- "$branch_b" &>/dev/null || die "Branch not found: $branch_b"
     [[ "$branch_a" == "$branch_b" ]] && die "Both branches are the same: $branch_a"
   fi
 
