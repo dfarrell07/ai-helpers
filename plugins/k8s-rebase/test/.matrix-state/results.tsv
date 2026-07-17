@@ -1,0 +1,9 @@
+2026-07-17T05:00:00Z	fn:version_refs	openshift/cloud-network-config-controller	PASS	equivalent (older library-go pseudo-version)
+2026-07-17T05:00:00Z	fn:klog_v2	openshift/multus-cni	PASS	agent discovered klog migration independently
+2026-07-17T05:00:00Z	fn:version_refs	ovn-kubernetes/ovn-kubernetes-mcp	PASS	gate caught Makefile versions but code correct
+2026-07-17T05:00:00Z	fn:feature_gates	openshift/cluster-network-operator	PASS	identical commits - same SHAs
+2026-07-17T05:00:00Z	fn:klog_v2	openshift/ingress-node-firewall	FAIL	agent missed klog migration, gate missed it too
+2026-07-17T05:00:00Z	fn:bounding_dirs	ovn-org/ovn-kubernetes	PASS	agent discovered bounding_dirs independently
+2026-07-17T05:00:00Z	all	openshift/cloud-network-config-controller	PASS	full blind - zero knowledge needed
+2026-07-17T05:00:00Z	fn:feature_gates	openshift/multus-cni	PASS	multus has no feature gate patterns
+2026-07-17T05:00:00Z	fn:lint_version	openshift/ingress-node-firewall	PASS	agent discovered lint bump independently

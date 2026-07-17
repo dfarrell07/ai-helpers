@@ -500,7 +500,7 @@ $details
     verdict=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
     if [[ "$verdict" != *"PASS"* ]]; then
       local prompt_file
-      prompt_file=$(find "$PLUGIN_DIR/gates" -name "${name#step[0-9]-}.md" -o -name "${name}.md" 2>/dev/null | head -1)
+      prompt_file=$(find "$PLUGIN_DIR/gates" -name "${name#step[0-9]*-}.md" -o -name "${name}.md" 2>/dev/null | head -1)
       if [[ -f "$prompt_file" ]]; then
         gate_prompts+="GATE PROMPT FOR $name:
 $(head -15 "$prompt_file")
@@ -603,6 +603,8 @@ Be specific. Quote claims and rebut with evidence." \
     info "── Adversarial Review ──"
     echo "$adversarial_output"
     echo "$adversarial_output" >> "$analysis_file" 2>/dev/null
+  else
+    warn "Adversarial reviewer produced no output — analysis is single-perspective only"
   fi
 
   # Extract gate improvements if any
@@ -670,8 +672,9 @@ cmd_cross_analyze() {
     spec_total[$spec]=$(( ${spec_total[$spec]:-0} + 1 ))
     repo_total[$repo]=$(( ${repo_total[$repo]:-0} + 1 ))
     case "$v" in
-      PASS|DONE) spec_pass[$spec]=$(( ${spec_pass[$spec]:-0} + 1 ))
-                 repo_pass[$repo]=$(( ${repo_pass[$repo]:-0} + 1 )) ;;
+      PASS) spec_pass[$spec]=$(( ${spec_pass[$spec]:-0} + 1 ))
+             repo_pass[$repo]=$(( ${repo_pass[$repo]:-0} + 1 )) ;;
+      DONE) ;; # DONE_OVERNIGHT has no verdict — don't count as pass or fail
       FAIL)      spec_fail[$spec]=$(( ${spec_fail[$spec]:-0} + 1 ))
                  repo_fail[$repo]=$(( ${repo_fail[$repo]:-0} + 1 )) ;;
     esac

@@ -8,7 +8,14 @@ Check yml/yaml/sh/Makefile/Dockerfile files. Exclude:
 - Ancient versions (1.16, 1.20, etc.) — those are pre-existing
   documentation debt, not rebase issues
 
-Report count of genuinely stale previous-version references.
+Also check Makefile variable assignments (VAR ?=, VAR :=, VAR =)
+for version-bearing variables: K8S_VERSION, GOLANG_VERSION,
+GOLANGCI_LINT_VERSION, KIND_VERSION, KUSTOMIZE_VERSION. Flag any
+that still reference the previous k8s minor version or a Go
+version that does not match the target release's Go toolchain.
+
+Report count of genuinely stale previous-version references
+plus count of un-bumped Makefile version variables.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
