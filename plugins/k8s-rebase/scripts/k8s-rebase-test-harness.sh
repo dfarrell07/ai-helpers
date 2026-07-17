@@ -84,10 +84,11 @@ repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 
 # Restore repo to its original branch on interrupt
 cleanup_repo=""
+cleanup_head=""
 trap_cleanup() {
   if [[ -n "$cleanup_repo" ]]; then
     warn "Interrupted — restoring $(repo_short "$cleanup_repo")"
-    git -C "$cleanup_repo" reset --hard HEAD 2>/dev/null || true
+    git -C "$cleanup_repo" reset --hard "${cleanup_head:-HEAD}" 2>/dev/null || true
     git -C "$cleanup_repo" clean -fd 2>/dev/null || true
   fi
 }
@@ -680,13 +681,16 @@ cmd_gate_check() {
     || git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $fix_func" 2>/dev/null; } | head -1)
   [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for $fix_func (autofix may not have fired on this repo)"; return 0; }
 
+  # Capture original HEAD so we can restore even if claude -p makes commits
+  local original_head
+  original_head=$(git rev-parse HEAD)
   cleanup_repo="$repo"
+  cleanup_head="$original_head"
   info "Reverting $(git log --oneline -1 "$commit")"
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
-    git revert --abort 2>/dev/null || git reset --hard HEAD 2>/dev/null
-    # Don't delete gate reports — they belong to prior skill runs
-    cleanup_repo=""
+    git revert --abort 2>/dev/null || git reset --hard "$original_head" 2>/dev/null
+    cleanup_repo="" cleanup_head=""
     return 0
   fi
 
@@ -702,13 +706,13 @@ cmd_gate_check() {
   # Strip the report-write section appended to all gates (starts with
   # "After your analysis, write your report" — added by gate persistence)
   gate_content=$(sed '/^After your analysis, write your report\. The repo path/,$d' "$gate_file") || {
-    git reset --hard HEAD 2>/dev/null
-    cleanup_repo=""
+    git reset --hard "$original_head" 2>/dev/null
+    cleanup_repo="" cleanup_head=""
     die "Cannot read gate file: $gate_file"
   }
   if [[ -z "$gate_content" ]]; then
-    git reset --hard HEAD 2>/dev/null
-    cleanup_repo=""
+    git reset --hard "$original_head" 2>/dev/null
+    cleanup_repo="" cleanup_head=""
     die "Gate content empty after stripping report section: $gate_file"
   fi
 
@@ -726,10 +730,10 @@ VERDICT: CLEAN")
     'printf "%s" "$1" | claude -p --output-format text 2>/dev/null' \
     _ "$prompt") || exit_code=$?
 
-  # Restore working tree: reset tracked files, clean untracked (claude -p may create files)
-  git reset --hard HEAD 2>/dev/null || warn "git reset failed — repo may be dirty"
+  # Restore to original HEAD (not current HEAD, which may have moved if claude -p committed)
+  git reset --hard "$original_head" 2>/dev/null || warn "git reset failed — repo may be dirty"
   git clean -fd 2>/dev/null || true
-  cleanup_repo=""
+  cleanup_repo="" cleanup_head=""
 
   if [[ "$exit_code" -eq 124 ]]; then
     error "TIMEOUT: gate exceeded ${GATE_CHECK_TIMEOUT}s (output: $outfile)"
@@ -748,8 +752,8 @@ VERDICT: CLEAN")
 
   # Match the structured verdict instead of guessing from prose
   local verdict
-  # Strip trailing whitespace before matching — LLMs sometimes add spaces
-  verdict=$(echo "$output" | sed 's/[[:space:]]*$//' | grep -oE '^VERDICT: (ISSUES_FOUND|CLEAN)$' | tail -1)
+  # Strip leading+trailing whitespace before matching — LLMs sometimes indent or pad
+  verdict=$(echo "$output" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | grep -oE '^VERDICT: (ISSUES_FOUND|CLEAN)$' | tail -1)
 
   case "$verdict" in
     "VERDICT: ISSUES_FOUND")
