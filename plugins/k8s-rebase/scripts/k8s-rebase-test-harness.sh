@@ -311,7 +311,7 @@ cmd_status() {
 
     local commits applied
     commits=$(git rev-list --count "$default_br".."$branch" 2>/dev/null || echo 0)
-    applied=$(git log "$default_br".."$branch" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
+    applied=$(git log "$default_br".."$branch" --oneline --grep='Applied:' 2>/dev/null | wc -l)
 
     local gates="-"
     local gate_dir="$wdir/.rebase-tmp/gates"
