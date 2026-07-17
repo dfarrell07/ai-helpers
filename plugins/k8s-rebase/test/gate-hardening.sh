@@ -99,30 +99,49 @@ cmd_list() {
 mutate_plugin() {
   local label="mutated-$(date +%s)"
   local dest="$RESULTS_DIR/$label"
+  mkdir -p "$RESULTS_DIR" 2>/dev/null || true
   cp -r "$PLUGIN_DIR" "$dest" || die "Cannot copy plugin to $dest"
 
-  # Expand "all" into components, dedup by spec AND by resolved heading
+  # Expand "all" into components, suppress individual specs made redundant by bulk
+  local has_all_patterns=false has_all_fns=false
   local -A seen_specs=() seen_headings=()
-  local specs=()
+  local raw_specs=()
   for spec in "$@"; do
     if [[ "$spec" == "all" ]]; then
+      has_all_patterns=true; has_all_fns=true
       for s in all-patterns all-fns; do
         [[ -n "${seen_specs[$s]+x}" ]] && continue
-        seen_specs[$s]=1; specs+=("$s")
+        seen_specs[$s]=1; raw_specs+=("$s")
       done
-    elif [[ "$spec" == pattern:* ]]; then
+    elif [[ "$spec" == "all-patterns" ]]; then
+      has_all_patterns=true
+      [[ -n "${seen_specs[$spec]+x}" ]] && continue
+      seen_specs[$spec]=1; raw_specs+=("$spec")
+    elif [[ "$spec" == "all-fns" ]]; then
+      has_all_fns=true
+      [[ -n "${seen_specs[$spec]+x}" ]] && continue
+      seen_specs[$spec]=1; raw_specs+=("$spec")
+    else
+      [[ -n "${seen_specs[$spec]+x}" ]] && continue
+      seen_specs[$spec]=1; raw_specs+=("$spec")
+    fi
+  done
+  # Filter out individual specs made redundant by bulk operations
+  local specs=()
+  for spec in "${raw_specs[@]}"; do
+    case "$spec" in
+      pattern:*) $has_all_patterns && continue ;;
+      fn:*) $has_all_fns && continue ;;
+    esac
+    if [[ "$spec" == pattern:* ]]; then
       local key="${spec#pattern:}"
       local heading="${TAG_TO_PATTERN[$key]:-}"
       if [[ -n "$heading" && -n "${seen_headings[$heading]+x}" ]]; then
         continue
       fi
       [[ -n "$heading" ]] && seen_headings[$heading]=1
-      [[ -n "${seen_specs[$spec]+x}" ]] && continue
-      seen_specs[$spec]=1; specs+=("$spec")
-    else
-      [[ -n "${seen_specs[$spec]+x}" ]] && continue
-      seen_specs[$spec]=1; specs+=("$spec")
     fi
+    specs+=("$spec")
   done
 
   for spec in "${specs[@]}"; do
