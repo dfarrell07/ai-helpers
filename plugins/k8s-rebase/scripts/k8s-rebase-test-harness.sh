@@ -355,9 +355,8 @@ cmd_stop() {
 
   # Build a set of PIDs in our own process tree to avoid self-kill.
   # This protects the claude session running the harness.
-  local my_pid=$$
   local my_ancestors=""
-  local _pid="$my_pid"
+  local _pid=$$
   while [[ -n "$_pid" && "$_pid" != "1" && "$_pid" != "0" ]]; do
     my_ancestors="$my_ancestors $_pid"
     _pid=$(ps -o ppid= -p "$_pid" 2>/dev/null | tr -d ' ')

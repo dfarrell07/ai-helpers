@@ -101,24 +101,33 @@ mutate_plugin() {
   local dest="$RESULTS_DIR/$label"
   cp -r "$PLUGIN_DIR" "$dest" || die "Cannot copy plugin to $dest"
 
-  # Dedup specs
-  local -A seen_specs=()
+  # Expand "all" into components, dedup by spec AND by resolved heading
+  local -A seen_specs=() seen_headings=()
   local specs=()
   for spec in "$@"; do
-    [[ -n "${seen_specs[$spec]+x}" ]] && continue
-    seen_specs[$spec]=1
-    specs+=("$spec")
-  done
-
-  local has_all=false
-  for spec in "${specs[@]}"; do
-    [[ "$spec" == "all" ]] && has_all=true
+    if [[ "$spec" == "all" ]]; then
+      for s in all-patterns all-fns; do
+        [[ -n "${seen_specs[$s]+x}" ]] && continue
+        seen_specs[$s]=1; specs+=("$s")
+      done
+    elif [[ "$spec" == pattern:* ]]; then
+      local key="${spec#pattern:}"
+      local heading="${TAG_TO_PATTERN[$key]:-}"
+      if [[ -n "$heading" && -n "${seen_headings[$heading]+x}" ]]; then
+        continue
+      fi
+      [[ -n "$heading" ]] && seen_headings[$heading]=1
+      [[ -n "${seen_specs[$spec]+x}" ]] && continue
+      seen_specs[$spec]=1; specs+=("$spec")
+    else
+      [[ -n "${seen_specs[$spec]+x}" ]] && continue
+      seen_specs[$spec]=1; specs+=("$spec")
+    fi
   done
 
   for spec in "${specs[@]}"; do
     case "$spec" in
       pattern:*)
-        $has_all && continue
         local key="${spec#pattern:}"
         local heading="${TAG_TO_PATTERN[$key]:-}"
         [[ -z "$heading" ]] && { rm -rf "$dest"; die "Unknown pattern key: $key (run --list to see available)"; }
@@ -137,7 +146,6 @@ mutate_plugin() {
         info "Removed pattern: $heading"
         ;;
       fn:*)
-        $has_all && continue
         local ftag="${spec#fn:}"
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
         if ! grep -q "^fix_${ftag}()" "$afile" 2>/dev/null; then
@@ -152,12 +160,10 @@ mutate_plugin() {
         info "Neutered function: fix_${ftag}()"
         ;;
       all-patterns)
-        $has_all && continue
         sed -i '/^### /,$ { /^## /!d }' "$dest/docs/k8s-rebase-patterns.md"
         info "Removed all pattern sections"
         ;;
       all-fns)
-        $has_all && continue
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
         awk '
           /^fix_[a-z0-9_]+\(\)/ && !/fix_uncommitted/ { print $0; print "  return 0"; skip=1; next }
@@ -166,17 +172,6 @@ mutate_plugin() {
           { print }
         ' "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
         info "Neutered all fix functions"
-        ;;
-      all)
-        sed -i '/^### /,$ { /^## /!d }' "$dest/docs/k8s-rebase-patterns.md"
-        local afile="$dest/scripts/k8s-rebase-autofix.sh"
-        awk '
-          /^fix_[a-z0-9_]+\(\)/ && !/fix_uncommitted/ { print $0; print "  return 0"; skip=1; next }
-          skip && /^\}/ { print; skip=0; next }
-          skip { next }
-          { print }
-        ' "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
-        info "Removed all patterns and neutered all fix functions"
         ;;
       *) rm -rf "$dest"; die "Unknown spec: $spec (use pattern:<key>, fn:<tag>, all-patterns, all-fns, all)" ;;
     esac
@@ -254,17 +249,17 @@ cmd_compare() {
     return 0
   fi
 
-  local hunk_count
+  local hunk_count diff_stat
   hunk_count=$(echo "$diff_output" | grep -c '^@@' || true)
+  diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' 2>/dev/null)
   info "Diff: $hunk_count hunks"
-  git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' 2>/dev/null
+  echo "$diff_stat"
   echo ""
 
-  local merge_base result_log known_log diff_stat
+  local merge_base result_log known_log
   merge_base=$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")
   result_log=$(git log --oneline "${merge_base}".."$result_branch" 2>/dev/null | head -20)
   known_log=$(git log --oneline "${merge_base}".."$known_good" 2>/dev/null | head -20)
-  diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' 2>/dev/null)
 
   mkdir -p "$RESULTS_DIR/comparisons" 2>/dev/null
 
