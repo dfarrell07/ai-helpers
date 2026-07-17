@@ -244,14 +244,25 @@ cmd_without() {
 
   echo ""
   info "Mutated plugin at: $mutated"
-  info "Next: $(basename "$0") --compare <result-branch> <known-good-branch> $repo"
+  info "Next: $(basename "$0") --compare <result-branch> <known-good-branch> $repo --context '${specs[*]}'"
 }
 
 # ── --compare (adversarial court) ───────────────────────────────────
 
 cmd_compare() {
-  [[ $# -lt 3 ]] && die "Usage: $(basename "$0") --compare <result-branch> <known-good-branch> <repo>"
-  local result_branch="$1" known_good="$2" repo="$3"
+  [[ $# -lt 3 ]] && die "Usage: $(basename "$0") --compare <result-branch> <known-good-branch> <repo> [--context 'what was removed']"
+  local result_branch="$1" known_good="$2" repo="$3" mutation_context="${4:-}"
+  # Strip --context flag if present
+  [[ "$mutation_context" == "--context" ]] && mutation_context="${5:-}" || mutation_context=""
+  # Check if --context appears anywhere in args
+  local i=4
+  while [[ $i -le $# ]]; do
+    if [[ "${!i}" == "--context" ]]; then
+      local next=$((i + 1))
+      mutation_context="${!next:-}"
+    fi
+    i=$((i + 1))
+  done
 
   cd "$repo" || die "Cannot cd to $repo"
   git rev-parse --verify "$result_branch" &>/dev/null || die "Branch not found: $result_branch"
@@ -285,7 +296,11 @@ cmd_compare() {
   if [[ "$hunk_count" -lt 5 ]]; then
     info "Small diff ($hunk_count hunks) — single classifier"
     local classifier_output
-    classifier_output=$(printf '%s' "Diff between result branch ($result_branch) and known-good branch ($known_good):
+    local fast_context="Diff between result branch ($result_branch) and known-good branch ($known_good):"
+    [[ -n "$mutation_context" ]] && fast_context="$fast_context
+MUTATION: The result branch was produced with this knowledge REMOVED: $mutation_context
+Any difference caused by the missing knowledge is a REGRESSION."
+    classifier_output=$(printf '%s' "$fast_context
 
 $diff_output
 
@@ -310,7 +325,14 @@ End with: VERDICT: PASS (no regressions) or VERDICT: FAIL (regressions found)" \
   local court_dir="$RESULTS_DIR/comparisons/$(date +%s)-court"
   mkdir -p "$court_dir"
 
+  local mutation_note=""
+  [[ -n "$mutation_context" ]] && mutation_note="
+MUTATION: The result branch was produced with this knowledge REMOVED:
+$mutation_context
+Any difference caused by the missing knowledge is a REGRESSION, not an equivalent alternative.
+"
   local context="Diff between result branch ($result_branch) and known-good branch ($known_good):
+${mutation_note}
 
 DIFF:
 $diff_output
