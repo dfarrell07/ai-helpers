@@ -818,6 +818,21 @@ cmd_cross_analyze() {
     esac
     if [[ -z "${seen_spec[$spec]+x}" ]]; then seen_spec[$spec]=1; specs+=("$spec"); fi
     if [[ -z "${seen_repo[$repo]+x}" ]]; then seen_repo[$repo]=1; repos+=("$repo"); fi
+    # On retry (same spec|repo seen again), undo the old verdict's count
+    local key="$spec|$repo"
+    if [[ -n "${matrix[$key]+x}" ]]; then
+      local old_v="${matrix[$key]}"
+      spec_total[$spec]=$(( ${spec_total[$spec]:-0} - 1 ))
+      repo_total[$repo]=$(( ${repo_total[$repo]:-0} - 1 ))
+      case "$old_v" in
+        PASS) spec_pass[$spec]=$(( ${spec_pass[$spec]:-0} - 1 ))
+               repo_pass[$repo]=$(( ${repo_pass[$repo]:-0} - 1 )) ;;
+        DONE) spec_done[$spec]=$(( ${spec_done[$spec]:-0} - 1 ))
+               repo_done[$repo]=$(( ${repo_done[$repo]:-0} - 1 )) ;;
+        FAIL) spec_fail[$spec]=$(( ${spec_fail[$spec]:-0} - 1 ))
+               repo_fail[$repo]=$(( ${repo_fail[$repo]:-0} - 1 )) ;;
+      esac
+    fi
     spec_total[$spec]=$(( ${spec_total[$spec]:-0} + 1 ))
     repo_total[$repo]=$(( ${repo_total[$repo]:-0} + 1 ))
     case "$v" in
@@ -828,8 +843,7 @@ cmd_cross_analyze() {
       FAIL) spec_fail[$spec]=$(( ${spec_fail[$spec]:-0} + 1 ))
              repo_fail[$repo]=$(( ${repo_fail[$repo]:-0} + 1 )) ;;
     esac
-    matrix["$spec|$repo"]="$v"
-    detail_map["$spec|$repo"]="$detail"
+    matrix["$key"]="$v"
   done < "$tsv"
 
   info "── Cross-Analysis: ${#specs[@]} specs x ${#repos[@]} repos ──"
