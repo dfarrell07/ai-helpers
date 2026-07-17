@@ -21,3 +21,4 @@
 2026-07-17T17:00:53Z	fn:eventf	openshift/cloud-network-config-controller	PASS	1c/0diff identical
 2026-07-17T17:36:17Z	fn:imports	openshift/cloud-network-config-controller	PASS	1c/0diff identical
 2026-07-17T17:38:28Z	fn:reflect_ptr	openshift/ingress-node-firewall	FAIL	12c klog-v1-persisted gates-incomplete
+2026-07-17T17:41:11Z	fn:fieldsv1	openshift/cluster-network-operator	PASS	6c/7f/9h gates:15/15 result-better-than-known-good

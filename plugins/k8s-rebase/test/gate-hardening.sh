@@ -491,7 +491,7 @@ $details
     return 0
   fi
 
-  # Collect gate prompts for failed/no-verdict gates
+  # Collect gate prompts for failed/no-verdict gates (full text, not truncated)
   local gate_prompts=""
   for f in "$gate_dir"/*.report; do
     [[ -f "$f" ]] || continue
@@ -499,11 +499,17 @@ $details
     name=$(basename "$f" .report)
     verdict=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
     if [[ "$verdict" != *"PASS"* ]]; then
-      local prompt_file
-      prompt_file=$(find "$PLUGIN_DIR/gates" -name "${name#step[0-9]*-}.md" -o -name "${name}.md" 2>/dev/null | head -1)
+      local prompt_file gate_basename
+      gate_basename="${name#step[0-9]*-}"
+      prompt_file=$(find "$PLUGIN_DIR/gates" -name "${gate_basename}.md" 2>/dev/null | head -1)
+      [[ -z "$prompt_file" ]] && prompt_file=$(find "$PLUGIN_DIR/gates" -name "${name}.md" 2>/dev/null | head -1)
       if [[ -f "$prompt_file" ]]; then
-        gate_prompts+="GATE PROMPT FOR $name:
-$(head -15 "$prompt_file")
+        gate_prompts+="GATE PROMPT FOR $name ($(basename "$prompt_file")):
+$(cat "$prompt_file")
+---
+"
+      else
+        gate_prompts+="GATE PROMPT FOR $name: [not found — searched gates/ for ${gate_basename}.md]
 ---
 "
       fi
@@ -526,15 +532,19 @@ $(head -15 "$prompt_file")
   local analysis_prompt="You are analyzing gate results from a k8s-rebase skill run on $short.
 "
   [[ -n "$mutation_context" ]] && analysis_prompt+="
-MUTATION: This run was produced with this knowledge REMOVED: $mutation_context
+MUTATION CONTEXT: This run was produced with the following knowledge
+REMOVED from the skill: $mutation_context
+Failures caused by the missing knowledge are EXPECTED — the question is
+whether the gates caught them and whether the agent could have recovered
+without the knowledge.
 "
   analysis_prompt+="
 GATE RESULTS ($pass pass, $fail fail, $no_verdict no verdict out of $total):
 
 $report_summary
 
-GATE PROMPTS (for failed/no-verdict gates):
-${gate_prompts:-None collected}
+GATE PROMPTS (full text for failed/no-verdict gates):
+${gate_prompts:-None collected — gate prompt files not found}
 
 GO.MOD CHANGES:
 ${gomod_diff:-No go.mod diff available}
@@ -542,25 +552,60 @@ ${gomod_diff:-No go.mod diff available}
 COMMITS ON THE REBASE BRANCH:
 $commits
 
-ANALYSIS TASKS:
-1. For each FAILED gate: Read the gate prompt above. Quote the specific
-   prompt language that triggered the failure. Is the failure caused by
-   the removed knowledge, or would it fail regardless?
-2. For each NO VERDICT gate: Is the prompt too complex for a single pass?
-   Should it be split? Did the subagent likely time out?
-3. FALSE NEGATIVES: Which passing gates SHOULD have failed given the
-   mutation? What did the go.mod diff change that no gate checks?
-4. GATE PROMPT FIXES: For each problematic gate, quote the current
-   wording and show a concrete replacement.
-5. SELF-SUFFICIENCY: Can the agent handle this rebase without the
-   removed knowledge? Use: ESSENTIAL (failed on all repos),
-   DISCOVERABLE (agent found it independently on at least one repo),
-   UNKNOWN (not enough data).
+ANALYSIS TASKS — complete all six, in order:
 
-ESSENTIAL_KNOWLEDGE: <list with evidence>
-DISCOVERABLE: <list with evidence>
-GATE_IMPROVEMENTS: <numbered list of quote-current/propose-replacement>
-VERDICT: SELF_SUFFICIENT or NEEDS_HELP"
+1. FAILURE ATTRIBUTION: For each FAILED gate, answer:
+   a) Quote the gate prompt instruction that the rebase violated.
+   b) Was this failure caused by the removed knowledge, or would it
+      fail on a normal (unmutated) run too? Evidence required.
+   c) Did the gate report cite specific file:line evidence, or is
+      the failure vague? Vague failures suggest a weak gate prompt.
+
+2. NO-VERDICT TRIAGE: For each gate with no VERDICT line:
+   a) Is the report file empty, truncated, or malformed?
+   b) Is the gate prompt too complex for a single agent pass?
+      (Count the distinct checks it asks for — more than 4 is a
+      splitting candidate.)
+   c) Propose: split, simplify, or add a timeout/fallback instruction.
+
+3. FALSE NEGATIVE HUNT: Review each PASSING gate against the mutation:
+   a) Read the passing gate's name and the mutation context.
+   b) Should this gate have caught something related to the removed
+      knowledge? If yes, explain what it missed and why.
+   c) Check the go.mod diff: are there dependency changes that no
+      gate (passing or failing) validates?
+
+4. GATE PROMPT IMPROVEMENTS: For each gate prompt that is problematic
+   (caused a false negative, produced no verdict, or gave vague output):
+   a) Quote the current wording (exact lines).
+   b) Explain what is wrong (ambiguous, missing check, too broad).
+   c) Write a concrete replacement paragraph.
+
+5. REPORT FORMAT QUALITY: Do all reports follow the VERDICT/ISSUES/
+   SUMMARY/DETAILS structure? Flag any that are missing fields or
+   have inconsistent formatting (e.g., ISSUES count does not match
+   the number of findings in DETAILS).
+
+6. SELF-SUFFICIENCY (this repo only): Based on this single repo's
+   results, classify the removed knowledge as:
+   - ESSENTIAL: the agent failed to handle the issue and gates caught it
+   - COMPENSATED: the agent failed but no gate caught it (dangerous)
+   - DISCOVERABLE: the agent handled it without the knowledge
+   - INSUFFICIENT_DATA: cannot determine from this run alone
+
+OUTPUT FORMAT (use these exact headers):
+
+FAILURE_ATTRIBUTION:
+<numbered list, one per failed gate, with a/b/c sub-answers>
+
+FALSE_NEGATIVES:
+<numbered list of passing gates that should have failed, or 'None found'>
+
+GATE_IMPROVEMENTS:
+<numbered list: gate name, quoted current text, proposed replacement>
+
+SELF_SUFFICIENCY: <ESSENTIAL | COMPENSATED | DISCOVERABLE | INSUFFICIENT_DATA>
+EVIDENCE: <one paragraph justifying the classification>"
 
   local analysis_output
   analysis_output=$(printf '%s' "$analysis_prompt" \
@@ -580,22 +625,43 @@ VERDICT: SELF_SUFFICIENT or NEEDS_HELP"
   echo "$analysis_output" > "$analysis_file" 2>/dev/null
   info "Analysis saved: $analysis_file"
 
-  # Adversarial reviewer
+  # Adversarial reviewer — gets raw data so it can independently verify claims
   info "Launching adversarial review..."
   local adversarial_output
-  adversarial_output=$(printf '%s' "You are a skeptical reviewer. Challenge this gate analysis:
+  adversarial_output=$(printf '%s' "You are a skeptical reviewer. Your job is to find errors in this
+gate analysis. You have the RAW DATA — verify every claim yourself.
 
-ANALYSIS:
+ANALYST OUTPUT:
 $analysis_output
 
-GATE RESULTS:
+RAW GATE RESULTS:
 $report_summary
 
-Find what the analyst MISSED or got wrong:
-- Any false negative (passing gate that should have failed)?
-- Are proposed gate improvements actually better, or do they risk false positives?
-- Is the SELF_SUFFICIENT verdict justified?
-Be specific. Quote claims and rebut with evidence." \
+GATE PROMPTS (same set the analyst saw):
+${gate_prompts:-None collected}
+
+GO.MOD CHANGES:
+${gomod_diff:-No go.mod diff available}
+
+Check each of these:
+1. FAILURE ATTRIBUTION: Did the analyst correctly identify whether
+   each failure was caused by the mutation or is a pre-existing issue?
+   Cross-check against the gate prompt text and report details.
+2. FALSE NEGATIVES: Did the analyst miss any passing gate that should
+   have failed? Read each gate prompt's check instructions against the
+   mutation context — would the removed knowledge affect what it checks?
+3. GATE IMPROVEMENTS: Are the proposed prompt replacements actually
+   better? Do they risk false positives (flagging correct code as
+   broken)? Would they catch the issue they claim to fix?
+4. SELF-SUFFICIENCY: Is the classification justified by the evidence?
+   Does the analyst conflate 'gate caught it' with 'agent could not
+   handle it'? A gate failure does not always mean the knowledge is
+   essential — the agent might have fixed the issue but a gate was
+   overly strict.
+
+RULES: Quote specific claims from the analyst and rebut with evidence
+from the raw data. Do not agree with the analyst unless you verified
+the claim independently." \
     | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
 
   if [[ -n "$adversarial_output" ]]; then
@@ -609,7 +675,7 @@ Be specific. Quote claims and rebut with evidence." \
 
   # Extract gate improvements if any
   local improvements
-  improvements=$(echo "$analysis_output" | sed -n '/GATE_IMPROVEMENTS:/,/VERDICT:/p' | head -20)
+  improvements=$(echo "$analysis_output" | sed -n '/GATE_IMPROVEMENTS:/,/SELF_SUFFICIENCY:/p' | head -30)
   if [[ -n "$improvements" && "$improvements" != *"none"* && "$improvements" != *"None"* ]]; then
     info "Gate improvements suggested — review above"
     echo "$improvements" >> "$RESULTS_DIR/analyses/improvements.log" 2>/dev/null
@@ -737,13 +803,13 @@ cmd_cross_analyze() {
   local tsv="$state_dir/results.tsv"
   [[ -f "$tsv" ]] || die "No results.tsv found. Run --without first."
 
-  local -A spec_pass spec_fail spec_total
-  local -A repo_pass repo_fail repo_total
-  local -A matrix
+  local -A spec_pass spec_fail spec_total spec_done
+  local -A repo_pass repo_fail repo_total repo_done
+  local -A matrix detail_map
   local specs=() repos=()
   local -A seen_spec seen_repo
 
-  while IFS=$'\t' read -r _ts spec repo verdict _detail; do
+  while IFS=$'\t' read -r _ts spec repo verdict detail; do
     [[ -z "$spec" ]] && continue
     local v="UNKNOWN"
     case "$verdict" in
@@ -757,16 +823,19 @@ cmd_cross_analyze() {
     case "$v" in
       PASS) spec_pass[$spec]=$(( ${spec_pass[$spec]:-0} + 1 ))
              repo_pass[$repo]=$(( ${repo_pass[$repo]:-0} + 1 )) ;;
-      DONE) ;; # DONE_OVERNIGHT has no verdict — don't count as pass or fail
-      FAIL)      spec_fail[$spec]=$(( ${spec_fail[$spec]:-0} + 1 ))
-                 repo_fail[$repo]=$(( ${repo_fail[$repo]:-0} + 1 )) ;;
+      DONE) spec_done[$spec]=$(( ${spec_done[$spec]:-0} + 1 ))
+             repo_done[$repo]=$(( ${repo_done[$repo]:-0} + 1 )) ;;
+      FAIL) spec_fail[$spec]=$(( ${spec_fail[$spec]:-0} + 1 ))
+             repo_fail[$repo]=$(( ${repo_fail[$repo]:-0} + 1 )) ;;
     esac
     matrix["$spec|$repo"]="$v"
+    detail_map["$spec|$repo"]="$detail"
   done < "$tsv"
 
   info "── Cross-Analysis: ${#specs[@]} specs x ${#repos[@]} repos ──"
   echo ""
 
+  # ── Matrix table ──
   printf "%-22s" "SPEC"
   for r in "${repos[@]}"; do printf " %-6s" "${r##*/}"; done
   printf "  %s\n" "CLASS"
@@ -786,12 +855,188 @@ cmd_cross_analyze() {
     printf "  %s\n" "$class"
   done
 
+  # ── Repo difficulty ranking ──
   echo ""
-  info "Repos:"
+  info "Repo difficulty ranking (most failures first):"
+  local repo_rankings=()
   for r in "${repos[@]}"; do
     local p=${repo_pass[$r]:-0} f=${repo_fail[$r]:-0} t=${repo_total[$r]:-0}
-    printf "  %-40s %d pass, %d fail (of %d)\n" "$r" "$p" "$f" "$t"
+    local score=0
+    [[ $t -gt 0 ]] && score=$(( (f * 100) / t ))
+    repo_rankings+=("$score	$f	$p	$t	$r")
   done
+  printf "  %-40s %-8s %-8s %-8s %-8s %s\n" "REPO" "FAIL" "PASS" "TOTAL" "FAIL%" "SELF-SUFFICIENCY"
+  printf "  %-40s %-8s %-8s %-8s %-8s %s\n" "----" "----" "----" "-----" "-----" "----------------"
+  printf '%s\n' "${repo_rankings[@]}" | sort -rn -t$'\t' -k1 | while IFS=$'\t' read -r score f p t r; do
+    local ss_label="UNKNOWN"
+    if [[ $t -lt 2 ]]; then ss_label="INSUFFICIENT-DATA"
+    elif [[ $score -eq 0 ]]; then ss_label="HIGH"
+    elif [[ $score -le 25 ]]; then ss_label="MODERATE"
+    elif [[ $score -le 50 ]]; then ss_label="LOW"
+    else ss_label="VERY-LOW"
+    fi
+    printf "  %-40s %-8d %-8d %-8d %-7d%% %s\n" "$r" "$f" "$p" "$t" "$score" "$ss_label"
+  done
+
+  # ── Coverage gap detection ──
+  echo ""
+  info "Coverage gaps (untested spec x repo combinations):"
+  local gap_count=0
+  local gap_lines=""
+  for s in "${specs[@]}"; do
+    for r in "${repos[@]}"; do
+      if [[ -z "${matrix["$s|$r"]+x}" ]]; then
+        gap_count=$((gap_count + 1))
+        gap_lines+="  $s  x  ${r##*/}"$'\n'
+      fi
+    done
+  done
+  local total_cells=$(( ${#specs[@]} * ${#repos[@]} ))
+  local tested_cells=$(( total_cells - gap_count ))
+  info "Coverage: $tested_cells / $total_cells cells tested ($gap_count gaps)"
+  if [[ $gap_count -gt 0 && $gap_count -le 30 ]]; then
+    echo "$gap_lines"
+  elif [[ $gap_count -gt 30 ]]; then
+    echo "$gap_lines" | head -15
+    info "  ... and $((gap_count - 15)) more gaps"
+  fi
+
+  # ── Recommended next tests ──
+  echo ""
+  info "Recommended next tests (priority order):"
+  local rec_count=0
+  # Priority 1: MIXED specs on untested repos (validate whether essential)
+  for s in "${specs[@]}"; do
+    local f=${spec_fail[$s]:-0} p=${spec_pass[$s]:-0}
+    [[ $f -gt 0 && $p -gt 0 ]] || continue
+    for r in "${repos[@]}"; do
+      [[ -n "${matrix["$s|$r"]+x}" ]] && continue
+      rec_count=$((rec_count + 1))
+      [[ $rec_count -le 10 ]] && printf "  %d. %-20s on %-30s (MIXED spec — need tiebreaker)\n" "$rec_count" "$s" "${r##*/}"
+    done
+  done
+  # Priority 2: ESSENTIAL specs on untested repos (confirm essential)
+  for s in "${specs[@]}"; do
+    local f=${spec_fail[$s]:-0} p=${spec_pass[$s]:-0}
+    [[ $p -eq 0 && $f -gt 0 ]] || continue
+    for r in "${repos[@]}"; do
+      [[ -n "${matrix["$s|$r"]+x}" ]] && continue
+      rec_count=$((rec_count + 1))
+      [[ $rec_count -le 10 ]] && printf "  %d. %-20s on %-30s (ESSENTIAL — confirm universality)\n" "$rec_count" "$s" "${r##*/}"
+    done
+  done
+  # Priority 3: REDUNDANT specs on high-failure repos (stress test)
+  for s in "${specs[@]}"; do
+    local f=${spec_fail[$s]:-0} p=${spec_pass[$s]:-0}
+    [[ $f -eq 0 && $p -gt 0 ]] || continue
+    for r in "${repos[@]}"; do
+      [[ -n "${matrix["$s|$r"]+x}" ]] && continue
+      local rf=${repo_fail[$r]:-0}
+      [[ $rf -gt 0 ]] || continue
+      rec_count=$((rec_count + 1))
+      [[ $rec_count -le 10 ]] && printf "  %d. %-20s on %-30s (REDUNDANT spec + hard repo — stress test)\n" "$rec_count" "$s" "${r##*/}"
+    done
+  done
+  [[ $rec_count -eq 0 ]] && info "  No gaps to fill — matrix is complete."
+
+  # ── Machine-readable summary ──
+  local summary_file="$state_dir/cross-analysis.json"
+  {
+    echo "{"
+    echo "  \"timestamp\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\","
+    echo "  \"matrix_size\": { \"specs\": ${#specs[@]}, \"repos\": ${#repos[@]}, \"cells_tested\": $tested_cells, \"cells_total\": $total_cells },"
+    echo "  \"specs\": {"
+    local first_spec=true
+    for s in "${specs[@]}"; do
+      $first_spec || echo ","
+      first_spec=false
+      local p=${spec_pass[$s]:-0} f=${spec_fail[$s]:-0} d=${spec_done[$s]:-0}
+      local class="NO-DATA"
+      if [[ $f -eq 0 && $p -gt 0 ]]; then class="REDUNDANT"
+      elif [[ $p -eq 0 && $f -gt 0 ]]; then class="ESSENTIAL"
+      elif [[ $f -gt 0 && $p -gt 0 ]]; then class="MIXED"
+      fi
+      printf '    "%s": { "pass": %d, "fail": %d, "done": %d, "class": "%s" }' "$s" "$p" "$f" "$d" "$class"
+    done
+    echo ""
+    echo "  },"
+    echo "  \"repos\": {"
+    local first_repo=true
+    for r in "${repos[@]}"; do
+      $first_repo || echo ","
+      first_repo=false
+      local p=${repo_pass[$r]:-0} f=${repo_fail[$r]:-0} t=${repo_total[$r]:-0}
+      local score=0
+      [[ $t -gt 0 ]] && score=$(( (f * 100) / t ))
+      printf '    "%s": { "pass": %d, "fail": %d, "total": %d, "fail_pct": %d }' "$r" "$p" "$f" "$t" "$score"
+    done
+    echo ""
+    echo "  },"
+    echo "  \"gap_count\": $gap_count"
+    echo "}"
+  } > "$summary_file"
+  info "Machine-readable summary: $summary_file"
+
+  # ── AI pattern analysis ──
+  echo ""
+  info "Launching AI pattern analysis..."
+
+  # Build detail context for the subagent
+  local detail_block=""
+  while IFS=$'\t' read -r ts spec repo verdict detail; do
+    [[ -z "$spec" ]] && continue
+    detail_block+="$spec | $repo | $verdict | $detail"$'\n'
+  done < "$tsv"
+
+  local analysis_prompt="Analyze this k8s-rebase gate-hardening matrix (under 400 words).
+
+MATRIX DATA (spec | repo | verdict | detail):
+$detail_block
+
+CLASSIFICATION RULES:
+- ESSENTIAL: spec fails on ALL tested repos (knowledge is required)
+- REDUNDANT: spec passes on ALL tested repos (agent discovers it independently)
+- MIXED: spec fails on some, passes on others (repo-dependent)
+
+ANALYSIS TASKS:
+1. PATTERN DETECTION: Why do MIXED specs fail on some repos but not others?
+   Look at the detail column for clues (e.g., 'agent discovered independently',
+   'klog-v1-persisted'). What repo characteristics predict failure?
+
+2. REPO DIFFICULTY: Which repos are hardest? Why? Look for patterns like
+   'repo has older dependencies' or 'repo has more complex code patterns'.
+
+3. ESSENTIAL KNOWLEDGE: For specs classified ESSENTIAL, is the knowledge truly
+   undiscoverable, or did the agent just not try hard enough on those repos?
+
+4. IMPROVEMENT TARGETS: Based on failure details, which autofix functions
+   should be improved to make the agent MORE self-sufficient? Which pattern
+   docs are genuinely teaching vs just hand-holding?
+
+5. NEXT ACTIONS: What 3 specific test runs would yield the most information?
+
+Format:
+PATTERNS: <findings>
+HARDEST_REPOS: <ranked with reasons>
+ESSENTIAL_VERDICT: <which specs are truly essential>
+IMPROVEMENTS: <numbered list>
+NEXT_TESTS: <3 specific --without commands to run>"
+
+  local ai_output
+  ai_output=$(printf '%s' "$analysis_prompt" \
+    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
+
+  if [[ -n "$ai_output" ]]; then
+    echo ""
+    info "── AI Analysis ──"
+    echo "$ai_output"
+    echo ""
+    # Save analysis alongside summary
+    echo "$ai_output" > "$state_dir/cross-analysis-ai.txt"
+    info "AI analysis saved: $state_dir/cross-analysis-ai.txt"
+  else
+    warn "AI analysis failed (claude -p returned empty) — showing mechanical results only"
+  fi
 }
 
 # ── Main ──

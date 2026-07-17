@@ -228,12 +228,19 @@ cmd_run() {
     short=$(repo_short "$repo")
     info "── $short ──"
 
-    # Block on ANY session (including done) — it may still own a worktree
+    # Skip finished/zombie sessions — worktrees are cleaned below
     local existing_session
     existing_session=$(session_for_repo "$repo")
     if [[ -n "$existing_session" ]]; then
-      warn "Session found for $short — stop it first"
-      continue
+      local sess_state sess_pid
+      sess_state=$(echo "$existing_session" | cut -f2)
+      sess_pid=$(echo "$existing_session" | cut -f4)
+      if [[ "$sess_state" == "done" || "$sess_pid" == "0" ]]; then
+        info "Skipping finished session for $short (state=$sess_state, pid=$sess_pid)"
+      else
+        warn "Active session found for $short — stop it first"
+        continue
+      fi
     fi
 
     remove_worktrees "$repo"
@@ -427,14 +434,19 @@ cmd_clean() {
   local cleaned=0
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
-    # Block on ANY session (including done) — it may still own a worktree
+    # Skip finished/zombie sessions — safe to clean their worktrees
     local short
     short=$(repo_short "$repo")
     local existing_session
     existing_session=$(session_for_repo "$repo")
     if [[ -n "$existing_session" ]]; then
-      warn "Session on $short — skipping clean (stop it first)"
-      continue
+      local sess_state sess_pid
+      sess_state=$(echo "$existing_session" | cut -f2)
+      sess_pid=$(echo "$existing_session" | cut -f4)
+      if [[ "$sess_state" != "done" && "$sess_pid" != "0" ]]; then
+        warn "Active session on $short — skipping clean (stop it first)"
+        continue
+      fi
     fi
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
