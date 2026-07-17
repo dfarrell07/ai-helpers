@@ -70,8 +70,6 @@ EOF
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-
-
 default_branch() {
   local b
   b=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
@@ -107,7 +105,6 @@ work_dir_for() {
   wt=$(git worktree list 2>/dev/null | grep -E "\[$branch( locked)?\]" | awk '{print $1}' | head -1)
   echo "${wt:-$repo}"
 }
-
 
 reset_to_default() {
   local repo="$1"
@@ -198,8 +195,6 @@ session_for_repo() {
   fi
   [[ -n "$line" ]] && echo "$line"
 }
-
-
 
 # ── run ──────────────────────────────────────────────────────────────
 
@@ -420,7 +415,7 @@ cmd_clean() {
     local existing_session
     existing_session=$(session_for_repo "$repo")
     if [[ -n "$existing_session" ]]; then
-      warn "Session on $short — skipping clean (stop it first, even idle sessions own worktrees)"
+      warn "Session on $short — skipping clean (stop it first)"
       continue
     fi
     cd "$repo" || continue

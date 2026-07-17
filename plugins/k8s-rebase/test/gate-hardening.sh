@@ -27,6 +27,24 @@ error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 
+_cleanup_head=""
+_cleanup_repo=""
+trap '
+  if [[ -n "$_cleanup_repo" ]]; then
+    warn "Interrupted — restoring $(repo_short "$_cleanup_repo")"
+    git -C "$_cleanup_repo" reset --hard "${_cleanup_head:-HEAD}" 2>/dev/null || true
+    git -C "$_cleanup_repo" clean -fd 2>/dev/null || true
+  fi
+' EXIT
+
+default_branch() {
+  local b
+  b=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+  [[ -z "$b" ]] && b="main"
+  git rev-parse --verify "$b" &>/dev/null || b="master"
+  echo "$b"
+}
+
 # Maps fix tags (FIX_DESC keys) to the gate that should detect their absence.
 # Tags match what autofix.sh writes in Applied: trailers.
 declare -A TAG_TO_GATE=(
@@ -70,7 +88,7 @@ load_fix_desc() {
       in_desc=true; continue
     fi
     if $in_desc; then
-      [[ "$line" == ")" ]] && break
+      [[ "$line" =~ ^\) ]] && break
       if [[ "$line" =~ \[([a-z0-9_]+)\]=\"(.+)\" ]]; then
         FIX_DESC["${BASH_REMATCH[1]}"]="${BASH_REMATCH[2]}"
       fi
@@ -109,8 +127,7 @@ cmd_check() {
   [[ -z "$branch" ]] && die "Detached HEAD — checkout a rebase branch first"
   [[ "$branch" =~ ^(main|master)$ ]] && die "On $branch — checkout a rebase branch first"
 
-  default_br=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-  : "${default_br:=main}"
+  default_br=$(default_branch)
 
   info "── Gate hardening: $tag ($desc) on $short ──"
 
@@ -125,10 +142,13 @@ cmd_check() {
 
   local original_head
   original_head=$(git rev-parse HEAD)
+  _cleanup_repo="$repo"
+  _cleanup_head="$original_head"
   info "Reverting $(git log --oneline -1 "$commit")"
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
     git revert --abort 2>/dev/null || git reset --hard "$original_head" 2>/dev/null
+    _cleanup_repo="" _cleanup_head=""
     return 0
   fi
 
@@ -140,6 +160,7 @@ cmd_check() {
   gate_content=$(sed '/^After your analysis, write your report\. The repo path/,$d' "$gate_file")
   if [[ -z "$gate_content" ]]; then
     git reset --hard "$original_head" 2>/dev/null
+    _cleanup_repo="" _cleanup_head=""
     die "Gate content empty after stripping report section"
   fi
 
@@ -157,6 +178,7 @@ VERDICT: CLEAN")
 
   git reset --hard "$original_head" 2>/dev/null || warn "git reset failed — repo may be dirty"
   git clean -fd 2>/dev/null || true
+  _cleanup_repo="" _cleanup_head=""
 
   if [[ "$exit_code" -eq 124 ]]; then
     error "TIMEOUT: gate exceeded ${GATE_CHECK_TIMEOUT}s"
