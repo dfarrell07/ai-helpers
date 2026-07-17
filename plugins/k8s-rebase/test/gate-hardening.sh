@@ -81,7 +81,7 @@ cmd_list() {
   echo ""
   echo "Patterns (--without pattern:<key>):"
   printf "  %-30s %s\n" "KEY" "HEADING IN PATTERNS.MD"
-  for key in $(printf '%s\n' "${!TAG_TO_PATTERN[@]}" | sort -u); do
+  for key in $(printf '%s\n' "${!TAG_TO_PATTERN[@]}" | sort); do
     printf "  %-30s %s\n" "$key" "${TAG_TO_PATTERN[$key]}"
   done
   echo ""
@@ -198,23 +198,14 @@ mutate_plugin() {
 # ── --without ───────────────────────────────────────────────────────
 
 cmd_without() {
-  local version="1.36.2" specs=() repo="" skip_next=false
-
-  for arg in "$@"; do
-    if $skip_next; then skip_next=false; continue; fi
-    case "$arg" in
-      --version) skip_next=true ;;
-      pattern:*|fn:*|all-patterns|all-fns|all) specs+=("$arg") ;;
-      *) repo="$arg" ;;
+  local version="1.36.2" specs=() repo="" args=("$@")
+  local i=0
+  while [[ $i -lt ${#args[@]} ]]; do
+    case "${args[$i]}" in
+      --version) i=$((i + 1)); version="${args[$i]:-}"; [[ -z "$version" ]] && die "--version requires a value" ;;
+      pattern:*|fn:*|all-patterns|all-fns|all) specs+=("${args[$i]}") ;;
+      *) repo="${args[$i]}" ;;
     esac
-  done
-  # Extract --version value
-  local i=1
-  while [[ $i -le $# ]]; do
-    if [[ "${!i}" == "--version" ]]; then
-      local next=$((i + 1))
-      version="${!next}"
-    fi
     i=$((i + 1))
   done
 
@@ -386,18 +377,16 @@ $diff_stat"
 
 # ── Main ──
 
+usage() {
+  echo "Usage: $(basename "$0") --without <spec...> <repo>      Run skill with knowledge removed"
+  echo "       $(basename "$0") --compare <a> <b> <repo>        AI court: judge differences"
+  echo "       $(basename "$0") --list                          Show removable knowledge"
+}
+
 case "${1:-}" in
   --list|-l)    cmd_list ;;
   --without)    shift; cmd_without "$@" ;;
   --compare)    shift; cmd_compare "$@" ;;
-  --help|-h)
-    echo "Usage: $(basename "$0") --without <spec...> <repo>      Run skill with knowledge removed"
-    echo "       $(basename "$0") --compare <a> <b> <repo>        AI court: judge differences"
-    echo "       $(basename "$0") --list                          Show removable knowledge"
-    exit 0 ;;
-  *)
-    echo "Usage: $(basename "$0") --without <spec...> <repo>      Run skill with knowledge removed"
-    echo "       $(basename "$0") --compare <a> <b> <repo>        AI court: judge differences"
-    echo "       $(basename "$0") --list                          Show removable knowledge"
-    exit 1 ;;
+  --help|-h)    usage; exit 0 ;;
+  *)            usage; exit 1 ;;
 esac
