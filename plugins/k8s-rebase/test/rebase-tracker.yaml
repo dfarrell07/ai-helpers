@@ -1,0 +1,52 @@
+target_version: "1.36.2"
+
+repos:
+  ovnk:
+    full: ovn-org/ovn-kubernetes
+    path: ~/ovnk/ovn-org/ovn-kubernetes
+    pr: null
+    status: no-pr
+
+  mcp:
+    full: ovn-kubernetes/ovn-kubernetes-mcp
+    path: ~/ovnk/ovn-kubernetes/ovn-kubernetes-mcp
+    pr: https://github.com/ovn-kubernetes/ovn-kubernetes-mcp/pull/65
+    status: open
+
+  multus:
+    full: openshift/multus-cni
+    path: ~/ovnk/openshift/multus-cni
+    pr: https://github.com/openshift/multus-cni/pull/305
+    status: open
+
+  infw:
+    full: openshift/ingress-node-firewall
+    path: ~/ovnk/openshift/ingress-node-firewall
+    pr: https://github.com/openshift/ingress-node-firewall/pull/732
+    status: open
+
+  cncc:
+    full: openshift/cloud-network-config-controller
+    path: ~/ovnk/openshift/cloud-network-config-controller
+    pr: https://github.com/openshift/cloud-network-config-controller/pull/231
+    status: open
+
+  cno:
+    full: openshift/cluster-network-operator
+    path: ~/ovnk/openshift/cluster-network-operator
+    pr: https://github.com/openshift/cluster-network-operator/pull/3059
+    status: open
+
+gate_hardening:
+  tested:
+    - tag: klog_v2
+      repo: multus
+      result: PASS
+      details: Gate caught stale k8s.io/klog v1 import at pkg/k8sclient/kubeconfig.go:40
+    - tag: feature_gates
+      repo: multus
+      result: FAIL (expected)
+      details: Gate checks for SetFromMap/KUBE_FEATURE_ patterns; multus has neither
+  pending:
+    - tag: feature_gates
+      repo: cno
