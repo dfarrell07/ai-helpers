@@ -184,14 +184,17 @@ except (json.JSONDecodeError, ValueError):
     sys.exit(0)
 now = time.time() * 1000
 for s in data:
-    cwd = s.get('cwd', '')
-    st = s.get('state') or s.get('status') or '?'
-    pid = s.get('pid', '')
-    full_sid = s.get('sessionId', '?')
-    sid = s.get('id') or full_sid[:8]
-    started = s.get('startedAt', 0)
-    elapsed = max(0, int((now - started) / 60000)) if started else 0
-    print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
+    try:
+        cwd = s.get('cwd', '')
+        st = s.get('state') or s.get('status') or '?'
+        pid = s.get('pid', '')
+        full_sid = s.get('sessionId', '?')
+        sid = s.get('id') or full_sid[:8]
+        started = s.get('startedAt', 0)
+        elapsed = max(0, int((now - started) / 60000)) if started else 0
+        print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
+    except (TypeError, ValueError):
+        pass
 " 2>/dev/null || true)
 }
 
