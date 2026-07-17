@@ -33,7 +33,7 @@ first line of your prompt — use it as an absolute path:
 REPO="<the repo path from the first line of your prompt>"
 mkdir -p "$REPO/.rebase-tmp/gates"
 cat > "$REPO/.rebase-tmp/gates/step2-test-compilation.report" << 'REPORT'
-VERDICT: <PASS or FAIL>
+VERDICT: <PASS, FAIL, or SKIP>
 ISSUES: <total error count>
 SUMMARY: <one-line: N test compilation errors across K modules>
 DETAILS:

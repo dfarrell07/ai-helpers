@@ -30,7 +30,7 @@ use $(pwd) which may change between tool calls):
 REPO="<the repo path from the first line of your prompt>"
 mkdir -p "$REPO/.rebase-tmp/gates"
 cat > "$REPO/.rebase-tmp/gates/step2-build-vet.report" << 'REPORT'
-VERDICT: <PASS or FAIL>
+VERDICT: <PASS, FAIL, or SKIP>
 ISSUES: <total error count>
 SUMMARY: <one-line: N build errors, M vet errors across K modules>
 DETAILS:

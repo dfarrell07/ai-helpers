@@ -302,6 +302,7 @@ Gate files:
 - `build-vet.md` (count)
 - `version-consistency.md` (count)
 - `diff-scope.md` (count)
+- `test-compilation.md` (count)
 - `type-conversions.md` (judge)
 - `fix-correctness.md` (judge)
 
@@ -354,6 +355,7 @@ Gate files:
 - `autofix-result.md` (count)
 - `deprecated-api-remnants.md` (count)
 - `feature-gates.md` (count)
+- `major-version-imports.md` (count)
 - `autofix-diff-review.md` (judge)
 - `crd-validation.md` (count)
 - `logical-completeness.md` (count)
