@@ -31,8 +31,7 @@ PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 BUILD=false
 VERBOSE=false
 MIN_AVAILABLE_MB=2048       # warn if less available before launching
-STALE_SESSION_MINS=1440     # 24h — hide idle sessions older than this in status
-MAX_SESSION_LOG=20          # trim sessions.jsonl to this many entries during clean
+STALE_SESSION_MINS=1440     # 24h — hide done/stopped sessions older than this in status
 GATE_CHECK_TIMEOUT=300       # 5min — max time for a gate check in gate-check tests
 
 DEFAULT_REPOS=(
@@ -143,7 +142,7 @@ check_prerequisites() {
 
   local avail_mb
   avail_mb=$(free -m 2>/dev/null | awk '/Mem:/{print $7}')
-  if [[ -n "$avail_mb" ]] && [[ "$avail_mb" =~ ^[0-9]+$ ]] && [[ "$avail_mb" -lt "$MIN_AVAILABLE_MB" ]]; then
+  if [[ "$avail_mb" =~ ^[0-9]+$ ]] && [[ "$avail_mb" -lt "$MIN_AVAILABLE_MB" ]]; then
     warn "Low memory: ${avail_mb}MB available. Each session uses ~500MB + subagents."
     warn "Consider stopping other sessions first: $0 stop --all"
   fi
@@ -174,7 +173,7 @@ default_branch() {
 }
 
 list_bump_branches() {
-  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | tr -d ' ' | sort -V || true
+  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V || true
 }
 
 find_newest_branch() {
@@ -238,10 +237,10 @@ reset_to_default() {
   git checkout "$default_br" 2>/dev/null || die "Cannot checkout $default_br in $repo"
 
   if ! GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>/dev/null; then
-    warn "git pull --ff-only failed in $(basename "$repo") — running against local $default_br"
+    warn "git pull --ff-only failed in $(repo_short "$repo") — running against local $default_br"
   fi
 
-  info "$(basename "$repo") → $default_br @ $(git rev-parse --short HEAD)"
+  info "$(repo_short "$repo") -> $default_br @ $(git rev-parse --short HEAD)"
   cleanup_repo=""
 }
 
@@ -317,11 +316,7 @@ session_for_repo() {
   [[ -n "$line" ]] && echo "$line"
 }
 
-write_session_json() {
-  printf '{"repo":"%s","version":"%s","sid":"%s","time":"%s","base":"%s"}\n' \
-    "$1" "$2" "$3" "$(date -u +%Y-%m-%dT%H:%M:%SZ)" "$4" \
-    >> "$RESULTS_DIR/sessions.jsonl"
-}
+
 
 # ── run ──────────────────────────────────────────────────────────────
 
@@ -347,11 +342,11 @@ cmd_run() {
     existing=$(cd "$repo" && list_bump_branches | wc -l)
     info "── $short ($existing prior runs) ──"
 
-    # Block on ANY session (including idle) — it may still own a worktree
-    local active
-    active=$(session_for_repo "$repo")
-    if [[ -n "$active" ]]; then
-      warn "Session found for $short — stop it first (even idle sessions own worktrees)"
+    # Block on ANY session (including done) — it may still own a worktree
+    local existing_session
+    existing_session=$(session_for_repo "$repo")
+    if [[ -n "$existing_session" ]]; then
+      warn "Session found for $short — stop it first"
       continue
     fi
 
@@ -363,22 +358,23 @@ cmd_run() {
     base=$(git rev-parse --short HEAD)
     info "Base: $default_br @ $base -> k8s $version"
 
-    local session_output session_id
+    local session_output session_id launch_err
+    launch_err="$RESULTS_DIR/launch-${short//\//-}.err"
     session_output=$(claude --bg \
       --plugin-dir "$PLUGIN_DIR" \
       --permission-mode "$PERMISSION_MODE" \
-      "/k8s-rebase:k8s-rebase $version" 2>&1)
+      "/k8s-rebase:k8s-rebase $version" 2>"$launch_err")
     session_id=$(echo "$session_output" | grep 'backgrounded' | grep -oE '[a-f0-9]{8,}' | head -1)
     : "${session_id:=unknown}"
 
     if [[ "$session_id" == "unknown" ]]; then
       error "Failed to launch session for $short"
-      error "claude --bg output: $session_output"
+      error "stdout: $session_output"
+      [[ -s "$launch_err" ]] && error "stderr: $(cat "$launch_err")"
       warn "Check 'claude agents' for orphaned sessions"
       continue
     fi
 
-    write_session_json "$short" "$version" "$session_id" "$base"
     info "Launched $short -> session $session_id"
     launched=$((launched + 1))
     echo ""
@@ -456,7 +452,10 @@ cmd_status() {
     local gomod k8s_ver="?" build_ok="-" vet_ok="-"
     gomod=$(primary_gomod "$wdir")
     if [[ -n "$gomod" ]]; then
-      k8s_ver=$(grep 'k8s.io/api ' "$gomod" 2>/dev/null | grep -v '=>' | head -1 | awk '{print $2}')
+      k8s_ver=$(awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' "$gomod" 2>/dev/null)
+      # Fallback for repos where k8s deps are in a subdirectory (e.g., go-controller/)
+      [[ -z "$k8s_ver" ]] && k8s_ver=$(find "$wdir" -maxdepth 2 -name 'go.mod' -not -path '*/vendor/*' 2>/dev/null \
+        | xargs -I{} awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' {} 2>/dev/null | head -1)
       : "${k8s_ver:=?}"
     fi
 
@@ -517,7 +516,7 @@ cmd_stop() {
     [[ -z "$pid" ]] && continue
     # Skip any PID in our own ancestor chain
     if echo "$my_ancestors" | grep -qw "$pid"; then
-      info "Skipping $sid — in our process tree"
+      info "Skipping $sid (current harness session)"
       continue
     fi
     local should_stop=false
@@ -564,12 +563,12 @@ cmd_clean() {
   local cleaned=0
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
-    # Block on ANY session (including idle) — it may still own a worktree
+    # Block on ANY session (including done) — it may still own a worktree
     local short
     short=$(repo_short "$repo")
-    local active
-    active=$(session_for_repo "$repo")
-    if [[ -n "$active" ]]; then
+    local existing_session
+    existing_session=$(session_for_repo "$repo")
+    if [[ -n "$existing_session" ]]; then
       warn "Session on $short — skipping clean (stop it first, even idle sessions own worktrees)"
       continue
     fi
@@ -581,16 +580,6 @@ cmd_clean() {
     after=$(git worktree list 2>/dev/null | grep -c '\.claude/worktrees' || true)
     cleaned=$((cleaned + before - after))
   done
-
-  if [[ -f "$RESULTS_DIR/sessions.jsonl" ]]; then
-    local count
-    count=$(wc -l < "$RESULTS_DIR/sessions.jsonl")
-    if [[ "$count" -gt "$MAX_SESSION_LOG" ]]; then
-      tail -"$MAX_SESSION_LOG" "$RESULTS_DIR/sessions.jsonl" > "$RESULTS_DIR/sessions.jsonl.tmp" \
-        && mv "$RESULTS_DIR/sessions.jsonl.tmp" "$RESULTS_DIR/sessions.jsonl" \
-        && info "Trimmed session log to last $MAX_SESSION_LOG entries"
-    fi
-  fi
 
   [[ "$cleaned" -eq 0 ]] && info "Nothing to clean"
   return 0
@@ -631,8 +620,8 @@ cmd_compare() {
     local commits applied k8s_ver
     commits=$(git rev-list --count "$default_br".."$b" 2>/dev/null || echo 0)
     applied=$(git log "$default_br".."$b" --format='%b' 2>/dev/null | grep -c 'Applied:' || true)
-    k8s_ver=$(git show "$b":go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
-    [[ -z "$k8s_ver" ]] && k8s_ver=$(git show "$b":go-controller/go.mod 2>/dev/null | grep 'k8s.io/api ' | grep -v '=>' | head -1 | awk '{print $2}')
+    k8s_ver=$(git show "$b":go.mod 2>/dev/null | awk '/k8s\.io\/api / && !/=>/ {print $2; exit}')
+    [[ -z "$k8s_ver" ]] && k8s_ver=$(git show "$b":go-controller/go.mod 2>/dev/null | awk '/k8s\.io\/api / && !/=>/ {print $2; exit}')
     printf "%-42s %7s %7s %s\n" "$b" "$commits" "$applied" "${k8s_ver:-?}"
   done
 
@@ -756,7 +745,7 @@ VERDICT: CLEAN")
   # Match the structured verdict instead of guessing from prose
   local verdict
   # Strip leading+trailing whitespace before matching — LLMs sometimes indent or pad
-  verdict=$(echo "$output" | sed 's/^[[:space:]]*//' | sed 's/[[:space:]]*$//' | grep -oE '^VERDICT: (ISSUES_FOUND|CLEAN)$' | tail -1)
+  verdict=$(echo "$output" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -oE '^VERDICT: (ISSUES_FOUND|CLEAN)$' | tail -1)
 
   case "$verdict" in
     "VERDICT: ISSUES_FOUND")
