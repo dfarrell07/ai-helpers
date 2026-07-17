@@ -1,9 +1,11 @@
-Count deprecated API remnants the autofix should have fixed:
+Count deprecated API remnants that must be zero after a rebase:
 - `golang.org/x/exp` imports (excluding vendor)
 - `reflect.Ptr` usage (excluding vendor)
 - `FieldsV1.Raw` or `FieldsV1{Raw:` usage (excluding vendor)
 - `"k8s.io/klog"` imports without `/v2` (excluding vendor)
-Report each count separately and the total.
+Report each count separately and the total. Any non-zero total
+is a FAIL — these patterns must all be migrated during the
+rebase, whether by autofix or manually.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
