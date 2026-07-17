@@ -493,8 +493,8 @@ cmd_compare() {
   local result_branch="$1" known_good="$2" repo="$3"
 
   cd "$repo" || die "Cannot cd to $repo"
-  git rev-parse --verify -- "$result_branch" &>/dev/null || die "Branch not found: $result_branch"
-  git rev-parse --verify -- "$known_good" &>/dev/null || die "Branch not found: $known_good"
+  git rev-parse --verify "$result_branch" &>/dev/null || die "Branch not found: $result_branch"
+  git rev-parse --verify "$known_good" &>/dev/null || die "Branch not found: $known_good"
 
   info "── Compare: $result_branch vs $known_good on $(repo_short "$repo") ──"
 
