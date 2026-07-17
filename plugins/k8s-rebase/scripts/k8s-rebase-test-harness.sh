@@ -49,7 +49,7 @@ Usage: $(basename "$0") <command> [options] [args...]
 Commands:
   run       <version> [repo...]            Launch skill runs
   status    [repo...]                      Sessions + branch progress
-  stop      <repo...|--all|--stuck>        Stop sessions (--stuck = running > 2h)
+  stop      <repo...|--all>                Stop sessions (--all = harness repos only)
   clean     [repo...]                      Remove leftover worktrees (git artifacts)
   compare   [--last] <repo>                Diff last two rebase branches
             <branch1> <branch2> <repo>     Diff specific branches
@@ -336,15 +336,14 @@ cmd_status() {
 
 cmd_stop() {
   local targets=("$@")
-  local stop_all=false stop_stuck=false
+  local stop_all=false
 
   if [[ ${#targets[@]} -eq 0 ]]; then
-    die "Usage: $0 stop [repo...|--all|--stuck]"
+    die "Usage: $0 stop <repo...|--all>"
   fi
 
   case "${targets[0]}" in
-    --all)   stop_all=true; targets=() ;;
-    --stuck) stop_stuck=true; targets=() ;;
+    --all) stop_all=true; targets=() ;;
   esac
 
   build_session_cache
@@ -371,10 +370,14 @@ cmd_stop() {
     local should_stop=false
 
     if $stop_all; then
-      should_stop=true
-    elif $stop_stuck; then
-      # Match sessions running > 120 min — likely stuck on permission prompts or hangs
-      [[ "$elapsed" =~ ^[0-9]+$ ]] && [[ "$elapsed" -gt 120 ]] && should_stop=true
+      # Only stop sessions whose CWD is under a DEFAULT_REPOS path
+      for dr in "${DEFAULT_REPOS[@]}"; do
+        local dr_short
+        dr_short=$(repo_short "$dr")
+        if [[ "$cwd" == *"/$dr_short" ]] || [[ "$cwd" == *"/$dr_short/"* ]]; then
+          should_stop=true; break
+        fi
+      done
     else
       for t in "${targets[@]}"; do
         # Match session ID prefix or exact repo name in cwd path.
