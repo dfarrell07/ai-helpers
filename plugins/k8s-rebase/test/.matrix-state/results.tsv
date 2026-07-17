@@ -27,3 +27,6 @@
 2026-07-17T18:31:34Z	fn:eventf	openshift/cluster-network-operator	PASS	4c/2f/2h gates:30/30 cosmetic
 2026-07-17T18:52:52Z	fn:klog_v2	ovn-org/ovn-kubernetes	PASS	24c/17f/87h gates:15/15 klog-migrated-independently
 2026-07-17T19:14:05Z	fn:eventf	openshift/ingress-node-firewall	FAIL	6c stuck-91m klog-v1-persisted no-gates
+2026-07-17T19:39:33Z	fn:klog_v2	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/0diff identical-to-known-good
+2026-07-17T20:06:02Z	fn:xexp	openshift/ingress-node-firewall	FAIL	9c klog-v1-persisted(2)
+2026-07-17T20:06:02Z	fn:reflect_ptr	openshift/cloud-network-config-controller	PASS	2c/2f/4h result-fixed-sets.String gate-discovered-deprecation
