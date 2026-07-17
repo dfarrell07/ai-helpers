@@ -3,14 +3,20 @@ Find CRD YAMLs anywhere in the repo (not just helm/*/crds/):
 
 If CRDs are found:
 
-1. Count files where `format: int32` immediately precedes
-   `maximum: 4294967295` (these need format: int64).
-2. Count CRDs that lost metadata.name pattern validation
-   compared to the base branch. Detect the base branch with
-   `git merge-base HEAD main 2>/dev/null || git merge-base HEAD master`,
+1. Compare each CRD to the base branch version. Detect the
+   base branch with:
+   `git merge-base HEAD main 2>/dev/null || git merge-base HEAD master`
    then use `git show <base>:path` to check the original.
+   Flag any validation constraint removed or weakened vs the
+   base: deleted pattern, format, minimum/maximum, enum, or
+   required entries, or relaxed values (wider range, looser
+   regex).
 
-Report both counts.
+2. Check for schema inconsistencies: integer fields where the
+   format doesn't match the range (e.g., format: int32 with a
+   maximum exceeding 2^31-1, which needs format: int64).
+
+Report counts of lost validations and schema inconsistencies.
 
 If no CRDs found in the repo, report 0 for both.
 

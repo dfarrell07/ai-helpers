@@ -1,7 +1,6 @@
-Read the patterns doc (find k8s-rebase-patterns.md in the plugin
-directory). Step 2 already verified autofix patterns (deprecated
-APIs, CRD validation, feature gates, e2e infra). Do NOT re-check
-those — focus on CI-specific gaps that only matter at ship time:
+Step 3 already verified autofix patterns (deprecated APIs, CRD
+validation, feature gates, e2e infra). Do NOT re-check those —
+focus on CI-specific gaps that only matter at ship time:
 
 1. Does any e2e test or CI config reference a hardcoded k8s
    version, KIND image tag, or container image that needs updating?
@@ -10,10 +9,12 @@ those — focus on CI-specific gaps that only matter at ship time:
 2. Are there test skips that should be added or removed for this
    k8s version?
 3. Are there patterns in the doc that the agent should have fixed
-   manually (e.g., KubeVirt test, hybrid-overlay timing) but
-   didn't? Check the branch diff for these fixes.
-4. Would the KIND image tag actually exist? (Check if
-   kindest/node:<version> is published)
+   manually but didn't? Read the patterns doc and check the
+   branch diff for each documented manual fix.
+4. Would the KIND image tag actually exist? Search the web
+   for "kindest/node <version>" or run:
+   `skopeo inspect --no-creds docker://docker.io/kindest/node:v<version> 2>/dev/null`
+   If the tag doesn't exist yet, note as a warning (not a FAIL).
 
 Flag gaps that would cause CI failures. List each item checked
 and your finding.

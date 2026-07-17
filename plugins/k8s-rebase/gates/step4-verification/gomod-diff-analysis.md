@@ -5,8 +5,8 @@ the branch and its merge-base. Classify each changed dependency:
    - k8s.io/* and sigs.k8s.io/*: label "expected rebase" (skip)
    - Third-party (everything else): flag for review
 2. Deps that moved from a released version to a pseudo-version
-   (e.g., v1.36.11 → v1.36.12-0.20260120...): flag as
-   "pinned to unreleased commit"
+   (e.g., vX.Y.Z → vX.Y.Z-0.2026...): flag as "pinned to
+   unreleased commit"
 3. Deps added or removed entirely — especially direct deps
    removed (may indicate stdlib promotion or API consolidation)
 4. Pre-release direct deps (alpha, beta, rc, v0.0.0-timestamp)

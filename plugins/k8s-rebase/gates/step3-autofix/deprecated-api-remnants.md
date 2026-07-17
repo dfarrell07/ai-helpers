@@ -1,14 +1,38 @@
-Count deprecated API remnants that must be zero after a rebase.
-Run these exact greps (excluding vendor and .cache directories):
+Detect deprecated symbols, removed APIs, and stale imports
+surfaced by the k8s dependency bump. Discover issues dynamically
+— do NOT rely on a pre-existing list of known patterns.
 
-1. `grep -rn '"golang.org/x/exp' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
-2. `grep -rn 'reflect\.Ptr' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
-3. `grep -rn 'FieldsV1.Raw\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
-4. `grep -rn '"k8s.io/klog"' --include='*.go' . | grep -v vendor/ | grep -v .cache/ | grep -v '/v2'`
+First, find all module directories:
+  `find . -name go.mod -not -path '*/vendor/*' -not -path '*/.cache/*' -exec dirname {} \;`
 
-Report each count separately and the total. Any non-zero total
-is a FAIL — these patterns must all be migrated during the
-rebase, whether by autofix or manually.
+Step 1 — Build check (most reliable):
+  In each module directory, run:
+  `go build ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
+  Any "undefined", type mismatch, or import error is a finding.
+  The compiler knows exactly what changed in the new deps.
+  If Go is unavailable or wrong version, note as SKIPPED.
+
+Step 2 — Vet check:
+  In each module directory, run:
+  `go vet ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
+  Count warnings. This catches format string errors, unreachable
+  code, and other issues surfaced by the new dep versions.
+
+Step 3 — Deprecated symbol scan:
+  Extract deprecated function/type names from vendor:
+  `grep -rn '// Deprecated:' vendor/k8s.io/ --include='*.go' 2>/dev/null | grep -oP 'func \K\w+|type \K\w+' | sort -u | head -30`
+  For each symbol found, check if non-vendor code uses it:
+  `grep -rn '<symbol>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+
+Step 4 — Promoted x/ package check:
+  `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+  For each x/ import, derive the stdlib name (e.g.,
+  golang.org/x/exp/slices -> slices) and check:
+  `go doc <stdlib-name> 2>/dev/null`
+  If it exists in stdlib, the x/ import should be migrated.
+
+Report each finding with file:line. FAIL if any deprecated
+usage, build error, or stale import exists. PASS if clean.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
@@ -22,7 +46,7 @@ first line of your prompt — use it as an absolute path:
 REPO="<the repo path from the first line of your prompt>"
 mkdir -p "$REPO/.rebase-tmp/gates"
 cat > "$REPO/.rebase-tmp/gates/step3-deprecated-api-remnants.report" << 'REPORT'
-VERDICT: <PASS or FAIL>
+VERDICT: <PASS, FAIL, or SKIP>
 ISSUES: <total issue count>
 SUMMARY: <one-line description of what you checked and found>
 DETAILS:

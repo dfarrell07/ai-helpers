@@ -1,5 +1,5 @@
 Count stale version refs from the PREVIOUS k8s version only
-(e.g., if rebasing to 1.36, look for leftover 1.35 refs).
+(e.g., if rebasing to 1.NN, look for leftover 1.NN-1 refs).
 Check yml/yaml/sh/Makefile/Dockerfile files. Exclude:
 - K8S_VERSION if the kindest/node image isn't published yet
 - Historical/documentation references ("introduced in k8s 1.X",

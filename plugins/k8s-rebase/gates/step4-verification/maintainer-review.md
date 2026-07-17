@@ -14,9 +14,9 @@ required — these are NOT scope creep. Read the patterns doc
 full list. Any change that matches a documented pattern is
 expected, even if it touches e2e infrastructure, version
 references, or test configuration. K8S_VERSION patch-level
-differences (e.g., v1.36.2 in go.mod vs v1.36.1 for KIND) are
-expected — the autofix picks the latest available kindest/node
-tag. Do not flag this as a concern.
+differences between go.mod and CI tooling (KIND, lint, etc.)
+are expected — the autofix picks the latest available versions.
+Do not flag minor version mismatches as a concern.
 
 List your findings with specific commit SHAs and file:line refs.
 Do not just say "would approve" — explain what you checked.

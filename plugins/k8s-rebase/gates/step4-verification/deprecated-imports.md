@@ -1,34 +1,33 @@
-Scan all non-vendor .go files for deprecated import paths and
-symbols. For each pattern, run the specified grep and report
-hits with file:line.
+Final verification that no deprecated imports remain. This runs
+AFTER step3 gates AND fix commits, so focus on what survived
+the entire fix pipeline.
 
-1. "k8s.io/klog" without "/v2" — deprecated since k8s 1.19
-   grep -rn '"k8s.io/klog"' --include='*.go' . | grep -v vendor | grep -v '/v2'
+1. Promoted x/ packages (primary check for this gate):
+   `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+   For each hit, derive the stdlib name (e.g.,
+   golang.org/x/exp/slices -> slices) and check:
+   `go doc <stdlib-name> 2>/dev/null`
+   If available in stdlib, the x/ import should be migrated.
 
-2. "io/ioutil" — deprecated since Go 1.16
-   grep -rn '"io/ioutil"' --include='*.go' . | grep -v vendor
+2. Final build (catches anything earlier gates missed):
+   Find modules: `find . -name go.mod -not -path '*/vendor/*' -exec dirname {} \;`
+   In each: `go build ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
+   Any remaining build error is a FAIL.
 
-3. "golang.org/x/exp/maps", "golang.org/x/exp/slices", "golang.org/x/exp/constraints" — promoted to stdlib
-   grep -rn '"golang.org/x/exp/\(maps\|slices\|constraints\)' --include='*.go' . | grep -v vendor
+3. Final vet:
+   In each module: `go vet ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
+   Any new vet error from the rebase is a finding.
 
-4. "k8s.io/utils/pointer" — deprecated, use "k8s.io/utils/ptr"
-   grep -rn '"k8s.io/utils/pointer"' --include='*.go' . | grep -v vendor
+Do NOT re-run the vendor deprecated-symbol scan — step3's
+deprecated-api-remnants gate already did that. This gate
+verifies that fix commits resolved the step3 findings.
 
-5. reflect.Ptr — deprecated constant, use reflect.Pointer
-   grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor
-
-6. "github.com/golang/protobuf" — deprecated
-   grep -rn '"github.com/golang/protobuf' --include='*.go' . | grep -v vendor
-
-7. FieldsV1.Raw or FieldsV1{Raw: — use typed FieldsV1 access
-   grep -rn 'FieldsV1\.Raw\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor
-
-Report count per pattern. Zero means clean.
+Report count per category. Cite file:line for each hit.
+Zero findings means PASS.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite file:line
-for each hit.
+Do not write anywhere else. Cite file:line for each hit.
 
 After your analysis, write your report. The repo path is the
 first line of your prompt — use it as an absolute path:

@@ -1,14 +1,15 @@
 If e2e infrastructure was modified (kind-common.sh, kind.yaml.j2,
-e2e-kind.sh), read the patterns doc (find k8s-rebase-patterns.md
-in the plugin directory) for the expected state of each component.
-Verify each modified file matches what the patterns doc prescribes.
+e2e-kind.sh, install-kind.sh, CI workflows), verify the changes
+are consistent with the target k8s version.
 
-Common e2e components to check:
-- MetalLB: version and FRR image consistent with patterns doc?
-- KubeVirt: bumped to latest stable release? (not nightly)
-- kubeadm: extraArgs format matches required kubeadm API version?
-- KIND: version and feature gates match patterns doc?
-- Test skips: any conditional skips added for version compatibility?
+For each modified e2e file, check:
+- Do version references (k8s version strings, kindest/node tags)
+  match the target version from go.mod?
+  `grep -rn 'kindest/node\|K8S_VERSION\|KIND_VERSION' . | grep -v vendor/`
+- Are external tool versions consistent across all CI files?
+- Do configuration formats (e.g., kubeadm config apiVersion)
+  match what the new k8s version requires? Search the web for
+  "k8s <version> kubeadm config" if unsure about required format.
 
 List each item checked and whether it passes. Report issues.
 

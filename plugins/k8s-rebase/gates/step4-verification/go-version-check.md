@@ -17,10 +17,10 @@ the repo and check for implications.
    hardcoded versions?
    grep -rn 'go-version' --include='*.yml' --include='*.yaml' .github/ | head -10
 
-6. x/ package opportunities: does the repo still import any
-   golang.org/x/ packages that the new Go version promoted
-   to stdlib?
-   grep -rn '"golang.org/x/exp/\|"golang.org/x/slices"\|"golang.org/x/maps"' --include='*.go' . | grep -v vendor | head -10
+6. x/ package opportunities: this is checked by the
+   deprecated-imports gate — do not duplicate that check here.
+   Just note the Go version bump and its implications for
+   stdlib additions.
 
 Report any mismatches or migration opportunities.
 

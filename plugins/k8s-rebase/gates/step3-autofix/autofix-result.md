@@ -1,9 +1,27 @@
-Check the autofix results by examining git log for the autofix
-commits. Look for commits matching patterns like "Migrate x/exp
-imports", "Disable new default-true feature gates", "Update KIND
-image", "Update version references and lint". Count how many
-autofix commits were created. If zero, the autofix may not have
-run. Ignore stale vendor in gitignored directories
+Check whether the autofix produced meaningful results by
+examining the commit history after the initial rebase.
+
+1. Determine the base:
+   `BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)`
+
+2. List post-rebase commits:
+   `git log --oneline $BASE..HEAD`
+   Count total commits. Identify which are rebase infrastructure
+   (go.mod/vendor changes) vs fix commits (code changes).
+
+3. Check for autofix markers:
+   - Commits with "Applied:" in the body: `git log --grep='Applied:' --oneline $BASE..HEAD`
+   - Commits with "Assisted-by:" trailer: `git log --grep='Assisted-by:' --oneline $BASE..HEAD`
+
+4. If zero fix commits exist, verify the repo doesn't need any:
+   - `go build ./...` — does it compile?
+   - `go vet ./...` — any warnings?
+   If both pass, the repo may genuinely need no fixes beyond
+   the dependency bump itself. Report PASS with note.
+   If either fails, report FAIL — fixes were needed but not
+   applied.
+
+Ignore stale vendor in gitignored directories
 (`git check-ignore -q <dir>/vendor`) — these are expected and
 not maintained by the rebase. Do NOT escalate gitignored vendor
 staleness as a blocker.
