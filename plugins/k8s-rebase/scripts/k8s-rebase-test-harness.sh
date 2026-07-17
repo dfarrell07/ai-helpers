@@ -398,7 +398,7 @@ cmd_stop() {
       claude stop "${full_sid:-$sid}" 2>/dev/null \
         || { kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null || true; }
       local repo_name
-      repo_name=$(echo "$cwd" | sed "s|$HOME/ovnk/||" | sed 's|/\.claude/.*||')
+      repo_name=$(echo "$cwd" | sed -e "s|$HOME/ovnk/||" -e 's|/\.claude/.*||')
       info "Stopped ${repo_name:-$cwd} [session $sid]"
       killed=$((killed + 1))
     fi

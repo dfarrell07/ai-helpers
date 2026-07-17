@@ -277,7 +277,7 @@ End with: VERDICT: PASS (no regressions) or VERDICT: FAIL (regressions found)" \
     echo ""
     echo "$classifier_output" > "$RESULTS_DIR/comparisons/$(date +%s)-fast.txt" 2>/dev/null
     local verdict
-    verdict=$(echo "$classifier_output" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -oE '^VERDICT: (PASS|FAIL)$' | tail -1)
+    verdict=$(echo "$classifier_output" | grep -oE 'VERDICT: (PASS|FAIL)' | tail -1)
     case "$verdict" in
       "VERDICT: PASS") info "PASS: no regressions found" ;;
       "VERDICT: FAIL") error "FAIL: regressions detected"; return 1 ;;
@@ -351,7 +351,7 @@ $diff_stat"
       | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
     echo "$juror_output" > "$court_dir/juror-$j.txt"
     local jv
-    jv=$(echo "$juror_output" | sed 's/^[[:space:]]*//;s/[[:space:]]*$//' | grep -oE '^VERDICT: (PASS|FAIL)$' | tail -1)
+    jv=$(echo "$juror_output" | grep -oE 'VERDICT: (PASS|FAIL)' | tail -1)
     case "$jv" in
       "VERDICT: PASS") pass_votes=$((pass_votes + 1)); info "  Juror $j: PASS" ;;
       "VERDICT: FAIL") fail_votes=$((fail_votes + 1)); info "  Juror $j: FAIL" ;;
@@ -363,14 +363,21 @@ $diff_stat"
   info "Jury: $pass_votes PASS, $fail_votes FAIL"
   info "Court record: $court_dir"
 
-  if [[ "$pass_votes" -eq 0 && "$fail_votes" -eq 0 ]]; then
+  local total_votes=$((pass_votes + fail_votes))
+  if [[ "$total_votes" -eq 0 ]]; then
     error "INCONCLUSIVE: all jurors abstained (claude -p may have failed)"
     return 1
+  elif [[ "$total_votes" -lt 3 ]]; then
+    error "INCONCLUSIVE: only $total_votes of 5 jurors voted (no quorum)"
+    return 1
+  elif [[ "$pass_votes" -eq "$fail_votes" ]]; then
+    error "INCONCLUSIVE: jury tied $pass_votes-$fail_votes"
+    return 1
   elif [[ "$pass_votes" -gt "$fail_votes" ]]; then
-    info "VERDICT: PASS (majority)"
+    info "VERDICT: PASS ($pass_votes-$fail_votes)"
     return 0
   else
-    error "VERDICT: FAIL (majority)"
+    error "VERDICT: FAIL ($fail_votes-$pass_votes)"
     return 1
   fi
 }
