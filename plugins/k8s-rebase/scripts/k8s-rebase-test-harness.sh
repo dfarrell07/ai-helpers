@@ -5,8 +5,8 @@
 set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
-PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." && pwd)/.work/test-harness}"
+PLUGIN_DIR="${PLUGIN_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." 2>/dev/null && pwd || echo /tmp)/.work/test-harness}"
 # bypassPermissions required — the skill runs bash scripts, go build, git ops.
 # Only run against trusted repos.
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
@@ -455,8 +455,8 @@ cmd_compare() {
     [[ $# -lt 3 ]] && die "Usage: compare <branch1> <branch2> <repo>"
     branch_a="$1" branch_b="$2" repo="$3"
     cd "$repo" || die "Cannot cd to $repo"
-    git rev-parse --verify -- "$branch_a" &>/dev/null || die "Branch not found: $branch_a"
-    git rev-parse --verify -- "$branch_b" &>/dev/null || die "Branch not found: $branch_b"
+    git rev-parse --verify "$branch_a" &>/dev/null || die "Branch not found: $branch_a"
+    git rev-parse --verify "$branch_b" &>/dev/null || die "Branch not found: $branch_b"
     [[ "$branch_a" == "$branch_b" ]] && die "Both branches are the same: $branch_a"
   fi
 

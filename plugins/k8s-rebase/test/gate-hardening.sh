@@ -123,10 +123,16 @@ mutate_plugin() {
         local heading="${TAG_TO_PATTERN[$key]:-}"
         [[ -z "$heading" ]] && { rm -rf "$dest"; die "Unknown pattern key: $key"; }
         local pfile="$dest/docs/k8s-rebase-patterns.md"
-        if ! grep -q "^### .*$heading" "$pfile" 2>/dev/null; then
+        if ! grep -qF "### $heading" "$pfile" 2>/dev/null; then
           rm -rf "$dest"; die "Pattern heading '$heading' not found in patterns.md"
         fi
-        sed -i "/^### .*${heading}/,/^### /{/^### .*${heading}/d; /^### /!d}" "$pfile"
+        # Use awk for section deletion — sed can't handle regex metacharacters in headings
+        awk -v hdr="$heading" '
+          /^### / && index($0, hdr) { skip=1; next }
+          /^### / && skip { skip=0 }
+          skip { next }
+          { print }
+        ' "$pfile" > "$pfile.tmp" && mv "$pfile.tmp" "$pfile"
         info "Removed pattern: $heading"
         ;;
       fn:*)
@@ -191,19 +197,22 @@ mutate_plugin() {
 # ── --without ───────────────────────────────────────────────────────
 
 cmd_without() {
-  local version="1.36.2" specs=() repo=""
+  local version="1.36.2" specs=() repo="" skip_next=false
 
   for arg in "$@"; do
+    if $skip_next; then skip_next=false; continue; fi
     case "$arg" in
-      --version) : ;;
+      --version) skip_next=true ;;
       pattern:*|fn:*|all-patterns|all-fns|all) specs+=("$arg") ;;
       *) repo="$arg" ;;
     esac
   done
-  local i=0
-  for arg in "$@"; do
-    if [[ "$arg" == "--version" ]]; then
-      version="${@:$((i+2)):1}"
+  # Extract --version value
+  local i=1
+  while [[ $i -le $# ]]; do
+    if [[ "${!i}" == "--version" ]]; then
+      local next=$((i + 1))
+      version="${!next}"
     fi
     i=$((i + 1))
   done
