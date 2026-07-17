@@ -313,7 +313,8 @@ session_for_repo() {
   # Capture output to avoid pipefail+SIGPIPE issues with `&& return`.
   line=$(printf '%s\n' "$_session_cache" | grep -F "/${short}/" | head -1)
   [[ -n "$line" ]] && { echo "$line"; return; }
-  printf '%s\n' "$_session_cache" | grep -F $'/'"${short}"$'\t' | head -1
+  line=$(printf '%s\n' "$_session_cache" | grep -F $'/'"${short}"$'\t' | head -1)
+  [[ -n "$line" ]] && echo "$line"
 }
 
 write_session_json() {
