@@ -113,14 +113,14 @@ work_dir_for() {
 
 reset_to_default() {
   local repo="$1"
-  cd "$repo" || die "Cannot cd to $repo"
-  [[ -n "$(git status --porcelain 2>/dev/null)" ]] && die "Uncommitted changes in $repo — commit or stash first"
+  cd "$repo" || { error "Cannot cd to $repo"; return 1; }
+  [[ -n "$(git status --porcelain 2>/dev/null)" ]] && { error "Uncommitted changes in $repo — commit or stash first"; return 1; }
 
   cleanup_repo="$repo"
   cleanup_head=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse HEAD)
   local default_br
   default_br=$(default_branch)
-  git checkout "$default_br" &>/dev/null || die "Cannot checkout $default_br in $repo"
+  git checkout "$default_br" &>/dev/null || { error "Cannot checkout $default_br in $repo"; cleanup_repo="" cleanup_head=""; return 1; }
 
   if ! GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>/dev/null; then
     warn "git pull --ff-only failed in $(repo_short "$repo") — running against local $default_br"
@@ -237,7 +237,10 @@ cmd_run() {
     fi
 
     remove_worktrees "$repo"
-    reset_to_default "$repo"
+    if ! reset_to_default "$repo"; then
+      warn "Skipping $short"
+      continue
+    fi
 
     local base default_br
     default_br=$(default_branch)
