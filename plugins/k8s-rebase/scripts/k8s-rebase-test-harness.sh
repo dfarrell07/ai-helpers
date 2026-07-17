@@ -6,12 +6,10 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
-HARNESS_HOME="$(cd "$PLUGIN_DIR/../.." && pwd)"
-RESULTS_DIR="${RESULTS_DIR:-$HARNESS_HOME/.work/test-harness}"
+RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." && pwd)/.work/test-harness}"
 # bypassPermissions required — the skill runs bash scripts, go build, git ops.
 # Only run against trusted repos.
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
-BUILD=false
 VERBOSE=false
 GATE_CHECK_TIMEOUT=300
 
@@ -88,7 +86,6 @@ Commands:
   gate-check <autofix-fn> <repo>            Revert one fix, verify gate catches it
 
 Options:
-  --build              Include go build/vet in status (slow, ~30s per repo)
   -v, --verbose        Show commit subjects in status
   --plugin-dir D       Plugin path (default: auto-detected)
   --permission-mode M  Permission mode (default: bypassPermissions)
@@ -99,7 +96,6 @@ Examples:
   $(basename "$0") run 1.36.2                   # All default repos
   $(basename "$0") run 1.36.2 ~/ovnk/ovn-org/ovn-kubernetes
   $(basename "$0") status                      # Quick overview of all repos
-  $(basename "$0") --build status              # Same but with go build/vet checks
   $(basename "$0") -v status                   # Show commit subjects
   $(basename "$0") stop --all                  # Kill all harness sessions
   $(basename "$0") stop cluster-network-operator
@@ -317,8 +313,8 @@ cmd_status() {
 
   build_session_cache
 
-  printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" "REPO" "COMMITS" "AUTOFIX" "SESSION" "BUILD" "VET" "GATES" "K8S"
-  printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" "----" "-------" "-------" "-------" "-----" "---" "-----" "---"
+  printf "%-45s %7s %7s %18s %5s %s\n" "REPO" "COMMITS" "AUTOFIX" "SESSION" "GATES" "K8S"
+  printf "%-45s %7s %7s %18s %5s %s\n" "----" "-------" "-------" "-------" "-----" "---"
 
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
@@ -338,8 +334,8 @@ cmd_status() {
     fi
 
     if [[ -z "$branch" ]]; then
-      printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" \
-        "$short" "-" "-" "$session_state" "-" "-" "-" "-"
+      printf "%-45s %7s %7s %18s %5s %s\n" \
+        "$short" "-" "-" "$session_state" "-" "-"
       continue
     fi
 
@@ -360,29 +356,13 @@ cmd_status() {
       [[ "$gates_total" -gt 0 ]] && gates="${gates_pass}/${gates_total}"
     fi
 
-    local k8s_ver="?" build_ok="-" vet_ok="-"
+    local k8s_ver="?"
     k8s_ver=$(find "$wdir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' 2>/dev/null \
       | xargs -I{} awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' {} 2>/dev/null | head -1)
     : "${k8s_ver:=?}"
 
-    if $BUILD; then
-      local gomod build_err gomod_dir
-      gomod=$(find "$wdir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' -not -path '*/test/*' 2>/dev/null | head -1)
-      gomod_dir=$(dirname "${gomod:-$wdir}")
-      # Verify we're testing the rebase branch, not main (worktree may have been cleaned)
-      local actual_branch
-      actual_branch=$(git -C "$gomod_dir" branch --show-current 2>/dev/null)
-      if [[ -n "$actual_branch" && "$actual_branch" != "$branch" ]]; then
-        warn "Build check skipped for $short — worktree gone, would test $actual_branch not $branch"
-        build_ok="SKIP"; vet_ok="SKIP"
-      else
-        build_err=$(cd "$gomod_dir" && GOTOOLCHAIN=auto go build ./... 2>&1) && build_ok="PASS" || { build_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
-        build_err=$(cd "$gomod_dir" && GOTOOLCHAIN=auto go vet ./... 2>&1) && vet_ok="PASS" || { vet_ok="FAIL"; echo "$build_err" | tail -5 | sed 's/^/      /' >&2; }
-      fi
-    fi
-
-    printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" \
-      "$short" "$commits" "$applied" "$session_state" "$build_ok" "$vet_ok" "$gates" "$k8s_ver"
+    printf "%-45s %7s %7s %18s %5s %s\n" \
+      "$short" "$commits" "$applied" "$session_state" "$gates" "$k8s_ver"
 
     if $VERBOSE; then
       git log "$default_br".."$branch" --oneline 2>/dev/null | sed 's/^/    /'
@@ -669,7 +649,6 @@ VERDICT: CLEAN")
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --build)           BUILD=true; shift ;;
     -v|--verbose)      VERBOSE=true; shift ;;
     --plugin-dir)      [[ $# -ge 2 ]] || die "--plugin-dir requires an argument"; PLUGIN_DIR="$2"; shift 2 ;;
     --permission-mode) [[ $# -ge 2 ]] || die "--permission-mode requires an argument"; PERMISSION_MODE="$2"; shift 2 ;;
