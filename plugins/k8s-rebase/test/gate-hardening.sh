@@ -180,8 +180,8 @@ mutate_plugin() {
   # Patch SKILL.md find commands to use the mutated plugin directory
   local skillfile="$dest/skills/k8s-rebase/SKILL.md"
   if [[ -f "$skillfile" ]]; then
-    sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-autofix.sh\".*|echo \"$dest/scripts/k8s-rebase-autofix.sh\"|" "$skillfile"
-    sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-patterns.md\".*|echo \"$dest/docs/k8s-rebase-patterns.md\"|" "$skillfile"
+    sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-autofix.sh\"[^)]*)|echo \"$dest/scripts/k8s-rebase-autofix.sh\")|" "$skillfile"
+    sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-patterns.md\"[^)]*)|echo \"$dest/docs/k8s-rebase-patterns.md\")|" "$skillfile"
   fi
 
   bash -n "$dest/scripts/k8s-rebase-autofix.sh" 2>/dev/null \
@@ -323,8 +323,8 @@ $diff_stat"
   local prosecution defense
   prosecution=$(cat "$court_dir/prosecution.txt" 2>/dev/null)
   defense=$(cat "$court_dir/defense.txt" 2>/dev/null)
-  if [[ -z "$prosecution" && -z "$defense" ]]; then
-    error "Both prosecution and defense produced empty output — claude -p may have failed"
+  if [[ -z "$prosecution" || -z "$defense" ]]; then
+    error "Prosecution or defense produced empty output — claude -p may have failed"
     return 1
   fi
 
