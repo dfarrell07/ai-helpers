@@ -131,14 +131,14 @@ cmd_check() {
 
   info "── Gate hardening: $tag ($desc) on $short ──"
 
-  # Search for the Applied: trailer using the FIX_DESC description
-  local commit
-  commit=$( { git log "origin/${default_br}..${branch}" --format='%H' --fixed-strings --grep="Applied: $desc" 2>/dev/null \
-    || git log "${default_br}..${branch}" --format='%H' --fixed-strings --grep="Applied: $desc" 2>/dev/null; } | head -1)
-  # Fallback: try the raw tag (autofix uses tag when FIX_DESC is missing)
-  [[ -z "$commit" ]] && commit=$( { git log "origin/${default_br}..${branch}" --format='%H' --fixed-strings --grep="Applied: $tag" 2>/dev/null \
-    || git log "${default_br}..${branch}" --format='%H' --fixed-strings --grep="Applied: $tag" 2>/dev/null; } | head -1)
-  [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for '$desc' (autofix may not have fired on this repo)"; return 0; }
+  # Search for Applied: trailer containing this tag. Autofix groups multiple
+  # fixes into comma-separated trailers (e.g., "Applied: kind_image, kind_version").
+  # Grep for the tag as a substring, then verify the match is in an Applied: line.
+  local commit range
+  range="origin/${default_br}..${branch}"
+  git rev-parse --verify "origin/$default_br" &>/dev/null || range="${default_br}..${branch}"
+  commit=$(git log "$range" --format='%H' --fixed-strings --grep="$tag" 2>/dev/null | head -1)
+  [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for '$tag' (autofix may not have fired on this repo)"; return 0; }
 
   local original_head
   original_head=$(git rev-parse HEAD)
