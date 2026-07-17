@@ -1,8 +1,11 @@
-Count deprecated API remnants that must be zero after a rebase:
-- `golang.org/x/exp` imports (excluding vendor)
-- `reflect.Ptr` usage (excluding vendor)
-- `FieldsV1.Raw` or `FieldsV1{Raw:` usage (excluding vendor)
-- `"k8s.io/klog"` imports without `/v2` (excluding vendor)
+Count deprecated API remnants that must be zero after a rebase.
+Run these exact greps (excluding vendor and .cache directories):
+
+1. `grep -rn '"golang.org/x/exp' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+2. `grep -rn 'reflect\.Ptr' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+3. `grep -rn 'FieldsV1.Raw\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+4. `grep -rn '"k8s.io/klog"' --include='*.go' . | grep -v vendor/ | grep -v .cache/ | grep -v '/v2'`
+
 Report each count separately and the total. Any non-zero total
 is a FAIL — these patterns must all be migrated during the
 rebase, whether by autofix or manually.

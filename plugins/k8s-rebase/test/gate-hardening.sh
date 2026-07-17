@@ -616,6 +616,89 @@ Be specific. Quote claims and rebut with evidence." \
   fi
 }
 
+# ── --record (capture result from --without run) ─────────────────────
+
+cmd_record() {
+  [[ $# -lt 1 ]] && die "Usage: $(basename "$0") --record <repo>"
+  local repo="$1"
+  [[ -d "$repo" ]] || die "Not found: $repo"
+  local short state_dir repo_key
+  short=$(repo_short "$repo")
+  state_dir="$PLUGIN_DIR/test/.matrix-state"
+  repo_key=$(echo "$short" | tr '/' '_')
+
+  local running_file="$state_dir/running/$repo_key"
+  [[ -f "$running_file" ]] || die "No running entry for $repo_key — was --without run?"
+  local spec
+  spec=$(cat "$running_file")
+  [[ -z "$spec" ]] && die "Empty running entry: $running_file"
+
+  cd "$repo" || die "Cannot cd to $repo"
+
+  # Find latest bump/worktree branch
+  local result_branch
+  local wt_line
+  wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
+  if [[ -n "$wt_line" ]]; then
+    result_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+  fi
+  if [[ -z "$result_branch" ]]; then
+    result_branch=$(LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1)
+  fi
+  [[ -z "$result_branch" ]] && die "No bump/worktree branch in $repo"
+
+  # Mechanical diff stats
+  local default_br
+  default_br=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+  : "${default_br:=main}"
+  git rev-parse --verify "$default_br" &>/dev/null \
+    || git rev-parse --verify "origin/$default_br" &>/dev/null \
+    || default_br="master"
+
+  local commits files hunks
+  commits=$(git rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
+  files=$(git diff --name-only "$default_br".."$result_branch" -- . ':!.rebase-tmp' 2>/dev/null | wc -l)
+  hunks=$(git diff "$default_br".."$result_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+  local diff_details="${commits}c/${files}f/${hunks}h"
+
+  # Check gate reports
+  local verdict="PASS" gate_summary="no-gates"
+  local wt_path
+  wt_path=$(echo "$wt_line" | awk '{print $1}')
+  local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
+  [[ -d "$gate_dir" ]] || gate_dir="$repo/.rebase-tmp/gates"
+
+  if [[ -d "$gate_dir" ]]; then
+    local total=0 gpass=0 gfail=0 noverdict=0
+    for f in "$gate_dir"/*.report; do
+      [[ -f "$f" ]] || continue
+      total=$((total + 1))
+      local gv
+      gv=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
+      if [[ "$gv" == *"PASS"* ]]; then gpass=$((gpass + 1))
+      elif [[ "$gv" == *"FAIL"* ]]; then gfail=$((gfail + 1))
+      else noverdict=$((noverdict + 1)); fi
+    done
+    gate_summary="gates:${gpass}/${total}"
+    [[ "$gfail" -gt 0 || "$noverdict" -gt 0 ]] && verdict="FAIL"
+  fi
+
+  # Write results.tsv entry
+  local ts detail
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  detail="$diff_details $gate_summary"
+  mkdir -p "$state_dir/done"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "$verdict" "$detail" \
+    >> "$state_dir/results.tsv"
+
+  # Move running -> done
+  local done_key="${spec//[:\/]/_}_$repo_key"
+  echo "$ts	$spec	$short	$verdict	$detail" > "$state_dir/done/$done_key"
+  rm -f "$running_file"
+
+  info "Recorded: $spec on $short -> $verdict ($detail)"
+}
+
 # ── --matrix-status (show matrix progress) ─────────────────────────
 
 cmd_matrix_status() {
@@ -719,6 +802,7 @@ usage() {
   echo "       $(basename "$0") --analyze <repo> [--context '...']     Deep gate report analysis"
   echo "       $(basename "$0") --cross-analyze                        Patterns across all runs"
   echo "       $(basename "$0") --matrix-status                        Show matrix test progress"
+  echo "       $(basename "$0") --record <repo>                         Record --without result"
   echo "       $(basename "$0") --list                                 Show removable knowledge"
 }
 
@@ -728,6 +812,7 @@ case "${1:-}" in
   --compare)          shift; cmd_compare "$@" ;;
   --analyze)          shift; cmd_analyze "$@" ;;
   --cross-analyze)    cmd_cross_analyze ;;
+  --record)           shift; cmd_record "$@" ;;
   --matrix-status)    cmd_matrix_status ;;
   --help|-h)          usage; exit 0 ;;
   *)                  usage; exit 1 ;;

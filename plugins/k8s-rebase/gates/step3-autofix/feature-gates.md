@@ -8,8 +8,12 @@ gates match between SetFromMap calls, os.Setenv/t.Setenv
 calls, and hack/test-go.sh exports. Report count of files
 with missing gates.
 
-If the repo has no test files with SetFromMap or KUBE_FEATURE_,
-report 0.
+Also check hack/*.sh and Makefile for KUBE_FEATURE_ exports
+that reference gates no longer present in vendor/k8s.io/.
+
+If the repo has no test files with SetFromMap or KUBE_FEATURE_
+and no KUBE_FEATURE_ references in hack/ or Makefile,
+report SKIP — do not report PASS for work you did not do.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
@@ -23,7 +27,7 @@ first line of your prompt — use it as an absolute path:
 REPO="<the repo path from the first line of your prompt>"
 mkdir -p "$REPO/.rebase-tmp/gates"
 cat > "$REPO/.rebase-tmp/gates/step3-feature-gates.report" << 'REPORT'
-VERDICT: <PASS or FAIL>
+VERDICT: <PASS, FAIL, or SKIP>
 ISSUES: <total issue count>
 SUMMARY: <one-line description of what you checked and found>
 DETAILS:

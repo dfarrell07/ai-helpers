@@ -24,9 +24,11 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not i
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
 mkdir -p "$REBASE_TMP"
-grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
-grep -qF '.config' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.config/' >> "$REPO_ROOT/.git/info/exclude"
-grep -qF '.cache' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.cache/' >> "$REPO_ROOT/.git/info/exclude"
+GIT_DIR_RESOLVED="$(git rev-parse --git-dir 2>/dev/null)"
+mkdir -p "$GIT_DIR_RESOLVED/info"
+grep -qF '.rebase-tmp' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$GIT_DIR_RESOLVED/info/exclude"
+grep -qF '.config' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.config/' >> "$GIT_DIR_RESOLVED/info/exclude"
+grep -qF '.cache' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.cache/' >> "$GIT_DIR_RESOLVED/info/exclude"
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
@@ -248,10 +250,16 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
   SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
   USERNS_FLAG=""
   [[ "$CONTAINER_RT" == "podman" ]] && USERNS_FLAG="--userns=keep-id"
+  GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null)"
+  WORKTREE_MOUNT=""
+  if [[ -n "$GIT_COMMON_DIR" ]] && [[ "$GIT_COMMON_DIR" != ".git" ]] && [[ "$GIT_COMMON_DIR" != "$REPO_ROOT/.git" ]]; then
+    WORKTREE_MOUNT="-v $(dirname "$GIT_COMMON_DIR"):$(dirname "$GIT_COMMON_DIR")"
+  fi
   exec $CONTAINER_RT run --rm \
     --security-opt label=disable \
     $USERNS_FLAG \
     -v "$REPO_ROOT:$REPO_ROOT" \
+    $WORKTREE_MOUNT \
     -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
     -w "$REPO_ROOT" \
     -e GIT_AUTHOR_NAME="$(git config user.name)" \

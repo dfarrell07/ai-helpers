@@ -50,7 +50,9 @@ fi
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
 mkdir -p "$REBASE_TMP"
-grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
+GIT_DIR_RESOLVED="$(git rev-parse --git-dir 2>/dev/null)"
+mkdir -p "$GIT_DIR_RESOLVED/info"
+grep -qF '.rebase-tmp' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$GIT_DIR_RESOLVED/info/exclude"
 
 # Guard: refuse to run on master/main — validate must run on the rebase branch.
 _current_branch=$(git branch --show-current 2>/dev/null || true)
@@ -89,11 +91,17 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
       [[ "$MODE" == "full" ]] && PRIV_FLAG="--privileged"
       EXTRA_ARGS=""
       [[ "$MODE" == "test-only" ]] && EXTRA_ARGS="$TEST_ONLY_PKGS $TEST_ONLY_EXTRA"
+      GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null)"
+      WORKTREE_MOUNT=""
+      if [[ -n "$GIT_COMMON_DIR" ]] && [[ "$GIT_COMMON_DIR" != ".git" ]] && [[ "$GIT_COMMON_DIR" != "$REPO_ROOT/.git" ]]; then
+        WORKTREE_MOUNT="-v $(dirname "$GIT_COMMON_DIR"):$(dirname "$GIT_COMMON_DIR")"
+      fi
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         $PRIV_FLAG \
         $USERNS_FLAG \
         -v "$REPO_ROOT:$REPO_ROOT" \
+        $WORKTREE_MOUNT \
         -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
         -w "$REPO_ROOT" \
         -e K8S_REBASE_IN_CONTAINER=1 \
