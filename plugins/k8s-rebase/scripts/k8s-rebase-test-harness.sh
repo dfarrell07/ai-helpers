@@ -76,7 +76,10 @@ default_branch() {
   local b
   b=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
   [[ -z "$b" ]] && b="main"
-  git rev-parse --verify "$b" &>/dev/null || b="master"
+  # Check local branch OR remote tracking ref (handles repos without local branch)
+  git rev-parse --verify "$b" &>/dev/null \
+    || git rev-parse --verify "origin/$b" &>/dev/null \
+    || b="master"
   echo "$b"
 }
 
