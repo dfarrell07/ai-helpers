@@ -19,7 +19,7 @@ PLUGIN_DIR="${PLUGIN_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." 2>/dev/null && pwd || echo /tmp)/.work/test-harness}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 
-info()  { echo ":: $*"; }
+info()  { echo ":: $*" >&2; }
 warn()  { echo "WARNING: $*" >&2; }
 error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
@@ -162,7 +162,7 @@ mutate_plugin() {
           skip { next }
           { print }
         ' "$pfile" > "$pfile.tmp" && mv "$pfile.tmp" "$pfile"
-        info "Removed pattern: $heading" >&2
+        info "Removed pattern: $heading"
         ;;
       fn:*)
         local ftag="${spec#fn:}"
@@ -176,11 +176,11 @@ mutate_plugin() {
           skip { next }
           { print }
         ' "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
-        info "Neutered function: fix_${ftag}()" >&2
+        info "Neutered function: fix_${ftag}()"
         ;;
       all-patterns)
         sed -i '/^### /,$ { /^## /!d }' "$dest/docs/k8s-rebase-patterns.md"
-        info "Removed all pattern sections" >&2
+        info "Removed all pattern sections"
         ;;
       all-fns)
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
@@ -190,7 +190,7 @@ mutate_plugin() {
           skip { next }
           { print }
         ' "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
-        info "Neutered all fix functions" >&2
+        info "Neutered all fix functions"
         ;;
       *) rm -rf "$dest"; die "Unknown spec: $spec (use pattern:<key>, fn:<tag>, all-patterns, all-fns, all)" ;;
     esac
@@ -203,7 +203,7 @@ mutate_plugin() {
     sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-patterns.md\"[^)]*)|echo \"$dest/docs/k8s-rebase-patterns.md\")|" "$skillfile"
   fi
 
-  bash -n "$dest/scripts/k8s-rebase-autofix.sh" 2>/dev/null \
+  bash -n "$dest/scripts/k8s-rebase-autofix.sh" \
     || { rm -rf "$dest"; die "Mutation produced invalid bash in autofix.sh"; }
 
   echo "$dest"
