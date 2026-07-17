@@ -143,7 +143,7 @@ mutate_plugin() {
           skip { next }
           { print }
         ' "$pfile" > "$pfile.tmp" && mv "$pfile.tmp" "$pfile"
-        info "Removed pattern: $heading"
+        info "Removed pattern: $heading" >&2
         ;;
       fn:*)
         local ftag="${spec#fn:}"
@@ -157,11 +157,11 @@ mutate_plugin() {
           skip { next }
           { print }
         ' "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
-        info "Neutered function: fix_${ftag}()"
+        info "Neutered function: fix_${ftag}()" >&2
         ;;
       all-patterns)
         sed -i '/^### /,$ { /^## /!d }' "$dest/docs/k8s-rebase-patterns.md"
-        info "Removed all pattern sections"
+        info "Removed all pattern sections" >&2
         ;;
       all-fns)
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
@@ -171,7 +171,7 @@ mutate_plugin() {
           skip { next }
           { print }
         ' "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
-        info "Neutered all fix functions"
+        info "Neutered all fix functions" >&2
         ;;
       *) rm -rf "$dest"; die "Unknown spec: $spec (use pattern:<key>, fn:<tag>, all-patterns, all-fns, all)" ;;
     esac
