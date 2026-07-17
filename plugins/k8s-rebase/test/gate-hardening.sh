@@ -27,13 +27,13 @@ error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 
-_cleanup_head=""
-_cleanup_repo=""
+cleanup_head=""
+cleanup_repo=""
 trap '
-  if [[ -n "$_cleanup_repo" ]]; then
-    warn "Interrupted — restoring $(repo_short "$_cleanup_repo")"
-    git -C "$_cleanup_repo" reset --hard "${_cleanup_head:-HEAD}" 2>/dev/null || true
-    git -C "$_cleanup_repo" clean -fd 2>/dev/null || true
+  if [[ -n "$cleanup_repo" ]]; then
+    warn "Interrupted — restoring $(repo_short "$cleanup_repo")"
+    git -C "$cleanup_repo" reset --hard "${cleanup_head:-HEAD}" 2>/dev/null || true
+    git -C "$cleanup_repo" clean -fd 2>/dev/null || true
   fi
 ' EXIT
 
@@ -133,34 +133,35 @@ cmd_check() {
 
   # Search for the Applied: trailer using the FIX_DESC description
   local commit
-  commit=$( { git log "origin/$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $desc" 2>/dev/null \
-    || git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $desc" 2>/dev/null; } | head -1)
+  commit=$( { git log "origin/${default_br}..${branch}" --format='%H' --fixed-strings --grep="Applied: $desc" 2>/dev/null \
+    || git log "${default_br}..${branch}" --format='%H' --fixed-strings --grep="Applied: $desc" 2>/dev/null; } | head -1)
   # Fallback: try the raw tag (autofix uses tag when FIX_DESC is missing)
-  [[ -z "$commit" ]] && commit=$( { git log "origin/$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $tag" 2>/dev/null \
-    || git log "$default_br".."$branch" --format='%H' --fixed-strings --grep="Applied: $tag" 2>/dev/null; } | head -1)
+  [[ -z "$commit" ]] && commit=$( { git log "origin/${default_br}..${branch}" --format='%H' --fixed-strings --grep="Applied: $tag" 2>/dev/null \
+    || git log "${default_br}..${branch}" --format='%H' --fixed-strings --grep="Applied: $tag" 2>/dev/null; } | head -1)
   [[ -z "$commit" ]] && { info "SKIP: no Applied: trailer for '$desc' (autofix may not have fired on this repo)"; return 0; }
 
   local original_head
   original_head=$(git rev-parse HEAD)
-  _cleanup_repo="$repo"
-  _cleanup_head="$original_head"
+  cleanup_repo="$repo"
+  cleanup_head="$original_head"
   info "Reverting $(git log --oneline -1 "$commit")"
   if ! git revert --no-commit "$commit" 2>/dev/null; then
     info "SKIP: revert conflicts (later commits modified the same files)"
     git revert --abort 2>/dev/null || git reset --hard "$original_head" 2>/dev/null
-    _cleanup_repo="" _cleanup_head=""
+    cleanup_repo="" cleanup_head=""
     return 0
   fi
 
   info "Running gate: ${TAG_TO_GATE[$tag]}"
   mkdir -p "$RESULTS_DIR/gate-check" 2>/dev/null
-  local outfile="$RESULTS_DIR/gate-check/${tag}-$(basename "$repo")-$(date +%s).txt"
+  local outfile
+  outfile="$RESULTS_DIR/gate-check/${tag}-$(basename "$repo")-$(date +%s).txt"
 
   local gate_content
   gate_content=$(sed '/^After your analysis, write your report\. The repo path/,$d' "$gate_file")
   if [[ -z "$gate_content" ]]; then
     git reset --hard "$original_head" 2>/dev/null
-    _cleanup_repo="" _cleanup_head=""
+    cleanup_repo="" cleanup_head=""
     die "Gate content empty after stripping report section"
   fi
 
@@ -178,7 +179,7 @@ VERDICT: CLEAN")
 
   git reset --hard "$original_head" 2>/dev/null || warn "git reset failed — repo may be dirty"
   git clean -fd 2>/dev/null || true
-  _cleanup_repo="" _cleanup_head=""
+  cleanup_repo="" cleanup_head=""
 
   if [[ "$exit_code" -eq 124 ]]; then
     error "TIMEOUT: gate exceeded ${GATE_CHECK_TIMEOUT}s"

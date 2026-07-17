@@ -112,6 +112,7 @@ reset_to_default() {
   [[ -n "$(git status --porcelain 2>/dev/null)" ]] && die "Uncommitted changes in $repo — commit or stash first"
 
   cleanup_repo="$repo"
+  cleanup_head=$(git rev-parse HEAD)
   local default_br
   default_br=$(default_branch)
   git checkout "$default_br" 2>/dev/null || die "Cannot checkout $default_br in $repo"
@@ -121,7 +122,7 @@ reset_to_default() {
   fi
 
   info "$(repo_short "$repo") -> $default_br @ $(git rev-parse --short HEAD)"
-  cleanup_repo=""
+  cleanup_repo="" cleanup_head=""
 }
 
 remove_worktrees() {
@@ -316,8 +317,8 @@ cmd_status() {
     fi
 
     local k8s_ver="?"
-    k8s_ver=$(find "$wdir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' 2>/dev/null \
-      | xargs -I{} awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' {} 2>/dev/null | head -1)
+    k8s_ver=$(find "$wdir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' -print0 2>/dev/null \
+      | xargs -0 -I{} awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' {} 2>/dev/null | head -1)
     : "${k8s_ver:=?}"
 
     printf "%-45s %7s %7s %18s %5s %s\n" \
