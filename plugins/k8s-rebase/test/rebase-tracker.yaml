@@ -4,8 +4,8 @@ repos:
   ovnk:
     full: ovn-org/ovn-kubernetes
     path: ~/ovnk/ovn-org/ovn-kubernetes
-    pr: null
-    status: no-pr
+    pr: https://github.com/ovn-kubernetes/ovn-kubernetes/pull/6525
+    status: open
 
   mcp:
     full: ovn-kubernetes/ovn-kubernetes-mcp
@@ -46,7 +46,18 @@ gate_hardening:
     - tag: feature_gates
       repo: multus
       result: FAIL (expected)
-      details: Gate checks for SetFromMap/KUBE_FEATURE_ patterns; multus has neither
-  pending:
+      details: No SetFromMap/KUBE_FEATURE_ test infra in this repo
     - tag: feature_gates
       repo: cno
+      result: FAIL (expected)
+      details: CNO uses OpenShift-level feature gates (library-go), not k8s SetFromMap
+    - tag: xexp
+      repo: multus
+      result: SKIP
+      details: Autofix did not fire on this repo (no x/exp imports)
+  notes: |
+    Only multus (2 trailers) and cno (1 trailer) have Applied: trailers.
+    Other 4 repos had no autofix functions fire during their 1.36.2 rebase.
+    The feature_gates gate is scoped to repos with k8s-level feature gate
+    test infrastructure — repos using OpenShift feature gates produce
+    expected FAILs (gate is correctly not designed for that pattern).
