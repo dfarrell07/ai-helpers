@@ -1,22 +1,6 @@
 #!/bin/bash
-# Requires bash 4+ (associative arrays), Linux coreutils (sort -V, free, timeout).
-# k8s-rebase-test-harness.sh — Launch, monitor, and validate skill runs
-#
-# Launches standalone Claude Code sessions (claude --bg) to run the
-# k8s-rebase skill on target repos. Each session runs the full skill
-# pipeline: deps, autofix, gates, review.
-#
-# Usage: k8s-rebase-test-harness.sh <command> [options] [args...]
-#
-# Testing model:
-#   run       — launch background Claude sessions, each running the full
-#               k8s-rebase skill (deps, autofix, gates, review) in a worktree
-#   status    — show progress: commits, autofix count (commits with "Applied:"
-#               trailers marking which autofix function produced them)
-#   compare   — diff two rebase branches to detect regressions between runs
-#   gate-check — revert one autofix commit, re-run its gate, verify the gate
-#               catches the regression (gate sensitivity/quality test)
-#   stop/clean — tear down sessions (processes) and worktrees (git artifacts)
+# k8s-rebase-test-harness.sh — Launch, monitor, and validate skill runs.
+# Requires bash 4+ (associative arrays), Linux coreutils.
 
 set -uo pipefail
 
@@ -25,14 +9,11 @@ PLUGIN_DIR="$(cd "$SCRIPT_DIR/.." && pwd)"
 HARNESS_HOME="$(cd "$PLUGIN_DIR/../.." && pwd)"
 RESULTS_DIR="${RESULTS_DIR:-$HARNESS_HOME/.work/test-harness}"
 # bypassPermissions required — the skill runs bash scripts, go build, git ops.
-# This means .claude/ configs in target repos execute with full access.
 # Only run against trusted repos.
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 BUILD=false
 VERBOSE=false
-MIN_AVAILABLE_MB=2048       # warn if less available before launching
-STALE_SESSION_MINS=1440     # 24h — hide done/stopped sessions older than this in status
-GATE_CHECK_TIMEOUT=300       # 5min — max time for a gate check in gate-check tests
+GATE_CHECK_TIMEOUT=300
 
 DEFAULT_REPOS=(
   "$HOME/ovnk/ovn-org/ovn-kubernetes"
@@ -115,7 +96,7 @@ Options:
   -h, --help           Show this help
 
 Examples:
-  $(basename "$0") run 1.36                    # All repos, auto-resolves to latest patch
+  $(basename "$0") run 1.36.2                   # All default repos
   $(basename "$0") run 1.36.2 ~/ovnk/ovn-org/ovn-kubernetes
   $(basename "$0") status                      # Quick overview of all repos
   $(basename "$0") --build status              # Same but with go build/vet checks
@@ -133,36 +114,7 @@ EOF
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-check_prerequisites() {
-  command -v claude &>/dev/null || die "claude CLI not found in PATH"
-  command -v python3 &>/dev/null || die "python3 not found in PATH"
-  command -v git &>/dev/null || die "git not found in PATH"
-  command -v curl &>/dev/null || die "curl not found in PATH"
-  command -v timeout &>/dev/null || die "timeout not found in PATH (install coreutils)"
 
-  local avail_mb
-  avail_mb=$(free -m 2>/dev/null | awk '/Mem:/{print $7}')
-  if [[ "$avail_mb" =~ ^[0-9]+$ ]] && [[ "$avail_mb" -lt "$MIN_AVAILABLE_MB" ]]; then
-    warn "Low memory: ${avail_mb}MB available. Each session uses ~500MB + subagents."
-    warn "Consider stopping other sessions first: $0 stop --all"
-  fi
-}
-
-resolve_latest_patch() {
-  local version="$1"
-  [[ "$version" =~ ^[0-9]+\.[0-9]+$ ]] || { echo "$version"; return; }
-  local latest
-  latest=$(curl -sf --retry 2 --connect-timeout 5 \
-    "https://api.github.com/repos/kubernetes/kubernetes/releases" 2>/dev/null \
-    | grep -oE '"tag_name": "v'"$version"'\.[0-9]+"' \
-    | head -1 | grep -oE '[0-9]+\.[0-9]+\.[0-9]+')
-  if [[ -z "$latest" ]]; then
-    warn "Could not resolve latest patch for $version (API rate limit?), using ${version}.0"
-    echo "${version}.0"
-  else
-    echo "$latest"
-  fi
-}
 
 default_branch() {
   local b
@@ -200,37 +152,12 @@ work_dir_for() {
   echo "${wt:-$repo}"
 }
 
-primary_gomod() {
-  local dir="$1" gomod
-  dir=$(cd "$dir" 2>/dev/null && pwd) || return 1
-  gomod=$(find "$dir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' -not -path '*/test/*' 2>/dev/null | head -1)
-  [[ -z "$gomod" ]] && gomod=$(find "$dir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' 2>/dev/null | head -1)
-  echo "$gomod"
-}
 
 reset_to_default() {
   local repo="$1"
   cd "$repo" || die "Cannot cd to $repo"
+  [[ -n "$(git status --porcelain 2>/dev/null)" ]] && die "Uncommitted changes in $repo — commit or stash first"
 
-  if [[ -f "$repo/.git/MERGE_HEAD" ]]; then
-    die "Merge in progress in $repo — resolve or abort (git merge --abort) first"
-  fi
-  if [[ -d "$repo/.git/rebase-merge" || -d "$repo/.git/rebase-apply" ]]; then
-    die "Rebase in progress in $repo — resolve or abort (git rebase --abort) first"
-  fi
-
-  if [[ -n "$(git status --porcelain 2>/dev/null)" ]]; then
-    local stash_name
-    stash_name="harness-$(date +%s)"
-    if git stash push -u -m "$stash_name" 2>/dev/null; then
-      warn "Stashed uncommitted changes as '$stash_name' — use 'git stash list' to recover"
-    else
-      die "Cannot stash uncommitted changes in $repo (git lock held?)"
-    fi
-  fi
-
-  # Set cleanup_repo AFTER precondition checks — the trap must not
-  # run git reset on state the script didn't create
   cleanup_repo="$repo"
   local default_br
   default_br=$(default_branch)
@@ -308,10 +235,6 @@ for s in data:
 session_for_repo() {
   local repo="$1" short line
   short=$(repo_short "$repo")
-  # Match /short/ (worktree path) or /short<TAB> (end of cwd field).
-  # Capture output to avoid pipefail+SIGPIPE issues with `&& return`.
-  line=$(printf '%s\n' "$_session_cache" | grep -F "/${short}/" | head -1)
-  [[ -n "$line" ]] && { echo "$line"; return; }
   line=$(printf '%s\n' "$_session_cache" | grep -F $'/'"${short}"$'\t' | head -1)
   [[ -n "$line" ]] && echo "$line"
 }
@@ -321,12 +244,9 @@ session_for_repo() {
 # ── run ──────────────────────────────────────────────────────────────
 
 cmd_run() {
-  check_prerequisites
+  command -v claude &>/dev/null || die "claude CLI not found in PATH"
   local version="$1"; shift
-  local resolved
-  resolved=$(resolve_latest_patch "$version")
-  [[ "$resolved" != "$version" ]] && info "Resolved $version → $resolved"
-  version="$resolved"
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Version must be X.Y.Z (e.g., 1.36.2), got: $version"
 
   local repos=("$@")
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
@@ -338,9 +258,7 @@ cmd_run() {
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
     local short
     short=$(repo_short "$repo")
-    local existing
-    existing=$(cd "$repo" && list_bump_branches | wc -l)
-    info "── $short ($existing prior runs) ──"
+    info "── $short ──"
 
     # Block on ANY session (including done) — it may still own a worktree
     local existing_session
@@ -397,10 +315,6 @@ cmd_status() {
   local repos=("$@")
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
 
-  uptime | grep -oE 'load average:.*'
-  free -h | grep Mem | awk '{printf "Memory: %s used, %s available\n", $3, $7}'
-  echo ""
-
   build_session_cache
 
   printf "%-45s %7s %7s %18s %5s %5s %5s %s\n" "REPO" "COMMITS" "AUTOFIX" "SESSION" "BUILD" "VET" "GATES" "K8S"
@@ -420,10 +334,7 @@ cmd_status() {
       local tag mins
       tag=$(echo "$session_info" | cut -f2)
       mins=$(echo "$session_info" | cut -f3)
-      # Hide completed/stopped sessions older than STALE_SESSION_MINS
-      if [[ "$mins" =~ ^[0-9]+$ ]] && { [[ "$tag" != "done" && "$tag" != "stopped" ]] || [[ "$mins" -lt "$STALE_SESSION_MINS" ]]; }; then
-        session_state="$tag ${mins}m"
-      fi
+      [[ "$mins" =~ ^[0-9]+$ ]] && session_state="$tag ${mins}m"
     fi
 
     if [[ -z "$branch" ]]; then
@@ -449,19 +360,15 @@ cmd_status() {
       [[ "$gates_total" -gt 0 ]] && gates="${gates_pass}/${gates_total}"
     fi
 
-    local gomod k8s_ver="?" build_ok="-" vet_ok="-"
-    gomod=$(primary_gomod "$wdir")
-    if [[ -n "$gomod" ]]; then
-      k8s_ver=$(awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' "$gomod" 2>/dev/null)
-      # Fallback for repos where k8s deps are in a subdirectory (e.g., go-controller/)
-      [[ -z "$k8s_ver" ]] && k8s_ver=$(find "$wdir" -maxdepth 2 -name 'go.mod' -not -path '*/vendor/*' 2>/dev/null \
-        | xargs -I{} awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' {} 2>/dev/null | head -1)
-      : "${k8s_ver:=?}"
-    fi
+    local k8s_ver="?" build_ok="-" vet_ok="-"
+    k8s_ver=$(find "$wdir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' 2>/dev/null \
+      | xargs -I{} awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' {} 2>/dev/null | head -1)
+    : "${k8s_ver:=?}"
 
-    if $BUILD && [[ -n "$gomod" ]]; then
-      local gomod_dir build_err
-      gomod_dir=$(dirname "$gomod")
+    if $BUILD; then
+      local gomod build_err gomod_dir
+      gomod=$(find "$wdir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' -not -path '*/test/*' 2>/dev/null | head -1)
+      gomod_dir=$(dirname "${gomod:-$wdir}")
       # Verify we're testing the rebase branch, not main (worktree may have been cleaned)
       local actual_branch
       actual_branch=$(git -C "$gomod_dir" branch --show-current 2>/dev/null)
@@ -645,7 +552,7 @@ cmd_compare() {
 # ── gate-check ────────────────────────────────────────────────────────
 
 cmd_gate_check() {
-  check_prerequisites
+  command -v claude &>/dev/null || die "claude CLI not found in PATH"
   local fix_func="$1" repo="$2"
   [[ -z "${AUTOFIX_TO_GATE[$fix_func]+x}" ]] && die "Unknown autofix function: $fix_func (run --help to list gate-check targets)"
 
