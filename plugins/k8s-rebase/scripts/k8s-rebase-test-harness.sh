@@ -21,7 +21,7 @@ DEFAULT_REPOS=(
   "$HOME/ovnk/openshift/cluster-network-operator"
 )
 
-info()  { echo ":: $*"; }
+info()  { echo ":: $*" >&2; }
 warn()  { echo "WARNING: $*" >&2; }
 error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
