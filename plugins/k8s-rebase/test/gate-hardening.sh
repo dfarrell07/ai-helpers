@@ -5,11 +5,13 @@
 # Usage:
 #   gate-hardening.sh --without <spec...> <repo>      Run skill with knowledge removed
 #   gate-hardening.sh --compare <result> <known-good> <repo>  AI court: judge differences
+#   gate-hardening.sh --auto-record                   Batch-record all completed runs
 #   gate-hardening.sh --list                          Show removable knowledge
 #
 # Examples:
 #   gate-hardening.sh --without fn:xexp ~/ovnk/openshift/multus-cni
 #   gate-hardening.sh --without all --version 1.36.2 ~/ovnk/openshift/multus-cni
+#   gate-hardening.sh --auto-record                   # record all finished, skip running
 #   gate-hardening.sh --compare bump-blind-20260717 bump1.36 ~/ovnk/openshift/multus-cni
 
 set -uo pipefail
@@ -728,7 +730,7 @@ cmd_record() {
   local diff_details="${commits}c/${files}f/${hunks}h"
 
   # Check gate reports
-  local verdict="PASS" gate_summary="no-gates"
+  local verdict="DONE" gate_summary="no-gates"
   local wt_path
   wt_path=$(echo "$wt_line" | awk '{print $1}')
   local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
@@ -763,6 +765,223 @@ cmd_record() {
   rm -f "$running_file"
 
   info "Recorded: $spec on $short -> $verdict ($detail)"
+}
+
+# ── --auto-record helpers ──────────────────────────────────────────
+
+# Map repo_key (org_repo with _ separator) back to filesystem path.
+# Works because org names in this project never contain underscores.
+_repo_from_key() {
+  local key="$1"
+  local org="${key%%_*}"
+  local name="${key#*_}"
+  local path="$HOME/ovnk/$org/$name"
+  [[ -d "$path" ]] && { echo "$path"; return 0; }
+  return 1
+}
+
+# Build a lightweight session cache (cwd + state + pid, one call to claude agents).
+_build_session_cache() {
+  timeout 10 claude agents --json 2>/dev/null | python3 -c "
+import json, sys
+try:
+    data = json.load(sys.stdin)
+    if not isinstance(data, list): sys.exit(0)
+except: sys.exit(0)
+for s in data:
+    cwd = s.get('cwd', '')
+    st = s.get('state') or s.get('status') or '?'
+    pid = s.get('pid', '')
+    print(f'{cwd}\t{st}\t{pid}')
+" 2>/dev/null || true
+}
+
+# Check whether a session for repo $short is still active in the cache.
+_is_session_active() {
+  local short="$1" cache="$2"
+  [[ -z "$cache" ]] && return 1
+  while IFS=$'\t' read -r cwd state pid; do
+    if [[ "$cwd" == *"/$short" || "$cwd" == *"/$short/"* ]]; then
+      [[ "$state" != "done" && "$state" != "?" && -n "$pid" && "$pid" != "0" ]] && return 0
+    fi
+  done <<< "$cache"
+  return 1
+}
+
+# Record a single completed run. Uses git -C to avoid cd side effects.
+# Outputs a formatted summary line on success, error message on failure.
+_do_record_one() {
+  local repo="$1" repo_key="$2" spec="$3" state_dir="$4"
+  local short
+  short=$(repo_short "$repo")
+
+  # Find result branch (worktree first, then local bump branches)
+  local result_branch="" wt_line="" wt_path=""
+  wt_line=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
+  if [[ -n "$wt_line" ]]; then
+    result_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+    wt_path=$(echo "$wt_line" | awk '{print $1}')
+  fi
+  [[ -z "$result_branch" ]] && \
+    result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1)
+
+  if [[ -z "$result_branch" ]]; then
+    echo "no bump/worktree branch found"
+    return 1
+  fi
+
+  # Resolve default branch
+  local default_br
+  default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+  : "${default_br:=main}"
+  git -C "$repo" rev-parse --verify "$default_br" &>/dev/null \
+    || git -C "$repo" rev-parse --verify "origin/$default_br" &>/dev/null \
+    || default_br="master"
+
+  # Diff stats vs default branch
+  local commits files hunks
+  commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
+  files=$(git -C "$repo" diff --name-only "$default_br".."$result_branch" -- . ':!.rebase-tmp' 2>/dev/null | wc -l)
+  hunks=$(git -C "$repo" diff "$default_br".."$result_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+
+  # Gate report tally
+  local verdict="DONE" gate_summary="no-gates"
+  local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
+  [[ -d "$gate_dir" ]] || gate_dir="$repo/.rebase-tmp/gates"
+
+  if [[ -d "$gate_dir" ]]; then
+    local gtotal=0 gpass=0 gfail=0
+    for f in "$gate_dir"/*.report; do
+      [[ -f "$f" ]] || continue
+      gtotal=$((gtotal + 1))
+      local gv
+      gv=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
+      if [[ "$gv" == *"PASS"* ]]; then gpass=$((gpass + 1))
+      elif [[ "$gv" == *"FAIL"* ]]; then gfail=$((gfail + 1))
+      fi
+    done
+    if [[ "$gtotal" -gt 0 ]]; then
+      gate_summary="gates:${gpass}/${gtotal}"
+      [[ "$gfail" -gt 0 ]] && verdict="FAIL" || verdict="PASS"
+    fi
+  fi
+
+  # Known-good comparison (mechanical diff, not adversarial court)
+  local kg_note=""
+  local kg_file="$state_dir/known_good_$repo_key"
+  if [[ -f "$kg_file" ]]; then
+    local kg_branch
+    kg_branch=$(cat "$kg_file")
+    if git -C "$repo" rev-parse --verify "$kg_branch" &>/dev/null; then
+      local kg_diff
+      kg_diff=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null)
+      if [[ -z "$kg_diff" ]]; then
+        kg_note="identical-to-known-good"
+      else
+        local kg_hunks
+        kg_hunks=$(echo "$kg_diff" | grep -c '^@@' || true)
+        kg_note="diff-vs-known-good:${kg_hunks}h"
+      fi
+    fi
+  fi
+
+  # Assemble detail string and persist
+  local detail="${commits}c/${files}f/${hunks}h $gate_summary"
+  [[ -n "$kg_note" ]] && detail="$detail $kg_note"
+
+  local ts done_key
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  done_key="${spec//[:\/]/_}_$repo_key"
+  mkdir -p "$state_dir/done"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "$verdict" "$detail" \
+    >> "$state_dir/results.tsv"
+  echo "$ts	$spec	$short	$verdict	$detail" > "$state_dir/done/$done_key"
+  rm -f "$state_dir/running/$repo_key"
+
+  # Return formatted line for summary table
+  printf '%-20s %-42s %-8s %s' "$spec" "$short" "$verdict" "$detail"
+}
+
+# ── --auto-record (batch-record all completed runs) ───────────────
+
+cmd_auto_record() {
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local running_dir="$state_dir/running"
+
+  if [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]]; then
+    info "No running entries to process."
+    return 0
+  fi
+
+  info "Checking session states..."
+  local _ar_cache
+  _ar_cache=$(_build_session_cache)
+
+  local recorded=0 skipped_active=0 skipped_done=0 errored=0
+  local -a summary=()
+
+  for running_file in "$running_dir"/*; do
+    [[ -f "$running_file" ]] || continue
+    local repo_key spec repo short
+    repo_key=$(basename "$running_file")
+    spec=$(cat "$running_file")
+
+    # Guard: empty entry
+    if [[ -z "$spec" ]]; then
+      warn "Empty running entry: $repo_key — removing"
+      rm -f "$running_file"
+      continue
+    fi
+
+    # Resolve path
+    repo=$(_repo_from_key "$repo_key") || true
+    if [[ -z "$repo" || ! -d "$repo" ]]; then
+      warn "Cannot resolve repo for key: $repo_key — skipping"
+      continue
+    fi
+    short=$(repo_short "$repo")
+
+    # Idempotency: already recorded?
+    local done_key="${spec//[:\/]/_}_$repo_key"
+    if [[ -f "$state_dir/done/$done_key" ]]; then
+      rm -f "$running_file"
+      skipped_done=$((skipped_done + 1))
+      info "SKIP (recorded): $spec on $short"
+      continue
+    fi
+
+    # Still running?
+    if _is_session_active "$short" "$_ar_cache"; then
+      skipped_active=$((skipped_active + 1))
+      info "SKIP (active): $spec on $short"
+      continue
+    fi
+
+    # Record
+    local result
+    if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir"); then
+      recorded=$((recorded + 1))
+      summary+=("$result")
+      info "Recorded: $spec on $short"
+    else
+      errored=$((errored + 1))
+      warn "Failed: $spec on $short — $result"
+    fi
+  done
+
+  # Print summary
+  echo ""
+  info "── Auto-Record Summary ──"
+  info "Recorded: $recorded | Active: $skipped_active | Already done: $skipped_done | Errors: $errored"
+
+  if [[ ${#summary[@]} -gt 0 ]]; then
+    echo ""
+    printf "  %-20s %-42s %-8s %s\n" "SPEC" "REPO" "VERDICT" "DETAILS"
+    printf "  %-20s %-42s %-8s %s\n" "----" "----" "-------" "-------"
+    for line in "${summary[@]}"; do
+      echo "  $line"
+    done
+  fi
 }
 
 # ── --matrix-status (show matrix progress) ─────────────────────────
@@ -1062,6 +1281,7 @@ usage() {
   echo "       $(basename "$0") --cross-analyze                        Patterns across all runs"
   echo "       $(basename "$0") --matrix-status                        Show matrix test progress"
   echo "       $(basename "$0") --record <repo>                         Record --without result"
+  echo "       $(basename "$0") --auto-record                          Batch-record all completed runs"
   echo "       $(basename "$0") --list                                 Show removable knowledge"
 }
 
@@ -1072,6 +1292,7 @@ case "${1:-}" in
   --analyze)          shift; cmd_analyze "$@" ;;
   --cross-analyze)    cmd_cross_analyze ;;
   --record)           shift; cmd_record "$@" ;;
+  --auto-record)      cmd_auto_record ;;
   --matrix-status)    cmd_matrix_status ;;
   --help|-h)          usage; exit 0 ;;
   *)                  usage; exit 1 ;;
