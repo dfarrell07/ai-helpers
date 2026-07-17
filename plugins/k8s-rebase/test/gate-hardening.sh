@@ -8,8 +8,8 @@
 #   gate-hardening.sh --list                          Show removable knowledge
 #
 # Examples:
-#   gate-hardening.sh --without fn:xexp multus
-#   gate-hardening.sh --without all --version 1.36.2 multus
+#   gate-hardening.sh --without fn:xexp ~/ovnk/openshift/multus-cni
+#   gate-hardening.sh --without all --version 1.36.2 ~/ovnk/openshift/multus-cni
 #   gate-hardening.sh --compare bump-blind-20260717 bump1.36 ~/ovnk/openshift/multus-cni
 
 set -uo pipefail
@@ -37,7 +37,7 @@ declare -A TAG_TO_PATTERN=(
   [obsgen]="WithConditions + ObservedGeneration"
   [banp_egresspeer]="EgressPeer type divergence"
   [conformance_renames]="Conformance suite rename"
-  [addtoscheme]="Install"
+  [addtoscheme]="AddToScheme"
   [mocks]="Deprecated stdlib/apimachinery symbols"
   [crd_int64_validation]="Project CRD int64 validation"
   [crd_name_validation]="CRD metadata.name validation"

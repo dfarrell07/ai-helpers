@@ -36,7 +36,7 @@ trap_cleanup() {
     warn "Interrupted — restoring $(repo_short "$cleanup_repo")"
     # Use checkout (not reset --hard) to avoid moving the current branch pointer
     # to a commit from a different branch
-    git -C "$cleanup_repo" checkout "${cleanup_head:-HEAD}" 2>/dev/null || true
+    git -C "$cleanup_repo" checkout "${cleanup_head:-HEAD}" &>/dev/null || true
     git -C "$cleanup_repo" clean -fd 2>/dev/null || true
   fi
 }
@@ -133,14 +133,14 @@ remove_worktrees() {
   local wt_lines
   wt_lines=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' || true)
   [[ -z "$wt_lines" ]] && return 0
+  local default_br
+  default_br=$(default_branch)
   while IFS= read -r line; do
     local wt_path wt_branch
     wt_path=$(echo "$line" | awk '{print $1}')
     wt_branch=$(echo "$line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
 
-    # Check if worktree has commits worth preserving
-    local default_br commit_count=0
-    default_br=$(default_branch)
+    local commit_count=0
     if [[ -n "$wt_branch" ]]; then
       commit_count=$(git rev-list --count "$default_br".."$wt_branch" 2>/dev/null || echo 0)
     fi
