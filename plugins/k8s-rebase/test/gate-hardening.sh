@@ -423,18 +423,193 @@ $diff_stat"
   fi
 }
 
+# ── --analyze (deep gate report analysis) ──────────────────────────
+
+cmd_analyze() {
+  [[ $# -lt 1 ]] && die "Usage: $(basename "$0") --analyze <repo> [--context 'what was removed']"
+  local repo="$1" mutation_context=""
+  local i=2
+  while [[ $i -le $# ]]; do
+    if [[ "${!i}" == "--context" ]]; then
+      local next=$((i + 1))
+      mutation_context="${!next:-}"
+    fi
+    i=$((i + 1))
+  done
+
+  cd "$repo" || die "Cannot cd to $repo"
+  local short
+  short=$(repo_short "$repo")
+
+  # Find gate reports in the worktree
+  local wt_path
+  wt_path=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+  local gate_dir="$wt_path/.rebase-tmp/gates"
+
+  if [[ ! -d "$gate_dir" ]]; then
+    # Try the repo root
+    gate_dir="$repo/.rebase-tmp/gates"
+  fi
+  [[ -d "$gate_dir" ]] || die "No gate reports found in $repo"
+
+  # Build structured summary of all gate reports
+  local total=0 pass=0 fail=0 no_verdict=0
+  local report_summary=""
+  for f in "$gate_dir"/*.report; do
+    [[ -f "$f" ]] || continue
+    total=$((total + 1))
+    local name verdict issues summary details
+    name=$(basename "$f" .report)
+    verdict=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
+    issues=$(grep '^ISSUES:' "$f" 2>/dev/null | head -1)
+    summary=$(grep '^SUMMARY:' "$f" 2>/dev/null | head -1)
+    details=$(sed -n '/^DETAILS:/,$ p' "$f" 2>/dev/null | tail -n +2)
+
+    if [[ "$verdict" == *"PASS"* ]]; then
+      pass=$((pass + 1))
+    elif [[ "$verdict" == *"FAIL"* ]]; then
+      fail=$((fail + 1))
+      report_summary+="FAILED GATE: $name
+$verdict
+$issues
+$summary
+$details
+
+"
+    else
+      no_verdict=$((no_verdict + 1))
+      report_summary+="NO VERDICT: $name ($(wc -c < "$f") bytes)
+"
+    fi
+  done
+
+  info "── Analysis: $short ──"
+  info "Gates: $pass PASS, $fail FAIL, $no_verdict NO VERDICT (of $total)"
+
+  if [[ "$fail" -eq 0 && "$no_verdict" -eq 0 ]]; then
+    info "All gates passed. No issues to analyze."
+    return 0
+  fi
+
+  # Also gather branch info
+  local branch
+  branch=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+  local default_br
+  default_br=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo main)
+  local commits=""
+  if [[ -n "$branch" ]]; then
+    commits=$(git log "${default_br}..${branch}" --oneline 2>/dev/null)
+  fi
+
+  # Launch analyst agent
+  info "Launching deep analysis..."
+  local analysis_prompt="You are analyzing gate results from a k8s-rebase skill run on $short.
+"
+  [[ -n "$mutation_context" ]] && analysis_prompt+="
+MUTATION: This run was produced with this knowledge REMOVED: $mutation_context
+"
+  analysis_prompt+="
+GATE RESULTS ($pass pass, $fail fail, $no_verdict no verdict out of $total):
+
+$report_summary
+
+COMMITS ON THE REBASE BRANCH:
+$commits
+
+ANALYSIS TASKS:
+1. For each FAILED gate: Is the failure caused by the removed knowledge,
+   or would it fail regardless? Is the gate prompt detecting the right thing?
+2. For each NO VERDICT gate: Why didn't it produce a verdict? Is the gate
+   prompt too complex? Did the subagent time out?
+3. PATTERN DETECTION: Are multiple gates catching the same underlying issue?
+   Is there redundancy? Are there gaps where NO gate catches an issue?
+4. GATE IMPROVEMENT SUGGESTIONS: For each failure, suggest a specific
+   improvement to the gate prompt that would make it more reliable.
+   Be concrete — show the current wording and proposed replacement.
+5. SELF-SUFFICIENCY ASSESSMENT: Based on the commits and gate results,
+   can the agent handle this rebase without the removed knowledge?
+   What specific knowledge is essential vs discoverable?
+
+End with a structured summary:
+ESSENTIAL_KNOWLEDGE: <list of fns/patterns the agent CANNOT discover>
+DISCOVERABLE: <list of fns/patterns the agent CAN discover>
+GATE_IMPROVEMENTS: <list of specific gate prompt changes to make>
+VERDICT: SELF_SUFFICIENT or NEEDS_HELP"
+
+  local analysis_output
+  analysis_output=$(printf '%s' "$analysis_prompt" \
+    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
+
+  if [[ -z "$analysis_output" ]]; then
+    error "Analysis agent produced no output"
+    return 1
+  fi
+
+  echo "$analysis_output"
+  echo ""
+
+  # Save analysis
+  mkdir -p "$RESULTS_DIR/analyses" 2>/dev/null
+  local analysis_file="$RESULTS_DIR/analyses/$(echo "$short" | tr '/' '-')-$(date +%s).txt"
+  echo "$analysis_output" > "$analysis_file" 2>/dev/null
+  info "Analysis saved: $analysis_file"
+
+  # Extract gate improvements if any
+  local improvements
+  improvements=$(echo "$analysis_output" | sed -n '/GATE_IMPROVEMENTS:/,/VERDICT:/p' | head -20)
+  if [[ -n "$improvements" && "$improvements" != *"none"* && "$improvements" != *"None"* ]]; then
+    info "Gate improvements suggested — review above"
+    echo "$improvements" >> "$RESULTS_DIR/analyses/improvements.log" 2>/dev/null
+  fi
+}
+
+# ── --matrix-status (show matrix progress) ─────────────────────────
+
+cmd_matrix_status() {
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  [[ -d "$state_dir" ]] || die "No matrix state found. Run --without first."
+
+  local done_count
+  done_count=$(ls "$state_dir/done" 2>/dev/null | wc -l)
+  local running_count
+  running_count=$(ls "$state_dir/running" 2>/dev/null | wc -l)
+
+  info "── Matrix Progress ──"
+  info "Done: $done_count, Running: $running_count"
+  echo ""
+
+  if [[ -f "$state_dir/results.tsv" ]]; then
+    echo "Recent results:"
+    printf "  %-20s %-40s %-15s %s\n" "SPEC" "REPO" "VERDICT" "DETAILS"
+    printf "  %-20s %-40s %-15s %s\n" "----" "----" "-------" "-------"
+    tail -10 "$state_dir/results.tsv" 2>/dev/null | while IFS=$'\t' read -r ts spec repo verdict detail; do
+      printf "  %-20s %-40s %-15s %s\n" "$spec" "$repo" "$verdict" "$detail"
+    done
+  fi
+
+  if [[ -f "$state_dir/gate-findings.log" ]]; then
+    echo ""
+    echo "Gate findings requiring investigation:"
+    cat "$state_dir/gate-findings.log"
+  fi
+}
+
 # ── Main ──
 
 usage() {
   echo "Usage: $(basename "$0") --without <spec...> <repo>      Run skill with knowledge removed"
-  echo "       $(basename "$0") --compare <result> <known-good> <repo>        AI court: judge differences"
-  echo "       $(basename "$0") --list                          Show removable knowledge"
+  echo "       $(basename "$0") --compare <result> <known-good> <repo>  AI court: judge differences"
+  echo "       $(basename "$0") --analyze <repo> [--context '...']     Deep gate report analysis"
+  echo "       $(basename "$0") --matrix-status                        Show matrix test progress"
+  echo "       $(basename "$0") --list                                 Show removable knowledge"
 }
 
 case "${1:-}" in
-  --list|-l)    cmd_list ;;
-  --without)    shift; cmd_without "$@" ;;
-  --compare)    shift; cmd_compare "$@" ;;
-  --help|-h)    usage; exit 0 ;;
-  *)            usage; exit 1 ;;
+  --list|-l)          cmd_list ;;
+  --without)          shift; cmd_without "$@" ;;
+  --compare)          shift; cmd_compare "$@" ;;
+  --analyze)          shift; cmd_analyze "$@" ;;
+  --matrix-status)    cmd_matrix_status ;;
+  --help|-h)          usage; exit 0 ;;
+  *)                  usage; exit 1 ;;
 esac
