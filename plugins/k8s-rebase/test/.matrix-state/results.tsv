@@ -30,3 +30,6 @@
 2026-07-17T19:39:33Z	fn:klog_v2	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/0diff identical-to-known-good
 2026-07-17T20:06:02Z	fn:xexp	openshift/ingress-node-firewall	FAIL	9c klog-v1-persisted(2)
 2026-07-17T20:06:02Z	fn:reflect_ptr	openshift/cloud-network-config-controller	PASS	2c/2f/4h result-fixed-sets.String gate-discovered-deprecation
+2026-07-17T20:40:44Z	fn:reflect_ptr	ovn-kubernetes/ovn-kubernetes-mcp	PASS	3c/2f/2h cosmetic-makefile
+2026-07-17T21:17:22Z	fn:xexp	openshift/cluster-network-operator	PASS	4c/2f/2h gates:26/30(4skip) cosmetic
+2026-07-17T21:38:40Z	fn:reflect_ptr	ovn-org/ovn-kubernetes	FAIL	19c gates:14/15 math-rand-deprecated-found
