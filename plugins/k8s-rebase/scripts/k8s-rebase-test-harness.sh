@@ -1,6 +1,6 @@
 #!/bin/bash
 # k8s-rebase-test-harness.sh — Launch, monitor, and validate skill runs.
-# Requires bash 4+ (associative arrays), Linux coreutils.
+# Requires bash 4+, Linux coreutils.
 
 set -uo pipefail
 
