@@ -114,7 +114,7 @@ reset_to_default() {
   [[ -n "$(git status --porcelain 2>/dev/null)" ]] && die "Uncommitted changes in $repo — commit or stash first"
 
   cleanup_repo="$repo"
-  cleanup_head=$(git rev-parse HEAD)
+  cleanup_head=$(git symbolic-ref --short HEAD 2>/dev/null || git rev-parse HEAD)
   local default_br
   default_br=$(default_branch)
   git checkout "$default_br" 2>/dev/null || die "Cannot checkout $default_br in $repo"
@@ -159,8 +159,12 @@ remove_worktrees() {
       info "Removed worktree: $(basename "$wt_path") (branch $wt_branch preserved, $commit_count commits)"
     else
       # No commits — also delete the branch
-      [[ -n "$wt_branch" ]] && git branch -D "$wt_branch" 2>/dev/null || true
-      info "Removed worktree: $(basename "$wt_path") (empty branch deleted)"
+      if [[ -n "$wt_branch" ]]; then
+        git branch -D "$wt_branch" 2>/dev/null || true
+        info "Removed worktree: $(basename "$wt_path") (empty branch deleted)"
+      else
+        info "Removed worktree: $(basename "$wt_path")"
+      fi
     fi
   done <<< "$wt_lines"
 }

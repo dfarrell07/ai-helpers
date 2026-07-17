@@ -126,9 +126,10 @@ mutate_plugin() {
         if ! grep -qF "### $heading" "$pfile" 2>/dev/null; then
           rm -rf "$dest"; die "Pattern heading '$heading' not found in patterns.md"
         fi
-        # Use awk for section deletion — sed can't handle regex metacharacters in headings
-        awk -v hdr="$heading" '
-          /^### / && index($0, hdr) { skip=1; next }
+        # Use awk with exact heading match (index on "### <heading>")
+        local full_hdr="### $heading"
+        awk -v hdr="$full_hdr" '
+          /^### / && index($0, hdr) == 1 { skip=1; next }
           /^### / && skip { skip=0 }
           skip { next }
           { print }
@@ -266,9 +267,10 @@ cmd_compare() {
   git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' 2>/dev/null
   echo ""
 
-  local result_log known_log diff_stat
-  result_log=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null)".."$result_branch" 2>/dev/null | head -20)
-  known_log=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null)".."$known_good" 2>/dev/null | head -20)
+  local merge_base result_log known_log diff_stat
+  merge_base=$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")
+  result_log=$(git log --oneline "${merge_base}".."$result_branch" 2>/dev/null | head -20)
+  known_log=$(git log --oneline "${merge_base}".."$known_good" 2>/dev/null | head -20)
   diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' 2>/dev/null)
 
   mkdir -p "$RESULTS_DIR/comparisons" 2>/dev/null
@@ -315,18 +317,24 @@ $known_log
 FILE CHANGES:
 $diff_stat"
 
-  # Phase A: Prosecution + Defense
+  # Phase A: Prosecution + Defense (parallel)
   info "Phase A: Prosecution + Defense..."
-  local prosecution defense
-  prosecution=$(printf '%s\n\n%s' "$context" \
+  printf '%s\n\n%s' "$context" \
     "You are the PROSECUTION. Argue that these differences are REGRESSIONS. Find every way the result branch is worse. Cite files and line numbers from the diff." \
-    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
-  echo "$prosecution" > "$court_dir/prosecution.txt"
+    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text \
+    > "$court_dir/prosecution.txt" 2>/dev/null &
+  local pid_pros=$!
 
-  defense=$(printf '%s\n\n%s' "$context" \
+  printf '%s\n\n%s' "$context" \
     "You are the DEFENSE. Argue that these differences are EQUIVALENT or IMPROVEMENTS. Explain why each difference is acceptable. Cite files and line numbers." \
-    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
-  echo "$defense" > "$court_dir/defense.txt"
+    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text \
+    > "$court_dir/defense.txt" 2>/dev/null &
+  local pid_def=$!
+
+  wait "$pid_pros" "$pid_def" 2>/dev/null || true
+  local prosecution defense
+  prosecution=$(cat "$court_dir/prosecution.txt")
+  defense=$(cat "$court_dir/defense.txt")
 
   # Phase B: Judge (fact-check only)
   info "Phase B: Judge (fact-checking)..."
