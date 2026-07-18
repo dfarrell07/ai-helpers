@@ -16,6 +16,12 @@ If CRDs are found:
    format doesn't match the range (e.g., format: int32 with a
    maximum exceeding 2^31-1, which needs format: int64).
 
+For each finding, check if it exists in the base branch too:
+  `git show <base>:<path-to-CRD>` and compare.
+If the issue is IDENTICAL in the base, report as INFO
+(pre-existing), not as a FAIL issue. Only count NEW issues
+(introduced or worsened by the rebase) toward the verdict.
+
 Report counts of lost validations and schema inconsistencies.
 
 If no CRDs found in the repo, report 0 for both.

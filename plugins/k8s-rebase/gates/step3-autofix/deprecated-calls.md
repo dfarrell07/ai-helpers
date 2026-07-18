@@ -32,9 +32,15 @@ Find module directories:
 
 Run the check in each module directory.
 
+For each finding, check if it exists in the base branch:
+  `git show <base>:<file>` — if the deprecated call is
+  identical in the base, report as INFO (pre-existing) and do
+  not count toward FAIL. Only count NEW deprecated calls
+  introduced by the rebase.
+
 Report each deprecated call with file:line and what to replace
-it with (if the deprecation comment says). FAIL if any
-deprecated calls exist in non-vendor code. PASS if clean.
+it with (if the deprecation comment says). FAIL if any NEW
+deprecated calls exist. PASS if clean or only pre-existing.
 SKIP if neither staticcheck nor Go is available.
 
 Rules: report specific counts, not "looks good." You are

@@ -29,8 +29,14 @@ CRITICAL: If `go build` returns ANY error, the verdict is FAIL.
 Never attribute build failures to caching — run `go clean -cache`
 first if you suspect stale cache. Build errors are real regressions.
 
-Report: FAIL if any build error or unaddressed pattern exists.
-PASS if build succeeds and no issues found.
+For non-build findings (import issues, struct gaps), check if
+they exist in the base branch too. If a finding is IDENTICAL
+in the base, report as INFO (pre-existing cleanup opportunity)
+and do not count toward FAIL. Only rebase-introduced issues
+count.
+
+Report: FAIL if any build error or rebase-introduced issue
+exists. PASS if build succeeds and no NEW issues found.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
