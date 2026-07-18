@@ -462,7 +462,7 @@ cmd_analyze() {
     total=$((total + 1))
     local name verdict issues summary details
     name=$(basename "$f" .report)
-    verdict=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
+    verdict=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
     issues=$(grep '^ISSUES:' "$f" 2>/dev/null | head -1)
     summary=$(grep '^SUMMARY:' "$f" 2>/dev/null | head -1)
     details=$(sed -n '/^DETAILS:/,$ p' "$f" 2>/dev/null | tail -n +2)
@@ -499,7 +499,7 @@ $details
     [[ -f "$f" ]] || continue
     local name verdict
     name=$(basename "$f" .report)
-    verdict=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
+    verdict=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
     if [[ "$verdict" != *"PASS"* ]]; then
       local prompt_file gate_basename
       gate_basename="${name#step[0-9]*-}"
@@ -742,7 +742,7 @@ cmd_record() {
       [[ -f "$f" ]] || continue
       total=$((total + 1))
       local gv
-      gv=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
+      gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       if [[ "$gv" == *"PASS"* ]]; then gpass=$((gpass + 1))
       elif [[ "$gv" == *"FAIL"* ]]; then gfail=$((gfail + 1))
       else noverdict=$((noverdict + 1)); fi
@@ -855,10 +855,10 @@ _do_record_one() {
       [[ -f "$f" ]] || continue
       gtotal=$((gtotal + 1))
       local gv
-      gv=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
-      if [[ "$gv" == *"PASS"* ]]; then gpass=$((gpass + 1))
-      elif [[ "$gv" == *"FAIL"* ]]; then gfail=$((gfail + 1))
-      elif [[ "$gv" == *"SKIP"* ]]; then gskip=$((gskip + 1))
+      gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+      if [[ "$gv" == *"PASS"* || "$gv" == *"pass"* ]]; then gpass=$((gpass + 1))
+      elif [[ "$gv" == *"FAIL"* || "$gv" == *"fail"* ]]; then gfail=$((gfail + 1))
+      elif [[ "$gv" == *"SKIP"* || "$gv" == *"skip"* ]]; then gskip=$((gskip + 1))
       fi
     done
     if [[ "$gtotal" -gt 0 ]]; then

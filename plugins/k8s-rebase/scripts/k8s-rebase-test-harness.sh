@@ -334,7 +334,7 @@ cmd_status() {
     if [[ -d "$gate_dir" ]]; then
       local gates_total gates_pass
       gates_total=$(find "$gate_dir" -name '*.report' 2>/dev/null | wc -l)
-      gates_pass=$(find "$gate_dir" -name '*.report' -exec grep -lE '^(VERDICT|RESULT): PASS$' {} + 2>/dev/null | wc -l)
+      gates_pass=$(find "$gate_dir" -name '*.report' -exec grep -liE '^(VERDICT|RESULT|STATUS): PASS' {} + 2>/dev/null | wc -l)
       [[ "$gates_total" -gt 0 ]] && gates="${gates_pass}/${gates_total}"
     fi
 
