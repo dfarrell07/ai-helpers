@@ -59,3 +59,4 @@
 2026-07-18T17:59:46Z	all-fns	ovn-kubernetes/ovn-kubernetes-mcp	DONE	2c no-gates diff-vs-known-good:4h
 2026-07-18T18:00:04Z	all-fns	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/4h cosmetic
 2026-07-18T18:26:26Z	all-patterns	openshift/ingress-node-firewall	PASS	15c/1532f/4881h gates:1/1
+2026-07-18T18:48:42Z	all-fns	ovn-org/ovn-kubernetes	FAIL	17c/108f/206h gates:16/18 1-klog-v1-remaining
