@@ -46,3 +46,6 @@
 2026-07-18T02:00:53Z	fn:addtoscheme	ovn-kubernetes/ovn-kubernetes-mcp	DONE	2c no-gates diff-vs-known-good:1h
 2026-07-18T02:01:13Z	fn:addtoscheme	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/1h lint-version-ref
 2026-07-18T02:11:26Z	fn:addtoscheme	openshift/multus-cni	PASS	7c/1138f/3949h gates:1/1
+2026-07-18T02:44:10Z	all-patterns	openshift/cloud-network-config-controller	PASS	1c gates:18/18(3skip) diff-vs-known-good:941h
+2026-07-18T03:04:42Z	all-fns	openshift/cluster-network-operator	FAIL	5c/1655f/5356h gates:12/14(1skip)
+2026-07-18T03:04:42Z	all-fns	openshift/multus-cni	PASS	5c/1137f/3947h gates:1/1
