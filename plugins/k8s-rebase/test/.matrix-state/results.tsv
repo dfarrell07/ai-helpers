@@ -22,7 +22,7 @@
 2026-07-17T17:36:17Z	fn:imports	openshift/cloud-network-config-controller	PASS	1c/0diff identical
 2026-07-17T17:38:28Z	fn:reflect_ptr	openshift/ingress-node-firewall	FAIL	12c klog-v1-persisted gates-incomplete
 2026-07-17T17:41:11Z	fn:fieldsv1	openshift/cluster-network-operator	PASS	6c/7f/9h gates:15/15 result-better-than-known-good
-2026-07-17T17:54:28Z	fn:eventf	openshift/cluster-network-operator	FAIL	0c session-died-no-commits
+2026-07-17T17:54:28Z	fn:eventf	openshift/cluster-network-operator	ERROR	0c session-died-no-commits
 2026-07-17T18:25:56Z	fn:fieldsv1	openshift/multus-cni	PASS	7c/3f/3h cosmetic-e2e-diff
 2026-07-17T18:31:34Z	fn:eventf	openshift/cluster-network-operator	PASS	4c/2f/2h gates:30/30 cosmetic
 2026-07-17T18:52:52Z	fn:klog_v2	ovn-org/ovn-kubernetes	PASS	24c/17f/87h gates:15/15 klog-migrated-independently
@@ -33,7 +33,6 @@
 2026-07-17T20:40:44Z	fn:reflect_ptr	ovn-kubernetes/ovn-kubernetes-mcp	PASS	3c/2f/2h cosmetic-makefile
 2026-07-17T21:17:22Z	fn:xexp	openshift/cluster-network-operator	PASS	4c/2f/2h gates:26/30(4skip) cosmetic
 2026-07-17T21:38:40Z	fn:reflect_ptr	ovn-org/ovn-kubernetes	FAIL	19c gates:14/15 math-rand-deprecated-found
-2026-07-17T22:12:03Z	fn:mocks	ovn-kubernetes/ovn-kubernetes-mcp	DONE	2c/1206f/3900h no-gates diff-vs-known-good:162h
 2026-07-17T22:12:24Z	fn:mocks	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/0diff identical-to-known-good
 2026-07-17T22:22:42Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/15
 2026-07-17T22:22:43Z	fn:eventf	openshift/multus-cni	PASS	7c/1139f/3952h gates:1/1

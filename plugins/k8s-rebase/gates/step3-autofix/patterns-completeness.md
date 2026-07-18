@@ -25,6 +25,10 @@ addressed. Use concrete checks — do not just skim the diff.
    If found, read it and check any pattern not covered by
    sibling gates. If not found, rely on steps 1-3 above.
 
+CRITICAL: If `go build` returns ANY error, the verdict is FAIL.
+Never attribute build failures to caching — run `go clean -cache`
+first if you suspect stale cache. Build errors are real regressions.
+
 Report: FAIL if any build error or unaddressed pattern exists.
 PASS if build succeeds and no issues found.
 

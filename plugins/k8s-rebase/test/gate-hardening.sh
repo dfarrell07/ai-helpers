@@ -1281,6 +1281,346 @@ NEXT_TESTS: <3 specific --without commands to run>"
   fi
 }
 
+# ── --summary (generate markdown report from results.tsv) ────────
+
+cmd_summary() {
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local tsv="$state_dir/results.tsv"
+  [[ -f "$tsv" ]] || die "No results.tsv found. Run tests first."
+
+  # ── Parse results.tsv with last-entry-wins dedup ──
+  local -A matrix detail_map
+  local -A spec_pass spec_fail spec_done spec_total
+  local -A repo_pass repo_fail repo_done repo_total
+  local specs=() repos=()
+  local -A seen_spec seen_repo
+
+  while IFS=$'\t' read -r _ts spec repo verdict detail; do
+    [[ -z "$spec" ]] && continue
+    local v="?"
+    case "$verdict" in
+      *PASS*) v="PASS" ;; *FAIL*) v="FAIL" ;; *DONE*) v="DONE" ;; *SKIP*) v="SKIP" ;;
+    esac
+    if [[ -z "${seen_spec[$spec]+x}" ]]; then seen_spec[$spec]=1; specs+=("$spec"); fi
+    if [[ -z "${seen_repo[$repo]+x}" ]]; then seen_repo[$repo]=1; repos+=("$repo"); fi
+
+    # Undo previous entry for same spec|repo (retry dedup)
+    local key="$spec|$repo"
+    if [[ -n "${matrix[$key]+x}" ]]; then
+      local old_v="${matrix[$key]}"
+      spec_total[$spec]=$(( ${spec_total[$spec]:-0} - 1 ))
+      repo_total[$repo]=$(( ${repo_total[$repo]:-0} - 1 ))
+      case "$old_v" in
+        PASS) spec_pass[$spec]=$(( ${spec_pass[$spec]:-0} - 1 )); repo_pass[$repo]=$(( ${repo_pass[$repo]:-0} - 1 )) ;;
+        DONE) spec_done[$spec]=$(( ${spec_done[$spec]:-0} - 1 )); repo_done[$repo]=$(( ${repo_done[$repo]:-0} - 1 )) ;;
+        FAIL) spec_fail[$spec]=$(( ${spec_fail[$spec]:-0} - 1 )); repo_fail[$repo]=$(( ${repo_fail[$repo]:-0} - 1 )) ;;
+      esac
+    fi
+
+    spec_total[$spec]=$(( ${spec_total[$spec]:-0} + 1 ))
+    repo_total[$repo]=$(( ${repo_total[$repo]:-0} + 1 ))
+    case "$v" in
+      PASS) spec_pass[$spec]=$(( ${spec_pass[$spec]:-0} + 1 )); repo_pass[$repo]=$(( ${repo_pass[$repo]:-0} + 1 )) ;;
+      DONE) spec_done[$spec]=$(( ${spec_done[$spec]:-0} + 1 )); repo_done[$repo]=$(( ${repo_done[$repo]:-0} + 1 )) ;;
+      FAIL) spec_fail[$spec]=$(( ${spec_fail[$spec]:-0} + 1 )); repo_fail[$repo]=$(( ${repo_fail[$repo]:-0} + 1 )) ;;
+    esac
+    matrix["$key"]="$v"
+    detail_map["$key"]="$detail"
+  done < "$tsv"
+
+  # ── Derived stats ──
+  local total_repos=${#repos[@]}
+  local total_specs=${#specs[@]}
+  local total_cells=$(( total_specs * total_repos ))
+  local tested_cells=0
+  for s in "${specs[@]}"; do
+    for r in "${repos[@]}"; do
+      [[ -n "${matrix["$s|$r"]+x}" ]] && tested_cells=$((tested_cells + 1))
+    done
+  done
+
+  # Count repos with full-blind (all) test result
+  local blind_repos=0 blind_pass=0
+  for r in "${repos[@]}"; do
+    [[ -n "${matrix["all|$r"]+x}" ]] || continue
+    blind_repos=$((blind_repos + 1))
+    [[ "${matrix["all|$r"]}" == "PASS" ]] && blind_pass=$((blind_pass + 1))
+  done
+  local blind_pct=0
+  [[ $blind_repos -gt 0 ]] && blind_pct=$(( (blind_pass * 100) / blind_repos ))
+
+  # Classify specs
+  local -A spec_class
+  local redundant_count=0 essential_count=0 mixed_count=0
+  for s in "${specs[@]}"; do
+    local p=${spec_pass[$s]:-0} f=${spec_fail[$s]:-0}
+    if [[ $f -eq 0 && $p -gt 0 ]]; then
+      spec_class[$s]="REDUNDANT"; redundant_count=$((redundant_count + 1))
+    elif [[ $p -eq 0 && $f -gt 0 ]]; then
+      spec_class[$s]="ESSENTIAL"; essential_count=$((essential_count + 1))
+    elif [[ $f -gt 0 && $p -gt 0 ]]; then
+      spec_class[$s]="MIXED"; mixed_count=$((mixed_count + 1))
+    else
+      spec_class[$s]="NO-DATA"
+    fi
+  done
+
+  # ── Generate markdown ──
+  cat <<HEADER
+# K8s Rebase Skill: Gate-Hardening Matrix Report
+
+## Executive Summary
+
+**${total_repos} repos tested** across **${total_specs} knowledge specs**, producing **${tested_cells}/${total_cells} matrix cells**.
+
+HEADER
+
+  if [[ $blind_repos -gt 0 ]]; then
+    cat <<BLIND
+- **Full-blind self-sufficiency: ${blind_pass}/${blind_repos} repos (${blind_pct}%)** passed with all skill knowledge removed
+BLIND
+  fi
+
+  cat <<STATS
+- **${redundant_count} redundant** specs (agent always discovers independently)
+- **${essential_count} essential** specs (agent always fails without them)
+- **${mixed_count} mixed** specs (repo-dependent -- the interesting ones)
+
+---
+
+STATS
+
+  # ── Section 2: Full-blind baseline ──
+  echo "## Full-Blind Baseline (\`--without all\`)"
+  echo ""
+  echo "Each repo run with **all** patterns and autofix functions removed."
+  echo ""
+  echo "| Repo | Result | Detail |"
+  echo "|------|--------|--------|"
+  for r in "${repos[@]}"; do
+    local short="${r##*/}"
+    local v="${matrix["all|$r"]:-not tested}"
+    local d="${detail_map["all|$r"]:-}"
+    local icon="--"
+    case "$v" in
+      PASS) icon="PASS" ;; FAIL) icon="FAIL" ;; DONE) icon="DONE" ;;
+      "not tested") icon="--" ;;
+    esac
+    echo "| \`$short\` | $icon | $d |"
+  done
+  echo ""
+
+  # ── Section 3: Per-repo analysis ──
+  echo "## Per-Repo Analysis"
+  echo ""
+  for r in "${repos[@]}"; do
+    local short="${r##*/}"
+    local rp=${repo_pass[$r]:-0} rf=${repo_fail[$r]:-0} rt=${repo_total[$r]:-0}
+    local rpct=0
+    [[ $rt -gt 0 ]] && rpct=$(( (rp * 100) / rt ))
+    echo "### \`$short\`"
+    echo ""
+    echo "**${rp}/${rt} specs passed** (${rpct}% self-sufficient)"
+    echo ""
+
+    # What knowledge is needed (FAIL entries)
+    local needed="" redundant_list=""
+    for s in "${specs[@]}"; do
+      local sv="${matrix["$s|$r"]:-}"
+      local sd="${detail_map["$s|$r"]:-}"
+      case "$sv" in
+        FAIL) needed+="- \`$s\`: $sd"$'\n' ;;
+        PASS) redundant_list+="- \`$s\`: $sd"$'\n' ;;
+      esac
+    done
+
+    if [[ -n "$needed" ]]; then
+      echo "**Knowledge needed** (failed without):"
+      echo "$needed"
+    fi
+    if [[ -n "$redundant_list" ]]; then
+      echo "<details><summary>Redundant knowledge (${rp} specs -- agent discovers independently)</summary>"
+      echo ""
+      echo "$redundant_list"
+      echo "</details>"
+      echo ""
+    fi
+  done
+
+  # ── Section 4: Gate effectiveness ──
+  echo "## Gate Effectiveness"
+  echo ""
+  echo "How each knowledge spec performed across all repos:"
+  echo ""
+  echo "| Spec | Class | Pass | Fail | Repos Tested | Notes |"
+  echo "|------|-------|------|------|--------------|-------|"
+
+  # Sort: ESSENTIAL first, then MIXED, then REDUNDANT
+  local sorted_specs=()
+  for s in "${specs[@]}"; do [[ "${spec_class[$s]}" == "ESSENTIAL" ]] && sorted_specs+=("$s"); done
+  for s in "${specs[@]}"; do [[ "${spec_class[$s]}" == "MIXED" ]] && sorted_specs+=("$s"); done
+  for s in "${specs[@]}"; do [[ "${spec_class[$s]}" == "REDUNDANT" ]] && sorted_specs+=("$s"); done
+  for s in "${specs[@]}"; do [[ "${spec_class[$s]}" == "NO-DATA" ]] && sorted_specs+=("$s"); done
+
+  for s in "${sorted_specs[@]}"; do
+    local p=${spec_pass[$s]:-0} f=${spec_fail[$s]:-0} t=${spec_total[$s]:-0}
+    # Collect detail notes for fail cases
+    local notes=""
+    for r in "${repos[@]}"; do
+      local sv="${matrix["$s|$r"]:-}"
+      if [[ "$sv" == "FAIL" ]]; then
+        local sd="${detail_map["$s|$r"]:-}"
+        # Extract short note (first word cluster after verdict info)
+        local short_note
+        short_note=$(echo "$sd" | grep -oE '[a-z][-a-z0-9_]*' | head -2 | tr '\n' ' ')
+        [[ -n "$short_note" ]] && notes+="${r##*/}: ${short_note}; "
+      fi
+    done
+    notes="${notes%; }"
+    echo "| \`$s\` | ${spec_class[$s]} | $p | $f | $t | $notes |"
+  done
+  echo ""
+
+  # ── Section 4b: Gates that always pass ──
+  echo "### Always-Pass Gates (Simplification Candidates)"
+  echo ""
+  local always_pass_found=false
+  for s in "${sorted_specs[@]}"; do
+    if [[ "${spec_class[$s]}" == "REDUNDANT" && ${spec_total[$s]:-0} -ge 2 ]]; then
+      always_pass_found=true
+      local detail_samples=""
+      for r in "${repos[@]}"; do
+        [[ "${matrix["$s|$r"]:-}" == "PASS" ]] || continue
+        local sd="${detail_map["$s|$r"]:-}"
+        [[ -n "$sd" ]] && detail_samples+="  - \`${r##*/}\`: $sd"$'\n'
+      done
+      echo "- **\`$s\`** (${spec_total[$s]} repos, all PASS)"
+      [[ -n "$detail_samples" ]] && echo "$detail_samples"
+    fi
+  done
+  $always_pass_found || echo "None found with sufficient data (need 2+ repos tested)."
+  echo ""
+
+  # ── Section 4c: Gates that caught real issues ──
+  echo "### Gates That Caught Real Issues"
+  echo ""
+  local caught_found=false
+  for s in "${sorted_specs[@]}"; do
+    local f=${spec_fail[$s]:-0}
+    [[ $f -gt 0 ]] || continue
+    caught_found=true
+    echo "- **\`$s\`** (${spec_class[$s]}, failed on $f repo(s)):"
+    for r in "${repos[@]}"; do
+      [[ "${matrix["$s|$r"]:-}" == "FAIL" ]] || continue
+      echo "  - \`${r##*/}\`: ${detail_map["$s|$r"]:-no detail}"
+    done
+  done
+  $caught_found || echo "No failures recorded."
+  echo ""
+
+  # ── Section 5: Recommendations ──
+  echo "## Recommendations"
+  echo ""
+
+  # 5a: Simplification candidates
+  echo "### Simplification Candidates"
+  echo ""
+  echo "These autofix functions and patterns can potentially be removed or simplified"
+  echo "because the agent consistently discovers them independently:"
+  echo ""
+  local rec_num=0
+  for s in "${sorted_specs[@]}"; do
+    [[ "${spec_class[$s]}" == "REDUNDANT" && ${spec_total[$s]:-0} -ge 2 ]] || continue
+    rec_num=$((rec_num + 1))
+    echo "${rec_num}. **\`$s\`** -- Passed on all ${spec_total[$s]} tested repos. The agent discovers this migration pattern without guidance."
+  done
+  [[ $rec_num -eq 0 ]] && echo "Insufficient data to make simplification recommendations."
+  echo ""
+
+  # 5b: Essential knowledge to preserve
+  echo "### Essential Knowledge to Preserve"
+  echo ""
+  local ess_num=0
+  for s in "${sorted_specs[@]}"; do
+    [[ "${spec_class[$s]}" == "ESSENTIAL" ]] || continue
+    ess_num=$((ess_num + 1))
+    echo "${ess_num}. **\`$s\`** -- Failed on all ${spec_total[$s]} tested repos. This knowledge is required."
+  done
+  [[ $ess_num -eq 0 ]] && echo "No universally essential specs identified (all have at least one repo where the agent succeeds)."
+  echo ""
+
+  # 5c: Mixed specs requiring investigation
+  echo "### Requiring Investigation (Mixed Results)"
+  echo ""
+  local mix_num=0
+  for s in "${sorted_specs[@]}"; do
+    [[ "${spec_class[$s]}" == "MIXED" ]] || continue
+    mix_num=$((mix_num + 1))
+    local p=${spec_pass[$s]:-0} f=${spec_fail[$s]:-0}
+    echo "${mix_num}. **\`$s\`** -- Passed on $p, failed on $f repos. Investigate what repo characteristics cause failure."
+    for r in "${repos[@]}"; do
+      local sv="${matrix["$s|$r"]:-}"
+      [[ "$sv" == "FAIL" ]] && echo "   - FAIL on \`${r##*/}\`: ${detail_map["$s|$r"]:-}"
+    done
+  done
+  [[ $mix_num -eq 0 ]] && echo "No mixed results found."
+  echo ""
+
+  # 5d: Coverage gaps
+  local gap_count=0
+  for s in "${specs[@]}"; do
+    for r in "${repos[@]}"; do
+      [[ -z "${matrix["$s|$r"]+x}" ]] && gap_count=$((gap_count + 1))
+    done
+  done
+  if [[ $gap_count -gt 0 ]]; then
+    echo "### Coverage Gaps"
+    echo ""
+    echo "$gap_count of $total_cells matrix cells remain untested."
+    echo ""
+  fi
+
+  # ── Full matrix (compact) ──
+  echo "## Full Matrix"
+  echo ""
+  # Build header
+  local hdr="| Spec |"
+  local sep="|------|"
+  for r in "${repos[@]}"; do
+    local short="${r##*/}"
+    # Abbreviate long names
+    case "$short" in
+      cloud-network-config-controller) short="cncc" ;;
+      cluster-network-operator) short="cno" ;;
+      ingress-node-firewall) short="inf" ;;
+      ovn-kubernetes-mcp) short="mcp" ;;
+      ovn-kubernetes) short="ovnk" ;;
+      multus-cni) short="multus" ;;
+    esac
+    hdr+=" $short |"
+    sep+="------|"
+  done
+  echo "$hdr"
+  echo "$sep"
+
+  for s in "${sorted_specs[@]}"; do
+    local row="| \`$s\` |"
+    for r in "${repos[@]}"; do
+      local v="${matrix["$s|$r"]:-}"
+      local cell="--"
+      case "$v" in
+        PASS) cell="PASS" ;; FAIL) cell="FAIL" ;; DONE) cell="DONE" ;;
+      esac
+      row+=" $cell |"
+    done
+    echo "$row"
+  done
+  echo ""
+
+  echo "---"
+  echo "*Generated by \`gate-hardening.sh --summary\` on $(date -u +%Y-%m-%dT%H:%M:%SZ)*"
+}
+
 # ── Main ──
 
 usage() {
@@ -1288,6 +1628,7 @@ usage() {
   echo "       $(basename "$0") --compare <result> <known-good> <repo>  AI court: judge differences"
   echo "       $(basename "$0") --analyze <repo> [--context '...']     Deep gate report analysis"
   echo "       $(basename "$0") --cross-analyze                        Patterns across all runs"
+  echo "       $(basename "$0") --summary                              Markdown report from results"
   echo "       $(basename "$0") --matrix-status                        Show matrix test progress"
   echo "       $(basename "$0") --record <repo>                         Record --without result"
   echo "       $(basename "$0") --auto-record                          Batch-record all completed runs"
@@ -1300,6 +1641,7 @@ case "${1:-}" in
   --compare)          shift; cmd_compare "$@" ;;
   --analyze)          shift; cmd_analyze "$@" ;;
   --cross-analyze)    cmd_cross_analyze ;;
+  --summary)          cmd_summary ;;
   --record)           shift; cmd_record "$@" ;;
   --auto-record)      cmd_auto_record ;;
   --matrix-status)    cmd_matrix_status ;;
