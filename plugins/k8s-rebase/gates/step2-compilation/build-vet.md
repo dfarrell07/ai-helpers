@@ -17,6 +17,10 @@ stale and will produce false errors. Use `podman run --userns=keep-id`
 with the golang container if the local Go version is too old.
 Report total error count from non-skipped modules only.
 
+For pre-existing issues: if the base branch also fails the same
+build/vet check, report those errors as INFO (pre-existing) and
+only count NEW errors introduced by the rebase toward FAIL.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole permitted write
 is your gate report file under .rebase-tmp/gates/. Do not write

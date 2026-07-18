@@ -21,6 +21,10 @@ If Go is unavailable or wrong version, note as SKIPPED.
 
 Report total test compilation errors.
 
+For pre-existing issues: if the base branch also has test
+compilation errors, exclude those from the count. Only report
+NEW test compilation errors introduced by the rebase.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
