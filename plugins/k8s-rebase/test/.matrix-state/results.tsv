@@ -42,3 +42,7 @@
 2026-07-18T00:32:29Z	all	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c gates:2/2 diff-vs-known-good:161h
 2026-07-18T01:14:14Z	all	openshift/ingress-node-firewall	FAIL	9c/1542f/4892h gates:22/24(1skip)
 2026-07-18T01:25:10Z	fn:eventf	ovn-org/ovn-kubernetes	FAIL	23c/17f/104h gates:14/17 deprecated-remnants+logical-completeness
+2026-07-18T02:00:53Z	all-fns	openshift/cloud-network-config-controller	PASS	1c gates:2/2 diff-vs-known-good:941h
+2026-07-18T02:00:53Z	fn:addtoscheme	ovn-kubernetes/ovn-kubernetes-mcp	DONE	2c no-gates diff-vs-known-good:1h
+2026-07-18T02:01:13Z	fn:addtoscheme	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/1h lint-version-ref
+2026-07-18T02:11:26Z	fn:addtoscheme	openshift/multus-cni	PASS	7c/1138f/3949h gates:1/1
