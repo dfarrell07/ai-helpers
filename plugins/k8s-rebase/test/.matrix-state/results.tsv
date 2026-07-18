@@ -56,3 +56,6 @@
 2026-07-18T16:24:53Z	all-patterns	openshift/cluster-network-operator	FAIL	5c/1655f/5356h gates:12/14(1skip)
 2026-07-18T16:36:22Z	all-fns	openshift/ingress-node-firewall	PASS	6c klog-v1-migrated-via-patterns no-gates
 2026-07-18T16:52:55Z	fn:kubeadm_v1beta4	ovn-org/ovn-kubernetes	FAIL	27c/32f/115h gates:14/16 autofix-result+patterns-completeness
+2026-07-18T17:59:46Z	all-fns	ovn-kubernetes/ovn-kubernetes-mcp	DONE	2c no-gates diff-vs-known-good:4h
+2026-07-18T18:00:04Z	all-fns	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/4h cosmetic
+2026-07-18T18:26:26Z	all-patterns	openshift/ingress-node-firewall	PASS	15c/1532f/4881h gates:1/1
