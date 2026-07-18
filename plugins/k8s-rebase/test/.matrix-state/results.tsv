@@ -37,3 +37,6 @@
 2026-07-17T22:12:24Z	fn:mocks	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/0diff identical-to-known-good
 2026-07-17T22:22:42Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/15
 2026-07-17T22:22:43Z	fn:eventf	openshift/multus-cni	PASS	7c/1139f/3952h gates:1/1
+2026-07-17T23:16:38Z	fn:addtoscheme	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/15
+2026-07-17T23:16:38Z	all	openshift/multus-cni	PASS	5c/1272f/4430h gates:1/1
+2026-07-18T00:08:54Z	all	ovn-org/ovn-kubernetes	FAIL	18c/91f/197h gates:13/17(4fail) major-version-imports-caught-klog
