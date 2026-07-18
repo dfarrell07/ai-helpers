@@ -14,6 +14,10 @@ GOLANGCI_LINT_VERSION, KIND_VERSION, KUSTOMIZE_VERSION. Flag any
 that still reference the previous k8s minor version or a Go
 version that does not match the target release's Go toolchain.
 
+For each stale reference, report the file:line and what the
+correct value should be (the target k8s minor version).
+This enables the gate-fix loop to sed-replace them.
+
 Report count of genuinely stale previous-version references
 plus count of un-bumped Makefile version variables.
 
