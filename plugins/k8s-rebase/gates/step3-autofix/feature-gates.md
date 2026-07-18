@@ -18,7 +18,7 @@ report SKIP — do not report PASS for work you did not do.
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite file:line for any issues.
+Do not write anywhere else. Cite file:line for any issues. For each missing gate, report the gate name and the fix needed.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:

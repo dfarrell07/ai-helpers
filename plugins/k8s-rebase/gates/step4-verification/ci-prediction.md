@@ -45,7 +45,7 @@ Only CONFIRMED findings should be rated above LOW risk.
 Rules: report specific findings, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite file:line for any issues.
+Do not write anywhere else. For CONFIRMED findings, state the specific fix needed. Cite file:line for any issues.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:

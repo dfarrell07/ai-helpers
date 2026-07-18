@@ -23,7 +23,7 @@ If no CRDs found in the repo, report 0 for both.
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite file:line for any issues.
+Do not write anywhere else. Cite file:line for any issues. For each lost validation, report the original constraint value.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:

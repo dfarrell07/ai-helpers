@@ -18,7 +18,7 @@ say "no issues" — show what you traced.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite file:line
+Do not write anywhere else. For each data flow issue, state the specific fix needed. Cite file:line
 for any issues.
 
 After your analysis, write your report using the helper script.

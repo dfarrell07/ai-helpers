@@ -23,7 +23,7 @@ with genuinely partial changes. Report count.
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite file:line for any issues.
+Do not write anywhere else. For each partial change, describe the missing logic needed. Cite file:line for any issues.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:

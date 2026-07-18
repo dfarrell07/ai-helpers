@@ -17,7 +17,7 @@ Report all three counts. Count 0 means no remaining issues.
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite file:line for any issues.
+Do not write anywhere else. For each wrong format verb, report the correct one. Cite file:line for any issues.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:

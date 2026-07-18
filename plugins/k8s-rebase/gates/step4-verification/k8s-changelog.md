@@ -39,7 +39,7 @@ Determine the target k8s minor version from go.mod:
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite commit
+Do not write anywhere else. For NOT ADDRESSED entries, describe the code change needed. Cite commit
 hashes or file:line for ADDRESSED items.
 
 After your analysis, write your report using the helper script.
