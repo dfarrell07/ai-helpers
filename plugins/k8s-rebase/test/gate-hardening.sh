@@ -102,6 +102,10 @@ mutate_plugin() {
   local label="mutated-$(date +%s)"
   local dest="$RESULTS_DIR/$label"
   mkdir -p "$RESULTS_DIR" 2>/dev/null || true
+  # Clean old mutated dirs (keep last 3) to prevent disk exhaustion
+  local old_dirs
+  old_dirs=$(ls -td "$RESULTS_DIR"/mutated-* 2>/dev/null | tail -n +4)
+  [[ -n "$old_dirs" ]] && echo "$old_dirs" | xargs rm -rf 2>/dev/null
   cp -r "$PLUGIN_DIR" "$dest" || die "Cannot copy plugin to $dest"
 
   # Expand "all" into components, suppress individual specs made redundant by bulk
