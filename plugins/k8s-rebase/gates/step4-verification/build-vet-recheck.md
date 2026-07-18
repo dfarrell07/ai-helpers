@@ -24,17 +24,15 @@ read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line for any issues.
 
-After your analysis, write your report. The repo path is the
-first line of your prompt — use it as an absolute path:
+After your analysis, write your report using the helper script.
+The repo path is the first line of your prompt:
 
 ```bash
 REPO="<the repo path from the first line of your prompt>"
-mkdir -p "$REPO/.rebase-tmp/gates"
-cat > "$REPO/.rebase-tmp/gates/step4-build-vet-recheck.report" << 'REPORT'
-VERDICT: <PASS, FAIL, or SKIP>
-ISSUES: <total issue count>
-SUMMARY: <one-line description of what you checked and found>
-DETAILS:
-<one finding per line, with file:line references>
-REPORT
+bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
+  "$REPO" step4-build-vet-recheck PASS 0 "your one-line summary" \
+  "detail line 1" "detail line 2"
 ```
+
+Use PASS, FAIL, or SKIP as the verdict. Replace the summary and
+details with your actual findings.
