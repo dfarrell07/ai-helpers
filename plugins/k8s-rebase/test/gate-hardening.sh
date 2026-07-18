@@ -850,7 +850,7 @@ _do_record_one() {
   [[ -d "$gate_dir" ]] || gate_dir="$repo/.rebase-tmp/gates"
 
   if [[ -d "$gate_dir" ]]; then
-    local gtotal=0 gpass=0 gfail=0
+    local gtotal=0 gpass=0 gfail=0 gskip=0
     for f in "$gate_dir"/*.report; do
       [[ -f "$f" ]] || continue
       gtotal=$((gtotal + 1))
@@ -858,10 +858,13 @@ _do_record_one() {
       gv=$(grep '^VERDICT:' "$f" 2>/dev/null | head -1)
       if [[ "$gv" == *"PASS"* ]]; then gpass=$((gpass + 1))
       elif [[ "$gv" == *"FAIL"* ]]; then gfail=$((gfail + 1))
+      elif [[ "$gv" == *"SKIP"* ]]; then gskip=$((gskip + 1))
       fi
     done
     if [[ "$gtotal" -gt 0 ]]; then
-      gate_summary="gates:${gpass}/${gtotal}"
+      local active=$((gtotal - gskip))
+      gate_summary="gates:${gpass}/${active}"
+      [[ "$gskip" -gt 0 ]] && gate_summary="${gate_summary}(${gskip}skip)"
       [[ "$gfail" -gt 0 ]] && verdict="FAIL" || verdict="PASS"
     fi
   fi
@@ -885,9 +888,15 @@ _do_record_one() {
     fi
   fi
 
-  # Assemble detail string and persist
-  local detail="${commits}c/${files}f/${hunks}h $gate_summary"
-  [[ -n "$kg_note" ]] && detail="$detail $kg_note"
+  # Assemble detail string — prioritize known-good diff when available
+  local detail
+  if [[ "$kg_note" == "identical-to-known-good" ]]; then
+    detail="${commits}c/0diff $gate_summary identical-to-known-good"
+  elif [[ -n "$kg_note" ]]; then
+    detail="${commits}c $gate_summary $kg_note"
+  else
+    detail="${commits}c/${files}f/${hunks}h $gate_summary"
+  fi
 
   local ts done_key
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
