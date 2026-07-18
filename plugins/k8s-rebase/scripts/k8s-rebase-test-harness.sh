@@ -409,10 +409,11 @@ cmd_stop() {
     fi
 
     if $should_stop; then
-      # Use `claude stop` to halt session without destroying its worktree.
-      # `claude rm` would delete the worktree — that belongs to `clean`.
-      claude stop "${full_sid:-$sid}" 2>/dev/null \
-        || { kill "$pid" 2>/dev/null; sleep 1; kill -9 "$pid" 2>/dev/null || true; }
+      # Use `claude stop` with SHORT session ID (8-char prefix).
+      # Full UUID doesn't match the daemon's job registry.
+      # Do NOT fall back to `kill` — the daemon respawns killed processes.
+      claude stop "$sid" 2>/dev/null || true
+      sleep 2
       local repo_name
       repo_name=$(echo "$cwd" | sed -e "s|$HOME/ovnk/||" -e 's|/\.claude/.*||')
       info "Stopped ${repo_name:-$cwd} [session $sid]"
