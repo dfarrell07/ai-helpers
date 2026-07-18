@@ -288,6 +288,13 @@ definition in vendor and list ALL fields. Compare against the
 conversion code. Report any fields present in the struct but
 missing from the conversion."
 
+**Proactive deprecated-API cleanup:** After build+vet pass,
+check for deprecated-but-compiling patterns before gates run:
+1. Major-version imports: `grep -rn '/v[0-9]' go.mod | sed 's|.*/||' | sort -u` — for each versioned module, grep source for the unversioned import path
+2. If `staticcheck` is available: `staticcheck -checks SA1019 ./...`
+3. Non-standard deprecation: `grep -rn '// DEPRECATED' vendor/ --include='*.go' -l | head -10` — check if non-vendor code uses those symbols
+Fix any findings before proceeding to gates.
+
 **Gate:** Find the gate prompt directory, read each file listed
 below with `cat`, and launch one subagent per file with the
 file's contents as the prompt. Launch all in a single parallel
@@ -356,6 +363,7 @@ Gate files:
 - `deprecated-api-remnants.md` (count)
 - `feature-gates.md` (count)
 - `major-version-imports.md` (count)
+- `deprecated-calls.md` (count)
 - `autofix-diff-review.md` (judge)
 - `crd-validation.md` (count)
 - `logical-completeness.md` (count)
