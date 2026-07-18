@@ -20,6 +20,15 @@ Report a count for each check:
 
 Report all 4 counts. Count 0 means that check passed.
 
+Fix hints for non-zero counts:
+- Check 1 (result file): re-run the rebase script
+- Check 2 (uncommitted): `git add` and commit, or investigate
+  why the script's commit step failed
+- Check 3 (missing commits): re-run the rebase for the missing
+  module, or check if that module has no k8s.io deps
+- Check 4 (version mismatch): run `go get k8s.io/<mod>@v0.<target>.0`
+  for each mismatched module
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
