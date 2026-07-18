@@ -60,3 +60,5 @@
 2026-07-18T18:00:04Z	all-fns	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c/4h cosmetic
 2026-07-18T18:26:26Z	all-patterns	openshift/ingress-node-firewall	PASS	15c/1532f/4881h gates:1/1
 2026-07-18T18:48:42Z	all-fns	ovn-org/ovn-kubernetes	FAIL	17c/108f/206h gates:16/18 1-klog-v1-remaining
+2026-07-18T19:00:30Z	all	openshift/ingress-node-firewall	FAIL	2c klog-v1-persisted session-ended-early
+2026-07-18T19:32:22Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
