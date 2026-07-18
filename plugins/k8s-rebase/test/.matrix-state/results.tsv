@@ -49,3 +49,7 @@
 2026-07-18T02:44:10Z	all-patterns	openshift/cloud-network-config-controller	PASS	1c gates:18/18(3skip) diff-vs-known-good:941h
 2026-07-18T03:04:42Z	all-fns	openshift/cluster-network-operator	FAIL	5c/1655f/5356h gates:12/14(1skip)
 2026-07-18T03:04:42Z	all-fns	openshift/multus-cni	PASS	5c/1137f/3947h gates:1/1
+2026-07-18T03:47:58Z	fn:go_version	openshift/multus-cni	PASS	8c/1140f/3951h gates:1/1
+2026-07-18T03:58:12Z	fn:crd_int64_validation	openshift/cloud-network-config-controller	DONE	1c no-gates diff-vs-known-good:941h
+2026-07-18T03:58:30Z	fn:crd_int64_validation	openshift/cloud-network-config-controller	PASS	1c/0diff identical
+2026-07-18T04:19:31Z	fn:kind_image	openshift/cluster-network-operator	PASS	5c/0diff gates:28/30(2skip) identical-to-known-good
