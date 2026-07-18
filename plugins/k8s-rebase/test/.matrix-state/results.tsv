@@ -42,3 +42,4 @@
 2026-07-18T00:08:54Z	all	ovn-org/ovn-kubernetes	FAIL	18c/91f/197h gates:13/17(4fail) major-version-imports-caught-klog
 2026-07-18T00:32:29Z	all	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c gates:2/2 diff-vs-known-good:161h
 2026-07-18T01:14:14Z	all	openshift/ingress-node-firewall	FAIL	9c/1542f/4892h gates:22/24(1skip)
+2026-07-18T01:25:10Z	fn:eventf	ovn-org/ovn-kubernetes	FAIL	23c/17f/104h gates:14/17 deprecated-remnants+logical-completeness
