@@ -55,3 +55,4 @@
 2026-07-18T04:19:31Z	fn:kind_image	openshift/cluster-network-operator	PASS	5c/0diff gates:28/30(2skip) identical-to-known-good
 2026-07-18T16:24:53Z	all-patterns	openshift/cluster-network-operator	FAIL	5c/1655f/5356h gates:12/14(1skip)
 2026-07-18T16:36:22Z	all-fns	openshift/ingress-node-firewall	PASS	6c klog-v1-migrated-via-patterns no-gates
+2026-07-18T16:52:55Z	fn:kubeadm_v1beta4	ovn-org/ovn-kubernetes	FAIL	27c/32f/115h gates:14/16 autofix-result+patterns-completeness
