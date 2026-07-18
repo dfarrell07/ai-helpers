@@ -33,8 +33,10 @@ Step 4 — Promoted x/ package check:
   `go doc <stdlib-name> 2>/dev/null`
   If it exists in stdlib, the x/ import should be migrated.
 
-Report each finding with file:line. FAIL if any deprecated
-usage, build error, or stale import exists. PASS if clean.
+Report each finding with file:line AND the recommended fix
+(e.g., math/rand -> math/rand/v2, golang.org/x/exp/slices ->
+slices). FAIL if any deprecated usage, build error, or stale
+import exists. PASS if clean.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole

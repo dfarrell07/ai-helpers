@@ -22,7 +22,8 @@ Step 3 — Check go.mod require lines:
   a v2+ version is available. Cross-reference with vendor/:
   `ls vendor/ | grep -E '/v[0-9]$'`
 
-Report each stale major-version import with file:line.
+Report each stale major-version import with file:line AND
+the correct versioned path (e.g., k8s.io/klog -> k8s.io/klog/v2).
 FAIL if any remain. PASS if all migrations are complete.
 If the repo has no major-version dependencies, PASS.
 

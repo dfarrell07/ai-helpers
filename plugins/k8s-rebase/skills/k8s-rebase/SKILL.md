@@ -375,11 +375,12 @@ Count gates must report 0. Judge gates must cite evidence.
 
 **Gate-fix loop:** If ANY count gate reports > 0, read the
 gate report (DETAILS section with file:line references), fix
-each cited issue, commit the fix, and re-run that gate. Repeat
-up to 3 times. If the gate still fails after 3 fix attempts,
-report the remaining issues and proceed. This is critical for
-deprecated-but-compiling patterns (klog v1, AddToScheme, etc.)
-that the agent must discover through gates, not autofix scripts.
+each cited issue, commit the fix, and re-run the gate (cat the
+same gate file and launch a fresh subagent with its contents).
+Repeat up to 3 times per gate. If it still fails after 3 fix
+attempts, report the remaining issues and proceed. This loop
+is how the agent discovers and fixes deprecated-but-compiling
+patterns without needing pre-existing autofix knowledge.
 
 ### Step 4: Lint, test, and review
 
