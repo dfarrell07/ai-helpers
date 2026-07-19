@@ -8,14 +8,17 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     continue
   fi
   echo "CHECK $mod_dir"
-  (cd "$mod_dir" && go build ./... 2>&1; go vet ./... 2>&1)
+  (cd "$mod_dir" && go build ./... 2>&1 && go vet ./... 2>&1)
+  # Count errors: non-zero exit = build or vet failed
 done
 ```
 
 Do NOT run build/vet on modules you skipped — their vendor is
 stale and will produce false errors. Use `podman run --userns=keep-id`
 with the golang container if the local Go version is too old.
-Report total error count from non-skipped modules only.
+Count errors: each module where `go build` or `go vet` exits
+non-zero is 1 error. Report the total across all non-skipped
+modules.
 
 For pre-existing issues: if the base branch also fails the same
 build/vet check, report those errors as INFO (pre-existing) and
