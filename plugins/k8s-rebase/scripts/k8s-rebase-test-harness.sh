@@ -175,7 +175,7 @@ remove_worktrees() {
 _session_cache=""
 build_session_cache() {
   _session_cache=$(timeout 10 claude agents --json 2>/dev/null | python3 -c "
-import json, sys, time
+import json, sys, time, os
 try:
     data = json.load(sys.stdin)
     if not isinstance(data, list):
@@ -192,6 +192,18 @@ for s in data:
         sid = s.get('id') or full_sid[:8]
         started = s.get('startedAt', 0)
         elapsed = max(0, int((now - started) / 60000)) if started else 0
+        # Guard against false 'done': bg sessions report state=done while
+        # idle between steps, but the bg-spare process stays alive.  If the
+        # PID is still running, downgrade 'done' -> 'idle' so the harness
+        # won't clean up in-progress work.
+        if st == 'done' and pid and int(pid) > 0:
+            try:
+                os.kill(int(pid), 0)
+                st = 'idle'   # process alive -- not truly done
+            except (ProcessLookupError, ValueError):
+                pass          # process dead -- genuinely done
+            except PermissionError:
+                st = 'idle'   # alive but different user
         print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
     except (TypeError, ValueError):
         pass

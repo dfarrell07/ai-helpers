@@ -243,7 +243,7 @@ cmd_without() {
   # Rename stale worktree branches to avoid collisions with new sessions
   # Preserves history (branches renamed, not deleted)
   (cd "$repo" && git worktree prune 2>/dev/null || true
-   for wt_branch in $(git branch | grep 'worktree-k8s-rebase' | tr -d ' *'); do
+   for wt_branch in $(git branch | grep 'worktree-k8s-rebase' | grep -v '^archived-' | tr -d ' *'); do
      _ts=$(date +%Y%m%d%H%M%S)
      git branch -m "$wt_branch" "archived-${wt_branch}-${_ts}" 2>/dev/null \
        && echo ":: Archived stale branch: $wt_branch -> archived-${wt_branch}-${_ts}"
@@ -940,6 +940,13 @@ _do_record_one() {
           echo ""
         fi
       done
+    fi
+    # Preserve rebase report if it exists
+    local _rr="${wt_path:+$wt_path/.rebase-tmp/rebase-report.json}"
+    [[ -f "$_rr" ]] || _rr="$repo/.rebase-tmp/rebase-report.json"
+    if [[ -f "$_rr" ]]; then
+      echo "---REBASE-REPORT---"
+      cat "$_rr"
     fi
   } > "$state_dir/done/$done_key"
   rm -f "$state_dir/running/$repo_key"
