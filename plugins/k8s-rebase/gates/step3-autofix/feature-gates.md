@@ -5,9 +5,11 @@ vendor/k8s.io/ (grep for the quoted name). Skip gates not in
 vendor. Verify gates match between SetFromMap calls,
 os.Setenv/t.Setenv calls, and shell script exports.
 
-Search the entire repo for KUBE_FEATURE_ exports:
-  `grep -rn 'KUBE_FEATURE_' --include='*.sh' --include='Makefile*' . | grep -v vendor/`
-Report count of files with missing or stale gates.
+Search the entire repo for KUBE_FEATURE_ references:
+  `grep -rn 'KUBE_FEATURE_' --include='*.sh' --include='Makefile*' --include='*.go' . | grep -v vendor/`
+This covers shell exports, Makefile variables, AND Go code
+(os.Setenv, t.Setenv, SetFromMap calls). Report count of
+files with missing or stale gates.
 
 If the repo has no SetFromMap or KUBE_FEATURE_ references
 at all, report SKIP.
