@@ -373,17 +373,26 @@ Gate files:
 
 Count gates must report 0. Judge gates must cite evidence.
 
-**Gate-fix loop:** If ANY count gate reports > 0, read the
-gate report (DETAILS section with file:line references). For
-each finding, check if it exists on the base branch too:
-  `git show <base>:<file>` — if the issue is identical on the
-  base branch, it's pre-existing (not a regression). Skip it.
-Only fix findings that are NEW (introduced by the rebase).
-Commit fixes and re-run the gate (cat the same gate file and
-launch a fresh subagent). Repeat up to 3 times per gate. If
-it still fails after 3 attempts, report remaining issues and
-proceed. This loop discovers and fixes deprecated-but-compiling
-patterns without needing pre-existing autofix knowledge.
+**Gate-fix loop:** If ANY count gate reports > 0:
+
+1. **Triage**: Read each FAIL gate report (DETAILS with
+   file:line). For each finding, check the base branch:
+   `BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)`
+   `git show $BASE:<file>` — if the same issue exists on the
+   base branch, it's pre-existing. If the file doesn't exist
+   on base (new file), the finding IS new. Skip pre-existing
+   findings.
+
+2. **Fix**: For each NEW finding, fix the cited issue and
+   commit.
+
+3. **Re-run**: Re-run failed gates (cat the gate file, launch
+   a fresh subagent with its contents).
+
+Repeat up to 3 times per gate. If it still fails after 3
+attempts, report remaining issues and proceed. This loop
+discovers and fixes deprecated-but-compiling patterns without
+needing pre-existing autofix knowledge.
 
 ### Step 4: Lint, test, and review
 
