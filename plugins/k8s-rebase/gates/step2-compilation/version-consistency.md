@@ -2,6 +2,8 @@ Count go.mod files where k8s.io/* dependency versions are
 inconsistent (different minor versions across k8s.io packages
 within the same go.mod). For each module with a vendor/ directory, verify
 vendor is in sync with go.mod (check vendor/modules.txt).
+Also run `go mod verify` in vendored modules to check vendor
+consistency mechanically.
 Report inconsistency count.
 
 Rules: report specific counts, not "looks good." You are
