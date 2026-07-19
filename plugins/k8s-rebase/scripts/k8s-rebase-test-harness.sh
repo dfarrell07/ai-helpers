@@ -247,8 +247,8 @@ cmd_run() {
       local sess_state sess_pid
       sess_state=$(echo "$existing_session" | cut -f2)
       sess_pid=$(echo "$existing_session" | cut -f4)
-      if [[ "$sess_state" == "done" || "$sess_pid" == "0" ]]; then
-        info "Cleaning up finished session for $short (state=$sess_state)"
+      if [[ "$sess_state" == "done" || "$sess_pid" == "0" || -z "$sess_pid" ]]; then
+        info "Cleaning up finished session for $short (state=$sess_state, pid=$sess_pid)"
       else
         warn "Active session found for $short — stop it first"
         continue
