@@ -66,3 +66,6 @@
 2026-07-18T22:14:25Z	all	openshift/cluster-network-operator	PASS	3c gates:16/16 pre-existing-filter-works
 2026-07-19T00:15:39Z	all	openshift/ingress-node-firewall	PASS	6c/1542f/4892h gates:1/1
 2026-07-19T00:47:21Z	all	ovn-org/ovn-kubernetes	FAIL	18c/1753f/5505h gates:31/33
+2026-07-19T01:43:23Z	all-patterns	openshift/multus-cni	PASS	3c/1125f/3933h gates:0/1
+2026-07-19T02:04:50Z	all-fns	openshift/ingress-node-firewall	PASS	7c/1558f/4962h gates:1/1
+2026-07-19T03:18:15Z	all	ovn-org/ovn-kubernetes	PASS	19c/1774f/5516h gates:1/1
