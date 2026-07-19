@@ -249,13 +249,21 @@ cmd_without() {
        && echo ":: Archived stale branch: $wt_branch -> archived-${wt_branch}-${_ts}"
    done)
 
+  # Create running entry so --auto-record can find this test
+  local _state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local _repo_key
+  _repo_key=$(repo_short "$repo" | tr '/' '_')
+  mkdir -p "$_state_dir/running"
+  echo "${specs[*]}" > "$_state_dir/running/$_repo_key"
+  info "Tracked: $_state_dir/running/$_repo_key = ${specs[*]}"
+
   info "Launching skill run..."
   PLUGIN_DIR="$mutated" RESULTS_DIR="$RESULTS_DIR" PERMISSION_MODE="$PERMISSION_MODE" \
     bash "$harness" run "$version" "$repo"
 
   echo ""
   info "Mutated plugin at: $mutated"
-  info "Next: $(basename "$0") --compare <result-branch> <known-good-branch> $repo --context '${specs[*]}'"
+  info "When done: $(basename "$0") --auto-record"
 }
 
 # ── --compare (adversarial court) ───────────────────────────────────
