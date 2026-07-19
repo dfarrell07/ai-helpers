@@ -9,6 +9,9 @@ Flag:
 - Error values checked in one path but ignored in another (FAIL)
 - Fields set but never read (FAIL)
 - Fields compared in one code path but not another (FAIL)
+- Partial API renames: if a function or type was renamed at some
+  call sites but the old name persists at others within the same
+  file, indicating incomplete rename application (FAIL)
 - Variables assigned but never used (WARN — compiler catches these)
 
 The autofix applies documented patterns (see the patterns doc)
