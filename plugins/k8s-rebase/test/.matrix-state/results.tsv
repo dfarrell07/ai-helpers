@@ -89,3 +89,5 @@
 2026-07-19T18:38:35Z	fn:eventf	ovn-kubernetes/ovn-kubernetes-mcp	PASS	2c diff-vs-known-good:4files(cosmetic)
 2026-07-19T18:46:31Z	fn:feature_gates	openshift/cloud-network-config-controller	PASS	1c/7h diff-vs-known-good:cosmetic+NewSimpleClientset-discovery
 2026-07-19T18:52:43Z	fn:addtoscheme	openshift/ingress-node-firewall	PASS	10c/2autofix gates:15/17(2skip) klog-migrated-independently import-alias-cosmetic
+2026-07-19T19:00:25Z	all	openshift/cluster-network-operator	FAIL	3c/20h(nonvendor) partial-Install-to-AddToScheme-rename no-step3-gates
+2026-07-19T19:10:47Z	all	openshift/cluster-network-operator	FAIL	3c/20h(nonvendor) partial-Install-to-AddToScheme-rename session-exited-before-step3
