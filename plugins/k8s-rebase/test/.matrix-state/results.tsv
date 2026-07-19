@@ -80,3 +80,4 @@
 2026-07-19T09:05:18Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
 2026-07-19T09:26:45Z	all	ovn-org/ovn-kubernetes	FAIL	11c gates:5/5(step2only) session-used-old-SKILL.md
 2026-07-19T09:26:45Z	all	openshift/cluster-network-operator	FAIL	4c/6h code-correct gates:12/14(preexisting)
+2026-07-19T11:07:42Z	all	ovn-org/ovn-kubernetes	FAIL	23c/1774f/5511h gates:17/18
