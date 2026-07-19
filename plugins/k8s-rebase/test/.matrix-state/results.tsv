@@ -65,3 +65,4 @@
 2026-07-18T20:25:55Z	all-patterns	ovn-org/ovn-kubernetes	PASS	24c gates:18/18 klog-clean xexp-clean crd-fixed
 2026-07-18T22:14:25Z	all	openshift/cluster-network-operator	PASS	3c gates:16/16 pre-existing-filter-works
 2026-07-19T00:15:39Z	all	openshift/ingress-node-firewall	PASS	6c/1542f/4892h gates:1/1
+2026-07-19T00:47:21Z	all	ovn-org/ovn-kubernetes	FAIL	18c/1753f/5505h gates:31/33
