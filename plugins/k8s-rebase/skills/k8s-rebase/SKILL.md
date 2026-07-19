@@ -174,7 +174,9 @@ If present, fix the codegen script (e.g., remove dropped flags),
 re-run codegen, commit, and re-verify.
 
 **When step1 gate passes and codegen issues are resolved,
-proceed to Step 2.** Do NOT stop here.
+proceed to Step 2 immediately.** Do NOT stop here — Steps 2-5
+are mandatory even if step1 had zero issues. The rebase is NOT
+complete until you present a `gh pr create` command in Step 5.
 
 ---
 
@@ -329,8 +331,10 @@ Gate files:
 Count gates must report 0. Judge gates must cite evidence.
 Investigate all concerns before proceeding.
 
-**When all step2 gates pass, proceed to Step 3.** Do NOT stop
-after step2 — the rebase is not complete until Step 5 finishes.
+**When all step2 gates pass, proceed to Step 3 immediately.**
+Do NOT stop after step2 — Steps 3-5 are mandatory even if step2
+had zero compilation errors. The rebase is NOT complete until
+you present a `gh pr create` command in Step 5.
 
 To add a gate: create a new `.md` file in `step2-compilation/`
 and add it to this list.
