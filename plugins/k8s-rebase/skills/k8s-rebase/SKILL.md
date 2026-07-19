@@ -398,7 +398,8 @@ Gate files:
 
 Count gates must report 0. Judge gates must cite evidence.
 
-**Gate-fix loop:** If ANY count gate reports > 0:
+**Gate-fix loop:** If ANY gate reports FAIL (count gate with
+issues > 0, OR judge gate with verdict FAIL):
 
 1. **Triage**: Read each FAIL gate report (DETAILS with
    file:line). For each finding, check the base branch:
@@ -599,6 +600,15 @@ Gate files:
 - `commit-messages.md` (count)
 
 All count-checks must be 0. Investigate judgment concerns.
+
+**Gate-fix loop (same as step3):** If ANY gate reports FAIL
+(count gate with issues > 0, OR judge gate with verdict FAIL):
+1. **Triage**: Check each finding against the base branch
+   (`git show $BASE:<file>`). Skip pre-existing findings.
+2. **Fix**: For each NEW finding, fix and commit.
+3. **Re-run**: Delete old report, re-run the gate.
+Repeat up to 3 times per gate. Then proceed.
+
 If any test agent reports failures or timeouts:
 - **Timeout** likely means a feature gate issue (informer hang).
   Check that all gates from the `GATE_DEPS` map in

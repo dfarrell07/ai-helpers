@@ -345,10 +345,10 @@ fix_klog_v2() {
   for f in $files; do
     sed -i 's|"k8s.io/klog"|"k8s.io/klog/v2"|g' "$f"
   done
-  if grep -q 'k8s.io/klog ' "$PRIMARY_GOMOD" 2>/dev/null; then
-    echo ":: Running go mod tidy to remove stale klog v1 dependency"
-    (cd "$(dirname "$PRIMARY_GOMOD")" && GOWORK=off go mod tidy 2>/dev/null) || true
-  fi
+  for _gm in $(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l 'k8s.io/klog ' {} \;); do
+    echo ":: Running go mod tidy in $(dirname "$_gm") to remove stale klog v1"
+    (cd "$(dirname "$_gm")" && GOWORK=off go mod tidy 2>/dev/null) || true
+  done
 }
 
 fix_reflect_ptr() {
