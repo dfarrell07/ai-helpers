@@ -22,11 +22,6 @@ Step 3 — Check go.mod require lines:
   a v2+ version is available. Cross-reference with vendor/:
   `ls vendor/ | grep -E '/v[0-9]$'`
 
-For each finding, check if it exists in the base branch:
-  `git show <base>:<file>` — if the stale import is identical
-  in the base, report as INFO (pre-existing). Only count NEW
-  stale imports introduced by the rebase toward FAIL.
-
 Report each stale import with file:line AND the correct
 versioned path (e.g., k8s.io/klog -> k8s.io/klog/v2).
 FAIL if any NEW stale imports remain. PASS if clean or

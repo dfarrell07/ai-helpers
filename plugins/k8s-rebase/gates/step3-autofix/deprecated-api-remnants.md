@@ -33,12 +33,6 @@ Step 4 — Promoted x/ package check:
   `go doc <stdlib-name> 2>/dev/null`
   If it exists in stdlib, the x/ import should be migrated.
 
-For each finding, check if it exists in the base branch:
-  `git show <base>:<file>` — if the deprecated usage is
-  identical in the base, report as INFO (pre-existing) and do
-  not count toward FAIL. Only count NEW deprecated usage
-  introduced or exposed by the rebase.
-
 Report each finding with file:line AND the recommended fix
 (e.g., math/rand -> math/rand/v2, golang.org/x/exp/slices ->
 slices). FAIL if any NEW deprecated usage or build error
