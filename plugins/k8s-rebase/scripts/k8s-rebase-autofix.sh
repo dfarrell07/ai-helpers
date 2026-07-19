@@ -229,6 +229,14 @@ run_checks() {
   r "x/exp imports" "$(grep -rn 'golang.org/x/exp' --include='*.go' . | grep -v vendor | wc -l)"
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
   r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
+  # Generic major-version import check: find bare imports where /vN exists in go.mod
+  local _mv_stale=0
+  for _mod in $(grep -oP 'k8s\.io/\w+/v\d+' go.mod 2>/dev/null | sed 's|/v[0-9]*$||' | sort -u); do
+    local _bare
+    _bare=$(grep -rn "\"$_mod\"" --include='*.go' . 2>/dev/null | grep -v vendor/ | grep -v '/v' | wc -l)
+    _mv_stale=$((_mv_stale + _bare))
+  done
+  r "Stale major-version imports" "$_mv_stale"
   r "Bare Eventf" "$(grep -rn 'Eventf(.*\.Error())' --include='*.go' . | grep -v vendor | grep -v '%[svdqxXoOfFeEgGtTp]' | wc -l)"
   local NEW OLD
   NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')

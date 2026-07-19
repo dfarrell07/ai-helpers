@@ -35,6 +35,10 @@ in the base, report as INFO (pre-existing cleanup opportunity)
 and do not count toward FAIL. Only rebase-introduced issues
 count.
 
+For each non-build finding, check if it also exists on the base
+branch. If identical on base, report as INFO (pre-existing)
+and do NOT count toward FAIL.
+
 Report: FAIL if any build error or rebase-introduced issue
 exists. PASS if build succeeds and no NEW issues found.
 

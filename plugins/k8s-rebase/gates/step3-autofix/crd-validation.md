@@ -16,6 +16,11 @@ If CRDs are found:
    format doesn't match the range (e.g., format: int32 with a
    maximum exceeding 2^31-1, which needs format: int64).
 
+For each finding, check if it also exists on the base branch:
+  `git show $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master):<path>` —
+  if the issue is identical on base, report as INFO (pre-existing)
+  and do NOT count toward FAIL. Only NEW issues trigger FAIL.
+
 Report counts of lost validations and schema inconsistencies.
 
 If no CRDs found in the repo, report 0 for both.
