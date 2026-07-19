@@ -10,12 +10,10 @@ Flag:
 - Fields set but never read (FAIL)
 - Fields compared in one code path but not another (FAIL)
 - Partial API renames: if a function or type was renamed at some
-  call sites but the old name persists at others within the same
-  file, indicating incomplete rename application (FAIL)
-- Scheme registration consistency: if AddToScheme and Install are
-  mixed across files for the same API group, run:
-  `grep -rn '\.AddToScheme\|\.Install(' --include='*.go' . | grep -v vendor/`
-  If both appear for the same package, it's a partial rename (FAIL)
+  call sites but the old name persists at others in the same file
+  or across files for the same package, indicating incomplete
+  rename application (FAIL). Check the branch diff for renamed
+  symbols and grep the full repo for remaining old-name usage.
 - Variables assigned but never used (WARN — compiler catches these)
 
 The autofix applies documented patterns (see the patterns doc)
