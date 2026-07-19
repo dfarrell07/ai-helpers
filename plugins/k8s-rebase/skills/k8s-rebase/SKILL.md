@@ -384,7 +384,7 @@ Count gates must report 0. Judge gates must cite evidence.
 
 1. **Triage**: Read each FAIL gate report (DETAILS with
    file:line). For each finding, check the base branch:
-   `BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)`
+   `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
    `git show $BASE:<file>` — if the same issue exists on the
    base branch, it's pre-existing. If the file doesn't exist
    on base (new file), the finding IS new. Skip pre-existing
