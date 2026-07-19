@@ -6,6 +6,11 @@ For each modified e2e file, check:
 - Do version references (k8s version strings, kindest/node tags)
   match the target version from go.mod?
   `grep -rn 'kindest/node\|K8S_VERSION\|KIND_VERSION' . | grep -v vendor/`
+- KIND binary version: search the web for "kind releases" to
+  find which KIND version supports the target k8s version.
+  Each KIND release supports specific k8s versions — using an
+  old KIND with a new k8s will fail. Report the fix command:
+  `sed -i 's/KIND_VERSION=v<old>/KIND_VERSION=v<new>/' <file>`
 - Are external tool versions consistent across all CI files?
 - Do configuration formats (e.g., kubeadm config apiVersion)
   match what the new k8s version requires? Search the web for
