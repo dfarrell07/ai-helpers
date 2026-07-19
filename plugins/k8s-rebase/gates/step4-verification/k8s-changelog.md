@@ -39,9 +39,10 @@ Report per entry:
 
 If either changelog is unavailable, note it and move on.
 
-Determine the target k8s minor version from go.mod:
-  grep 'k8s.io/api ' go.mod (or go-controller/go.mod)
-  Extract the minor version from v0.XX.Y
+VERDICT criteria: FAIL if any NOT ADDRESSED entry is in
+"Urgent Upgrade Notes" or "API Change" and affects symbols
+used by this repo. PASS if all relevant entries are ADDRESSED
+or N/A. SKIP if the changelog is unavailable.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

@@ -20,7 +20,8 @@ and pre-release direct deps separately.
 
 VERDICT criteria: FAIL if any non-k8s direct dependency has an
 unexpected major-version jump, or if a direct dep moved to a
-pseudo-version without explanation. PASS otherwise — flagged
+pseudo-version without a corresponding k8s.io/* dependency
+requiring it (check require/replace chains). PASS otherwise — flagged
 items in categories 3-5 are informational, not blockers.
 
 Rules: you are read-only — do not edit repo files. Your sole

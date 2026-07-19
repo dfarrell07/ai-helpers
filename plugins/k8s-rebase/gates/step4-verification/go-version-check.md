@@ -15,7 +15,7 @@ the repo and check for implications.
 
 5. CI workflows: do they use go-version-file (dynamic) or
    hardcoded versions?
-   grep -rn 'go-version' --include='*.yml' --include='*.yaml' .github/ | head -10
+   grep -rn 'go-version' --include='*.yml' --include='*.yaml' .github/
 
 6. x/ package opportunities: this is checked by the
    deprecated-imports gate — do not duplicate that check here.
