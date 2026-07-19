@@ -1,5 +1,10 @@
-Read each fix commit's diff (commits after the mechanical rebase,
-before the autofix). Count files that are not Go source (.go),
+Identify fix commits (after the rebase, not part of the
+mechanical dependency bump):
+  `git log --oneline $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)..HEAD`
+Skip commits that only touch go.mod/go.sum/vendor (rebase
+infrastructure). Review the remaining commits' diffs.
+
+Count files that are not Go source (.go),
 tests (_test.go), module files (go.mod, go.sum), docs (.md),
 CI configs (.yml/.yaml), or build files (Makefile, Dockerfile,
 .sh, .j2). Changes in generated/managed directories are also
@@ -7,7 +12,9 @@ expected: vendor/, LICENSES/, _output/, third_party/.
 Unexpected file types suggest a fix leaked beyond its intended
 scope.
 
-Report count of unexpected files changed.
+Report count of unexpected files changed. FAIL if any
+unexpected files are found (count > 0). PASS if all changed
+files are in expected categories.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
