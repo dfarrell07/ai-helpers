@@ -74,3 +74,5 @@
 2026-07-19T05:09:21Z	fn:klog_v2 fn:reflect_ptr fn:xexp	openshift/multus-cni	PASS	4c gates:30/33(2warn,1fail-ci) compound-removal-works
 2026-07-19T06:23:22Z	all	openshift/ingress-node-firewall	PASS	8c/1530f/4878h gates:1/1
 2026-07-19T06:28:30Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
+2026-07-19T07:26:05Z	fn:mocks fn:bounding_dirs fn:conformance_renames	openshift/multus-cni	FAIL	6c/1137f/3947h gates:30/33
+2026-07-19T07:36:44Z	fn:klog_v2 fn:xexp fn:addtoscheme	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
