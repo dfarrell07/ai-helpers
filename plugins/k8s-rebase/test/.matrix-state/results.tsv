@@ -100,3 +100,5 @@
 2026-07-19T21:39:28Z	fn:obsgen	openshift/ingress-node-firewall	ERROR	3c gates:1/1(step1only) session-exited-after-step1
 2026-07-19T21:39:28Z	all	openshift/cluster-network-operator	FAIL	0c no-worktree-created old-session-still-blocking
 2026-07-19T21:40:08Z	fn:mocks	openshift/cloud-network-config-controller	ERROR	1c gates:1/1(step1only) session-exited-after-step1
+2026-07-19T22:07:03Z	fn:mocks	openshift/cloud-network-config-controller	PASS	1c/7h(nonvendor) full-5-step-completion NewSimpleClientset-cosmetic
+2026-07-19T22:17:57Z	fn:obsgen	openshift/ingress-node-firewall	PASS	10c/2autofix/24h full-5-step klog-migrated lint-fixed
