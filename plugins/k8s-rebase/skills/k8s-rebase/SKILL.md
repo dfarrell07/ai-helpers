@@ -330,7 +330,7 @@ Count gates must report 0. Judge gates must cite evidence.
 Investigate all concerns before proceeding.
 
 **When all step2 gates pass, proceed to Step 3.** Do NOT stop
-after step2 — the rebase is not complete until step4 finishes.
+after step2 — the rebase is not complete until Step 5 finishes.
 
 To add a gate: create a new `.md` file in `step2-compilation/`
 and add it to this list.

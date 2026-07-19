@@ -231,7 +231,7 @@ run_checks() {
   r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
   # Generic major-version import check: find bare imports where /vN exists in go.mod
   local _mv_stale=0
-  for _mod in $(grep -oP 'k8s\.io/[a-zA-Z0-9_-]+/v\d+' go.mod 2>/dev/null | sed 's|/v[0-9]*$||' | sort -u); do
+  for _mod in $(grep -oP 'k8s\.io/[a-zA-Z0-9_-]+/v\d+' "$PRIMARY_GOMOD" 2>/dev/null | sed 's|/v[0-9]*$||' | sort -u); do
     local _bare
     _bare=$(grep -rn "\"$_mod\"" --include='*.go' . 2>/dev/null | grep -v vendor/ | grep -v "\"${_mod}/v" | wc -l)
     _mv_stale=$((_mv_stale + _bare))
