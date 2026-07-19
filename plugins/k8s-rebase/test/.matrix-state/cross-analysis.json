@@ -1,0 +1,29 @@
+{
+  "timestamp": "2026-07-18T01:25:26Z",
+  "matrix_size": { "specs": 14, "repos": 6, "cells_tested": 43, "cells_total": 84 },
+  "specs": {
+    "fn:version_refs": { "pass": 2, "fail": 0, "done": 0, "class": "REDUNDANT" },
+    "fn:klog_v2": { "pass": 5, "fail": 1, "done": 0, "class": "MIXED" },
+    "fn:feature_gates": { "pass": 2, "fail": 0, "done": 0, "class": "REDUNDANT" },
+    "fn:bounding_dirs": { "pass": 1, "fail": 0, "done": 0, "class": "REDUNDANT" },
+    "all": { "pass": 3, "fail": 3, "done": 0, "class": "MIXED" },
+    "fn:lint_version": { "pass": 1, "fail": 0, "done": 0, "class": "REDUNDANT" },
+    "fn:xexp": { "pass": 3, "fail": 2, "done": 1, "class": "MIXED" },
+    "fn:addtoscheme": { "pass": 1, "fail": 1, "done": 0, "class": "MIXED" },
+    "fn:obsgen": { "pass": 2, "fail": 0, "done": 0, "class": "REDUNDANT" },
+    "fn:reflect_ptr": { "pass": 4, "fail": 2, "done": 0, "class": "MIXED" },
+    "fn:eventf": { "pass": 3, "fail": 2, "done": 0, "class": "MIXED" },
+    "fn:imports": { "pass": 1, "fail": 0, "done": 0, "class": "REDUNDANT" },
+    "fn:fieldsv1": { "pass": 2, "fail": 0, "done": 0, "class": "REDUNDANT" },
+    "fn:mocks": { "pass": 1, "fail": 0, "done": 0, "class": "REDUNDANT" }
+  },
+  "repos": {
+    "openshift/cloud-network-config-controller": { "pass": 8, "fail": 0, "total": 9, "fail_pct": 0 },
+    "openshift/multus-cni": { "pass": 7, "fail": 0, "total": 7, "fail_pct": 0 },
+    "ovn-kubernetes/ovn-kubernetes-mcp": { "pass": 6, "fail": 0, "total": 6, "fail_pct": 0 },
+    "openshift/cluster-network-operator": { "pass": 7, "fail": 2, "total": 9, "fail_pct": 22 },
+    "openshift/ingress-node-firewall": { "pass": 1, "fail": 5, "total": 6, "fail_pct": 83 },
+    "ovn-org/ovn-kubernetes": { "pass": 2, "fail": 4, "total": 6, "fail_pct": 66 }
+  },
+  "gap_count": 41
+}

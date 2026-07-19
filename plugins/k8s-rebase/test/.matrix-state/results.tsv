@@ -85,3 +85,4 @@
 2026-07-19T13:15:24Z	all	ovn-org/ovn-kubernetes	FAIL	10c gates:7/7(step2only) autofix-container-stuck-125m
 2026-07-19T15:36:08Z	all	ovn-org/ovn-kubernetes	PASS	19c/1774f/5511h gates:1/1
 2026-07-19T17:02:52Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
+2026-07-19T17:59:07Z	all	ovn-org/ovn-kubernetes	FAIL	18c/1772f/5507h gates:6/7(1skip)
