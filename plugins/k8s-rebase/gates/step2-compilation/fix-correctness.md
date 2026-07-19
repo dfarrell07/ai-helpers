@@ -7,6 +7,10 @@ missing error check, silently swallowed error.
 List each fix you reviewed and your assessment. Do not just say
 "all correct" — show your reasoning for each.
 
+VERDICT criteria: FAIL if any fix compiles but would behave
+incorrectly at runtime (wrong type conversion, silent data loss,
+inverted logic). PASS if all fixes are semantically correct.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line

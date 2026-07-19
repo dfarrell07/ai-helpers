@@ -27,6 +27,9 @@ Report each candidate with its classification, detection
 command, and fix description. If no systematic fixes were
 found, report "No new patterns discovered."
 
+VERDICT: This is an informational gate — always PASS. Report
+systematic patterns for future autofix improvement.
+
 Rules: report specific findings, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

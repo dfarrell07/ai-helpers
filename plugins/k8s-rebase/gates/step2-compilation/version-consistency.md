@@ -6,6 +6,10 @@ Also run `go mod verify` in vendored modules to check vendor
 consistency mechanically.
 Report inconsistency count.
 
+VERDICT criteria: FAIL if any k8s.io/* dependency version is
+inconsistent with the target version. PASS if all versions are
+consistent.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

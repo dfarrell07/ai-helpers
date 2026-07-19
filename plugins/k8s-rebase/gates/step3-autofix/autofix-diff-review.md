@@ -15,6 +15,10 @@ minor version mismatches as a concern.
 
 List each transformation category you checked and your finding.
 
+VERDICT: FAIL if any autofix transformation is demonstrably wrong
+(incorrect logic, wrong replacement, data loss). PASS if all
+transformations are correct or cosmetic.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line

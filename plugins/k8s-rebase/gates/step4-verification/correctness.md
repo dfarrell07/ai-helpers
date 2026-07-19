@@ -14,6 +14,14 @@ NOW):
 
 Report all three counts. Count 0 means no remaining issues.
 
+Only count issues introduced or modified by the rebase commits.
+Pre-existing problems in unchanged code are out of scope — do
+not flag them.
+
+VERDICT: FAIL if any remaining bug is found in fix commits
+(wrong logic, data loss, missing error handling). PASS if all
+fix commits are correct.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

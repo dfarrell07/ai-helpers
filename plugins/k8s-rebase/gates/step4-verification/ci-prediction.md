@@ -47,6 +47,10 @@ read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. For CONFIRMED findings, state the specific fix needed. Cite file:line for any issues.
 
+VERDICT: FAIL if any CONFIRMED issue would cause CI failure.
+PASS if no confirmed issues. Speculative concerns are INFO,
+not FAIL.
+
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:
 

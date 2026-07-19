@@ -26,6 +26,10 @@ Report counts of lost validations and schema inconsistencies.
 
 If no CRDs found in the repo, report 0 for both.
 
+VERDICT: FAIL if any NEW validation constraint was removed or
+weakened vs base branch. PASS if no new issues. SKIP if no CRDs
+in repo.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

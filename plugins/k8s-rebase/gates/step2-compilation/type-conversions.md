@@ -11,6 +11,10 @@ conversion lose data at runtime?
 List each struct you checked and your finding. Do not just say
 "no issues" — show your work.
 
+VERDICT criteria: FAIL if any struct conversion silently drops
+fields or could lose data at runtime. SKIP if no fix commits
+involve type conversions. PASS if all conversions are complete.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line

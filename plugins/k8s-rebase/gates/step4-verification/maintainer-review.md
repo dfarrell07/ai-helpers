@@ -19,10 +19,14 @@ required — these are NOT scope creep. To identify them, run:
   `[ -n "$PATTERNS" ] && cat "$PATTERNS"`
 Any change that matches a documented pattern is expected, even
 if it touches e2e infrastructure, version references, or test
-configuration. Do not flag patch-level mismatches (e.g.,
-v1.36.1 vs v1.36.2) as a concern — the autofix picks the
-latest available versions. DO flag minor-version mismatches
-(e.g., v1.35.x vs v1.36.x).
+configuration. Do not flag patch-level mismatches within the same minor
+version as a concern — the autofix picks the latest available
+patch releases. DO flag minor-version mismatches (versions
+from a different minor release than the target).
+
+VERDICT: FAIL if scope creep or inaccurate commit messages
+found. PASS if all changes serve the rebase and commits are
+well-scoped.
 
 List your findings with specific commit SHAs and file:line refs.
 Do not just say "would approve" — explain what you checked.

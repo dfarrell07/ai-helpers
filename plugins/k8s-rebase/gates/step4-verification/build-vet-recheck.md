@@ -25,6 +25,9 @@ read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line for any issues.
 
+VERDICT: FAIL if any build or vet error exists in non-skipped
+modules. PASS if all modules build and pass vet cleanly.
+
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:
 

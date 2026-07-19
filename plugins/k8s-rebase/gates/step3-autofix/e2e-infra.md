@@ -20,6 +20,10 @@ List each item checked and whether it passes. Report issues.
 
 If the repo has no e2e infrastructure files, skip this check.
 
+VERDICT: FAIL if any e2e infrastructure (KIND version, test
+framework, CI config) references a version incompatible with the
+target k8s version. PASS if all e2e infra is consistent.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line

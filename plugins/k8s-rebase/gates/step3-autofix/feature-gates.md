@@ -21,6 +21,10 @@ If the same feature gate issue exists on the base branch, it is pre-existing --
 report it as INFO but do NOT count it toward the FAIL threshold.
 Only feature gate issues introduced by the rebase trigger FAIL.
 
+VERDICT: FAIL if count of files with missing or stale feature
+gates > 0 (excluding pre-existing). PASS if all feature gates
+are current.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

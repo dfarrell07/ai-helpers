@@ -37,6 +37,11 @@ Report format per dep:
 If release notes are unavailable (API failure, empty body),
 note it and move on — do not block.
 
+VERDICT: FAIL if any dependency release note documents a breaking
+change that affects this repo and is not addressed in the rebase.
+PASS if all relevant changes are addressed or no breaking changes
+found.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite specific
