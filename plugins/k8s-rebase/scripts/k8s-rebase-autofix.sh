@@ -233,7 +233,7 @@ run_checks() {
   local _mv_stale=0
   for _mod in $(grep -oP 'k8s\.io/\w+/v\d+' go.mod 2>/dev/null | sed 's|/v[0-9]*$||' | sort -u); do
     local _bare
-    _bare=$(grep -rn "\"$_mod\"" --include='*.go' . 2>/dev/null | grep -v vendor/ | grep -v '/v' | wc -l)
+    _bare=$(grep -rn "\"$_mod\"" --include='*.go' . 2>/dev/null | grep -v vendor/ | grep -v "\"${_mod}/v" | wc -l)
     _mv_stale=$((_mv_stale + _bare))
   done
   r "Stale major-version imports" "$_mv_stale"
