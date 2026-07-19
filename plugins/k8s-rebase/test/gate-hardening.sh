@@ -925,7 +925,23 @@ _do_record_one() {
   mkdir -p "$state_dir/done"
   printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "$verdict" "$detail" \
     >> "$state_dir/results.tsv"
-  echo "$ts	$spec	$short	$verdict	$detail" > "$state_dir/done/$done_key"
+  # Preserve gate details in done file for learning
+  {
+    echo "$ts	$spec	$short	$verdict	$detail"
+    if [[ -d "$gate_dir" && "$gfail" -gt 0 ]]; then
+      echo "---FAILED-GATES---"
+      for f in "$gate_dir"/*.report; do
+        [[ -f "$f" ]] || continue
+        local _gv
+        _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+        if [[ "$_gv" == *"FAIL"* || "$_gv" == *"fail"* ]]; then
+          echo "=== $(basename "$f" .report) ==="
+          cat "$f"
+          echo ""
+        fi
+      done
+    fi
+  } > "$state_dir/done/$done_key"
   rm -f "$state_dir/running/$repo_key"
 
   # Return formatted line for summary table
