@@ -888,6 +888,9 @@ _do_record_one() {
     fi
   fi
 
+  # Override verdict: identical output = correct code, regardless of gate noise
+  [[ "$kg_note" == "identical-to-known-good" ]] && verdict="PASS"
+
   # Assemble detail string — prioritize known-good diff when available
   local detail
   if [[ "$kg_note" == "identical-to-known-good" ]]; then

@@ -163,6 +163,9 @@ Also check `.rebase-tmp/summary.txt` for `## CODEGEN FAILURE`.
 If present, fix the codegen script (e.g., remove dropped flags),
 re-run codegen, commit, and re-verify.
 
+**When step1 gate passes and codegen issues are resolved,
+proceed to Step 2.** Do NOT stop here.
+
 ---
 
 ## Steps 2–5: Validation and Fixes
@@ -390,13 +393,21 @@ Count gates must report 0. Judge gates must cite evidence.
 2. **Fix**: For each NEW finding, fix the cited issue and
    commit.
 
-3. **Re-run**: Re-run failed gates (cat the gate file, launch
-   a fresh subagent with its contents).
+3. **Re-run** (mandatory — never skip this step): Delete the
+   old gate report first (`rm .rebase-tmp/gates/<gate>.report`),
+   then re-run the gate (cat the gate file, launch a fresh
+   subagent with its contents). The old report MUST be deleted
+   before re-running — if the agent fixes code but skips
+   re-running, stale FAIL reports persist and auto-record will
+   report FAIL even though the issue was fixed.
 
 Repeat up to 3 times per gate. If it still fails after 3
 attempts, report remaining issues and proceed. This loop
 discovers and fixes deprecated-but-compiling patterns without
 needing pre-existing autofix knowledge.
+
+**When all step3 gates pass (or remaining issues are reported
+after 3 attempts), proceed to Step 4.** Do NOT stop here.
 
 ### Step 4: Lint, test, and review
 
