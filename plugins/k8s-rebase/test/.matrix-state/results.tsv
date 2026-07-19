@@ -92,3 +92,4 @@
 2026-07-19T19:00:25Z	all	openshift/cluster-network-operator	FAIL	3c/20h(nonvendor) partial-Install-to-AddToScheme-rename no-step3-gates
 2026-07-19T19:10:47Z	all	openshift/cluster-network-operator	FAIL	3c/20h(nonvendor) partial-Install-to-AddToScheme-rename session-exited-before-step3
 2026-07-19T19:35:01Z	all	openshift/cluster-network-operator	FAIL	3c/20h(nonvendor) session-exited-after-step1 partial-Install-to-AddToScheme
+2026-07-19T20:18:02Z	fn:obsgen	openshift/multus-cni	PASS	5c gates:13/15(1skip) diff-vs-known-good:2h(cosmetic) klog-migrated-independently
