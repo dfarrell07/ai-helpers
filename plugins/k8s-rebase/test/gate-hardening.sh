@@ -883,7 +883,14 @@ _do_record_one() {
       local active=$((gtotal - gskip))
       gate_summary="gates:${gpass}/${active}"
       [[ "$gskip" -gt 0 ]] && gate_summary="${gate_summary}(${gskip}skip)"
-      [[ "$gfail" -gt 0 ]] && verdict="FAIL" || verdict="PASS"
+      if [[ "$gfail" -gt 0 ]]; then
+        verdict="FAIL"
+      elif [[ "$active" -lt 5 ]]; then
+        verdict="DONE"
+        gate_summary="${gate_summary}(incomplete)"
+      else
+        verdict="PASS"
+      fi
     fi
   fi
 
