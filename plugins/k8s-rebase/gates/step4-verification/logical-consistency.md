@@ -1,10 +1,15 @@
-Read ALL fix commits (autofix + agent). For each function
-modified, read the full function and trace data flow. Flag:
-- Fields set but never read
-- Fields compared in one code path but not another
-- Struct copies that drop fields
-- Variables assigned but never used
-- Error values checked in one path but ignored in another
+Read fix commits (autofix + agent). For each function modified,
+read the full function and trace data flow. If more than 20
+functions were modified, prioritize the 10 with the most complex
+changes (struct conversions, error handling, multi-path logic)
+and note which were skipped.
+
+Flag:
+- Struct copies that drop fields (FAIL)
+- Error values checked in one path but ignored in another (FAIL)
+- Fields set but never read (FAIL)
+- Fields compared in one code path but not another (FAIL)
+- Variables assigned but never used (WARN — compiler catches these)
 
 The autofix applies documented patterns (see the patterns doc)
 that are intentionally targeted changes. Only flag

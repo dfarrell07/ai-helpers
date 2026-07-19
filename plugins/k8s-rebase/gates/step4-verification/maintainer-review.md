@@ -7,16 +7,22 @@ Check:
 - Are commits well-scoped (one concern per commit)?
 - Are commit messages accurate?
 - Is there any scope creep (changes beyond what the rebase needs)?
+  Examples of scope creep: dependency bumps unrelated to k8s.io/*,
+  reformatting unchanged code, logic changes not required by
+  type/API changes, new features.
+- Are any expected changes missing (e.g., version refs not
+  updated, type conversions incomplete)?
 
 Note: the autofix script applies known rebase patterns that ARE
-required — these are NOT scope creep. Read the patterns doc
-(find k8s-rebase-patterns.md in the plugin directory) for the
-full list. Any change that matches a documented pattern is
-expected, even if it touches e2e infrastructure, version
-references, or test configuration. K8S_VERSION patch-level
-differences between go.mod and CI tooling (KIND, lint, etc.)
-are expected — the autofix picks the latest available versions.
-Do not flag minor version mismatches as a concern.
+required — these are NOT scope creep. To identify them, run:
+  `PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1)`
+  `[ -n "$PATTERNS" ] && cat "$PATTERNS"`
+Any change that matches a documented pattern is expected, even
+if it touches e2e infrastructure, version references, or test
+configuration. Do not flag patch-level mismatches (e.g.,
+v1.36.1 vs v1.36.2) as a concern — the autofix picks the
+latest available versions. DO flag minor-version mismatches
+(e.g., v1.35.x vs v1.36.x).
 
 List your findings with specific commit SHAs and file:line refs.
 Do not just say "would approve" — explain what you checked.

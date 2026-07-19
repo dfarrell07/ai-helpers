@@ -7,13 +7,15 @@ script-generated subjects (deps:, codegen:, ci:, test:, docs:)
 from the rebase or autofix scripts are also not manual work.
 
 For each manual fix commit, classify the change:
-- ONE-OFF: affects a unique code path unlikely to recur
-- SYSTEMATIC: same transformation repeated across files, or a
-  pattern likely to appear in other Go+k8s repos
+- ONE-OFF: affects a single file with project-specific logic
+- SYSTEMATIC: same transformation in 2+ files, OR matches a
+  pattern from any prior k8s rebase (check patterns doc)
 
 For each SYSTEMATIC fix, describe:
 1. Pattern name (short kebab-case slug)
 2. Detection: grep/find command that finds affected code
+   Run the detection command and report actual match count.
+   If it returns zero, the pattern may be mis-specified.
 3. Fix: sed/awk command or transformation description
 4. Scope: generic (any Go+k8s repo) or repo-specific
 

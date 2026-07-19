@@ -2,28 +2,30 @@ Final verification that no deprecated imports remain. This runs
 AFTER step3 gates AND fix commits, so focus on what survived
 the entire fix pipeline.
 
-1. Promoted x/ packages (primary check for this gate):
-   `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
-   For each hit, derive the stdlib name (e.g.,
-   golang.org/x/exp/slices -> slices) and check:
-   `go doc <stdlib-name> 2>/dev/null`
-   If available in stdlib, the x/ import should be migrated.
+Promoted x/ packages (primary check for this gate):
+  `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
-2. Final build (catches anything earlier gates missed):
-   Find modules: `find . -name go.mod -not -path '*/vendor/*' -exec dirname {} \;`
-   In each: `go build ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
-   Any remaining build error is a FAIL.
+Known promotions (check these first):
+- `golang.org/x/exp/slices` -> `slices` (Go 1.21+)
+- `golang.org/x/exp/maps` -> `maps` (Go 1.21+)
+- `golang.org/x/net/context` -> `context` (Go 1.7+)
+- `golang.org/x/sync/errgroup` -> still x/ (NOT promoted)
 
-3. Final vet:
-   In each module: `go vet ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
-   Any new vet error from the rebase is a finding.
+For each hit, derive the stdlib name and verify with:
+  `go doc <stdlib-name> 2>/dev/null`
+If available in stdlib, the x/ import is a FAIL finding — the
+import must be replaced with the stdlib equivalent.
 
-Do NOT re-run the vendor deprecated-symbol scan — step3's
-deprecated-api-remnants gate already did that. This gate
-verifies that fix commits resolved the step3 findings.
+Ensure local Go matches the `go` directive in go.mod, or use
+a container with the correct version. `go doc` results depend
+on the local Go toolchain — a mismatch produces wrong verdicts.
 
-Report count per category. Cite file:line for each hit.
-Zero findings means PASS.
+Do NOT re-run build, vet, or the vendor deprecated-symbol scan
+— build-vet-recheck and step3's deprecated-api-remnants gates
+already cover those. This gate focuses solely on x/ promotions.
+
+Report count of x/ imports that have stdlib equivalents.
+Cite file:line for each hit. Zero findings means PASS.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
