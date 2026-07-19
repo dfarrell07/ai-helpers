@@ -946,17 +946,13 @@ _do_record_one() {
   # Preserve gate details in done file for learning
   {
     echo "$ts	$spec	$short	$verdict	$detail"
-    if [[ -d "$gate_dir" && "$gfail" -gt 0 ]]; then
-      echo "---FAILED-GATES---"
+    if [[ -d "$gate_dir" && "$gtotal" -gt 0 ]]; then
+      echo "---GATE-REPORTS---"
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue
-        local _gv
-        _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-        if [[ "$_gv" == *"FAIL"* || "$_gv" == *"fail"* ]]; then
-          echo "=== $(basename "$f" .report) ==="
-          cat "$f"
-          echo ""
-        fi
+        echo "=== $(basename "$f" .report) ==="
+        cat "$f"
+        echo ""
       done
     fi
     # Preserve rebase report if it exists
