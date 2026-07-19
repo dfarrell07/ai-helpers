@@ -374,12 +374,15 @@ Gate files:
 Count gates must report 0. Judge gates must cite evidence.
 
 **Gate-fix loop:** If ANY count gate reports > 0, read the
-gate report (DETAILS section with file:line references), fix
-each cited issue, commit the fix, and re-run the gate (cat the
-same gate file and launch a fresh subagent with its contents).
-Repeat up to 3 times per gate. If it still fails after 3 fix
-attempts, report the remaining issues and proceed. This loop
-is how the agent discovers and fixes deprecated-but-compiling
+gate report (DETAILS section with file:line references). For
+each finding, check if it exists on the base branch too:
+  `git show <base>:<file>` — if the issue is identical on the
+  base branch, it's pre-existing (not a regression). Skip it.
+Only fix findings that are NEW (introduced by the rebase).
+Commit fixes and re-run the gate (cat the same gate file and
+launch a fresh subagent). Repeat up to 3 times per gate. If
+it still fails after 3 attempts, report remaining issues and
+proceed. This loop discovers and fixes deprecated-but-compiling
 patterns without needing pre-existing autofix knowledge.
 
 ### Step 4: Lint, test, and review
