@@ -18,10 +18,17 @@ just because callers weren't updated — that's a separate concern.
 Check the current file state (not just the diff) to verify
 deletions aren't pre-existing upstream changes.
 
-List each function you checked and your finding. Count functions
-with genuinely partial changes. FAIL if any function has a
-logically incomplete change (count > 0). PASS if all modified
-functions are logically consistent.
+List each function you checked and your finding. For each
+finding, check the base branch:
+  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+  `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
+If the same logical gap exists on the base branch, it is
+pre-existing — report as INFO but do NOT count toward FAIL.
+
+Count functions with genuinely NEW partial changes. FAIL if any
+function has a logically incomplete change (count > 0). PASS if
+all modified functions are logically consistent or only have
+pre-existing issues.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole

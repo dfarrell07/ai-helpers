@@ -29,11 +29,13 @@ CRITICAL: If `go build` returns ANY error, the verdict is FAIL.
 Never attribute build failures to caching — run `go clean -cache`
 first if you suspect stale cache. Build errors are real regressions.
 
-For non-build findings (import issues, struct gaps), check if
-they exist in the base branch too. If a finding is IDENTICAL
-in the base, report as INFO (pre-existing cleanup opportunity)
-and do not count toward FAIL. Only rebase-introduced issues
-count.
+For non-build findings (import issues, struct gaps), check the
+base branch:
+  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+  `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
+If a finding is identical on the base branch, it is pre-existing
+— report as INFO but do NOT count toward FAIL. Only issues
+introduced by the rebase count.
 
 Report: FAIL if any build error or rebase-introduced issue
 exists. PASS if build succeeds and no NEW issues found.

@@ -355,7 +355,11 @@ but cannot fix automatically (e.g., KubeVirt test changes) — the
 agent handles those in Step 4.
 **Verify the script actually ran** — if the output is empty or
 the script wasn't found, the autofix was skipped and all its
-fixes are missing. If FAIL, check `git log` for autofix commits
+fixes are missing. If the autofix reports PASS with no commits,
+that means there were no patterns to fix — this is normal for
+repos with few k8s dependencies. **You must still run the step3
+gates below** — they discover issues the autofix doesn't cover.
+If FAIL, check `git log` for autofix commits
 — if any groups already committed, fix remaining items manually
 rather than re-running. Re-running duplicates the committed
 groups (new commits, not amends). Check output for MetalLB FRR
