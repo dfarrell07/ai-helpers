@@ -4,7 +4,7 @@ Run on the host, NOT in a container. Count:
    `find . -type f -not -path './.git/*' -not -path '*/vendor/*' -user root 2>/dev/null | wc -l`
 3. .rebase-tmp files tracked by git: `git ls-files .rebase-tmp | wc -l`
 
-Report all three counts.
+Report all three counts. FAIL if any count is non-zero.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
