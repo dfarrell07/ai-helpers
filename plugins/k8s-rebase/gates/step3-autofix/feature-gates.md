@@ -1,22 +1,16 @@
 If test files use feature gates (SetFromMap or KUBE_FEATURE_
 env vars): find `k8s-rebase-autofix.sh` and read the GATE_DEPS
-map near the top. For each gate, first check if it exists in
+map near the top. For each gate, check if it exists in
 vendor/k8s.io/ (grep for the quoted name). Skip gates not in
-vendor — the script also skips them. Count files missing any
-active gate. Verify
-gates match between SetFromMap calls, os.Setenv/t.Setenv
-calls, and shell script exports. Search the ENTIRE repo for
-KUBE_FEATURE_ exports (not just hack/ — some repos use
-scripts/, test/, or other directories):
-  `grep -rn 'KUBE_FEATURE_' --include='*.sh' . | grep -v vendor/`
-Report count of files with missing gates.
+vendor. Verify gates match between SetFromMap calls,
+os.Setenv/t.Setenv calls, and shell script exports.
 
-Also check Makefile for KUBE_FEATURE_ exports that reference
-gates no longer present in vendor/k8s.io/.
+Search the entire repo for KUBE_FEATURE_ exports:
+  `grep -rn 'KUBE_FEATURE_' --include='*.sh' --include='Makefile*' . | grep -v vendor/`
+Report count of files with missing or stale gates.
 
-If the repo has no test files with SetFromMap or KUBE_FEATURE_
-and no KUBE_FEATURE_ references in hack/ or Makefile,
-report SKIP — do not report PASS for work you did not do.
+If the repo has no SetFromMap or KUBE_FEATURE_ references
+at all, report SKIP.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole

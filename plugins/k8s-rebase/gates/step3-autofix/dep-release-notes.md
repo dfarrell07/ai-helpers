@@ -15,6 +15,10 @@ Sources by dep:
   --paginate (focus on Breaking Changes in .0 minor releases; also
   check deprecations and removed APIs — e.g. webhook builder changes)
 
+Also check for other non-k8s ecosystem deps that were bumped
+by more than a minor version (check go.mod diff). For any such
+dep, search for its release notes or changelog on GitHub.
+
 For each dep, extract entries between the old and new versions.
 Focus on: breaking changes, deprecations, removed features,
 default behavioral changes. Ignore: patch-level bug fixes,
