@@ -72,3 +72,5 @@
 2026-07-19T04:12:40Z	all-patterns	ovn-kubernetes/ovn-kubernetes-mcp	FAIL	2c gates:29/30(1skip) diff-vs-known-good:3h
 2026-07-19T04:28:33Z	all	openshift/cluster-network-operator	FAIL	3c/1654f/5355h gates:12/14(1skip)
 2026-07-19T05:09:21Z	fn:klog_v2 fn:reflect_ptr fn:xexp	openshift/multus-cni	PASS	4c gates:30/33(2warn,1fail-ci) compound-removal-works
+2026-07-19T06:23:22Z	all	openshift/ingress-node-firewall	PASS	8c/1530f/4878h gates:1/1
+2026-07-19T06:28:30Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
