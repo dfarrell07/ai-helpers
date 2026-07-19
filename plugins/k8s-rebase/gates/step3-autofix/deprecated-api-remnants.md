@@ -21,8 +21,9 @@ Step 2 — Discover deprecated symbols via web search:
   `grep -rn '<pattern>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
 Step 3 — Vendor deprecated-symbol scan:
-  Extract deprecated function/type names from vendor:
-  `grep -rn '// Deprecated:' vendor/k8s.io/ --include='*.go' 2>/dev/null | grep -oP 'func \K\w+|type \K\w+' | sort -u | head -30`
+  Find deprecated declarations in vendor (look at lines above
+  the deprecation comment to find the actual symbol name):
+  `grep -rn -B2 '// Deprecated:' vendor/k8s.io/ --include='*.go' 2>/dev/null | grep -E '^\s*func |^\s*type |^\s*var |^\s*const ' | grep -oP '(?:func|type|var|const)\s+\K\w+' | sort -u | head -50`
   For each symbol, check if non-vendor code uses it:
   `grep -rn '<symbol>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 

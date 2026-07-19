@@ -17,9 +17,11 @@ Step 1 — Try staticcheck (most reliable):
 Step 2 — Non-standard deprecation scan:
   Some projects (notably OpenShift API) use `// DEPRECATED`
   instead of the Go-standard `// Deprecated:` format. SA1019
-  misses these. Scan vendor for both formats:
-  `grep -rn '// Deprecated:\|// DEPRECATED' vendor/ --include='*.go' 2>/dev/null | grep -oP 'func \K\w+|type \K\w+|^\s+\K\w+(?:\s*=)' | sort -u | head -30`
-  For each deprecated symbol, check non-vendor usage:
+  misses these. Find deprecated declarations in vendor:
+  `grep -rn -B2 '// Deprecated:\|// DEPRECATED' vendor/ --include='*.go' 2>/dev/null | grep -E '^\s*func |^\s*type |^\s*var |^\s*const ' | grep -oP '(?:func|type|var|const)\s+\K\w+' | sort -u | head -50`
+  This looks at the lines ABOVE the deprecation comment to find
+  the actual declaration name. For each deprecated symbol, check
+  non-vendor usage:
   `grep -rn '<symbol>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
 Step 3 — Fallback (if staticcheck unavailable and no vendor):
