@@ -15,9 +15,11 @@ Sources by dep:
   --paginate (focus on Breaking Changes in .0 minor releases; also
   check deprecations and removed APIs — e.g. webhook builder changes)
 
-Also check for other non-k8s ecosystem deps that were bumped
-by more than a minor version (check go.mod diff). For any such
-dep, search for its release notes or changelog on GitHub.
+Also check for other non-k8s ecosystem deps bumped by a minor
+version or more. Find them with:
+  `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- go.mod | grep '^[+-]' | grep -v 'k8s.io\|sigs.k8s.io\|^[+-][+-]' | sort`
+For any dep where the minor version changed (e.g., v1.2→v1.4,
+not v1.2.3→v1.2.5), search for its release notes on GitHub.
 
 For each dep, extract entries between the old and new versions.
 Focus on: breaking changes, deprecations, removed features,
