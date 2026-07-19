@@ -1,42 +1,44 @@
-Read fix commits (autofix + agent). For each function modified,
-read the full function and trace data flow. If more than 20
-functions were modified, prioritize the 10 with the most complex
-changes (struct conversions, error handling, multi-path logic)
-and note which were skipped.
+Read ALL fix commits (autofix + agent). For EVERY function
+modified in the diff, read the full function body and trace
+data flow. Do not skip or sample — check every modified function.
 
 Flag:
 - Struct copies that drop fields (FAIL)
 - Error values checked in one path but ignored in another (FAIL)
-- Fields set but never read (FAIL)
+- Fields set but never read — verify usage across the full module
+  (`grep -rn '<field>' --include='*.go' . | grep -v vendor/`)
+  before flagging. Only FAIL if truly unused repo-wide. (FAIL)
 - Fields compared in one code path but not another (FAIL)
-- Partial API renames: if a function or type was renamed at some
-  call sites but the old name persists at others in the same file
-  or across files for the same package, indicating incomplete
-  rename application (FAIL). Check the branch diff for renamed
-  symbols and grep the full repo for remaining old-name usage.
+- Incomplete transformations: if a fix commit changed a pattern
+  in some places but the same pattern remains elsewhere in the
+  modified files, grep for the old pattern and flag each instance
+  with file:line. Any single remaining instance is a finding. (FAIL)
 - Variables assigned but never used (WARN — compiler catches these)
 
-The autofix applies documented patterns (see the patterns doc)
-that are intentionally targeted changes. Only flag
-inconsistencies WITHIN a modified function — not missing
-changes in unrelated functions or callers. Code removed in the
-diff may reflect upstream changes merged before the rebase —
-check the current file, not just the diff.
+Scope: flag issues WITHIN modified functions or files — not
+unrelated code. Code removed in the diff may reflect upstream
+changes — check the current file state, not just the diff.
 
-List each function you checked and your finding. Do not just
-say "no issues" — show what you traced.
+The autofix applies documented patterns that are intentionally
+targeted changes. Do not flag autofix patterns as incomplete
+unless the autofix demonstrably missed instances in files it
+touched.
 
-For each data flow or consistency finding, check the base branch:
+List EVERY function you checked and your finding for each. Do
+not just say "no issues" — show what you traced. This is the
+primary correctness gate — thoroughness matters more than speed.
+
+For each finding, check the base branch:
   `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
   `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
-If the same issue exists on the base branch, it is pre-existing --
-report it as INFO but do NOT count it toward the FAIL threshold.
-Only issues introduced by the rebase trigger FAIL.
+If the same issue exists on the base branch, it is pre-existing —
+report as INFO but do NOT count toward FAIL. Only issues
+introduced by the rebase trigger FAIL.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. For each data flow issue, state the specific fix needed. Cite file:line
-for any issues.
+Do not write anywhere else. For each issue, state the specific
+fix needed. Cite file:line.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:
