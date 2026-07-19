@@ -5,11 +5,14 @@ vendor/k8s.io/ (grep for the quoted name). Skip gates not in
 vendor — the script also skips them. Count files missing any
 active gate. Verify
 gates match between SetFromMap calls, os.Setenv/t.Setenv
-calls, and hack/test-go.sh exports. Report count of files
-with missing gates.
+calls, and shell script exports. Search the ENTIRE repo for
+KUBE_FEATURE_ exports (not just hack/ — some repos use
+scripts/, test/, or other directories):
+  `grep -rn 'KUBE_FEATURE_' --include='*.sh' . | grep -v vendor/`
+Report count of files with missing gates.
 
-Also check hack/*.sh and Makefile for KUBE_FEATURE_ exports
-that reference gates no longer present in vendor/k8s.io/.
+Also check Makefile for KUBE_FEATURE_ exports that reference
+gates no longer present in vendor/k8s.io/.
 
 If the repo has no test files with SetFromMap or KUBE_FEATURE_
 and no KUBE_FEATURE_ references in hack/ or Makefile,

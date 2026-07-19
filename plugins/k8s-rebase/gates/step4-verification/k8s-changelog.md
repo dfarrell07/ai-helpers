@@ -1,4 +1,10 @@
-Read the Kubernetes changelog for the target minor version:
+Determine K8S_MINOR from go.mod:
+  `K8S_MINOR=$(grep 'k8s.io/api ' go.mod | grep -v '=>' | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')`
+
+Read the Kubernetes changelog for the target minor version.
+Try the tag-based URL first (more reliable), fall back to master:
+  curl -sL "https://raw.githubusercontent.com/kubernetes/kubernetes/refs/tags/v1.${K8S_MINOR}.0/CHANGELOG/CHANGELOG-1.${K8S_MINOR}.md"
+If that returns 404:
   curl -sL "https://raw.githubusercontent.com/kubernetes/kubernetes/master/CHANGELOG/CHANGELOG-1.${K8S_MINOR}.md"
 
 If the changelog is too large, focus on these sections only:
