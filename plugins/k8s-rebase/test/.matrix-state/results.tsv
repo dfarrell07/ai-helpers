@@ -77,3 +77,6 @@
 2026-07-19T07:26:05Z	fn:mocks fn:bounding_dirs fn:conformance_renames	openshift/multus-cni	FAIL	6c/1137f/3947h gates:30/33
 2026-07-19T07:36:44Z	fn:klog_v2 fn:xexp fn:addtoscheme	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
 2026-07-19T08:19:41Z	all	ovn-org/ovn-kubernetes	FAIL	18c gates:7/7(step2only) 1-klog-v1 session-exited-before-step3
+2026-07-19T09:05:18Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
+2026-07-19T09:26:45Z	all	ovn-org/ovn-kubernetes	FAIL	11c gates:5/5(step2only) session-used-old-SKILL.md
+2026-07-19T09:26:45Z	all	openshift/cluster-network-operator	FAIL	4c/6h code-correct gates:12/14(preexisting)
