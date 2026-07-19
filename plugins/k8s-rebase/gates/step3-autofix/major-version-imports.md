@@ -3,7 +3,7 @@ entire module path changes where v1 is abandoned in favor of
 v2+ — NOT deprecated symbols (those are caught by other gates).
 
 Step 1 — Discover major-version modules from go.mod:
-  `grep -E '/v[0-9]+' go.mod | grep -v '^//' | sed 's|.*/\(v[0-9]*\).*|\1|' | sort -u`
+  `grep -E '/v[0-9]+' go.mod | grep -v '^//' | sed 's|.*\([a-z].*\/v[0-9]*\).*|\1|' | sort -u`
   For each versioned module path (e.g., k8s.io/klog/v2), check
   if non-vendor code still imports the unversioned path:
   `grep -rn '"k8s.io/klog"' --include='*.go' . | grep -v vendor/ | grep -v .cache/ | grep -v '/v2'`
@@ -20,7 +20,7 @@ Step 3 — Check go.mod require lines:
   `grep -E 'require' go.mod`
   Look for any direct dependency that uses a pre-v2 path when
   a v2+ version is available. Cross-reference with vendor/:
-  `ls vendor/ | grep -E '/v[0-9]$'`
+  `find vendor/ -type d -regex '.*/v[0-9]+$' | sort`
 
 Report each stale import with file:line AND the correct
 versioned path (e.g., k8s.io/klog -> k8s.io/klog/v2).
