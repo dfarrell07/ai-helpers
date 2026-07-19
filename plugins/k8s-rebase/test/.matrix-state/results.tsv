@@ -99,3 +99,4 @@
 2026-07-19T21:25:21Z	fn:fieldsv1	openshift/cloud-network-config-controller	PASS	1c/7h(nonvendor) NewSimpleClientset-partial-rename cosmetic
 2026-07-19T21:39:28Z	fn:obsgen	openshift/ingress-node-firewall	FAIL	3c gates:1/1(step1only) session-exited-after-step1
 2026-07-19T21:39:28Z	all	openshift/cluster-network-operator	FAIL	0c no-worktree-created old-session-still-blocking
+2026-07-19T21:40:08Z	fn:mocks	openshift/cloud-network-config-controller	FAIL	1c gates:1/1(step1only) session-exited-after-step1
