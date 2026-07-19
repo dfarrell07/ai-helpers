@@ -1,12 +1,18 @@
+IMPORTANT — run the pre-existing check FIRST for every finding:
+  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+  `git show $BASE:<path> 2>/dev/null`
+If a finding exists identically on the base branch, it is
+pre-existing — report as INFO and do NOT count toward FAIL.
+Only issues introduced by the rebase trigger FAIL. If `git show`
+fails (file doesn't exist on base), the finding IS new.
+
 Find CRD YAMLs anywhere in the repo (not just helm/*/crds/):
   find . -name '*.yaml' -not -path '*/vendor/*' -exec grep -l 'kind: CustomResourceDefinition' {} \;
 
 If CRDs are found:
 
-1. Compare each CRD to the base branch version. Detect the
-   base branch with:
-   `git merge-base HEAD main 2>/dev/null || git merge-base HEAD master`
-   then use `git show <base>:path` to check the original.
+1. Compare each CRD to the base branch version. Use
+   `git show $BASE:<path>` to check the original.
    Flag any validation constraint removed or weakened vs the
    base: deleted pattern, format, minimum/maximum, enum, or
    required entries, or relaxed values (wider range, looser
@@ -15,11 +21,6 @@ If CRDs are found:
 2. Check for schema inconsistencies: integer fields where the
    format doesn't match the range (e.g., format: int32 with a
    maximum exceeding 2^31-1, which needs format: int64).
-
-For each finding, check if it also exists on the base branch:
-  `git show $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master):<path>` —
-  if the issue is identical on base, report as INFO (pre-existing)
-  and do NOT count toward FAIL. Only NEW issues trigger FAIL.
 
 Report counts of lost validations and schema inconsistencies.
 
