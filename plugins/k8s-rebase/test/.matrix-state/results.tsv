@@ -96,3 +96,4 @@
 2026-07-19T21:13:32Z	fn:obsgen	openshift/ingress-node-firewall	ERROR	worktree-collision no-rebase-commits
 2026-07-19T21:13:32Z	all	openshift/cluster-network-operator	FAIL	3c blocked-at-step2 8/8gates session-stuck-106m
 2026-07-19T21:19:04Z	fn:obsgen	ovn-kubernetes/ovn-kubernetes-mcp	PASS	4c/1autofix diff-vs-known-good:15h(cosmetic)
+2026-07-19T21:25:21Z	fn:fieldsv1	openshift/cloud-network-config-controller	PASS	1c/7h(nonvendor) NewSimpleClientset-partial-rename cosmetic
