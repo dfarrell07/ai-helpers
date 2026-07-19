@@ -21,7 +21,7 @@ addressed. Use concrete checks — do not just skim the diff.
    (these compile fine but may be semantically wrong).
 
 4. If a patterns doc exists, cross-reference:
-   `find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1`
+   `find "$HOME/.claude" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1`
    If found, read it and check any pattern not covered by
    sibling gates. If not found, rely on steps 1-3 above.
 
@@ -35,10 +35,6 @@ in the base, report as INFO (pre-existing cleanup opportunity)
 and do not count toward FAIL. Only rebase-introduced issues
 count.
 
-For each non-build finding, check if it also exists on the base
-branch. If identical on base, report as INFO (pre-existing)
-and do NOT count toward FAIL.
-
 Report: FAIL if any build error or rebase-introduced issue
 exists. PASS if build succeeds and no NEW issues found.
 
@@ -51,7 +47,7 @@ The repo path is the first line of your prompt:
 
 ```bash
 REPO="<the repo path from the first line of your prompt>"
-bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
+bash "$(find "$HOME/.claude" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
   "$REPO" step3-patterns-completeness PASS 0 "your one-line summary" \
   "detail line 1" "detail line 2"
 ```

@@ -1,4 +1,7 @@
-Read the autofix commit diff. For each Go function it modified:
+Identify fix commits (not rebase infrastructure):
+  `git log --oneline $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)..HEAD`
+Skip commits that only touch go.mod/go.sum/vendor.
+For each remaining commit's diff, check every Go function modified:
 
 (a) Read the FULL function after the change (not just the diff).
 (b) Trace every added statement — if a value is assigned, is it
@@ -8,17 +11,17 @@ Read the autofix commit diff. For each Go function it modified:
     compared but not propagated when the struct is copied, a
     variable assigned but never used.
 
-The autofix script applies documented patterns (see the patterns
-doc) that modify specific code paths. These are intentional
-targeted changes, not incomplete fixes. Only flag a function as
-"partial" if the change is logically inconsistent within the
-function itself — not just because it doesn't touch every caller.
-Code that appears deleted in the diff may have been removed on
-master before the rebase — check the current file state, not
-just the diff, before flagging a removal as a regression.
+Scope: flag a function as "partial" if the change is logically
+inconsistent WITHIN the function (set-but-not-read, missing
+error path, incomplete field mapping). Do not flag functions
+just because callers weren't updated — that's a separate concern.
+Check the current file state (not just the diff) to verify
+deletions aren't pre-existing upstream changes.
 
 List each function you checked and your finding. Count functions
-with genuinely partial changes. Report count.
+with genuinely partial changes. FAIL if any function has a
+logically incomplete change (count > 0). PASS if all modified
+functions are logically consistent.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
