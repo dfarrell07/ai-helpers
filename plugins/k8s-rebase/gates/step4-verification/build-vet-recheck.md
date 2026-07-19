@@ -8,7 +8,8 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     continue
   fi
   echo "CHECK $mod_dir"
-  (cd "$mod_dir" && go build ./... 2>&1; go vet ./... 2>&1)
+  (cd "$mod_dir" && go build ./... 2>&1 && go vet ./... 2>&1)
+  # Count errors: non-zero exit = build or vet failed
 done
 ```
 
