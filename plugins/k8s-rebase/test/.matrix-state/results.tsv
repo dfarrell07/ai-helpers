@@ -84,3 +84,4 @@
 2026-07-19T13:15:03Z	fn:klog_v2 fn:reflect_ptr	openshift/ingress-node-firewall	PASS	10c gates:39/40(1fail-ci) compound-works
 2026-07-19T13:15:24Z	all	ovn-org/ovn-kubernetes	FAIL	10c gates:7/7(step2only) autofix-container-stuck-125m
 2026-07-19T15:36:08Z	all	ovn-org/ovn-kubernetes	PASS	19c/1774f/5511h gates:1/1
+2026-07-19T17:02:52Z	all	openshift/cluster-network-operator	FAIL	4c/1655f/5356h gates:12/14(1skip)
