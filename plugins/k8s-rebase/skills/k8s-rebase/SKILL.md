@@ -42,6 +42,16 @@ ALL gates (parents + deps) must go in SetFromMap AND in env vars
 script handles this; do not remove gates from its SetFromMap
 calls.
 
+**Rebase report:** After completing each numbered step, append
+a checkpoint to `.rebase-tmp/rebase-report.md`. Include the
+step number, what broke, what you tried, what worked, iteration
+counts, and anything surprising. Keep each checkpoint under 15
+lines. Before recording an issue, verify it's real:
+`git show $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main):<file>`
+— if the same issue exists on the base branch, note it as
+pre-existing, not a regression. The final synthesis step (5d)
+reads these checkpoints.
+
 **Never add test skips to make CI green.** If a test fails,
 investigate and fix the root cause. Adding skip regexes or
 `t.Skip()` to suppress failures hides real issues and erodes
@@ -703,9 +713,58 @@ you have — a PR command with partial data is better than no command.
 Adapt the title to the project's convention (check CONTRIBUTING.md).
 If the PR already exists, suggest `gh pr edit`.
 
-**5c. Suggest CI monitoring and clean up:**
+**5c. Suggest CI monitoring:**
 
 `/loop 5m check CI on the PR, explore any failures max carefully, find root causes`
+
+**5d. Write rebase report.** Read `.rebase-tmp/rebase-report.md`
+(your checkpoints from each step) and synthesize a final report.
+Before recording any issue, verify it's real: check if it exists
+on the base branch, confirm the fix actually works, and note the
+root cause. Write the report to `.rebase-tmp/rebase-report.json`:
+
+```json
+{
+  "repo": "<repo name>",
+  "from_version": "<previous k8s version from base branch>",
+  "to_version": "<target k8s version>",
+  "steps": {
+    "1_deps": {"duration_estimate": "fast|medium|slow", "issues": []},
+    "2_compilation": {
+      "total_errors": 0,
+      "error_categories": {"type_mismatch": 0, "missing_field": 0, "removed_api": 0},
+      "files_modified": 0,
+      "gate_iterations": 0
+    },
+    "3_autofix": {
+      "patterns_applied": [],
+      "manual_fixes": [],
+      "gate_fix_loops": 0
+    },
+    "4_lint_test": {
+      "lint_issues_fixed": 0,
+      "test_failures": [],
+      "gate_results": {}
+    }
+  },
+  "discoveries": [
+    {"description": "...", "category": "deprecation|api_change|tooling|pattern", "verified": true}
+  ],
+  "unresolved": [
+    {"description": "...", "reason": "pre-existing|out-of-scope|needs-human"}
+  ],
+  "skill_improvements": [
+    {"area": "gate|autofix|script|skill", "suggestion": "...", "evidence": "..."}
+  ]
+}
+```
+
+Fill in actual data from the rebase. For `skill_improvements`,
+focus on concrete, actionable suggestions backed by what you
+observed — not generic advice. Each suggestion should reference
+the specific issue that prompted it.
+
+**5e. Clean up:**
 
 ```bash
 rm -rf .rebase-tmp/
