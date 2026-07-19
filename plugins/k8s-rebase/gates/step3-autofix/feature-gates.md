@@ -14,6 +14,13 @@ files with missing or stale gates.
 If the repo has no SetFromMap or KUBE_FEATURE_ references
 at all, report SKIP.
 
+For each missing or stale feature gate finding, check the base branch:
+  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+  `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
+If the same feature gate issue exists on the base branch, it is pre-existing --
+report it as INFO but do NOT count it toward the FAIL threshold.
+Only feature gate issues introduced by the rebase trigger FAIL.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

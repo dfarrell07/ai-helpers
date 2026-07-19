@@ -2,6 +2,11 @@ Check for stale major-version Go module imports. These are
 entire module path changes where v1 is abandoned in favor of
 v2+ — NOT deprecated symbols (those are caught by other gates).
 
+MANDATORY first action — run these before any analysis:
+  `grep -rn '"k8s.io/klog"' --include='*.go' . | grep -v vendor/ | grep -v .cache/ | grep -v '/v2'`
+If that produces ANY output, count those as FAIL findings
+immediately (file:line details required). Do NOT skip this step.
+
 Step 1 — Discover major-version modules from go.mod:
   `grep -E '/v[0-9]+' go.mod | grep -v '^//' | sed 's|.*\([a-z].*\/v[0-9]*\).*|\1|' | sort -u`
   For each versioned module path (e.g., k8s.io/klog/v2), check
@@ -24,6 +29,14 @@ Step 3 — Check go.mod require lines:
 
 Report each stale import with file:line AND the correct
 versioned path (e.g., k8s.io/klog -> k8s.io/klog/v2).
+
+For each finding, check the base branch:
+  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+  `git show $BASE:<file> 2>/dev/null | grep -c '<bare-import>'`
+If the same stale import exists on the base branch, it is
+pre-existing — report as INFO but do NOT count toward FAIL.
+Only imports introduced by the rebase trigger FAIL.
+
 FAIL if any NEW stale imports remain. PASS if clean or
 only pre-existing. If no major-version deps, PASS.
 

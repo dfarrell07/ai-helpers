@@ -21,6 +21,13 @@ check the current file, not just the diff.
 List each function you checked and your finding. Do not just
 say "no issues" — show what you traced.
 
+For each data flow or consistency finding, check the base branch:
+  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+  `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
+If the same issue exists on the base branch, it is pre-existing --
+report it as INFO but do NOT count it toward the FAIL threshold.
+Only issues introduced by the rebase trigger FAIL.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. For each data flow issue, state the specific fix needed. Cite file:line

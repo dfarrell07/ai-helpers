@@ -39,6 +39,13 @@ Report each finding with file:line AND the recommended fix
 slices). FAIL if any NEW deprecated usage or build error
 exists. PASS if clean or only pre-existing issues.
 
+For each deprecated symbol or stale import finding, check the base branch:
+  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+  `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
+If the same issue exists on the base branch, it is pre-existing --
+report it as INFO but do NOT count it toward the FAIL threshold.
+Only issues introduced by the rebase trigger FAIL.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
