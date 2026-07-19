@@ -273,17 +273,26 @@ cmd_compare() {
 
   info "── Compare: $result_branch vs $known_good on $(repo_short "$repo") ──"
 
-  local diff_output
+  local diff_output diff_nonvendor
   diff_output=$(git diff "$result_branch" "$known_good" -- . ':!.rebase-tmp' 2>/dev/null)
+  diff_nonvendor=$(git diff "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':!vendor' 2>/dev/null)
 
   if [[ -z "$diff_output" ]]; then
     info "PASS: branches are identical (excluding .rebase-tmp)"
     return 0
   fi
 
-  local hunk_count diff_stat
-  hunk_count=$(echo "$diff_output" | grep -c '^@@' || true)
-  diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' 2>/dev/null)
+  if [[ -z "$diff_nonvendor" ]]; then
+    info "PASS: branches differ only in vendor/ (mechanical go mod tidy differences)"
+    return 0
+  fi
+
+  local hunk_count diff_stat vendor_hunks
+  hunk_count=$(echo "$diff_nonvendor" | grep -c '^@@' || true)
+  vendor_hunks=$(echo "$diff_output" | grep -c '^@@' || true)
+  vendor_hunks=$((vendor_hunks - hunk_count))
+  diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':!vendor' 2>/dev/null)
+  [[ "$vendor_hunks" -gt 0 ]] && info "Note: $vendor_hunks vendor-only hunks excluded from analysis"
   info "Diff: $hunk_count hunks"
   echo "$diff_stat"
   echo ""
