@@ -236,7 +236,7 @@ cmd_run() {
       sess_state=$(echo "$existing_session" | cut -f2)
       sess_pid=$(echo "$existing_session" | cut -f4)
       if [[ "$sess_state" == "done" || "$sess_pid" == "0" ]]; then
-        info "Skipping finished session for $short (state=$sess_state, pid=$sess_pid)"
+        info "Cleaning up finished session for $short (state=$sess_state)"
       else
         warn "Active session found for $short — stop it first"
         continue

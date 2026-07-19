@@ -240,6 +240,15 @@ cmd_without() {
   local harness="$PLUGIN_DIR/scripts/k8s-rebase-test-harness.sh"
   [[ -f "$harness" ]] || die "Harness not found: $harness"
 
+  # Rename stale worktree branches to avoid collisions with new sessions
+  # Preserves history (branches renamed, not deleted)
+  (cd "$repo" && git worktree prune 2>/dev/null || true
+   for wt_branch in $(git branch | grep 'worktree-k8s-rebase' | tr -d ' *'); do
+     _ts=$(date +%Y%m%d%H%M%S)
+     git branch -m "$wt_branch" "archived-${wt_branch}-${_ts}" 2>/dev/null \
+       && echo ":: Archived stale branch: $wt_branch -> archived-${wt_branch}-${_ts}"
+   done)
+
   info "Launching skill run..."
   PLUGIN_DIR="$mutated" RESULTS_DIR="$RESULTS_DIR" PERMISSION_MODE="$PERMISSION_MODE" \
     bash "$harness" run "$version" "$repo"
