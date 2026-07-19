@@ -506,9 +506,13 @@ $details
   info "── Analysis: $short ──"
   info "Gates: $pass PASS, $fail FAIL, $no_verdict NO VERDICT (of $total)"
 
-  if [[ "$fail" -eq 0 && "$no_verdict" -eq 0 ]]; then
-    info "All gates passed. No issues to analyze."
+  if [[ "$fail" -eq 0 && "$no_verdict" -eq 0 && -z "$mutation_context" ]]; then
+    info "All gates passed (no mutation context). Skipping deep analysis."
     return 0
+  fi
+
+  if [[ "$fail" -eq 0 && "$no_verdict" -eq 0 ]]; then
+    info "All gates passed — analyzing for false negatives (mutation: $mutation_context)"
   fi
 
   # Collect gate prompts for failed/no-verdict gates (full text, not truncated)
@@ -541,11 +545,15 @@ $(cat "$prompt_file")
   branch=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
   local default_br
   default_br=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || echo main)
-  local commits="" gomod_diff=""
+  local commits="" gomod_diff="" rebase_report=""
   if [[ -n "$branch" ]]; then
     commits=$(git log "${default_br}..${branch}" --oneline 2>/dev/null)
     gomod_diff=$(git diff "${default_br}..${branch}" -- go.mod 2>/dev/null | head -80)
   fi
+  # Include rebase report checkpoints if available
+  local rr_file="${wt_path:+$wt_path/.rebase-tmp/rebase-report.md}"
+  [[ -f "$rr_file" ]] || rr_file="$repo/.rebase-tmp/rebase-report.md"
+  [[ -f "$rr_file" ]] && rebase_report=$(cat "$rr_file")
 
   # Launch analyst agent
   info "Launching deep analysis..."
@@ -571,6 +579,9 @@ ${gomod_diff:-No go.mod diff available}
 
 COMMITS ON THE REBASE BRANCH:
 $commits
+
+REBASE REPORT (agent's step-by-step notes):
+${rebase_report:-No rebase report available}
 
 ANALYSIS TASKS — complete all six, in order:
 
