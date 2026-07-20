@@ -1,0 +1,12 @@
+2026-07-20T08:43:19Z	fn:kind_image	openshift/multus-cni	PASS	7c gates:1/1(incomplete) diff-vs-known-good:10h(code-correct:9h-nonvendor)
+---GATE-REPORTS---
+=== step1-rebase-completeness ===
+VERDICT: PASS
+ISSUES: 0
+SUMMARY: All 4 rebase-completeness checks passed for k8s 1.36 rebase of multus-cni.
+DETAILS:
+Check 1 - Result file: 0 issues. .rebase-tmp/step1-result.txt exists and contains "EXIT 2".
+Check 2 - Uncommitted changes: 0 issues. git status --short shows no tracked uncommitted changes.
+Check 3 - Rebase commits: 0 missing. Found "Rebase multus-cni to k8s 1.36" (fba1089d) and "Update version references for k8s 1.36" (7c17e1f1). No codegen commit expected (no hack/update-codegen.sh, no generate/manifests/codegen Makefile targets).
+Check 4 - Dependency versions: 0 at older minor. All release-versioned k8s.io/* deps at v0.36.2: k8s.io/api, k8s.io/apimachinery, k8s.io/client-go, k8s.io/kubelet (go.mod:20-25). Non-release-versioned modules (klog, kube-openapi, utils) correctly excluded.
+

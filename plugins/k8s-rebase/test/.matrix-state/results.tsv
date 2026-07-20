@@ -119,3 +119,5 @@
 2026-07-20T06:44:51Z	fn:kubeadm_v1beta4	openshift/multus-cni	DONE	3c gates:1/1(incomplete) diff-vs-known-good:18h
 2026-07-20T07:23:03Z	fn:bounding_dirs	ovn-kubernetes/ovn-kubernetes-mcp	DONE	3c no-gates diff-vs-known-good:5h
 2026-07-20T07:49:24Z	fn:kind_image	openshift/ingress-node-firewall	DONE	9c gates:1/1(incomplete) diff-vs-known-good:31h
+2026-07-20T08:38:07Z	fn:kind_image	openshift/cloud-network-config-controller	PASS	1c no-gates diff-vs-known-good:941h(code-correct:15h-nonvendor)
+2026-07-20T08:43:19Z	fn:kind_image	openshift/multus-cni	PASS	7c gates:1/1(incomplete) diff-vs-known-good:10h(code-correct:9h-nonvendor)
