@@ -1,22 +1,16 @@
-MANDATORY FIRST STEP — run this script to identify pre-existing
-CRD issues. ONLY issues NOT in this output are new findings:
+MANDATORY FIRST STEP — run the companion gate script:
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-echo "=== Pre-existing CRD issues on base branch ==="
-for crd in $(find . -name '*.yaml' -not -path '*/vendor/*' -exec grep -l 'kind: CustomResourceDefinition' {} \;); do
-  git show "$BASE:$crd" 2>/dev/null | grep -n 'format: int32' | while read line; do
-    linenum=$(echo "$line" | cut -d: -f1)
-    next=$(git show "$BASE:$crd" 2>/dev/null | sed -n "$((linenum+1))p")
-    [[ "$next" == *"maximum: 4294967295"* ]] && echo "PRE-EXISTING: $crd:$linenum int32+max>2^31"
-  done
-done
+GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/step3-autofix" -type d 2>/dev/null | head -1)
+bash "$GATE_DIR/crd-validation.sh" "$(pwd)"
 ```
 
-Run that script. Any issue it prints as "PRE-EXISTING" MUST NOT
-be counted in your ISSUES total or affect your verdict.
+Read the output. CRDs marked "IDENTICAL" or "NO-VALIDATION-CHANGES"
+have no new issues — skip them. Only analyze CRDs marked
+"CHANGED-VALIDATION" or "ALL-NEW". If NEW_ISSUES=0, set
+verdict=PASS immediately and skip detailed analysis.
 
-Then check:
+For CRDs that DO have validation changes:
 
 1. Compare each CRD to the base branch version. Use
    `git show $BASE:<path>` to check the original.
