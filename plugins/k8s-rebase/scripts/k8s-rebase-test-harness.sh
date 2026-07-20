@@ -196,10 +196,10 @@ for s in data:
         # idle between steps, but the bg-spare process stays alive.  If the
         # PID is still running, downgrade 'done' -> 'idle' so the harness
         # won't clean up in-progress work.
-        if st == 'done' and pid and int(pid) > 0:
+        if st == 'done' and pid and int(pid) > 0 and elapsed < 120:
             try:
                 os.kill(int(pid), 0)
-                st = 'idle'   # process alive -- not truly done
+                st = 'idle'   # process alive, under 2h -- not truly done
             except (ProcessLookupError, ValueError):
                 pass          # process dead -- genuinely done
             except PermissionError:
