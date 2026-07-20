@@ -200,6 +200,11 @@ complete until all subagents report zero issues.
   `podman run --userns=keep-id` with the golang container if
   they need Go tools (build, vet, lint, test).
 - If you cannot launch subagents, run the gate checks inline.
+- **Companion gate scripts:** Some gates have `.sh` files alongside
+  the `.md` prompt. Run the `.sh` script FIRST — it provides
+  mechanical check results (build status, pre-existing findings).
+  Include the script output in the subagent prompt so it can
+  use the results for its verdict instead of re-running checks.
 
 **Commit discipline:**
 - One commit per distinct fix. Don't bundle unrelated changes.
