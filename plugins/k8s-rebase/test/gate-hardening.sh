@@ -948,7 +948,7 @@ _do_record_one() {
   # very close to known-good, the FAIL is gate noise, not a real problem.
   if [[ "$kg_note" == "identical-to-known-good" ]]; then
     verdict="PASS"
-  elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* && "$verdict" == "FAIL" && -f "$kg_file" ]]; then
+  elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* && -f "$kg_file" ]] && [[ "$verdict" == "FAIL" || "$verdict" == "DONE" ]]; then
     # Check non-vendor hunks (ignore vendor churn from go mod tidy)
     local _nv_hunks
     _nv_hunks=$(git -C "$repo" diff "$result_branch" "$(cat "$kg_file")" -- . ':!.rebase-tmp' ':!vendor' 2>/dev/null | grep -c '^@@' || true)
