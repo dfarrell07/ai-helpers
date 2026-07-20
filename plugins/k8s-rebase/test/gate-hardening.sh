@@ -240,13 +240,24 @@ cmd_without() {
   local harness="$PLUGIN_DIR/scripts/k8s-rebase-test-harness.sh"
   [[ -f "$harness" ]] || die "Harness not found: $harness"
 
-  # Rename stale worktree branches to avoid collisions with new sessions
-  # Preserves history (branches renamed, not deleted)
+  # Clean stale worktree branches to avoid collisions with new sessions
+  # Branches with commits are archived (renamed); empty branches are deleted
   (cd "$repo" && git worktree prune 2>/dev/null || true
+   _default_br=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+   : "${_default_br:=main}"
+   git rev-parse --verify "$_default_br" &>/dev/null \
+     || git rev-parse --verify "origin/$_default_br" &>/dev/null \
+     || _default_br="master"
    for wt_branch in $(git branch | tr -d ' *' | grep 'worktree-k8s-rebase' | grep -v '^archived-'); do
-     _ts=$(date +%Y%m%d%H%M%S)
-     git branch -m "$wt_branch" "archived-${wt_branch}-${_ts}" 2>/dev/null \
-       && echo ":: Archived stale branch: $wt_branch -> archived-${wt_branch}-${_ts}"
+     _ahead=$(git rev-list --count "$_default_br".."$wt_branch" 2>/dev/null || echo 0)
+     if [[ "$_ahead" -gt 0 ]]; then
+       _ts=$(date +%Y%m%d%H%M%S)
+       git branch -m "$wt_branch" "archived-${wt_branch}-${_ts}" 2>/dev/null \
+         && echo ":: Archived stale branch ($_ahead commits): $wt_branch -> archived-${wt_branch}-${_ts}"
+     else
+       git branch -D "$wt_branch" 2>/dev/null \
+         && echo ":: Deleted empty stale branch: $wt_branch"
+     fi
    done)
 
   # Create running entry so --auto-record can find this test
