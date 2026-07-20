@@ -254,7 +254,7 @@ cmd_without() {
   local _repo_key
   _repo_key=$(repo_short "$repo" | tr '/' '_')
   mkdir -p "$_state_dir/running"
-  echo "${specs[*]}" > "$_state_dir/running/$_repo_key"
+  printf '%s\t%s\n' "${specs[*]}" "$(date +%s)" > "$_state_dir/running/$_repo_key"
   info "Tracked: $_state_dir/running/$_repo_key = ${specs[*]}"
 
   info "Launching skill run..."
@@ -848,7 +848,7 @@ _is_session_active() {
 # Record a single completed run. Uses git -C to avoid cd side effects.
 # Outputs a formatted summary line on success, error message on failure.
 _do_record_one() {
-  local repo="$1" repo_key="$2" spec="$3" state_dir="$4"
+  local repo="$1" repo_key="$2" spec="$3" state_dir="$4" launch_epoch="${5:-0}"
   local short
   short=$(repo_short "$repo")
 
@@ -867,14 +867,12 @@ _do_record_one() {
     return 1
   fi
 
-  # Validate branch is recent (within 3 hours) to prevent recording old sessions
-  local branch_age_s=0
-  local branch_epoch
-  branch_epoch=$(git -C "$repo" log -1 --format='%ct' "$result_branch" 2>/dev/null || echo 0)
-  if [[ "$branch_epoch" -gt 0 ]]; then
-    branch_age_s=$(( $(date +%s) - branch_epoch ))
-    if [[ "$branch_age_s" -gt 10800 ]]; then
-      echo "stale branch ($(( branch_age_s / 3600 ))h old) — skipping to prevent mis-recording"
+  # Validate branch was created AFTER the test was launched
+  if [[ "$launch_epoch" -gt 0 ]]; then
+    local branch_epoch
+    branch_epoch=$(git -C "$repo" log -1 --format='%ct' "$result_branch" 2>/dev/null || echo 0)
+    if [[ "$branch_epoch" -gt 0 && "$branch_epoch" -lt "$launch_epoch" ]]; then
+      echo "stale branch (created before launch) — skipping to prevent mis-recording"
       return 1
     fi
   fi
@@ -1024,7 +1022,12 @@ cmd_auto_record() {
     [[ -f "$running_file" ]] || continue
     local repo_key spec repo short
     repo_key=$(basename "$running_file")
-    spec=$(cat "$running_file")
+    local _raw_entry
+    _raw_entry=$(cat "$running_file")
+    spec=$(echo "$_raw_entry" | cut -f1)
+    local launch_epoch
+    launch_epoch=$(echo "$_raw_entry" | cut -f2)
+    [[ "$launch_epoch" =~ ^[0-9]+$ ]] || launch_epoch=0
 
     # Guard: empty entry
     if [[ -z "$spec" ]]; then
@@ -1059,7 +1062,7 @@ cmd_auto_record() {
 
     # Record
     local result
-    if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir"); then
+    if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch"); then
       recorded=$((recorded + 1))
       summary+=("$result")
       info "Recorded: $spec on $short"
