@@ -20,9 +20,23 @@ List each item checked and whether it passes. Report issues.
 
 If the repo has no e2e infrastructure files, skip this check.
 
-VERDICT: FAIL if any e2e infrastructure (KIND version, test
-framework, CI config) references a version incompatible with the
-target k8s version. PASS if all e2e infra is consistent.
+MANDATORY pre-existing check — run for EVERY finding:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each finding at <file> with <version_string>:
+base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<version_string>')
+# If base_has > 0, PRE-EXISTING — do NOT count it
+```
+
+If a version issue exists on the base branch, report as "INFO
+(pre-existing)" and do NOT include in ISSUES. Only issues NOT
+on base are NEW. If ALL findings are pre-existing, verdict MUST
+be PASS.
+
+VERDICT: FAIL only if NEW e2e infrastructure issues exist (not
+on base branch). PASS if all issues are pre-existing or all
+e2e infra is consistent.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
