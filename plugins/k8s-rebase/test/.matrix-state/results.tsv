@@ -111,3 +111,5 @@
 2026-07-20T02:55:33Z	fn:lint_version	openshift/cloud-network-config-controller	DONE	1c no-gates diff-vs-known-good:941h
 2026-07-20T03:12:08Z	fn:go_version	openshift/ingress-node-firewall	DONE	7c/1536f/4870h gates:1/1(incomplete)
 2026-07-20T04:01:38Z	fn:lint_version	openshift/multus-cni	FAIL	6c/1137f/3947h gates:30/31(2skip)
+2026-07-20T05:17:45Z	fn:bounding_dirs	openshift/cloud-network-config-controller	DONE	1c no-gates diff-vs-known-good:941h
+2026-07-20T05:17:45Z	fn:go_version	ovn-kubernetes/ovn-kubernetes-mcp	DONE	2c no-gates diff-vs-known-good:4h
