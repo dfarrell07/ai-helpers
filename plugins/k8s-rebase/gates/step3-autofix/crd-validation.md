@@ -5,12 +5,18 @@ GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/st
 bash "$GATE_DIR/crd-validation.sh" "$(pwd)"
 ```
 
-Read the output. CRDs marked "IDENTICAL" or "NO-VALIDATION-CHANGES"
-have no new issues — skip them. Only analyze CRDs marked
-"CHANGED-VALIDATION" or "ALL-NEW". If NEW_ISSUES=0, set
-verdict=PASS immediately and skip detailed analysis.
+Read the output carefully. Apply these rules in order:
 
-For CRDs that DO have validation changes:
+RULE 1 — FAST-PATH: If NEW_ISSUES=0, set verdict=PASS immediately.
+Write the PASS report and stop. Do NOT run checks 1-2 below.
+
+RULE 2 — PER-CRD FILTER (when NEW_ISSUES>0): You MUST still skip
+CRDs the script marked "IDENTICAL" or "NO-VALIDATION-CHANGES".
+Only analyze CRDs the script marked "CHANGED-VALIDATION" or
+"ALL-NEW". This rule applies regardless of NEW_ISSUES count.
+Do NOT open, read, or analyze any file the script marked IDENTICAL.
+
+For each CRD the script marked "CHANGED-VALIDATION" or "ALL-NEW":
 
 1. Compare each CRD to the base branch version. Use
    `git show $BASE:<path>` to check the original.

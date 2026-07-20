@@ -17,8 +17,8 @@ if [[ -z "$BASE" ]]; then
   exit 0
 fi
 
-crds=$(find . -name '*.yaml' -not -path '*/vendor/*' -not -path '*/.claude/*' \
-  -exec grep -l 'kind: CustomResourceDefinition' {} \; 2>/dev/null)
+crds=$(git ls-files -- '*.yaml' ':!vendor/' ':!.claude/' 2>/dev/null \
+  | xargs grep -l 'kind: CustomResourceDefinition' 2>/dev/null || true)
 if [[ -z "$crds" ]]; then
   echo "SKIP: no CRDs found"
   exit 0

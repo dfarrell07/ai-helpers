@@ -5,12 +5,17 @@ GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/st
 bash "$GATE_DIR/patterns-completeness.sh" "$(pwd)"
 ```
 
-Read the output. If NEW_ISSUES=0 and BUILD-OK for all modules,
-set verdict=PASS immediately. Only proceed with detailed analysis
-if the script reports BUILD-FAIL or NEW issues.
+Read the output. Two paths — follow EXACTLY ONE:
 
-Check whether all issues introduced by the dependency bump were
-addressed. Use concrete checks — do not just skim the diff.
+PATH A — Script says NEW_ISSUES=0 AND BUILD-OK for all modules:
+  Verdict is PASS. Write PASS report and stop. Do NOT run checks
+  1-4 below. No further analysis is needed.
+
+PATH B — Script says BUILD-FAIL or NEW_ISSUES > 0:
+  Run checks 1-4 below, then apply the MANDATORY pre-existing
+  filter to ALL findings before setting verdict.
+
+--- Checks (PATH B only — skip entirely if PATH A applies) ---
 
 1. Build verification (primary check):
    Find modules: `find . -name go.mod -not -path '*/vendor/*' -exec dirname {} \;`
@@ -40,8 +45,8 @@ CRITICAL: If `go build` returns ANY error, the verdict is FAIL.
 Never attribute build failures to caching — run `go clean -cache`
 first if you suspect stale cache. Build errors are real regressions.
 
-MANDATORY pre-existing check for non-build findings. Run this
-BEFORE reporting any import or struct gap finding:
+MANDATORY pre-existing check for ALL non-build findings. Run this
+BEFORE reporting ANY finding from checks 2, 3, or 4:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
