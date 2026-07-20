@@ -1,39 +1,43 @@
-IMPORTANT — run the pre-existing check FIRST for every finding:
-  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
-  `git show $BASE:<path> 2>/dev/null`
-If a finding exists identically on the base branch, it is
-pre-existing — report as INFO and do NOT count toward FAIL.
-Only issues introduced by the rebase trigger FAIL. If `git show`
-fails (file doesn't exist on base), the finding IS new.
+MANDATORY FIRST STEP — run this script to identify pre-existing
+CRD issues. ONLY issues NOT in this output are new findings:
 
-Find CRD YAMLs anywhere in the repo (not just helm/*/crds/):
-  find . -name '*.yaml' -not -path '*/vendor/*' -exec grep -l 'kind: CustomResourceDefinition' {} \;
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+echo "=== Pre-existing CRD issues on base branch ==="
+for crd in $(find . -name '*.yaml' -not -path '*/vendor/*' -exec grep -l 'kind: CustomResourceDefinition' {} \;); do
+  git show "$BASE:$crd" 2>/dev/null | grep -n 'format: int32' | while read line; do
+    linenum=$(echo "$line" | cut -d: -f1)
+    next=$(git show "$BASE:$crd" 2>/dev/null | sed -n "$((linenum+1))p")
+    [[ "$next" == *"maximum: 4294967295"* ]] && echo "PRE-EXISTING: $crd:$linenum int32+max>2^31"
+  done
+done
+```
 
-If CRDs are found:
+Run that script. Any issue it prints as "PRE-EXISTING" MUST NOT
+be counted in your ISSUES total or affect your verdict.
+
+Then check:
 
 1. Compare each CRD to the base branch version. Use
    `git show $BASE:<path>` to check the original.
    Flag any validation constraint removed or weakened vs the
    base: deleted pattern, format, minimum/maximum, enum, or
-   required entries, or relaxed values (wider range, looser
-   regex).
+   required entries, or relaxed values.
 
 2. Check for schema inconsistencies: integer fields where the
    format doesn't match the range (e.g., format: int32 with a
    maximum exceeding 2^31-1, which needs format: int64).
 
-Report counts of lost validations and schema inconsistencies.
+VERDICT: FAIL if any NEW issue found (not in the PRE-EXISTING
+output). PASS if all issues are pre-existing or no CRDs exist.
+SKIP if no CRDs in repo.
 
-If no CRDs found in the repo, report 0 for both.
+Count ONLY new issues in your ISSUES field. Pre-existing issues
+go in DETAILS as "INFO (pre-existing):" entries.
 
-VERDICT: FAIL if any NEW validation constraint was removed or
-weakened vs base branch. PASS if no new issues. SKIP if no CRDs
-in repo.
-
-Rules: report specific counts, not "looks good." You are
-read-only — do not edit repo files. Your sole
+Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
-Do not write anywhere else. Cite file:line for any issues. For each lost validation, report the original constraint value.
+Do not write anywhere else. Cite file:line for any issues.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:

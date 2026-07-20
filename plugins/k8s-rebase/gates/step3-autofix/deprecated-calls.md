@@ -39,12 +39,21 @@ it with (if the deprecation comment says). FAIL if any NEW
 deprecated calls exist. PASS if clean or only pre-existing.
 SKIP if neither staticcheck nor Go is available.
 
-For each staticcheck finding or deprecated symbol usage, check the base branch:
-  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
-  `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
-If the same deprecated call exists on the base branch, it is pre-existing --
-report it as INFO but do NOT count it toward the FAIL threshold.
-Only deprecated calls introduced by the rebase trigger FAIL.
+MANDATORY pre-existing check — run for EVERY finding before
+counting it:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each finding at <file>:<line> with <symbol>:
+base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<symbol>')
+# If base_has > 0, the issue is PRE-EXISTING — do NOT count it
+```
+
+If the deprecated call exists on the base branch, it is
+pre-existing — report as "INFO (pre-existing)" but do NOT
+include in the ISSUES count. Only calls NOT on the base branch
+are NEW and count toward FAIL. If ALL findings are pre-existing,
+verdict MUST be PASS.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole

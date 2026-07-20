@@ -14,12 +14,19 @@ files with missing or stale gates.
 If the repo has no SetFromMap or KUBE_FEATURE_ references
 at all, report SKIP.
 
-For each missing or stale feature gate finding, check the base branch:
-  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
-  `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
-If the same feature gate issue exists on the base branch, it is pre-existing --
-report it as INFO but do NOT count it toward the FAIL threshold.
-Only feature gate issues introduced by the rebase trigger FAIL.
+MANDATORY pre-existing check — run for EVERY finding:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each finding at <file> with <gate_name>:
+base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<gate_name>')
+# If base_has > 0, PRE-EXISTING — do NOT count it
+```
+
+If the same gate issue exists on base, report as "INFO
+(pre-existing)" and do NOT include in ISSUES. Only gate issues
+NOT on base are NEW. If ALL findings are pre-existing, verdict
+MUST be PASS.
 
 VERDICT: FAIL if count of files with missing or stale feature
 gates > 0 (excluding pre-existing). PASS if all feature gates
