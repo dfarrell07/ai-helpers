@@ -129,3 +129,4 @@
 2026-07-20T12:54:25Z	fn:imports	ovn-org/ovn-kubernetes	FAIL	26c gates:31/32(1skip) diff-vs-known-good:245h
 2026-07-20T13:49:44Z	fn:crd_int64_validation	openshift/multus-cni	PASS	5c gates:30/31(2skip) diff-vs-known-good:3h
 2026-07-20T13:49:45Z	fn:imports	ovn-kubernetes/ovn-kubernetes-mcp	PASS	4c no-gates diff-vs-known-good:4h(code-correct:3h-nonvendor)
+2026-07-20T15:06:02Z	fn:crd_int64_validation	ovn-org/ovn-kubernetes	DONE	26c gates:1/1(incomplete) diff-vs-known-good:303h
