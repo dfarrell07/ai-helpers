@@ -791,5 +791,11 @@ the specific issue that prompted it.
 **5e. Clean up:**
 
 ```bash
-rm -rf .rebase-tmp/
+rm -rf .rebase-tmp/step*.log .rebase-tmp/step*.pid .rebase-tmp/*.log \
+       .rebase-tmp/*.txt .rebase-tmp/*.pid .rebase-tmp/rebase-report.md \
+       .rebase-tmp/crd-pre-codegen/
 ```
+
+Do NOT delete `.rebase-tmp/gates/` or `.rebase-tmp/rebase-report.json`
+— the test harness reads gate reports for auto-recording, and the
+rebase report is the deliverable from step 5d.

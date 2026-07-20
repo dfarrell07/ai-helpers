@@ -469,7 +469,7 @@ fix_lint_version() {
   local LATEST_LINT
   LATEST_LINT=$(curl -sf --retry 2 --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "v[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   local lint_ver test_yml
-  lint_ver=$(grep -oE 'VERSION=v[0-9.]+' "$lint_sh" | head -1 | sed 's/VERSION=//')
+  lint_ver=$(grep -oE '^VERSION=v[0-9.]+' "$lint_sh" | head -1 | sed 's/VERSION=//')
 
   # Bump lint version if the current one can't parse the target Go version.
   # golangci-lint binaries are built with a specific Go version and can't
@@ -484,7 +484,7 @@ fix_lint_version() {
     if [[ "$lint_ver" == v2.* ]] && (( lint_minor < 12 )) 2>/dev/null; then
       if [[ -n "$LATEST_LINT" ]]; then
         echo ":: Bumping golangci-lint: $lint_ver → $LATEST_LINT (Go 1.${required_go} requires newer build)"
-        sed -i "s/VERSION=${lint_ver}/VERSION=${LATEST_LINT}/" "$lint_sh"
+        sed -i "s/^VERSION=${lint_ver}/VERSION=${LATEST_LINT}/" "$lint_sh"
         lint_ver="$LATEST_LINT"
       else
         echo ":: WARNING: golangci-lint $lint_ver may not support Go 1.${required_go} — could not fetch latest version"
@@ -531,9 +531,9 @@ fix_lint_version() {
         sed -i 's|golangci/golangci-lint/cmd/golangci-lint|golangci/golangci-lint/v2/cmd/golangci-lint|g' "$REPO_ROOT/Makefile"
       fi
       # Also bump hack/lint.sh if it's still on v1
-      if [[ -n "$lint_sh" ]] && grep -qE "VERSION=v1\." "$lint_sh" 2>/dev/null; then
+      if [[ -n "$lint_sh" ]] && grep -qE "^VERSION=v1\." "$lint_sh" 2>/dev/null; then
         echo ":: Bumping hack/lint.sh from v1 to ${latest_v2}"
-        sed -i -E "s|VERSION=v1\.[0-9.]+|VERSION=${latest_v2}|" "$lint_sh"
+        sed -i -E "s|^VERSION=v1\.[0-9.]+|VERSION=${latest_v2}|" "$lint_sh"
         # Update container image tag if present (golangci/golangci-lint:vX)
         sed -i -E "s|golangci/golangci-lint:v1\.[0-9.]+|golangci/golangci-lint:${latest_v2}|" "$lint_sh"
       fi
