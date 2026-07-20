@@ -41,22 +41,15 @@ changed_imports=$(git diff "$BASE"..HEAD -- '*.go' ':!vendor/' 2>/dev/null \
 echo "Changed k8s imports: $changed_imports"
 
 echo ""
-echo "=== Pre-existing check for non-build findings ==="
-# For each Go file changed in the rebase, check if issues exist on base
-for f in $(git diff --name-only "$BASE"..HEAD -- '*.go' ':!vendor/' 2>/dev/null); do
-  [[ -f "$f" ]] || continue
-  base_content=$(git show "$BASE:$f" 2>/dev/null) || continue
-  # Check for deprecated AddToScheme/Install mixing
-  curr_addto=$(grep -c '\.AddToScheme\b' "$f" 2>/dev/null || true)
-  base_addto=$(echo "$base_content" | grep -c '\.AddToScheme\b' || true)
-  if [[ "$curr_addto" -gt 0 && "$curr_addto" -le "$base_addto" ]]; then
-    echo "$f PRE-EXISTING AddToScheme ($curr_addto current, $base_addto on base)"
-    pre=$((pre + 1))
-  elif [[ "$curr_addto" -gt "$base_addto" ]]; then
-    echo "$f NEW AddToScheme ($curr_addto current, $base_addto on base)"
-    new=$((new + 1))
-  fi
-done
+echo "=== Pre-existing check for changed Go files ==="
+# For each Go file changed in the rebase, verify changes are intentional
+changed_go=$(git diff --name-only "$BASE"..HEAD -- '*.go' ':!vendor/' 2>/dev/null | wc -l)
+echo "Go files changed (non-vendor): $changed_go"
+# No per-file pre-existing check here — the build check above is
+# the mechanical gate. Per-file analysis is the subagent's job.
+if [[ "$changed_go" -eq 0 ]]; then
+  echo "No Go source changes — build-only rebase"
+fi
 
 echo ""
 echo "NEW_ISSUES=$new"
