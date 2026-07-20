@@ -950,20 +950,13 @@ _do_record_one() {
   # very close to known-good, the FAIL is gate noise, not a real problem.
   if [[ "$kg_note" == "identical-to-known-good" ]]; then
     verdict="PASS"
-  elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* ]]; then
-    local _kgh="${kg_note#diff-vs-known-good:}"
-    _kgh="${_kgh%h}"
-    # Small diff vs known-good with code-correct gates = cosmetic difference
-    if [[ "$_kgh" -le 30 && "$verdict" == "FAIL" ]]; then
-      # Check non-vendor hunks specifically
-      local _nv_hunks=0
-      if [[ -f "$kg_file" ]]; then
-        _nv_hunks=$(git -C "$repo" diff "$result_branch" "$(cat "$kg_file")" -- . ':!.rebase-tmp' ':!vendor' 2>/dev/null | grep -c '^@@' || true)
-      fi
-      if [[ "$_nv_hunks" -le 30 ]]; then
-        kg_note="${kg_note}(code-correct)"
-        verdict="PASS"
-      fi
+  elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* && "$verdict" == "FAIL" && -f "$kg_file" ]]; then
+    # Check non-vendor hunks (ignore vendor churn from go mod tidy)
+    local _nv_hunks
+    _nv_hunks=$(git -C "$repo" diff "$result_branch" "$(cat "$kg_file")" -- . ':!.rebase-tmp' ':!vendor' 2>/dev/null | grep -c '^@@' || true)
+    if [[ "$_nv_hunks" -le 30 ]]; then
+      kg_note="${kg_note}(code-correct:${_nv_hunks}h-nonvendor)"
+      verdict="PASS"
     fi
   fi
 
