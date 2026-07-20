@@ -126,3 +126,4 @@
 2026-07-20T10:41:12Z	fn:mocks	openshift/multus-cni	PASS	4c gates:1/1(incomplete) diff-vs-known-good:532h(code-correct:7h-nonvendor)
 2026-07-20T11:24:16Z	fn:kubeadm_v1beta4	openshift/cloud-network-config-controller	PASS	1c no-gates diff-vs-known-good:941h(code-correct:15h-nonvendor)
 2026-07-20T11:24:17Z	fn:crd_int64_validation	ovn-kubernetes/ovn-kubernetes-mcp	PASS	3c no-gates diff-vs-known-good:5h(code-correct:4h-nonvendor)
+2026-07-20T12:54:25Z	fn:imports	ovn-org/ovn-kubernetes	FAIL	26c gates:31/32(1skip) diff-vs-known-good:245h
