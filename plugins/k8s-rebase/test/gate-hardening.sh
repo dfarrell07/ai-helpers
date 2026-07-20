@@ -243,7 +243,7 @@ cmd_without() {
   # Rename stale worktree branches to avoid collisions with new sessions
   # Preserves history (branches renamed, not deleted)
   (cd "$repo" && git worktree prune 2>/dev/null || true
-   for wt_branch in $(git branch | grep 'worktree-k8s-rebase' | grep -v '^archived-' | tr -d ' *'); do
+   for wt_branch in $(git branch | tr -d ' *' | grep 'worktree-k8s-rebase' | grep -v '^archived-'); do
      _ts=$(date +%Y%m%d%H%M%S)
      git branch -m "$wt_branch" "archived-${wt_branch}-${_ts}" 2>/dev/null \
        && echo ":: Archived stale branch: $wt_branch -> archived-${wt_branch}-${_ts}"
