@@ -1190,10 +1190,14 @@ cmd_cross_analyze() {
     esac
     if [[ -z "${seen_spec[$spec]+x}" ]]; then seen_spec[$spec]=1; specs+=("$spec"); fi
     if [[ -z "${seen_repo[$repo]+x}" ]]; then seen_repo[$repo]=1; repos+=("$repo"); fi
-    # On retry (same spec|repo seen again), undo the old verdict's count
+    # On retry (same spec|repo seen again), keep the best verdict
     local key="$spec|$repo"
     if [[ -n "${matrix[$key]+x}" ]]; then
       local old_v="${matrix[$key]}"
+      # If already PASS, keep it — a later FAIL doesn't erase a proven pass
+      if [[ "$old_v" == "PASS" && "$v" != "PASS" ]]; then
+        continue
+      fi
       spec_total[$spec]=$(( ${spec_total[$spec]:-0} - 1 ))
       repo_total[$repo]=$(( ${repo_total[$repo]:-0} - 1 ))
       case "$old_v" in
@@ -1448,10 +1452,13 @@ cmd_summary() {
     if [[ -z "${seen_spec[$spec]+x}" ]]; then seen_spec[$spec]=1; specs+=("$spec"); fi
     if [[ -z "${seen_repo[$repo]+x}" ]]; then seen_repo[$repo]=1; repos+=("$repo"); fi
 
-    # Undo previous entry for same spec|repo (retry dedup)
+    # Undo previous entry for same spec|repo (keep best verdict)
     local key="$spec|$repo"
     if [[ -n "${matrix[$key]+x}" ]]; then
       local old_v="${matrix[$key]}"
+      if [[ "$old_v" == "PASS" && "$v" != "PASS" ]]; then
+        continue
+      fi
       spec_total[$spec]=$(( ${spec_total[$spec]:-0} - 1 ))
       repo_total[$repo]=$(( ${repo_total[$repo]:-0} - 1 ))
       case "$old_v" in
