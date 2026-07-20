@@ -1059,7 +1059,40 @@ cmd_auto_record() {
   fi
 }
 
-# ── --matrix-status (show matrix progress) ─────────────────────────
+# ── --check (status + auto-record + recent results) ───────────────
+
+cmd_check() {
+  local harness="$PLUGIN_DIR/scripts/k8s-rebase-test-harness.sh"
+
+  # 1. Show session status
+  if [[ -f "$harness" ]]; then
+    info "── Session Status ──"
+    bash "$harness" status 2>&1
+    echo ""
+  fi
+
+  # 2. Auto-record completed sessions
+  cmd_auto_record
+
+  # 3. Show recent results
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  if [[ -f "$state_dir/results.tsv" ]]; then
+    local total pass fail err
+    total=$(wc -l < "$state_dir/results.tsv")
+    pass=$(grep -c 'PASS' "$state_dir/results.tsv" 2>/dev/null || true)
+    fail=$(grep -c 'FAIL' "$state_dir/results.tsv" 2>/dev/null || true)
+    err=$(grep -c 'ERROR' "$state_dir/results.tsv" 2>/dev/null || true)
+    echo ""
+    info "── Results: $total total ($pass PASS, $fail FAIL, $err ERROR) ──"
+    printf "  %-20s %-40s %-8s %s\n" "SPEC" "REPO" "VERDICT" "DETAILS"
+    printf "  %-20s %-40s %-8s %s\n" "----" "----" "-------" "-------"
+    tail -5 "$state_dir/results.tsv" | while IFS=$'\t' read -r ts spec repo verdict detail; do
+      printf "  %-20s %-40s %-8s %s\n" "$spec" "$repo" "$verdict" "$detail"
+    done
+  fi
+}
+
+# ── --matrix-status (deprecated — use --check) ────────────────────
 
 cmd_matrix_status() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
@@ -1087,6 +1120,25 @@ cmd_matrix_status() {
     echo ""
     echo "Gate findings requiring investigation:"
     cat "$state_dir/gate-findings.log"
+  fi
+}
+
+# ── --review (unified analysis: gate review, branch compare, cross-repo) ──
+
+cmd_review() {
+  if [[ $# -eq 0 ]]; then
+    # No args: cross-repo pattern analysis
+    cmd_cross_analyze
+  elif [[ $# -eq 1 ]]; then
+    # One arg (repo): gate analysis + known-good comparison
+    local repo="$1"
+    [[ -d "$repo" ]] || die "Not found: $repo"
+    cmd_analyze "$repo"
+  elif [[ $# -ge 3 ]]; then
+    # Three args: explicit branch comparison (adversarial court)
+    cmd_compare "$@"
+  else
+    die "Usage: --review [repo] | --review <new-branch> <old-branch> <repo>"
   fi
 }
 
@@ -1690,26 +1742,35 @@ STATS
 # ── Main ──
 
 usage() {
-  echo "Usage: $(basename "$0") --without <spec...> <repo>      Run skill with knowledge removed"
-  echo "       $(basename "$0") --compare <result> <known-good> <repo>  AI court: judge differences"
-  echo "       $(basename "$0") --analyze <repo> [--context '...']     Deep gate report analysis"
-  echo "       $(basename "$0") --cross-analyze                        Patterns across all runs"
-  echo "       $(basename "$0") --summary                              Markdown report from results"
-  echo "       $(basename "$0") --matrix-status                        Show matrix test progress"
-  echo "       $(basename "$0") --record <repo>                         Record --without result"
-  echo "       $(basename "$0") --auto-record                          Batch-record all completed runs"
-  echo "       $(basename "$0") --list                                 Show removable knowledge"
+  echo "Usage:"
+  echo "  $(basename "$0") --without <spec...> <repo>    Launch test with knowledge removed"
+  echo "  $(basename "$0") --check                       Status + record completed + recent results"
+  echo "  $(basename "$0") --summary                     Full markdown report from all results"
+  echo "  $(basename "$0") --review [repo]               Deep analysis (gate review, branch compare)"
+  echo "  $(basename "$0") --review <new> <old> <repo>   Explicit branch comparison (adversarial court)"
+  echo ""
+  echo "Specs: fn:<tag> | pattern:<key> | all-fns | all-patterns | all"
+  echo ""
+  echo "Available function tags:"
+  local autofix="$PLUGIN_DIR/scripts/k8s-rebase-autofix.sh"
+  if [[ -f "$autofix" ]]; then
+    grep '^fix_[a-z]' "$autofix" 2>/dev/null | sed 's/().*//' | sed 's/fix_/  fn:/' | sort
+  fi
+  echo ""
+  echo "Legacy (still work): --compare, --analyze, --cross-analyze, --auto-record, --list"
 }
 
 case "${1:-}" in
-  --list|-l)          cmd_list ;;
   --without)          shift; cmd_without "$@" ;;
+  --check)            cmd_check ;;
+  --summary)          cmd_summary ;;
+  --review)           shift; cmd_review "$@" ;;
+  --list|-l)          cmd_list ;;
   --compare)          shift; cmd_compare "$@" ;;
   --analyze)          shift; cmd_analyze "$@" ;;
   --cross-analyze)    cmd_cross_analyze ;;
-  --summary)          cmd_summary ;;
-  --record)           shift; cmd_record "$@" ;;
   --auto-record)      cmd_auto_record ;;
+  --record)           shift; cmd_record "$@" ;;
   --matrix-status)    cmd_matrix_status ;;
   --help|-h)          usage; exit 0 ;;
   *)                  usage; exit 1 ;;
