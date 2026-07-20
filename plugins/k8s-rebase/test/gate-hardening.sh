@@ -797,7 +797,7 @@ cmd_record() {
     >> "$state_dir/results.tsv"
 
   # Move running -> done
-  local done_key="${spec//[:\/]/_}_$repo_key"
+  local done_key="${spec//[:\/\ ]/_}_$repo_key"
   echo "$ts	$spec	$short	$verdict	$detail" > "$state_dir/done/$done_key"
   rm -f "$running_file"
 
@@ -947,7 +947,7 @@ _do_record_one() {
 
   local ts done_key
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  done_key="${spec//[:\/]/_}_$repo_key"
+  done_key="${spec//[:\/\ ]/_}_$repo_key"
   mkdir -p "$state_dir/done"
   printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "$verdict" "$detail" \
     >> "$state_dir/results.tsv"
@@ -1017,7 +1017,7 @@ cmd_auto_record() {
     short=$(repo_short "$repo")
 
     # Idempotency: already recorded?
-    local done_key="${spec//[:\/]/_}_$repo_key"
+    local done_key="${spec//[:\/\ ]/_}_$repo_key"
     if [[ -f "$state_dir/done/$done_key" ]]; then
       rm -f "$running_file"
       skipped_done=$((skipped_done + 1))
@@ -1079,9 +1079,9 @@ cmd_check() {
   if [[ -f "$state_dir/results.tsv" ]]; then
     local total pass fail err
     total=$(wc -l < "$state_dir/results.tsv")
-    pass=$(grep -c 'PASS' "$state_dir/results.tsv" 2>/dev/null || true)
-    fail=$(grep -c 'FAIL' "$state_dir/results.tsv" 2>/dev/null || true)
-    err=$(grep -c 'ERROR' "$state_dir/results.tsv" 2>/dev/null || true)
+    pass=$(awk -F'\t' '$4=="PASS"' "$state_dir/results.tsv" 2>/dev/null | wc -l)
+    fail=$(awk -F'\t' '$4=="FAIL"' "$state_dir/results.tsv" 2>/dev/null | wc -l)
+    err=$(awk -F'\t' '$4=="ERROR"' "$state_dir/results.tsv" 2>/dev/null | wc -l)
     echo ""
     info "── Results: $total total ($pass PASS, $fail FAIL, $err ERROR) ──"
     printf "  %-20s %-40s %-8s %s\n" "SPEC" "REPO" "VERDICT" "DETAILS"
@@ -1129,16 +1129,14 @@ cmd_review() {
   if [[ $# -eq 0 ]]; then
     # No args: cross-repo pattern analysis
     cmd_cross_analyze
-  elif [[ $# -eq 1 ]]; then
-    # One arg (repo): gate analysis + known-good comparison
-    local repo="$1"
-    [[ -d "$repo" ]] || die "Not found: $repo"
-    cmd_analyze "$repo"
-  elif [[ $# -ge 3 ]]; then
-    # Three args: explicit branch comparison (adversarial court)
+  elif [[ $# -eq 1 ]] || [[ "${2:-}" == "--context" ]]; then
+    # One arg or repo + --context: gate analysis
+    cmd_analyze "$@"
+  elif [[ $# -ge 3 ]] && [[ -d "${3:-}" ]]; then
+    # Three+ args with third being a directory: branch comparison
     cmd_compare "$@"
   else
-    die "Usage: --review [repo] | --review <new-branch> <old-branch> <repo>"
+    die "Usage: --review [repo] | --review <repo> --context '...' | --review <new> <old> <repo>"
   fi
 }
 
