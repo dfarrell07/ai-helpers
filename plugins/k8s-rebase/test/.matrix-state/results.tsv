@@ -117,3 +117,4 @@
 2026-07-20T05:19:48Z	fn:lint_version	ovn-kubernetes/ovn-kubernetes-mcp	DONE	2c no-gates diff-vs-known-good:4h
 2026-07-20T06:01:23Z	all	openshift/cluster-network-operator	FAIL	3c/1654f/5355h gates:12/14(1skip)
 2026-07-20T06:44:51Z	fn:kubeadm_v1beta4	openshift/multus-cni	DONE	3c gates:1/1(incomplete) diff-vs-known-good:18h
+2026-07-20T07:23:03Z	fn:bounding_dirs	ovn-kubernetes/ovn-kubernetes-mcp	DONE	3c no-gates diff-vs-known-good:5h
