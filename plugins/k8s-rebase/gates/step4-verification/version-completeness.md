@@ -23,11 +23,27 @@ the previous minor version number. Flag any that still reference
 the previous k8s minor version or a Go version that does not
 match the target release's Go toolchain.
 
+MANDATORY pre-existing check — run for EVERY stale reference:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each finding at <file> with <version-string>:
+base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<version-string>')
+# If base_has > 0, the stale ref is PRE-EXISTING — do NOT count it
+```
+
+If the stale version reference exists on the base branch and is
+not in a file modified by the rebase, it is pre-existing — report
+as "INFO (pre-existing)" but do NOT include in the ISSUES count.
+Only stale references that the rebase should have updated (files
+it touched or version variables it is responsible for bumping)
+are NEW. If ALL findings are pre-existing, verdict MUST be PASS.
+
 For each stale reference, report the file:line and what the
 correct value should be (the target k8s minor version).
 This enables the gate-fix loop to sed-replace them.
 
-Report count of genuinely stale previous-version references
+Report count of NEW genuinely stale previous-version references
 plus count of un-bumped Makefile version variables.
 
 Rules: report specific counts, not "looks good." You are

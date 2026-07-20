@@ -18,8 +18,8 @@ Step 2 — Non-standard deprecation scan:
   Some projects (notably OpenShift API) use `// DEPRECATED`
   instead of the Go-standard `// Deprecated:` format. SA1019
   misses these. Find deprecated declarations in vendor:
-  `grep -rn -B2 '// Deprecated:\|// DEPRECATED' vendor/ --include='*.go' 2>/dev/null | grep -E '^\s*func |^\s*type |^\s*var |^\s*const ' | grep -oP '(?:func|type|var|const)\s+\K\w+' | sort -u`
-  This looks at the lines ABOVE the deprecation comment to find
+  `grep -rh -A2 '// Deprecated:\|// DEPRECATED' vendor/ --include='*.go' 2>/dev/null | grep -E '^\s*func |^\s*type |^\s*var |^\s*const ' | grep -oP '(?<!\w)(?:func|type|var|const)\s+\K\w+' | sort -u`
+  This looks at the lines AFTER the deprecation comment to find
   the actual declaration name. For each deprecated symbol, check
   non-vendor usage:
   `grep -rn '<symbol>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`

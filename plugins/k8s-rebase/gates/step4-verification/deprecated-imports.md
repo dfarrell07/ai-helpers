@@ -24,8 +24,23 @@ Do NOT re-run build, vet, or the vendor deprecated-symbol scan
 — build-vet-recheck and step3's deprecated-api-remnants gates
 already cover those. This gate focuses solely on x/ promotions.
 
-Report count of x/ imports that have stdlib equivalents.
-Cite file:line for each hit. Zero findings means PASS.
+MANDATORY pre-existing check — run for EVERY x/ import finding:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each finding at <file> with <import-path>:
+base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<import-path>')
+# If base_has > 0, the x/ import is PRE-EXISTING — do NOT count it
+```
+
+If the x/ import exists on the base branch, it is pre-existing —
+report as "INFO (pre-existing)" but do NOT include in the ISSUES
+count. Only x/ imports NOT on the base branch are NEW and count
+toward FAIL. If ALL findings are pre-existing, verdict MUST be
+PASS.
+
+Report count of NEW x/ imports that have stdlib equivalents.
+Cite file:line for each hit. Zero new findings means PASS.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

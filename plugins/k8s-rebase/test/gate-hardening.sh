@@ -820,7 +820,7 @@ _repo_from_key() {
 # Build a lightweight session cache (cwd + state + pid, one call to claude agents).
 _build_session_cache() {
   timeout 10 claude agents --json 2>/dev/null | python3 -c "
-import json, sys
+import json, sys, os
 try:
     data = json.load(sys.stdin)
     if not isinstance(data, list): sys.exit(0)
@@ -829,6 +829,17 @@ for s in data:
     cwd = s.get('cwd', '')
     st = s.get('state') or s.get('status') or '?'
     pid = s.get('pid', '')
+    # Guard against false 'done': bg sessions report state=done while
+    # idle between steps, but the process stays alive.  If the PID is
+    # still running, downgrade 'done' -> 'idle'.
+    if st == 'done' and pid and int(pid) > 0:
+        try:
+            os.kill(int(pid), 0)
+            st = 'idle'
+        except (ProcessLookupError, ValueError):
+            pass
+        except PermissionError:
+            st = 'idle'
     print(f'{cwd}\t{st}\t{pid}')
 " 2>/dev/null || true
 }

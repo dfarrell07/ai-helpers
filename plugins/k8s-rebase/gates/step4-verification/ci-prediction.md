@@ -42,12 +42,27 @@ and KIND setup scripts. For each finding, classify as
 CONFIRMED (verified from code or artifacts) or SPECULATIVE.
 Only CONFIRMED findings should be rated above LOW risk.
 
+MANDATORY pre-existing check — run for EVERY CONFIRMED finding:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each finding at <file> with <pattern>:
+base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<pattern>')
+# If base_has > 0, the issue is PRE-EXISTING — do NOT count it
+```
+
+If the CI issue exists on the base branch and the rebase did not
+modify that file or its dependencies, it is pre-existing — report
+as "INFO (pre-existing)" but do NOT include in the ISSUES count.
+Only issues introduced or exposed by rebase changes are NEW.
+If ALL findings are pre-existing, verdict MUST be PASS.
+
 Rules: report specific findings, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. For CONFIRMED findings, state the specific fix needed. Cite file:line for any issues.
 
-VERDICT: FAIL if any CONFIRMED issue would cause CI failure.
+VERDICT: FAIL if any NEW CONFIRMED issue would cause CI failure.
 PASS if no confirmed issues. Speculative concerns are INFO,
 not FAIL.
 

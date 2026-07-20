@@ -14,13 +14,24 @@ NOW):
 
 Report all three counts. Count 0 means no remaining issues.
 
-Only count issues introduced or modified by the rebase commits.
-Pre-existing problems in unchanged code are out of scope — do
-not flag them.
+MANDATORY pre-existing check — run for EVERY finding:
 
-VERDICT: FAIL if any remaining bug is found in fix commits
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each finding at <file> with <pattern>:
+base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<pattern>')
+# If base_has > 0, the issue is PRE-EXISTING — do NOT count it
+```
+
+If the issue exists on the base branch, it is pre-existing —
+report as "INFO (pre-existing)" but do NOT include in the ISSUES
+count. Only issues NOT on the base branch are NEW and count
+toward FAIL. If ALL findings are pre-existing, verdict MUST be
+PASS.
+
+VERDICT: FAIL if any NEW remaining bug is found in fix commits
 (wrong logic, data loss, missing error handling). PASS if all
-fix commits are correct.
+fix commits are correct or all findings are pre-existing.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole

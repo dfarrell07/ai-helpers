@@ -310,7 +310,7 @@ missing from the conversion."
 
 **Proactive deprecated-API cleanup:** After build+vet pass,
 check for deprecated-but-compiling patterns before gates run:
-1. Major-version imports: `grep -rn '/v[0-9]' go.mod | sed 's|.*/||' | sort -u` — for each versioned module, grep source for the unversioned import path
+1. Major-version imports: `find . -name go.mod -not -path '*/vendor/*' -not -path '*/.claude/*' -exec grep -n '/v[0-9]' {} \; 2>/dev/null | sed 's|.*/||' | sort -u` — for each versioned module, grep source for the unversioned import path
 2. If `staticcheck` is available: `staticcheck -checks SA1019 ./...`
 3. Non-standard deprecation: `grep -rn '// DEPRECATED' vendor/ --include='*.go' -l | head -10` — check if non-vendor code uses those symbols
 Fix any findings before proceeding to gates.
@@ -705,8 +705,9 @@ Do NOT stop here — the rebase is incomplete without the PR command.
 **5a. Gather data and detect downstream:**
 
 ```bash
-K8S_VER=$(grep 'k8s.io/api ' go.mod 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
-GO_VER=$(grep '^go ' go.mod | awk '{print $2}')
+PRIMARY_GOMOD=$(find . -name go.mod -not -path '*/vendor/*' -not -path '*/.claude/*' -exec grep -l 'k8s.io/' {} \; 2>/dev/null | head -1)
+K8S_VER=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
+GO_VER=$(grep '^go ' "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}')
 IS_DOWNSTREAM=$(git remote -v 2>/dev/null | grep -q 'openshift/' && echo true || echo false)
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 ```

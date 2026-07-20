@@ -70,7 +70,7 @@ PRIMARY_GOMOD=""
 for gm in go-controller/go.mod go.mod; do
   [[ -f "$gm" ]] && grep -q "k8s.io/" "$gm" && PRIMARY_GOMOD="$gm" && break
 done
-[[ -z "$PRIMARY_GOMOD" ]] && PRIMARY_GOMOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l "k8s.io/" {} \; | head -1)
+[[ -z "$PRIMARY_GOMOD" ]] && PRIMARY_GOMOD=$(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l "k8s.io/" {} \; | head -1)
 MODULE_ROOT="."
 [[ -n "$PRIMARY_GOMOD" ]] && MODULE_ROOT=$(dirname "$PRIMARY_GOMOD")
 K8S_MINOR=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//' || true)
@@ -147,10 +147,10 @@ run_checks() {
   r() { echo "$1: $2"; [ "$2" != "0" ] && F=$((F+1)); }
   # Only check conformance renames if conformance module uses v0.2.0+
   local _conf_npa_minor=0
-  local _conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" | head -1)
+  local _conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" -not -path "*/.claude/*" | head -1)
   [[ -n "$_conf_gomod" ]] && _conf_npa_minor=$(grep "network-policy-api " "$_conf_gomod" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
   if (( _conf_npa_minor >= 2 )) 2>/dev/null; then
-    r "Conformance old names" "$(grep -w 'SupportAdminNetworkPolicy' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
+    r "Conformance old names" "$(grep 'SupportAdminNetworkPolicy' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
   else
     r "Conformance old names" "0"
   fi
@@ -331,7 +331,7 @@ fix_xexp() {
     # Import grouping (maps/slices/cmp in stdlib section) handled by goimports below
   done
   # Remove x/exp from go.mod/vendor — needs Go toolchain
-  for gomod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l 'golang.org/x/exp' {} \; | xargs -I{} dirname {}); do
+  for gomod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l 'golang.org/x/exp' {} \; | xargs -I{} dirname {}); do
     echo ":: Running go mod tidy in $gomod_dir"
     (cd "$gomod_dir" && go mod tidy 2>/dev/null && [[ -d vendor ]] && go mod vendor 2>/dev/null) || true
   done
@@ -345,7 +345,7 @@ fix_klog_v2() {
   for f in $files; do
     sed -i 's|"k8s.io/klog"|"k8s.io/klog/v2"|g' "$f"
   done
-  for _gm in $(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l 'k8s.io/klog ' {} \;); do
+  for _gm in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l 'k8s.io/klog ' {} \;); do
     echo ":: Running go mod tidy in $(dirname "$_gm") to remove stale klog v1"
     (cd "$(dirname "$_gm")" && GOWORK=off go mod tidy 2>/dev/null) || true
   done
@@ -954,7 +954,7 @@ fix_network_policy_api_crds() {
   # Only add ClusterNetworkPolicy CRD if the conformance module itself
   # uses v0.2.0+ (meaning the conformance tests expect it).
   local conf_gomod
-  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" | head -1)
+  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" -not -path "*/.claude/*" | head -1)
   [[ -z "$conf_gomod" ]] && return 0
 
   local conf_npa
@@ -1019,7 +1019,7 @@ fix_conformance_renames() {
   # Only rename if the conformance module uses v0.2.0+ where these symbols
   # were renamed. Pre-release versions (v0.1.9-0.2026...) still use the old names.
   local conf_gomod
-  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" | head -1)
+  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" -not -path "*/.claude/*" | head -1)
   # No conformance module → nothing to rename
   [[ -z "$conf_gomod" ]] && return 0
   local conf_npa_minor
@@ -1347,7 +1347,7 @@ run_vet() {
   fi
   echo ":: Running vet (go test -run='^$') on all modules"
   local vet_failed=0
-  for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
+  for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort); do
     local mod_dir
     mod_dir=$(dirname "$gomod")
     # Skip modules with gitignored vendor dirs — their vendor may be

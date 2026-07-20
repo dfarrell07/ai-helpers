@@ -154,11 +154,11 @@ run_validation() {
 
   echo ":: Running: $name (timeout: $step_timeout)"
   local rc=0
-  timeout "$step_timeout" bash -c "$*" > "$logfile" 2>&1 || rc=$?
+  timeout --kill-after=60s "$step_timeout" bash -c "$*" > "$logfile" 2>&1 || rc=$?
   if [[ "$rc" -eq 0 ]]; then
     echo "  PASS"
     return 0
-  elif [[ "$rc" -eq 124 ]]; then
+  elif [[ "$rc" -eq 124 ]] || [[ "$rc" -eq 137 ]]; then
     echo "  TIMEOUT after $step_timeout (see $logfile)"
     echo "" >> "$logfile"
     echo "TIMEOUT: command did not complete within $step_timeout" >> "$logfile"
@@ -291,7 +291,7 @@ run_test_only() {
     if [[ -n "$root_pkgs_pattern" ]]; then
       local filtered=""
       for pkg in $TEST_ONLY_PKGS; do
-        if echo "$pkg" | grep -qE "^\./(${root_pkgs_pattern%|})"; then
+        if echo "$pkg" | grep -qE "^\./(${root_pkgs_pattern%|})(/|$)"; then
           echo ":: Skipping root_pkg $pkg (needs CAP_NET_ADMIN)"
         else
           filtered="$filtered $pkg"
@@ -465,7 +465,7 @@ while IFS= read -r gomod; do
           fi
           if [[ -n "$TEST_PKGS" ]]; then
             echo "  Testing:$TEST_PKGS"
-            if run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && go test -mod vendor -timeout ${VALIDATION_TIMEOUT} ${TEST_PKGS} -count=1"; then
+            if run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && GOMAXPROCS=\${GOMAXPROCS:-2} go test -mod vendor -timeout ${VALIDATION_TIMEOUT} ${TEST_PKGS} -count=1"; then
               step_failed=0
             fi
           else
@@ -631,7 +631,7 @@ if [[ "$MODE" == "full" ]]; then
           continue
         fi
         step_failed=0
-        run_validation "priv-${pkg##*/}" "${GATE_EXPORTS} cd $mod_dir && go test -mod vendor -count=1 -timeout 5m ./$pkg/..." || step_failed=1
+        run_validation "priv-${pkg##*/}" "${GATE_EXPORTS} cd $mod_dir && GOMAXPROCS=\${GOMAXPROCS:-2} go test -mod vendor -count=1 -timeout 5m ./$pkg/..." || step_failed=1
         if [[ "$step_failed" -eq 1 ]]; then
           echo "## PRIVILEGED TEST FAILURE ($pkg)" >> "$SUMMARY"
           tail -10 "$REBASE_TMP/priv-${pkg##*/}.log" >> "$SUMMARY"

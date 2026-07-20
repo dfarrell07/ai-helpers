@@ -169,7 +169,7 @@ if [[ -z "$PRIMARY_GOMOD" ]]; then
       PRIMARY_GOMOD="$gomod"
       break
     fi
-  done < <(find . -name "go.mod" -not -path "*/vendor/*" -print0 2>/dev/null)
+  done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -print0 2>/dev/null)
 fi
 [[ -z "$PRIMARY_GOMOD" ]] && die "No go.mod with k8s.io dependencies found in $REPO_ROOT"
 
@@ -201,7 +201,7 @@ if [[ "$OLD_MINOR" == "$K8S_MINOR" ]]; then
         fi
       fi
     done
-  done < <(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l "k8s.io/" {} \; 2>/dev/null)
+  done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l "k8s.io/" {} \; 2>/dev/null)
   if [[ $stale_count -eq 0 ]]; then
     info "Already at k8s 1.${K8S_MINOR} — nothing to do"
     rm -rf "$REBASE_TMP"
@@ -496,7 +496,7 @@ while IFS= read -r gomod; do
   else
     NONVENDOR_MODULES+=("$mod_dir")
   fi
-done < <(find . -name "go.mod" -not -path "*/vendor/*" -exec grep -l "k8s.io/" {} \; | sed 's|^\./||' | sort)
+done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l "k8s.io/" {} \; | sed 's|^\./||' | sort)
 
 # Non-vendored modules first (lighter, faster feedback)
 for mod in "${NONVENDOR_MODULES[@]}"; do
@@ -508,7 +508,7 @@ for mod in "${VENDOR_MODULES[@]}"; do
 done
 
 # Re-tidy modules that depend on sibling modules via replace directives
-for gomod in $(find . -name "go.mod" -not -path "*/vendor/*"); do
+for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*"); do
   mod_dir=$(dirname "$gomod" | sed 's|^\./||')
   if grep -q '\.\./.*go-controller\|\.\./' "$gomod" 2>/dev/null; then
     banner "Phase 1: Re-tidy $mod_dir (replace directive sync)"

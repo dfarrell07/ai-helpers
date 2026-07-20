@@ -20,14 +20,7 @@ Step 2 — Discover deprecated symbols via web search:
   For each, grep non-vendor Go files:
   `grep -rn '<pattern>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
-Step 3 — Vendor deprecated-symbol scan:
-  Find deprecated declarations in vendor (look at lines above
-  the deprecation comment to find the actual symbol name):
-  `grep -rn -B2 '// Deprecated:' vendor/k8s.io/ --include='*.go' 2>/dev/null | grep -E '^\s*func |^\s*type |^\s*var |^\s*const ' | grep -oP '(?:func|type|var|const)\s+\K\w+' | sort -u`
-  For each symbol, check if non-vendor code uses it:
-  `grep -rn '<symbol>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
-
-Step 4 — Promoted x/ package check:
+Step 3 — Promoted x/ package check:
   `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
   For each x/ import, derive the stdlib name (e.g.,
   golang.org/x/exp/slices -> slices) and check:
