@@ -1,4 +1,4 @@
-Run `go build ./...` and `go vet ./...` in each module directory.
+Run `go build ./...` and `go vet ./...` in each module.
 Use this exact loop to find modules and skip gitignored vendors:
 
 ```bash

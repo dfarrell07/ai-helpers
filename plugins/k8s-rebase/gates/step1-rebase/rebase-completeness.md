@@ -21,7 +21,12 @@ Report a count for each check:
    vendor/) for k8s.io/* deps. All should be at the same
    minor version. Count any at an older minor version.
 
-Report all 4 counts. Count 0 means that check passed.
+5. Conflict markers: scan all non-vendor source files:
+   `grep -rn '<<<<<<<\|>>>>>>>' --include='*.go' --include='*.yaml' --include='*.json' . | grep -v vendor/`
+   Count any merge conflict markers. These mean the rebase
+   or a cherry-pick left unresolved conflicts.
+
+Report all 5 counts. Count 0 means that check passed.
 
 Fix hints for non-zero counts:
 - Check 1 (result file): re-run the rebase script
