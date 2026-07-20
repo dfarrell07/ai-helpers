@@ -1,0 +1,20 @@
+2026-07-20T10:07:59Z	fn:addtoscheme	ovn-org/ovn-kubernetes	DONE	24c gates:1/1(incomplete) diff-vs-known-good:303h
+---GATE-REPORTS---
+=== step1-rebase-completeness ===
+VERDICT: PASS
+ISSUES: 0
+SUMMARY: All 4 checks passed - result file correct, no uncommitted changes, all expected commits present, all k8s.io deps at v0.36.2
+DETAILS:
+Check 1 (Result file): PASS (count=0) - .rebase-tmp/step1-result.txt:1 contains "EXIT 2"
+Check 2 (Uncommitted changes): PASS (count=0) - git status --short shows no staged or unstaged changes
+Check 3 (Rebase commits): PASS (count=0) - Found all expected commits:
+  - f8c40c0f9 "ci: update version references for k8s 1.36" (version refs commit)
+  - 97138c419 "codegen: regenerate mocks and codegen output for k8s 1.36" (codegen commit)
+  - ad914245e "deps: rebase test/e2e to k8s 1.36" (rebase commit for test/e2e/go.mod)
+  - b694df96d "deps: rebase go-controller to k8s 1.36" (rebase commit for go-controller/go.mod)
+  - 56362c2d3 "deps: rebase test/conformance to k8s 1.36" (rebase commit for test/conformance/go.mod)
+Check 4 (Dependency versions): PASS (count=0) - All k8s.io/* deps in all 3 go.mod files at v0.36.2 (minor version 36)
+  - go-controller/go.mod: k8s.io/api, apimachinery, apiserver, client-go, component-base, component-helpers, kubelet, kubernetes all at v0.36.2
+  - test/conformance/go.mod: k8s.io/apimachinery, client-go, api all at v0.36.2
+  - test/e2e/go.mod: k8s.io/api, apimachinery, client-go, kubernetes, pod-security-admission all at v0.36.2
+
