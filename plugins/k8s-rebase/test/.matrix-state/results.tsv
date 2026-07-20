@@ -104,3 +104,4 @@
 2026-07-19T22:17:57Z	fn:obsgen	openshift/ingress-node-firewall	PASS	10c/2autofix/24h full-5-step klog-migrated lint-fixed
 2026-07-19T23:04:37Z	fn:go_version	openshift/cloud-network-config-controller	PASS	1c/7h full-5-step gates:30/30(0fail) pre-existing-filter-perfect
 2026-07-19T23:04:37Z	fn:fieldsv1	openshift/ingress-node-firewall	PASS	7c/2autofix/34h full-5-step gates:17/17(0fail) klog-migrated lint-fixed
+2026-07-20T00:35:15Z	all	openshift/cluster-network-operator	PASS	3c/20h(nonvendor) full-5-step step3-gates-all-pass pre-existing-filter-works
