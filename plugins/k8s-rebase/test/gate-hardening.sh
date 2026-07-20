@@ -867,6 +867,18 @@ _do_record_one() {
     return 1
   fi
 
+  # Validate branch is recent (within 3 hours) to prevent recording old sessions
+  local branch_age_s=0
+  local branch_epoch
+  branch_epoch=$(git -C "$repo" log -1 --format='%ct' "$result_branch" 2>/dev/null || echo 0)
+  if [[ "$branch_epoch" -gt 0 ]]; then
+    branch_age_s=$(( $(date +%s) - branch_epoch ))
+    if [[ "$branch_age_s" -gt 10800 ]]; then
+      echo "stale branch ($(( branch_age_s / 3600 ))h old) — skipping to prevent mis-recording"
+      return 1
+    fi
+  fi
+
   # Resolve default branch
   local default_br
   default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
