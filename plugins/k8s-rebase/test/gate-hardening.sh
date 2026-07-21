@@ -264,7 +264,13 @@ cmd_without() {
   local _state_dir="$PLUGIN_DIR/test/.matrix-state"
   local _repo_key
   _repo_key=$(repo_short "$repo" | tr '/' '_')
-  mkdir -p "$_state_dir/running"
+  mkdir -p "$_state_dir/running" "$_state_dir/done"
+  # Remove old done file for same spec×repo to allow re-recording
+  local _done_key="${specs[*]}"
+  _done_key="${_done_key//[:\/\ ]/_}_$_repo_key"
+  [[ -f "$_state_dir/done/$_done_key" ]] \
+    && rm -f "$_state_dir/done/$_done_key" \
+    && info "Removed old done file: $_done_key"
   printf '%s\t%s\n' "${specs[*]}" "$(date +%s)" > "$_state_dir/running/$_repo_key"
   info "Tracked: $_state_dir/running/$_repo_key = ${specs[*]}"
 
