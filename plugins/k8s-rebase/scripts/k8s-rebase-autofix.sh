@@ -62,8 +62,11 @@ format_msg() {
 export GOWORK=off
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
 mkdir -p "$REBASE_TMP"
-grep -qF '.rebase-tmp' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$REPO_ROOT/.git/info/exclude"
-grep -qF '.gitconfig' "$REPO_ROOT/.git/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$REPO_ROOT/.git/info/exclude"
+GIT_DIR=$(git -C "$REPO_ROOT" rev-parse --git-dir 2>/dev/null)
+if [[ -d "$GIT_DIR/info" ]]; then
+  grep -qF '.rebase-tmp' "$GIT_DIR/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$GIT_DIR/info/exclude"
+  grep -qF '.gitconfig' "$GIT_DIR/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$GIT_DIR/info/exclude"
+fi
 
 # Find primary go.mod with k8s.io deps
 PRIMARY_GOMOD=""

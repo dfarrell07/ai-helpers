@@ -30,6 +30,10 @@ ORIGINAL_ERROR="$*"
 # Pre-fetch evidence deterministically
 export DIFF
 MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null || git -C "$REPO_ROOT" merge-base "$COMMIT" main 2>/dev/null || echo "$COMMIT~10")
+if ! git -C "$REPO_ROOT" rev-parse "$MERGE_BASE" &>/dev/null; then
+  echo "WARNING: Cannot resolve merge-base '$MERGE_BASE' (shallow clone?), using COMMIT~1" >&2
+  MERGE_BASE="$COMMIT~1"
+fi
 
 # Verify COMMIT is on the rebase branch (not a master/main commit)
 if git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" "$MERGE_BASE" 2>/dev/null; then
@@ -75,7 +79,7 @@ if ! command -v claude &>/dev/null; then
 fi
 
 echo ":: Reviewing commit $COMMIT..."
-VERDICT=$(echo "$PROMPT" | claude -p --output-format text 2>/dev/null | grep -E "^(APPROVE|REJECT):" | head -1)
+VERDICT=$(echo "$PROMPT" | timeout 120 claude -p --output-format text 2>/dev/null | grep -E "^(APPROVE|REJECT):" | head -1)
 
 if [[ -z "$VERDICT" ]]; then
   echo "WARNING: No clear verdict from review agent"

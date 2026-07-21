@@ -836,14 +836,18 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         fi
         # Pattern 1: openshift-X.Y (builder image tag suffix)
         if grep -qE "openshift-[0-9.]+" "$ci_file" && ! grep -q "openshift-${target_ocp}" "$ci_file"; then
-          stale_ocp=$(grep -oE 'openshift-[0-9.]+' "$ci_file" | head -1 | sed 's/openshift-//')
-          sed -i "s|openshift-${stale_ocp}|openshift-${target_ocp}|g" "$ci_file"
+          for stale_ocp in $(grep -oE 'openshift-[0-9.]+' "$ci_file" | sed 's/openshift-//' | sort -u); do
+            [[ "$stale_ocp" == "$target_ocp" ]] && continue
+            sed -i "s|openshift-${stale_ocp}|openshift-${target_ocp}|g" "$ci_file"
+          done
           _fixed=1
         fi
         # Pattern 2: ocp/X.Y: (base image reference)
         if grep -qE "ocp/[0-9.]+:" "$ci_file" && ! grep -q "ocp/${target_ocp}:" "$ci_file"; then
-          stale_base=$(grep -oE 'ocp/[0-9.]+:' "$ci_file" | head -1 | sed 's|ocp/||;s|:||')
-          sed -i "s|ocp/${stale_base}:|ocp/${target_ocp}:|g" "$ci_file"
+          for stale_base in $(grep -oE 'ocp/[0-9.]+:' "$ci_file" | sed 's|ocp/||;s|:||' | sort -u); do
+            [[ "$stale_base" == "$target_ocp" ]] && continue
+            sed -i "s|ocp/${stale_base}:|ocp/${target_ocp}:|g" "$ci_file"
+          done
           _fixed=1
         fi
         [[ "$_fixed" -eq 1 ]] && info "  Updated OCP stream in $ci_file → ${target_ocp}" && CHANGED_FILES+="$ci_file"$'\n'
