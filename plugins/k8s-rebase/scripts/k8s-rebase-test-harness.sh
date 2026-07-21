@@ -244,11 +244,14 @@ cmd_run() {
     local existing_session
     existing_session=$(session_for_repo "$repo")
     if [[ -n "$existing_session" ]]; then
-      local sess_state sess_pid
+      local sess_state sess_elapsed sess_pid
       sess_state=$(echo "$existing_session" | cut -f2)
+      sess_elapsed=$(echo "$existing_session" | cut -f3)
       sess_pid=$(echo "$existing_session" | cut -f4)
       if [[ "$sess_state" == "done" || "$sess_pid" == "0" || -z "$sess_pid" ]]; then
         info "Cleaning up finished session for $short (state=$sess_state, pid=$sess_pid)"
+      elif [[ "$sess_state" == "idle" && "${sess_elapsed:-0}" -gt 120 ]]; then
+        info "Cleaning up stale idle session for $short (idle ${sess_elapsed}m, pid=$sess_pid)"
       else
         warn "Active session found for $short — stop it first"
         continue
@@ -453,12 +456,17 @@ cmd_clean() {
     local existing_session
     existing_session=$(session_for_repo "$repo")
     if [[ -n "$existing_session" ]]; then
-      local sess_state sess_pid
+      local sess_state sess_elapsed sess_pid
       sess_state=$(echo "$existing_session" | cut -f2)
+      sess_elapsed=$(echo "$existing_session" | cut -f3)
       sess_pid=$(echo "$existing_session" | cut -f4)
       if [[ "$sess_state" != "done" && "$sess_pid" != "0" ]]; then
-        warn "Active session on $short — skipping clean (stop it first)"
-        continue
+        if [[ "$sess_state" == "idle" && "${sess_elapsed:-0}" -gt 120 ]]; then
+          info "Stale idle session on $short (idle ${sess_elapsed}m) — cleaning"
+        else
+          warn "Active session on $short — skipping clean (stop it first)"
+          continue
+        fi
       fi
     fi
     cd "$repo" || continue
