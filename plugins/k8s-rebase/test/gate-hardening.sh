@@ -859,9 +859,12 @@ for s in data:
 _is_session_active() {
   local short="$1" cache="$2"
   [[ -z "$cache" ]] && return 1
-  while IFS=$'\t' read -r cwd state pid; do
+  while IFS=$'\t' read -r cwd state elapsed pid _rest; do
     if [[ "$cwd" == *"/$short" || "$cwd" == *"/$short/"* ]]; then
-      [[ "$state" != "done" && "$state" != "?" && -n "$pid" && "$pid" != "0" ]] && return 0
+      [[ "$state" == "done" || "$state" == "?" || -z "$pid" || "$pid" == "0" ]] && continue
+      # Idle sessions over 2h are stale, not active
+      [[ "$state" == "idle" && "${elapsed:-0}" -gt 120 ]] && continue
+      return 0
     fi
   done <<< "$cache"
   return 1
