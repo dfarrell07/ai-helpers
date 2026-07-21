@@ -341,9 +341,9 @@ MUTATION: The result branch was produced with this knowledge REMOVED: $mutation_
 Any difference caused by the missing knowledge is a REGRESSION."
     classifier_output=$(printf '%s' "$fast_context
 
-$diff_output
+$diff_nonvendor
 
-Classify each difference as REGRESSION (result is worse), EQUIVALENT (different but ok), or IMPROVEMENT (result is better).
+Classify each non-vendor difference as REGRESSION (result is worse), EQUIVALENT (different but ok), or IMPROVEMENT (result is better).
 End with: VERDICT: PASS (no regressions) or VERDICT: FAIL (regressions found)" \
       | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
     echo "$classifier_output" | tail -20
@@ -373,8 +373,8 @@ Any difference caused by the missing knowledge is a REGRESSION, not an equivalen
   local context="Diff between result branch ($result_branch) and known-good branch ($known_good):
 ${mutation_note}
 
-DIFF:
-$diff_output
+DIFF (non-vendor — vendor-only changes excluded for token budget):
+$diff_nonvendor
 
 RESULT BRANCH COMMITS:
 $result_log
@@ -411,8 +411,8 @@ $diff_stat"
   # Phase B: Judge (fact-check only)
   info "Phase B: Judge (fact-checking)..."
   local judge_report
-  judge_report=$(printf 'PROSECUTION ARGUMENT:\n%s\n\nDEFENSE ARGUMENT:\n%s\n\nRAW DIFF:\n%s\n\n%s' \
-    "$prosecution" "$defense" "$diff_output" \
+  judge_report=$(printf 'PROSECUTION ARGUMENT:\n%s\n\nDEFENSE ARGUMENT:\n%s\n\nRAW DIFF (non-vendor):\n%s\n\n%s' \
+    "$prosecution" "$defense" "$diff_nonvendor" \
     "You are the JUDGE. Fact-check only. Verify each claim against the actual diff. Strike claims not supported by evidence. Flag overreach (prosecution inventing regressions not in the diff) and handwaving (defense dismissing changes without justification). Produce a combined factual record — no opinion on the verdict. That is the jury's job." \
     | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
   echo "$judge_report" > "$court_dir/judge.txt"
@@ -420,8 +420,8 @@ $diff_stat"
   # Phase C: Jury (5 votes, all data)
   info "Phase C: Jury (5 votes)..."
   local jury_prompt
-  jury_prompt=$(printf 'RAW DIFF:\n%s\n\nPROSECUTION:\n%s\n\nDEFENSE:\n%s\n\nJUDGE FACTUAL RECORD:\n%s\n\n%s' \
-    "$diff_output" "$prosecution" "$defense" "$judge_report" \
+  jury_prompt=$(printf 'RAW DIFF (non-vendor):\n%s\n\nPROSECUTION:\n%s\n\nDEFENSE:\n%s\n\nJUDGE FACTUAL RECORD:\n%s\n\n%s' \
+    "$diff_nonvendor" "$prosecution" "$defense" "$judge_report" \
     "You are a JUROR. You have all the evidence: the raw diff, prosecution arguments, defense arguments, and the judge's factual record. Vote: VERDICT: PASS (no regressions) or VERDICT: FAIL (regressions found). Give one sentence of reasoning.")
 
   local pass_votes=0 fail_votes=0
