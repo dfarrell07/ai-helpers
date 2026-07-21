@@ -211,14 +211,24 @@ for s in data:
 }
 
 session_for_repo() {
-  local repo="$1" short line
+  local repo="$1" short
   short=$(repo_short "$repo")
-  # Match cwd ending with /short (+ tab separator) or containing /short/ (worktree)
-  line=$(printf '%s\n' "$_session_cache" | grep -F "/${short}/" | head -1)
-  if [[ -z "$line" ]]; then
-    line=$(printf '%s\n' "$_session_cache" | grep -F $'/'"${short}"$'\t' | head -1)
-  fi
-  [[ -n "$line" ]] && echo "$line"
+  # Collect all matching sessions, filter to genuinely active ones
+  local match
+  while IFS=$'\t' read -r cwd state elapsed pid _rest; do
+    [[ -z "$cwd" ]] && continue
+    # Must match repo path (worktree or main dir)
+    [[ "$cwd" == *"/${short}/"* || "$cwd" == *"/${short}" ]] || continue
+    # Skip dead sessions: done, blocked with no PID, empty PID
+    [[ "$state" == "done" ]] && continue
+    [[ "$state" == "blocked" && ( -z "$pid" || "$pid" == "0" ) ]] && continue
+    [[ -z "$pid" || "$pid" == "0" ]] && continue
+    # Skip stale idle sessions (>2h)
+    [[ "$state" == "idle" && "${elapsed:-0}" -gt 120 ]] && continue
+    match="$cwd	$state	$elapsed	$pid	$_rest"
+  done <<< "$_session_cache"
+  # Return the last (newest) active match
+  [[ -n "$match" ]] && echo "$match"
 }
 
 # ── run ──────────────────────────────────────────────────────────────
@@ -240,22 +250,13 @@ cmd_run() {
     short=$(repo_short "$repo")
     info "── $short ──"
 
-    # Skip finished/zombie sessions — worktrees are cleaned below
+    # session_for_repo filters dead/stale sessions; if it returns
+    # anything, the session is genuinely active
     local existing_session
     existing_session=$(session_for_repo "$repo")
     if [[ -n "$existing_session" ]]; then
-      local sess_state sess_elapsed sess_pid
-      sess_state=$(echo "$existing_session" | cut -f2)
-      sess_elapsed=$(echo "$existing_session" | cut -f3)
-      sess_pid=$(echo "$existing_session" | cut -f4)
-      if [[ "$sess_state" == "done" || "$sess_pid" == "0" || -z "$sess_pid" ]]; then
-        info "Cleaning up finished session for $short (state=$sess_state, pid=$sess_pid)"
-      elif [[ "$sess_state" == "idle" && "${sess_elapsed:-0}" -gt 120 ]]; then
-        info "Cleaning up stale idle session for $short (idle ${sess_elapsed}m, pid=$sess_pid)"
-      else
-        warn "Active session found for $short — stop it first"
-        continue
-      fi
+      warn "Active session found for $short — stop it first"
+      continue
     fi
 
     remove_worktrees "$repo"
@@ -299,6 +300,7 @@ cmd_run() {
   else
     echo ""
     warn "No sessions launched — check warnings above"
+    return 1
   fi
 }
 
@@ -450,24 +452,13 @@ cmd_clean() {
   local cleaned=0
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
-    # Skip finished/zombie sessions — safe to clean their worktrees
     local short
     short=$(repo_short "$repo")
     local existing_session
     existing_session=$(session_for_repo "$repo")
     if [[ -n "$existing_session" ]]; then
-      local sess_state sess_elapsed sess_pid
-      sess_state=$(echo "$existing_session" | cut -f2)
-      sess_elapsed=$(echo "$existing_session" | cut -f3)
-      sess_pid=$(echo "$existing_session" | cut -f4)
-      if [[ "$sess_state" != "done" && "$sess_pid" != "0" ]]; then
-        if [[ "$sess_state" == "idle" && "${sess_elapsed:-0}" -gt 120 ]]; then
-          info "Stale idle session on $short (idle ${sess_elapsed}m) — cleaning"
-        else
-          warn "Active session on $short — skipping clean (stop it first)"
-          continue
-        fi
-      fi
+      warn "Active session on $short — skipping clean (stop it first)"
+      continue
     fi
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true

@@ -275,8 +275,11 @@ cmd_without() {
   info "Tracked: $_state_dir/running/$_repo_key = ${specs[*]}"
 
   info "Launching skill run..."
-  PLUGIN_DIR="$mutated" RESULTS_DIR="$RESULTS_DIR" PERMISSION_MODE="$PERMISSION_MODE" \
-    bash "$harness" run "$version" "$repo"
+  if ! PLUGIN_DIR="$mutated" RESULTS_DIR="$RESULTS_DIR" PERMISSION_MODE="$PERMISSION_MODE" \
+    bash "$harness" run "$version" "$repo"; then
+    rm -f "$_state_dir/running/$_repo_key"
+    die "Launch failed for $(repo_short "$repo") — see warnings above"
+  fi
 
   echo ""
   info "Mutated plugin at: $mutated"
