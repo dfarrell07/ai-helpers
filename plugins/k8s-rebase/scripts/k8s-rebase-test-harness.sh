@@ -187,7 +187,7 @@ for s in data:
     try:
         cwd = s.get('cwd', '')
         st = s.get('state') or s.get('status') or '?'
-        pid = s.get('pid', '')
+        pid = s.get('pid') or '0'
         full_sid = s.get('sessionId', '?')
         sid = s.get('id') or full_sid[:8]
         started = s.get('startedAt', 0)
@@ -214,7 +214,7 @@ session_for_repo() {
   local repo="$1" short
   short=$(repo_short "$repo")
   # Collect all matching sessions, filter to genuinely active ones
-  local match
+  local match=""
   while IFS=$'\t' read -r cwd state elapsed pid _rest; do
     [[ -z "$cwd" ]] && continue
     # Must match repo path (worktree or main dir)
@@ -225,6 +225,10 @@ session_for_repo() {
     [[ -z "$pid" || "$pid" == "0" ]] && continue
     # Skip stale idle sessions (>2h)
     [[ "$state" == "idle" && "${elapsed:-0}" -gt 120 ]] && continue
+    # Skip worktree sessions whose worktree no longer exists
+    if [[ "$cwd" == *"/.claude/worktrees/"* && ! -d "$cwd" ]]; then
+      continue
+    fi
     match="$cwd	$state	$elapsed	$pid	$_rest"
   done <<< "$_session_cache"
   # Return the last (newest) active match
