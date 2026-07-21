@@ -508,7 +508,7 @@ cmd_analyze() {
   [[ -d "$gate_dir" ]] || die "No gate reports found in $repo"
 
   # Build structured summary of all gate reports
-  local total=0 pass=0 fail=0 no_verdict=0
+  local total=0 pass=0 fail=0 skip=0 no_verdict=0
   local report_summary=""
   for f in "$gate_dir"/*.report; do
     [[ -f "$f" ]] || continue
@@ -531,6 +531,8 @@ $summary
 $details
 
 "
+    elif [[ "$verdict" == *"SKIP"* || "$verdict" == *"skip"* ]]; then
+      skip=$((skip + 1))
     else
       no_verdict=$((no_verdict + 1))
       report_summary+="NO VERDICT: $name ($(wc -c < "$f") bytes)
@@ -539,7 +541,7 @@ $details
   done
 
   info "── Analysis: $short ──"
-  info "Gates: $pass PASS, $fail FAIL, $no_verdict NO VERDICT (of $total)"
+  info "Gates: $pass PASS, $fail FAIL, $skip SKIP, $no_verdict NO VERDICT (of $total)"
 
   if [[ "$fail" -eq 0 && "$no_verdict" -eq 0 && -z "$mutation_context" ]]; then
     info "All gates passed (no mutation context). Skipping deep analysis."

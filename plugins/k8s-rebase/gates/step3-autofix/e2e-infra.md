@@ -18,7 +18,15 @@ For each modified e2e file, check:
 
 List each item checked and whether it passes. Report issues.
 
-If the repo has no e2e infrastructure files, skip this check.
+Run this check FIRST — if nothing matches, SKIP immediately:
+```bash
+REPO="<the repo path from the first line of your prompt>"
+E2E_FILES=$(grep -rln 'kindest/node\|K8S_VERSION\|KIND_VERSION\|kind-common\|e2e-kind\|install-kind' "$REPO" --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.j2' 2>/dev/null | grep -v vendor/ | head -20)
+if [ -z "$E2E_FILES" ]; then
+  echo "No e2e infrastructure files found — SKIP"
+fi
+```
+If no e2e infrastructure files exist, write a SKIP report and stop.
 
 MANDATORY pre-existing check — run for EVERY finding:
 
@@ -48,9 +56,15 @@ The repo path is the first line of your prompt:
 
 ```bash
 REPO="<the repo path from the first line of your prompt>"
-bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
-  "$REPO" step3-e2e-infra PASS 0 "your one-line summary" \
-  "detail line 1" "detail line 2"
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+if [ -n "$SCRIPT" ]; then
+  bash "$SCRIPT" "$REPO" step3-e2e-infra PASS 0 "your one-line summary" \
+    "detail line 1" "detail line 2"
+else
+  mkdir -p "$REPO/.rebase-tmp/gates"
+  printf 'VERDICT: PASS\nISSUES: 0\nSUMMARY: your one-line summary\nDETAILS:\ndetail line 1\ndetail line 2\n' \
+    > "$REPO/.rebase-tmp/gates/step3-e2e-infra.report"
+fi
 ```
 
 Use PASS, FAIL, or SKIP as the verdict. Replace the summary and
