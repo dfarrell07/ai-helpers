@@ -344,7 +344,7 @@ cmd_compare() {
     local fast_context="Diff between result branch ($result_branch) and known-good branch ($known_good):"
     [[ -n "$mutation_context" ]] && fast_context="$fast_context
 MUTATION: The result branch was produced with this knowledge REMOVED: $mutation_context
-Any difference caused by the missing knowledge is a REGRESSION."
+A difference is a REGRESSION only if the result branch introduced a NEW problem. Pre-existing issues that the known-good optionally cleaned up are EQUIVALENT."
     classifier_output=$(printf '%s' "$fast_context
 
 $diff_nonvendor
@@ -374,7 +374,14 @@ End with: VERDICT: PASS (no regressions) or VERDICT: FAIL (regressions found)" \
   [[ -n "$mutation_context" ]] && mutation_note="
 MUTATION: The result branch was produced with this knowledge REMOVED:
 $mutation_context
-Any difference caused by the missing knowledge is a REGRESSION, not an equivalent alternative.
+
+CRITICAL DISTINCTION: A difference is a REGRESSION only if the result
+branch INTRODUCED a new problem (code that was correct before the rebase
+is now broken). Pre-existing issues (code that was already wrong on the
+base/main branch before the rebase) that the known-good branch optionally
+cleaned up are EQUIVALENT — the result branch is not worse than the
+starting point. Check git blame or the base branch to determine if an
+issue is pre-existing. Only FAIL for genuinely new regressions.
 "
   local context="Diff between result branch ($result_branch) and known-good branch ($known_good):
 ${mutation_note}
