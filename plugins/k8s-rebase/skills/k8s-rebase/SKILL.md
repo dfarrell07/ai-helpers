@@ -367,7 +367,9 @@ but cannot fix automatically (e.g., KubeVirt test changes) — the
 agent handles those in Step 4.
 
 **If autofix is unavailable or skips a repo**, check these
-manually (derive the k8s version from go.mod `k8s.io/api`):
+manually (derive the k8s version from go.mod `k8s.io/api`).
+Skip any item the autofix already committed (`git log --oneline`
+shows autofix commits with "Applied:" in the message):
 - KIND image: `grep -rn 'kindest/node:' . --include='*.sh' --include='*.yaml' --include='*.yml' | grep -v vendor/` — update to `v<k8s-version>`
   (e.g., v1.36.1 for k8s 1.36). Check https://hub.docker.com/r/kindest/node/tags for the latest patch.
 - kubeadm v1beta4: `grep -rn 'extraArgs:' . --include='*.yaml' --include='*.yml' --include='*.sh' | grep -v vendor/` — if the format is `extraArgs:\n    key: value` (flat map), convert to `extraArgs:\n- name: key\n  value: "value"` (list-of-objects). Required for k8s >= 1.31.

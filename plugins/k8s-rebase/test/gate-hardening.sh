@@ -955,10 +955,13 @@ _do_record_one() {
     return 1
   fi
 
-  # Resolve default branch
+  # Resolve and validate default branch
   local default_br
   default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
   : "${default_br:=main}"
+  git -C "$repo" rev-parse --verify "$default_br" &>/dev/null \
+    || git -C "$repo" rev-parse --verify "origin/$default_br" &>/dev/null \
+    || default_br="master"
 
   # Validate branch has commits created AFTER the test was launched.
   # Use the first unique commit (not tip) to handle branches that fork
@@ -972,9 +975,6 @@ _do_record_one() {
       return 1
     fi
   fi
-  git -C "$repo" rev-parse --verify "$default_br" &>/dev/null \
-    || git -C "$repo" rev-parse --verify "origin/$default_br" &>/dev/null \
-    || default_br="master"
 
   # Diff stats vs default branch
   local commits files hunks
