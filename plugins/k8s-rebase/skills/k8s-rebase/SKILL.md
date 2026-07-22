@@ -553,7 +553,8 @@ pressure — these are
 container timing issues, not rebase bugs. The validate
 script automatically limits compiler parallelism (GOMAXPROCS=2)
 for large packages to reduce memory pressure. Cap each agent
-at ~30k test lines. Run 4 sequential agents:
+at ~30k test lines. Example split for ovn-kubernetes (adapt
+paths from discovery output above for other repos):
 ```bash
 # Agent 1: biggest package alone (~56k lines, nohup — takes ~16 min)
 nohup bash "$SCRIPT" --test-only ./pkg/ovn > .rebase-tmp/test-ovn.log 2>&1 &
@@ -565,8 +566,7 @@ bash "$SCRIPT" --test-only ./pkg/clustermanager/...
 bash "$SCRIPT" --test-only ./pkg/util/... ./pkg/factory/... ./pkg/cni/...
 ```
 
-**32GB+ RAM:** run 3 agents in parallel, including the biggest
-via nohup:
+**32GB+ RAM:** example parallel split for ovn-kubernetes:
 ```bash
 # Agent 1: biggest package alone (nohup — takes 10-30+ min)
 nohup bash "$SCRIPT" --test-only ./pkg/ovn > .rebase-tmp/test-ovn.log 2>&1 &
