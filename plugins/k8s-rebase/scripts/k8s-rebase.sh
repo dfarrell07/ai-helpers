@@ -805,8 +805,14 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   # Go 1.26 images may only exist for openshift-5.0, not 4.22.
   if grep -q "golang-${NEW_GO_SHORT}.*openshift-" .ci-operator.yaml 2>/dev/null; then
     old_ocp=$(grep -oE 'openshift-[0-9.]+' .ci-operator.yaml | head -1 | sed 's/openshift-//' || true)
-    repo_name=$(basename "$REPO_ROOT")
-    repo_org=$(basename "$(dirname "$REPO_ROOT")")
+    _remote_url=$(git remote get-url origin 2>/dev/null || true)
+    if [[ -n "$_remote_url" ]]; then
+      repo_org=$(echo "$_remote_url" | sed 's|.*github\.com[:/]\([^/]*\)/.*|\1|')
+      repo_name=$(echo "$_remote_url" | sed 's|.*github\.com[:/][^/]*/\(.*\)|\1|; s|\.git$||')
+    else
+      repo_name=$(basename "$REPO_ROOT")
+      repo_org=$(basename "$(dirname "$REPO_ROOT")")
+    fi
     target_ocp=""
     # Detect OCP target from openshift/release ci-operator config
     for branch in master main; do
