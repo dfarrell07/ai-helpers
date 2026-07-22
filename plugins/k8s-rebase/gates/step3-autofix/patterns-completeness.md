@@ -37,7 +37,7 @@ PATH B — Script says BUILD-FAIL or NEW_ISSUES > 0:
    (these compile fine but may be semantically wrong).
 
 4. If a patterns doc exists, cross-reference:
-   `find "$HOME/.claude" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1`
+   `find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1`
    If found, read it and check any pattern not covered by
    sibling gates. If not found, rely on steps 1-3 above.
 
@@ -74,9 +74,15 @@ The repo path is the first line of your prompt:
 
 ```bash
 REPO="<the repo path from the first line of your prompt>"
-bash "$(find "$HOME/.claude" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
-  "$REPO" step3-patterns-completeness PASS 0 "your one-line summary" \
-  "detail line 1" "detail line 2"
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+if [ -n "$SCRIPT" ]; then
+  bash "$SCRIPT" "$REPO" step3-patterns-completeness PASS 0 "your one-line summary" \
+    "detail line 1" "detail line 2"
+else
+  mkdir -p "$REPO/.rebase-tmp/gates"
+  printf 'VERDICT: PASS\nISSUES: 0\nSUMMARY: your one-line summary\nDETAILS:\ndetail line 1\ndetail line 2\n' \
+    > "$REPO/.rebase-tmp/gates/step3-patterns-completeness.report"
+fi
 ```
 
 Use PASS, FAIL, or SKIP as the verdict. Replace the summary and
