@@ -365,6 +365,14 @@ write to summary.txt (that file comes from the validate script).
 FAIL is normal when the repo has patterns the autofix documents
 but cannot fix automatically (e.g., KubeVirt test changes) — the
 agent handles those in Step 4.
+
+**If autofix is unavailable or skips a repo**, check these
+manually (derive the k8s version from go.mod `k8s.io/api`):
+- KIND image: `grep -rn 'kindest/node:' . --include='*.sh' --include='*.yaml' | grep -v vendor/` — update to `v<k8s-version>`
+  (e.g., v1.36.1 for k8s 1.36). Check https://hub.docker.com/r/kindest/node/tags for the latest patch.
+- kubeadm v1beta4: `grep -rn 'extraArgs:' . --include='*.yaml' --include='*.sh' | grep -v vendor/` — if the format is `extraArgs:\n    key: value` (flat map), convert to `extraArgs:\n- name: key\n  value: "value"` (list-of-objects). Required for k8s >= 1.31.
+- Feature gate exports: `grep -rn 'KUBE_FEATURE_' . --include='*.sh' | grep -v vendor/` — check the rebase script output for new default-true gates. Add `export KUBE_FEATURE_<name>=false` to `hack/test-go.sh` if the repo's tests use fake clientsets with informers.
+
 **Verify the script actually ran** — if the output is empty or
 the script wasn't found, the autofix was skipped and all its
 fixes are missing. If the autofix reports PASS with no commits,
