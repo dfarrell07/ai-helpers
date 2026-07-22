@@ -150,7 +150,7 @@ session_for_repo() {
 
 find_newest_branch() {
   local repo="$1"
-  cd "$repo" 2>/dev/null || return 1
+  (cd "$repo" 2>/dev/null || return 1
   local wt_line
   wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
   if [[ -n "$wt_line" ]]; then
@@ -158,7 +158,7 @@ find_newest_branch() {
     wt_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
     [[ -n "$wt_branch" ]] && { echo "$wt_branch"; return 0; }
   fi
-  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1 || true
+  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1 || true)
 }
 
 reset_to_default() {
