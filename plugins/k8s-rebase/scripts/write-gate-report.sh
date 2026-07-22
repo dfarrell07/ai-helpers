@@ -27,4 +27,6 @@ mkdir -p "$REPO/.rebase-tmp/gates"
   for detail in "$@"; do
     echo "$detail"
   done
-} > "$REPO/.rebase-tmp/gates/${GATE_NAME}.report"
+} > "$REPO/.rebase-tmp/gates/${GATE_NAME}.report.tmp"
+mv "$REPO/.rebase-tmp/gates/${GATE_NAME}.report.tmp" \
+   "$REPO/.rebase-tmp/gates/${GATE_NAME}.report"
