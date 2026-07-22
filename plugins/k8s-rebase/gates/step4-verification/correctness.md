@@ -1,18 +1,24 @@
-Read the full diff against the base branch. Count REMAINING
-problems in the final code (not what was changed — what's wrong
-NOW):
-1. Changes not required by the rebase. Valid changes include:
-   version bumps, type conversions, API renames, format string
-   fixes, import reordering, codegen output, feature gates,
-   deprecated API migrations, dead code removal from stricter
-   linters, and any pattern documented in the patterns doc
-   (find k8s-rebase-patterns.md). Anything else is suspect.
-2. Format strings with wrong verbs (e.g., %d for a string)
-   in the CURRENT code, not in the diff of what was fixed.
-3. Eventf calls missing format directives (bare .Error() args)
-   in the CURRENT code.
+Review each fix commit individually. For every non-vendor commit
+on the rebase branch, run `git show <hash>` and verify:
 
-Report all three counts. Count 0 means no remaining issues.
+1. The change is required by the rebase. Valid changes: version
+   bumps, type conversions, API renames, format string fixes,
+   import reordering, codegen output, feature gates, deprecated
+   API migrations, dead code removal from stricter linters, and
+   any pattern documented in the patterns doc (find
+   k8s-rebase-patterns.md). Anything else is suspect.
+2. The fix is semantically correct — not just compilable. Check
+   that replaced types/functions have the same behavior, that
+   error handling is preserved, and format verbs match argument
+   types.
+3. No collateral damage — the commit doesn't accidentally modify
+   unrelated code (e.g., a sed command with too-broad a pattern).
+
+Then scan the CURRENT code for remaining issues:
+4. Format strings with wrong verbs (e.g., %d for a string).
+5. Eventf calls missing format directives (bare .Error() args).
+
+Report per-commit findings and current-code scan results.
 
 MANDATORY pre-existing check — run for EVERY finding:
 
