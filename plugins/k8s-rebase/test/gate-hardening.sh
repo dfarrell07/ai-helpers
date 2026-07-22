@@ -312,7 +312,7 @@ cmd_compare() {
 
   local diff_output diff_nonvendor
   diff_output=$(git diff "$result_branch" "$known_good" -- . ':!.rebase-tmp' 2>/dev/null)
-  diff_nonvendor=$(git diff "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':!vendor' 2>/dev/null)
+  diff_nonvendor=$(git diff "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
 
   if [[ -z "$diff_output" ]]; then
     info "PASS: branches are identical (excluding .rebase-tmp)"
@@ -328,7 +328,7 @@ cmd_compare() {
   hunk_count=$(echo "$diff_nonvendor" | grep -c '^@@' || true)
   vendor_hunks=$(echo "$diff_output" | grep -c '^@@' || true)
   vendor_hunks=$((vendor_hunks - hunk_count))
-  diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':!vendor' 2>/dev/null)
+  diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
   [[ "$vendor_hunks" -gt 0 ]] && info "Note: $vendor_hunks vendor-only hunks excluded from analysis"
   info "Diff: $hunk_count hunks"
   echo "$diff_stat"
@@ -1010,7 +1010,7 @@ _do_record_one() {
   elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* && -f "$kg_file" ]] && [[ "$verdict" == "FAIL" || "$verdict" == "DONE" ]]; then
     # Check non-vendor hunks (ignore vendor churn from go mod tidy)
     local _nv_hunks
-    _nv_hunks=$(git -C "$repo" diff "$result_branch" "$(cat "$kg_file")" -- . ':!.rebase-tmp' ':!vendor' 2>/dev/null | grep -c '^@@' || true)
+    _nv_hunks=$(git -C "$repo" diff "$result_branch" "$(cat "$kg_file")" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
     if [[ "$_nv_hunks" -le 30 ]]; then
       kg_note="${kg_note}(code-correct:${_nv_hunks}h-nonvendor)"
       verdict="PASS"
