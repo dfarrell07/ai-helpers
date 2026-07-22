@@ -148,10 +148,6 @@ session_for_repo() {
 
 # ── Session Commands ───────────────────────────────────────────────────
 
-list_bump_branches() {
-  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V || true
-}
-
 find_newest_branch() {
   local repo="$1"
   cd "$repo" 2>/dev/null || return 1
@@ -162,7 +158,7 @@ find_newest_branch() {
     wt_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
     [[ -n "$wt_branch" ]] && { echo "$wt_branch"; return 0; }
   fi
-  list_bump_branches | tail -1
+  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1 || true
 }
 
 reset_to_default() {
@@ -750,11 +746,10 @@ FILES: $diff_stat"
 # ── Results Display ────────────────────────────────────────────────────
 
 cmd_results() {
-  local repo="" court=false md=false
+  local repo="" court=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --court) court=true ;;
-      --md) md=true ;;
       *) repo="$1" ;;
     esac; shift
   done
@@ -882,7 +877,7 @@ Usage: $(basename "$0") <command> [args...]
 Commands:
   test-all [--version X.Y.Z]        Run core suite (all 6 repos, batches of $MAX_CONCURRENT)
   test <spec> <repo> [--version]    Run specific test case
-  results [repo] [--court] [--md]   Show results matrix or deep-dive one repo
+  results [repo] [--court]          Show results matrix or deep-dive one repo
   set-known-good <repo> <branch>    Set reference branch for comparison
   stop [repo...|--all]              Stop running test sessions
   clean [repos...]                  Cleanup worktrees and containers
