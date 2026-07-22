@@ -335,9 +335,10 @@ Gate files:
 
 Count gates must report 0. Judge gates must cite evidence.
 Investigate all concerns before proceeding. If you fix a step2
-issue, delete the stale gate report before proceeding:
-`rm .rebase-tmp/gates/<gate-name>.report` — otherwise auto-record
-sees the old FAIL and marks the entire run as failed.
+issue, delete the stale gate report and re-run the gate:
+`rm .rebase-tmp/gates/<gate-name>.report` then re-launch the
+gate subagent to verify the fix. Otherwise auto-record sees
+the old FAIL and marks the entire run as failed.
 
 **When all step2 gates pass, proceed to Step 3 immediately.**
 Do NOT stop after step2 — Steps 3-5 are mandatory even if step2

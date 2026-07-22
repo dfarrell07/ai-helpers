@@ -63,6 +63,7 @@ export GOWORK=off
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
 mkdir -p "$REBASE_TMP"
 GIT_DIR=$(git -C "$REPO_ROOT" rev-parse --git-dir 2>/dev/null)
+mkdir -p "$GIT_DIR/info" 2>/dev/null || true
 if [[ -d "$GIT_DIR/info" ]]; then
   grep -qF '.rebase-tmp' "$GIT_DIR/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$GIT_DIR/info/exclude"
   grep -qF '.gitconfig' "$GIT_DIR/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$GIT_DIR/info/exclude"
