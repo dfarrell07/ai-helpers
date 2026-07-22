@@ -1,9 +1,0 @@
-2026-07-20T01:45:47Z	fn:fieldsv1	ovn-kubernetes/ovn-kubernetes-mcp	DONE	2c gates:1/1(incomplete) diff-vs-known-good:3h
----GATE-REPORTS---
-=== step4-build-vet-recheck ===
-VERDICT: PASS
-ISSUES: 0
-SUMMARY: go build and go vet both pass with 0 errors using golang:1.26.0 in podman
-DETAILS:
-Build: go build ./... exit code 0 (no errors). Vet: go vet ./... exit code 0 (no errors). Tested with Go 1.26.0 in podman container (golang:1.26.0 image). Single Go module at repo root with vendored dependencies. First vet run showed transient permission-denied errors due to concurrent podman containers competing for the same :Z volume mount (SELinux relabeling conflicts); clean second run confirmed 0 actual vet issues.
-
