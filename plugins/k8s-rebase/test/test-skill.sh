@@ -51,14 +51,13 @@ default_branch() {
 _SESSION_CACHE=""
 _SESSION_CACHE_OK=false
 
-build_session_cache() {
-  _SESSION_CACHE_OK=false
-  _SESSION_CACHE=$(timeout 10 claude agents --json 2>/dev/null | python3 -c "
+_SESSION_PARSER=$(cat <<'PYEOF'
 import json, sys, time, os
 try:
     data = json.load(sys.stdin)
     if not isinstance(data, list): sys.exit(0)
 except (json.JSONDecodeError, ValueError): sys.exit(0)
+idle_max = int(sys.argv[1]) if len(sys.argv) > 1 else 120
 now = time.time() * 1000
 for s in data:
     try:
@@ -74,7 +73,7 @@ for s in data:
         sid = s.get('id') or full_sid[:8]
         started = s.get('startedAt', 0)
         elapsed = max(0, int((now - started) / 60000)) if started else 0
-        if st == 'done' and pid and int(pid) > 0 and elapsed < $IDLE_TIMEOUT_MIN:
+        if st == 'done' and pid and int(pid) > 0 and elapsed < idle_max:
             try:
                 os.kill(int(pid), 0)
                 st = 'idle'
@@ -82,35 +81,18 @@ for s in data:
             except PermissionError: st = 'idle'
         print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
     except (TypeError, ValueError): pass
-" 2>/dev/null || true)
+PYEOF
+)
+
+build_session_cache() {
+  _SESSION_CACHE_OK=false
+  _SESSION_CACHE=$(timeout 10 claude agents --json 2>/dev/null \
+    | python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
   if [[ -n "$_SESSION_CACHE" ]]; then
     _SESSION_CACHE_OK=true
   else
-    # Retry: rebuild cache (not just probe) in case of transient failure
-    _SESSION_CACHE=$(timeout 5 claude agents --json 2>/dev/null | python3 -c "
-import json, sys, time, os
-try:
-    data = json.load(sys.stdin)
-    if not isinstance(data, list): sys.exit(0)
-except (json.JSONDecodeError, ValueError): sys.exit(0)
-now = time.time() * 1000
-for s in data:
-    try:
-        cwd = s.get('cwd', '')
-        raw_state = s.get('state'); raw_status = s.get('status')
-        st = raw_status if raw_state == 'working' and raw_status in ('idle', 'done') else (raw_state or raw_status or '?')
-        pid = s.get('pid') or '0'
-        sid = s.get('id') or s.get('sessionId', '?')[:8]
-        full_sid = s.get('sessionId', '?')
-        started = s.get('startedAt', 0)
-        elapsed = max(0, int((now - started) / 60000)) if started else 0
-        if st == 'done' and pid and int(pid) > 0 and elapsed < $IDLE_TIMEOUT_MIN:
-            try: os.kill(int(pid), 0); st = 'idle'
-            except (ProcessLookupError, ValueError): pass
-            except PermissionError: st = 'idle'
-        print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
-    except (TypeError, ValueError): pass
-" 2>/dev/null || true)
+    _SESSION_CACHE=$(timeout 5 claude agents --json 2>/dev/null \
+      | python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
     if [[ -n "$_SESSION_CACHE" ]]; then
       _SESSION_CACHE_OK=true
     elif timeout 3 claude agents --json &>/dev/null; then
@@ -692,7 +674,7 @@ $preexisting"
     info "Small diff — single classifier"
     local out=$(printf '%s\n%s\n%s\n\n%s\n\nClassify each difference. End with VERDICT: PASS or FAIL' \
       "$direction" "$preexisting" "$diff_stat" "$diff_nv" \
-      | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
+      | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
     local v=$(echo "$out" | grep -oE 'VERDICT: (PASS|FAIL)' | tail -1)
     echo "$out" | tail -10
     case "$v" in "VERDICT: PASS") info "PASS";; "VERDICT: FAIL") error "FAIL"; return 1;; *) error "INCONCLUSIVE"; return 1;; esac
@@ -715,10 +697,10 @@ FILES: $diff_stat"
 
   info "Phase A: Prosecution + Defense..."
   printf '%s\n\nYou are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.' "$context" \
-    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>/dev/null &
+    | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>/dev/null &
   local p1=$!
   printf '%s\n\nYou are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.' "$context" \
-    | claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>/dev/null &
+    | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>/dev/null &
   local p2=$!
   wait "$p1" "$p2" 2>/dev/null || true
   local pros=$(cat "$cdir/pros.txt") def=$(cat "$cdir/def.txt")
@@ -726,14 +708,14 @@ FILES: $diff_stat"
 
   info "Phase B: Judge..."
   local judge=$(printf 'PROSECUTION:\n%s\n\nDEFENSE:\n%s\n\nDIFF:\n%s\n\nFact-check only. Strike unsupported claims. No verdict.' \
-    "$pros" "$def" "$diff_nv" | claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
+    "$pros" "$def" "$diff_nv" | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
   echo "$judge" > "$cdir/judge.txt"
 
   info "Phase C: Jury (3 votes, parallel)..."
   local jury_prompt=$(printf 'DIFF:\n%s\n\nPROSECUTION:\n%s\n\nDEFENSE:\n%s\n\nJUDGE:\n%s\n\nVote: VERDICT: PASS or FAIL. One sentence.' \
     "$diff_nv" "$pros" "$def" "$judge")
   for j in 1 2 3; do
-    printf '%s' "$jury_prompt" | claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>/dev/null &
+    printf '%s' "$jury_prompt" | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>/dev/null &
   done
   wait 2>/dev/null || true
 
@@ -762,7 +744,7 @@ cmd_results() {
   done
 
   # Auto-record completed runs first
-  auto_record 2>/dev/null
+  auto_record
 
   if [[ -n "$repo" ]]; then
     # Single-repo deep-dive
