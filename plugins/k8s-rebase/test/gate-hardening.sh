@@ -857,8 +857,13 @@ except: sys.exit(0)
 now = time.time() * 1000
 for s in data:
     cwd = s.get('cwd', '')
-    st = s.get('state') or s.get('status') or '?'
-    pid = s.get('pid', '')
+    raw_state = s.get('state')
+    raw_status = s.get('status')
+    if raw_state == 'working' and raw_status in ('idle', 'done'):
+        st = raw_status
+    else:
+        st = raw_state or raw_status or '?'
+    pid = s.get('pid') or '0'
     started = s.get('startedAt', 0)
     elapsed = max(0, int((now - started) / 60000)) if started else 0
     # Guard against false 'done': bg sessions report state=done while

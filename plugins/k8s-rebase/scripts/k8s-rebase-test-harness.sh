@@ -186,7 +186,13 @@ now = time.time() * 1000
 for s in data:
     try:
         cwd = s.get('cwd', '')
-        st = s.get('state') or s.get('status') or '?'
+        raw_state = s.get('state')
+        raw_status = s.get('status')
+        # Prefer status when it contradicts state (status is runtime truth)
+        if raw_state == 'working' and raw_status in ('idle', 'done'):
+            st = raw_status
+        else:
+            st = raw_state or raw_status or '?'
         pid = s.get('pid') or '0'
         full_sid = s.get('sessionId', '?')
         sid = s.get('id') or full_sid[:8]
