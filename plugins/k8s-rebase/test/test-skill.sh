@@ -526,7 +526,11 @@ _do_record_one() {
     # Worktree exists but gates dir doesn't — run is in progress, don't fall back to stale repo-root data
     gate_dir=""
   else
-    [[ -d "$gate_dir" ]] || gate_dir="$repo/.rebase-tmp/gates"
+    if [[ -n "$wt_path" ]]; then
+      : # worktree exists — only use its gates, don't fall back to stale repo root
+    else
+      gate_dir="$repo/.rebase-tmp/gates"
+    fi
   fi
   if [[ -d "$gate_dir" ]]; then
     local gtotal=0 gpass=0 gfail=0 gskip=0
@@ -757,15 +761,18 @@ cmd_results() {
     local short=$(repo_short "$repo")
     cd "$repo" || die "Cannot cd to $repo"
     local wt=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
-    local gate_dir=""
+    local gate_dir="" wt_in_progress=false
     if [[ -n "$wt" ]]; then
       gate_dir="$wt/.rebase-tmp/gates"
+      [[ ! -d "$gate_dir" ]] && wt_in_progress=true
     else
       gate_dir="$repo/.rebase-tmp/gates"
     fi
 
     echo "── $short ──"
-    if [[ -d "$gate_dir" ]]; then
+    if $wt_in_progress; then
+      echo "Run in progress (worktree exists, gates not yet written)"
+    elif [[ -d "$gate_dir" ]]; then
       local pass=0 fail=0 skip=0 total=0
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue; total=$((total+1))
