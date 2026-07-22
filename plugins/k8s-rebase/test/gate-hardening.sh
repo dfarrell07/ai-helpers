@@ -1005,14 +1005,19 @@ _do_record_one() {
     local kg_branch
     kg_branch=$(cat "$kg_file")
     if git -C "$repo" rev-parse --verify "$kg_branch" &>/dev/null; then
-      local kg_diff
+      local kg_diff kg_diff_nv
       kg_diff=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null)
+      kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
       if [[ -z "$kg_diff" ]]; then
         kg_note="identical-to-known-good"
+      elif [[ -z "$kg_diff_nv" ]]; then
+        kg_note="vendor-only-diff"
       else
-        local kg_hunks
+        local kg_hunks kg_nv_hunks
         kg_hunks=$(echo "$kg_diff" | grep -c '^@@' || true)
-        kg_note="diff-vs-known-good:${kg_hunks}h"
+        kg_nv_hunks=$(echo "$kg_diff_nv" | grep -c '^@@' || true)
+        kg_note="diff-vs-known-good:${kg_nv_hunks}h"
+        [[ "$kg_hunks" -ne "$kg_nv_hunks" ]] && kg_note="${kg_note}(+${kg_hunks}vendor)"
       fi
     fi
   fi
@@ -1021,14 +1026,14 @@ _do_record_one() {
   # Gate subagents sometimes FAIL on pre-existing issues despite filters.
   # The known-good diff is the ground truth — if the code matches or is
   # very close to known-good, the FAIL is gate noise, not a real problem.
-  if [[ "$kg_note" == "identical-to-known-good" ]]; then
+  if [[ "$kg_note" == "identical-to-known-good" || "$kg_note" == "vendor-only-diff" ]]; then
     verdict="PASS"
   elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* && -f "$kg_file" ]] && [[ "$verdict" == "FAIL" || "$verdict" == "DONE" ]]; then
-    # Check non-vendor hunks (ignore vendor churn from go mod tidy)
     local _nv_hunks
-    _nv_hunks=$(git -C "$repo" diff "$result_branch" "$(cat "$kg_file")" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+    _nv_hunks=$(echo "$kg_note" | grep -oE '^diff-vs-known-good:([0-9]+)h' | grep -oE '[0-9]+')
+    : "${_nv_hunks:=999}"
     if [[ "$_nv_hunks" -le 30 ]]; then
-      kg_note="${kg_note}(code-correct:${_nv_hunks}h-nonvendor)"
+      kg_note="${kg_note}(code-correct)"
       verdict="PASS"
     fi
   fi
