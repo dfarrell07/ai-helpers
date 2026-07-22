@@ -1,22 +1,20 @@
-Review each fix commit individually. For every non-vendor commit
-on the rebase branch, run `git show <hash>` and verify:
+This gate owns mechanical correctness checks that other gates
+do NOT cover. Do not duplicate semantic review (logical-consistency
+handles that). Focus on these unique checks:
 
-1. The change is required by the rebase. Valid changes: version
-   bumps, type conversions, API renames, format string fixes,
-   import reordering, codegen output, feature gates, deprecated
-   API migrations, dead code removal from stricter linters, and
-   any pattern documented in the patterns doc (find
-   k8s-rebase-patterns.md). Anything else is suspect.
-2. The fix is semantically correct — not just compilable. Check
-   that replaced types/functions have the same behavior, that
-   error handling is preserved, and format verbs match argument
-   types.
-3. No collateral damage — the commit doesn't accidentally modify
-   unrelated code (e.g., a sed command with too-broad a pattern).
-
-Then scan the CURRENT code for remaining issues:
-4. Format strings with wrong verbs (e.g., %d for a string).
-5. Eventf calls missing format directives (bare .Error() args).
+1. Change classification: For each non-vendor commit on the
+   rebase branch (`git log --oneline <merge-base>..HEAD`),
+   verify the change is required by the rebase. Valid changes:
+   version bumps, type conversions, API renames, format string
+   fixes, import reordering, codegen output, feature gates,
+   deprecated API migrations, dead code removal from stricter
+   linters, and any pattern documented in the patterns doc
+   (find k8s-rebase-patterns.md). Flag anything else as suspect.
+2. Format strings: Scan ALL non-vendor Go files changed in the
+   diff for wrong format verbs (e.g., %d for a string, %s for
+   an int). Run: `git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^\+.*fmt\.\|^\+.*Sprintf\|^\+.*Fprintf\|^\+.*Errorf' | head -30`
+3. Eventf calls: Check for bare .Error() args without format
+   directives. Run: `grep -rn '\.Eventf\|\.Event(' --include='*.go' . | grep -v vendor/ | grep '\.Error()' | head -20`
 
 Report per-commit findings and current-code scan results.
 
