@@ -85,10 +85,39 @@ for s in data:
 " 2>/dev/null || true)
   if [[ -n "$_SESSION_CACHE" ]]; then
     _SESSION_CACHE_OK=true
-  elif timeout 5 claude agents --json &>/dev/null; then
-    _SESSION_CACHE_OK=true
   else
-    warn "claude agents --json failed — session detection unreliable"
+    # Retry: rebuild cache (not just probe) in case of transient failure
+    _SESSION_CACHE=$(timeout 5 claude agents --json 2>/dev/null | python3 -c "
+import json, sys, time, os
+try:
+    data = json.load(sys.stdin)
+    if not isinstance(data, list): sys.exit(0)
+except (json.JSONDecodeError, ValueError): sys.exit(0)
+now = time.time() * 1000
+for s in data:
+    try:
+        cwd = s.get('cwd', '')
+        raw_state = s.get('state'); raw_status = s.get('status')
+        st = raw_status if raw_state == 'working' and raw_status in ('idle', 'done') else (raw_state or raw_status or '?')
+        pid = s.get('pid') or '0'
+        sid = s.get('id') or s.get('sessionId', '?')[:8]
+        full_sid = s.get('sessionId', '?')
+        started = s.get('startedAt', 0)
+        elapsed = max(0, int((now - started) / 60000)) if started else 0
+        if st == 'done' and pid and int(pid) > 0 and elapsed < $IDLE_TIMEOUT_MIN:
+            try: os.kill(int(pid), 0); st = 'idle'
+            except (ProcessLookupError, ValueError): pass
+            except PermissionError: st = 'idle'
+        print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
+    except (TypeError, ValueError): pass
+" 2>/dev/null || true)
+    if [[ -n "$_SESSION_CACHE" ]]; then
+      _SESSION_CACHE_OK=true
+    elif timeout 3 claude agents --json &>/dev/null; then
+      _SESSION_CACHE_OK=true
+    else
+      warn "claude agents --json failed — session detection unreliable"
+    fi
   fi
 }
 
@@ -783,7 +812,7 @@ cmd_results() {
     # Recent results for this repo
     echo ""
     echo "Recent results:"
-    grep -F "$short" "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts spec r verdict detail; do
+    awk -F'\t' -v r="$short" '$3==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts spec r verdict detail; do
       printf "  %-22s %-8s %s\n" "$ts" "$verdict" "$detail"
     done
     return 0
@@ -809,13 +838,23 @@ cmd_results() {
 
     # Overall verdict
     echo ""
-    local all_pass=true
+    local all_pass=true any_untested=false
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
-      local latest=$(grep -F "$short" "$tsv" | awk -F'\t' '$2~/^all/' | tail -1 | cut -f4)
-      [[ "$latest" != "PASS" && -n "$latest" ]] && all_pass=false
+      local latest=$(awk -F'\t' -v r="$short" '$3==r && $2~/^all/' "$tsv" | tail -1 | cut -f4)
+      if [[ -z "$latest" ]]; then
+        any_untested=true
+      elif [[ "$latest" != "PASS" ]]; then
+        all_pass=false
+      fi
     done
-    $all_pass && echo "OVERALL: PASS" || echo "OVERALL: some repos need attention"
+    if $all_pass && ! $any_untested; then
+      echo "OVERALL: PASS (all repos)"
+    elif $all_pass && $any_untested; then
+      echo "OVERALL: PASS (tested repos) — some untested"
+    else
+      echo "OVERALL: FAIL — some repos need attention"
+    fi
   fi
 }
 
