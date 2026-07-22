@@ -533,11 +533,14 @@ cmd_clean() {
     cleaned=$((cleaned + before - after))
   done
 
-  # Clean stopped containers from containerized builds
+  # Clean stopped containers from containerized builds (only k8s-rebase ones)
   if command -v podman &>/dev/null; then
-    local pruned
-    pruned=$(podman container prune -f 2>/dev/null | grep -c 'deleted' || true)
-    [[ "$pruned" -gt 0 ]] && info "Pruned $pruned stopped containers"
+    local pruned=0
+    while IFS= read -r cid; do
+      [[ -z "$cid" ]] && continue
+      podman rm "$cid" &>/dev/null && pruned=$((pruned + 1))
+    done < <(podman ps -a --filter status=exited --filter name=k8s-rebase --format '{{.ID}}' 2>/dev/null)
+    [[ "$pruned" -gt 0 ]] && info "Pruned $pruned stopped k8s-rebase containers"
   fi
 
   [[ "$cleaned" -eq 0 ]] && info "Nothing to clean"
