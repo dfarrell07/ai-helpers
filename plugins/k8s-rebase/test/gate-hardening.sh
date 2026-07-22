@@ -955,6 +955,11 @@ _do_record_one() {
     return 1
   fi
 
+  # Resolve default branch
+  local default_br
+  default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+  : "${default_br:=main}"
+
   # Validate branch has commits created AFTER the test was launched.
   # Use the first unique commit (not tip) to handle branches that fork
   # from old base commits but have new rebase-specific work.
@@ -967,11 +972,6 @@ _do_record_one() {
       return 1
     fi
   fi
-
-  # Resolve default branch
-  local default_br
-  default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-  : "${default_br:=main}"
   git -C "$repo" rev-parse --verify "$default_br" &>/dev/null \
     || git -C "$repo" rev-parse --verify "origin/$default_br" &>/dev/null \
     || default_br="master"
