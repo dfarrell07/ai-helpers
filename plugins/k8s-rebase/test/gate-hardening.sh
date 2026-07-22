@@ -1159,7 +1159,7 @@ cmd_auto_record() {
       # the session process is still alive (lingering bg process).
       local _wt_path _gate_count=0 _expected_gates
       _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
-      : "${_expected_gates:=33}"
+      [[ "$_expected_gates" -lt 1 ]] && _expected_gates=33
       _wt_path=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
       [[ -n "$_wt_path" && -d "$_wt_path/.rebase-tmp/gates" ]] \
         && _gate_count=$(ls "$_wt_path/.rebase-tmp/gates"/*.report 2>/dev/null | wc -l)
