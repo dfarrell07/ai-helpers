@@ -1155,14 +1155,16 @@ cmd_auto_record() {
 
     # Still running? Check session state first, then gate completion as override.
     if _is_session_active "$short" "$_ar_cache"; then
-      # Override: if all 33 gates are done, the run is complete even if
+      # Override: if all gates are done, the run is complete even if
       # the session process is still alive (lingering bg process).
-      local _wt_path _gate_count=0
+      local _wt_path _gate_count=0 _expected_gates
+      _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+      : "${_expected_gates:=33}"
       _wt_path=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
       [[ -n "$_wt_path" && -d "$_wt_path/.rebase-tmp/gates" ]] \
         && _gate_count=$(ls "$_wt_path/.rebase-tmp/gates"/*.report 2>/dev/null | wc -l)
-      if [[ "$_gate_count" -ge 33 ]]; then
-        info "Gate-complete override: $spec on $short (all $_gate_count gates done, session still alive)"
+      if [[ "$_gate_count" -ge "$_expected_gates" ]]; then
+        info "Gate-complete override: $spec on $short (all $_gate_count/$_expected_gates gates done, session still alive)"
       else
         skipped_active=$((skipped_active + 1))
         info "SKIP (active): $spec on $short"

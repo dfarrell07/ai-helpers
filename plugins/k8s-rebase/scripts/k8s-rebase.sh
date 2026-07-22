@@ -42,7 +42,7 @@ banner() { echo ""; echo "━━━━ $* ━━━━"; echo ""; }
 _detect_commit_style() {
   [[ -n "${_COMMIT_STYLE:-}" ]] && return
   for _contrib in "$REPO_ROOT/docs/governance/CONTRIBUTING.md" "$REPO_ROOT/CONTRIBUTING.md"; do
-    if [[ -f "$_contrib" ]] && grep -qi 'prefixed with\|prefix.*component\|subcomponent:' "$_contrib" 2>/dev/null; then
+    if [[ -f "$_contrib" ]] && grep -qi 'prefixed with\|prefix.*component\|subcomponent:\|<area>:' "$_contrib" 2>/dev/null; then
       _COMMIT_STYLE="prefix"
       return
     fi
