@@ -580,7 +580,7 @@ SKIP_MERGE_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null \
   || git -C "$REPO_ROOT" merge-base HEAD main 2>/dev/null \
   || echo "HEAD~20")
 
-SKIP_HITS=$(git -C "$REPO_ROOT" diff "$SKIP_MERGE_BASE"..HEAD -- '*.go' ':!vendor/' \
+SKIP_HITS=$(git -C "$REPO_ROOT" diff "$SKIP_MERGE_BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' \
   | grep -E '^\+.*\bt\.Skip[f]?\s*\(|^\+.*\bginkgo\.Skip[f]?\s*\(|^\+.*\be2eskipper\.Skip[f]?\s*\(|^\+.*\bskipper\.Skip[f]?\s*\(' \
   || true)
 

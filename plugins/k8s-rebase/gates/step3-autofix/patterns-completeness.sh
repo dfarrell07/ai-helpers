@@ -36,14 +36,14 @@ done
 echo ""
 echo "=== Import consistency ==="
 # Check for stale imports (old version when new exists)
-changed_imports=$(git diff "$BASE"..HEAD -- '*.go' ':!vendor/' 2>/dev/null \
+changed_imports=$(git diff "$BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' 2>/dev/null \
   | grep '^[+-].*"' | grep -v '^\+\+\+\|^---' | grep -cE 'k8s\.io/|sigs\.k8s\.io/' || true)
 echo "Changed k8s imports: $changed_imports"
 
 echo ""
 echo "=== Pre-existing check for changed Go files ==="
 # For each Go file changed in the rebase, verify changes are intentional
-changed_go=$(git diff --name-only "$BASE"..HEAD -- '*.go' ':!vendor/' 2>/dev/null | wc -l)
+changed_go=$(git diff --name-only "$BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' 2>/dev/null | wc -l)
 echo "Go files changed (non-vendor): $changed_go"
 # No per-file pre-existing check here — the build check above is
 # the mechanical gate. Per-file analysis is the subagent's job.

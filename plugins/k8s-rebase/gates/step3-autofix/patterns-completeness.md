@@ -24,7 +24,7 @@ PATH B — Script says BUILD-FAIL or NEW_ISSUES > 0:
    each error with file:line.
 
 2. Import consistency:
-   `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- '*.go' ':!vendor/' | grep '^[+-].*"' | grep -v '^\+\+\+\|^---'`
+   `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^[+-].*"' | grep -v '^\+\+\+\|^---'`
    Check if any import was added that has a newer version in
    vendor/ (e.g., importing v1 when vendor has v2).
 
