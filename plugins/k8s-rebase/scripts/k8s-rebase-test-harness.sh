@@ -219,7 +219,42 @@ for s in data:
   if [[ -n "$_session_cache" ]]; then
     _session_cache_ok=true
   else
-    if timeout 5 claude agents --json &>/dev/null; then
+    # Empty cache: retry to distinguish "zero sessions" from "CLI failed."
+    # Rebuild the cache (not just a probe) so _session_cache has data if
+    # the first attempt was a transient failure.
+    _session_cache=$(timeout 5 claude agents --json 2>/dev/null | python3 -c "
+import json, sys, time, os
+try:
+    data = json.load(sys.stdin)
+    if not isinstance(data, list): sys.exit(0)
+except (json.JSONDecodeError, ValueError): sys.exit(0)
+now = time.time() * 1000
+for s in data:
+    try:
+        cwd = s.get('cwd', '')
+        raw_state = s.get('state')
+        raw_status = s.get('status')
+        if raw_state == 'working' and raw_status in ('idle', 'done'):
+            st = raw_status
+        else:
+            st = raw_state or raw_status or '?'
+        pid = s.get('pid') or '0'
+        full_sid = s.get('sessionId', '?')
+        sid = s.get('id') or full_sid[:8]
+        started = s.get('startedAt', 0)
+        elapsed = max(0, int((now - started) / 60000)) if started else 0
+        if st == 'done' and pid and int(pid) > 0 and elapsed < 120:
+            try:
+                os.kill(int(pid), 0)
+                st = 'idle'
+            except (ProcessLookupError, ValueError): pass
+            except PermissionError: st = 'idle'
+        print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
+    except (TypeError, ValueError): pass
+" 2>/dev/null || true)
+    if [[ -n "$_session_cache" ]]; then
+      _session_cache_ok=true
+    elif timeout 3 claude agents --json &>/dev/null; then
       _session_cache_ok=true
     else
       warn "claude agents --json failed — session detection unreliable"
