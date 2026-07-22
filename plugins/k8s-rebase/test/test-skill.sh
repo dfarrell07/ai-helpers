@@ -419,7 +419,8 @@ mutate_plugin() {
 # ── Test Execution ─────────────────────────────────────────────────────
 
 _repo_from_key() {
-  local key="$1" org="${key%%_*}" name="${key#*_}"
+  local key="$1"
+  local org="${key%%_*}" name="${key#*_}"
   local path="$HOME/ovnk/$org/$name"
   [[ -d "$path" ]] && { echo "$path"; return 0; }
   return 1
@@ -461,6 +462,10 @@ cmd_test() {
   local _repo_key
   _repo_key=$(repo_short "$repo" | tr '/' '_')
   mkdir -p "$_state_dir/running" "$_state_dir/done"
+  # Remove old done file so auto_record can re-record this test
+  local _done_key="${specs[*]}"
+  _done_key="${_done_key//[:\/\ ]/_}_$_repo_key"
+  [[ -f "$_state_dir/done/$_done_key" ]] && rm -f "$_state_dir/done/$_done_key"
   local _prev_running=""
   [[ -f "$_state_dir/running/$_repo_key" ]] && _prev_running=$(cat "$_state_dir/running/$_repo_key")
   printf '%s\t%s\n' "${specs[*]}" "$(date +%s)" > "$_state_dir/running/$_repo_key"
@@ -621,7 +626,8 @@ auto_record() {
     [[ "$launch_epoch" =~ ^[0-9]+$ ]] || launch_epoch=0
     [[ -z "$spec" ]] && { rm -f "$running_file"; continue; }
 
-    local repo=$(_repo_from_key "$repo_key") || true
+    local repo
+    repo=$(_repo_from_key "$repo_key") || true
     [[ -z "$repo" || ! -d "$repo" ]] && continue
     local short=$(repo_short "$repo")
     local done_key="${spec//[:\/\ ]/_}_$repo_key"
