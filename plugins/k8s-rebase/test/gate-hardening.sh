@@ -348,6 +348,8 @@ cmd_compare() {
     [[ -n "$mutation_context" ]] && fast_context="$fast_context
 MUTATION: The result branch was produced with this knowledge REMOVED: $mutation_context"
     fast_context="$fast_context
+DIFF DIRECTION: '-' lines are in RESULT but not known-good. '+' lines are in
+known-good but not result. 'deleted file' = exists in result, not known-good.
 A difference is a REGRESSION only if the result branch introduced a NEW problem.
 Pre-existing issues (already present on the base/main branch before the rebase)
 that the known-good optionally cleaned up are EQUIVALENT — the result branch is
@@ -393,6 +395,15 @@ issue is pre-existing. Only FAIL for genuinely new regressions.
 "
   local context="Diff between result branch ($result_branch) and known-good branch ($known_good):
 ${mutation_note}
+
+DIFF DIRECTION: This is 'git diff $result_branch $known_good'.
+Lines prefixed with '-' are in the RESULT branch but NOT in the known-good.
+Lines prefixed with '+' are in the KNOWN-GOOD but NOT in the result branch.
+'deleted file' means the file EXISTS in the result but NOT in the known-good.
+'new file' means the file EXISTS in the known-good but NOT in the result.
+A regression is when the result branch is WORSE than the pre-rebase base — NOT
+when it differs from known-good. The known-good may have changes the result
+branch doesn't, and that's fine if the result is still correct.
 
 DIFF (non-vendor — vendor-only changes excluded for token budget):
 $diff_nonvendor
