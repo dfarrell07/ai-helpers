@@ -375,7 +375,9 @@ derive_go_gets() {
 rebase_module() {
   local module_dir="$1"
   local module_path="$module_dir"
-  [[ "$module_path" == "." ]] && module_path=$(basename "$REPO_ROOT")
+  if [[ "$module_path" == "." ]]; then
+    module_path=$(git -C "$REPO_ROOT" remote get-url origin 2>/dev/null | sed 's|.*/||;s|\.git$||' || basename "$REPO_ROOT")
+  fi
   local gomod="${REPO_ROOT}/${module_dir}/go.mod"
 
   [[ -f "$gomod" ]] || { info "No go.mod at $gomod, skipping"; return 0; }

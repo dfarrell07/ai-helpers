@@ -472,6 +472,14 @@ adding per-line `//nolint:errcheck` directives. Use
 default linter set — `default: none` silently disables linters
 that would otherwise run.
 
+**Staticcheck suppressions:** When staticcheck flags deprecated
+API calls that cannot be fixed in this rebase (e.g., the
+replacement is not yet available in vendored deps), use selective
+suppressions — either `//nolint:staticcheck` on the specific
+line, or `exclude-rules` in `.golangci.yml` with the check code
+and text pattern. Never disable staticcheck entirely — selective
+suppressions preserve coverage for other checks.
+
 **Nilness dead code:** The bumped golangci-lint catches `if err
 != nil` blocks where err is guaranteed nil. Remove the entire
 dead block. Do not simplify or restructure.
