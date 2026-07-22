@@ -265,6 +265,13 @@ cmd_without() {
   local _repo_key
   _repo_key=$(repo_short "$repo" | tr '/' '_')
   mkdir -p "$_state_dir/running" "$_state_dir/done"
+
+  # Save and restore the running file if launch fails — a previous run's
+  # tracking must not be destroyed by a failed re-launch attempt.
+  local _prev_running=""
+  [[ -f "$_state_dir/running/$_repo_key" ]] \
+    && _prev_running=$(cat "$_state_dir/running/$_repo_key")
+
   # Remove old done file for same spec×repo to allow re-recording
   local _done_key="${specs[*]}"
   _done_key="${_done_key//[:\/\ ]/_}_$_repo_key"
@@ -277,7 +284,13 @@ cmd_without() {
   info "Launching skill run..."
   if ! PLUGIN_DIR="$mutated" RESULTS_DIR="$RESULTS_DIR" PERMISSION_MODE="$PERMISSION_MODE" \
     bash "$harness" run "$version" "$repo"; then
-    rm -f "$_state_dir/running/$_repo_key"
+    # Restore previous running file if one existed — don't orphan an active run
+    if [[ -n "$_prev_running" ]]; then
+      echo "$_prev_running" > "$_state_dir/running/$_repo_key"
+      warn "Restored previous running entry for $_repo_key"
+    else
+      rm -f "$_state_dir/running/$_repo_key"
+    fi
     die "Launch failed for $(repo_short "$repo") — see warnings above"
   fi
 
