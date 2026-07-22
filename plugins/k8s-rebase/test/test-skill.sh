@@ -359,7 +359,7 @@ mutate_plugin() {
   for spec in "${specs[@]}"; do
     case "$spec" in
       pattern:*)
-        local key="${spec#pattern:}" heading="${TAG_TO_PATTERN[${spec#pattern:}]:-}"
+        local key="${spec#pattern:}" heading="${TAG_TO_PATTERN[$key]:-}"
         [[ -z "$heading" ]] && { rm -rf "$dest"; die "Unknown pattern: $key"; }
         local pfile="$dest/docs/k8s-rebase-patterns.md"
         awk -v hdr="### $heading" '/^### / && index($0, hdr) == 1 { skip=1; next } /^### / && skip { skip=0 } skip { next } { print }' \
@@ -440,9 +440,8 @@ cmd_test() {
   [[ -f "$_state_dir/running/$_repo_key" ]] && _prev_running=$(cat "$_state_dir/running/$_repo_key")
   printf '%s\t%s\n' "${specs[*]}" "$(date +%s)" > "$_state_dir/running/$_repo_key"
 
-  # Launch via session run
-  if ! PLUGIN_DIR="$mutated" RESULTS_DIR="$RESULTS_DIR" PERMISSION_MODE="$PERMISSION_MODE" \
-    cmd_run "$version" "$repo"; then
+  # Launch via session run (subshell to scope PLUGIN_DIR to the mutated copy)
+  if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo"); then
     if [[ -n "$_prev_running" ]]; then
       echo "$_prev_running" > "$_state_dir/running/$_repo_key"
     else
@@ -455,7 +454,7 @@ cmd_test() {
 
 cmd_test_all() {
   local version="1.36.2"
-  [[ "$1" == "--version" ]] && { shift; version="${1:-1.36.2}"; shift; }
+  [[ "${1:-}" == "--version" ]] && { shift; version="${1:-1.36.2}"; shift; }
   local launched=0 queued=0
   build_session_cache
   for repo in "${DEFAULT_REPOS[@]}"; do
@@ -603,8 +602,6 @@ auto_record() {
     local done_key="${spec//[:\/\ ]/_}_$repo_key"
     [[ -f "$state_dir/done/$done_key" ]] && { rm -f "$running_file"; continue; }
 
-    # Check if session is active
-    local _active=false
     local _session=$(session_for_repo "$repo")
     if [[ -n "$_session" ]]; then
       # Gate-completion override
@@ -786,7 +783,7 @@ cmd_results() {
     # Recent results for this repo
     echo ""
     echo "Recent results:"
-    grep "$short" "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts spec r verdict detail; do
+    grep -F "$short" "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts spec r verdict detail; do
       printf "  %-22s %-8s %s\n" "$ts" "$verdict" "$detail"
     done
     return 0
@@ -815,7 +812,7 @@ cmd_results() {
     local all_pass=true
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
-      local latest=$(grep "$short" "$tsv" | awk -F'\t' '$2~/^all/' | tail -1 | cut -f4)
+      local latest=$(grep -F "$short" "$tsv" | awk -F'\t' '$2~/^all/' | tail -1 | cut -f4)
       [[ "$latest" != "PASS" && -n "$latest" ]] && all_pass=false
     done
     $all_pass && echo "OVERALL: PASS" || echo "OVERALL: some repos need attention"
