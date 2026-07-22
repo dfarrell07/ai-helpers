@@ -847,8 +847,12 @@ _repo_from_key() {
 }
 
 # Build a lightweight session cache (cwd + state + elapsed + pid, one call to claude agents).
+# Sets _ar_cache and _ar_cache_ok globals — call directly, not in a subshell.
+_ar_cache=""
+_ar_cache_ok=false
 _build_session_cache() {
-  timeout 10 claude agents --json 2>/dev/null | python3 -c "
+  _ar_cache_ok=false
+  _ar_cache=$(timeout 10 claude agents --json 2>/dev/null | python3 -c "
 import json, sys, os, time
 try:
     data = json.load(sys.stdin)
@@ -866,9 +870,6 @@ for s in data:
     pid = s.get('pid') or '0'
     started = s.get('startedAt', 0)
     elapsed = max(0, int((now - started) / 60000)) if started else 0
-    # Guard against false 'done': bg sessions report state=done while
-    # idle between steps, but the process stays alive.  If the PID is
-    # still running, downgrade 'done' -> 'idle'.
     if st == 'done' and pid and int(pid) > 0:
         try:
             os.kill(int(pid), 0)
@@ -878,7 +879,14 @@ for s in data:
         except PermissionError:
             st = 'idle'
     print(f'{cwd}\t{st}\t{elapsed}\t{pid}')
-" 2>/dev/null || true
+" 2>/dev/null || true)
+  if [[ -n "$_ar_cache" ]]; then
+    _ar_cache_ok=true
+  elif timeout 5 claude agents --json &>/dev/null; then
+    _ar_cache_ok=true
+  else
+    warn "claude agents --json failed — session detection unreliable"
+  fi
 }
 
 # Check whether a session for repo $short is still active in the cache.
@@ -1063,8 +1071,12 @@ cmd_auto_record() {
   fi
 
   info "Checking session states..."
-  local _ar_cache
-  _ar_cache=$(_build_session_cache)
+  _build_session_cache
+
+  if ! $_ar_cache_ok; then
+    warn "Session cache unreliable — skipping auto-record to avoid mis-recording active runs"
+    return 1
+  fi
 
   local recorded=0 skipped_active=0 skipped_done=0 errored=0
   local -a summary=()

@@ -173,7 +173,9 @@ remove_worktrees() {
 }
 
 _session_cache=""
+_session_cache_ok=false
 build_session_cache() {
+  _session_cache_ok=false
   _session_cache=$(timeout 10 claude agents --json 2>/dev/null | python3 -c "
 import json, sys, time, os
 try:
@@ -214,6 +216,21 @@ for s in data:
     except (TypeError, ValueError):
         pass
 " 2>/dev/null || true)
+  if [[ -n "$_session_cache" ]]; then
+    _session_cache_ok=true
+  else
+    if timeout 5 claude agents --json &>/dev/null; then
+      _session_cache_ok=true
+    else
+      warn "claude agents --json failed — session detection unreliable"
+    fi
+  fi
+}
+
+require_session_cache() {
+  if ! $_session_cache_ok; then
+    die "Session cache unavailable — refusing destructive operation (claude agents --json failed)"
+  fi
 }
 
 session_for_repo() {
@@ -254,6 +271,7 @@ cmd_run() {
 
   local launched=0
   build_session_cache
+  require_session_cache
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
     local short
@@ -459,6 +477,7 @@ cmd_clean() {
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
 
   build_session_cache
+  require_session_cache
   local cleaned=0
   for repo in "${repos[@]}"; do
     [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
