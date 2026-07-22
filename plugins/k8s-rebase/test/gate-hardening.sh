@@ -955,10 +955,13 @@ _do_record_one() {
     return 1
   fi
 
-  # Validate branch was created AFTER the test was launched
+  # Validate branch has commits created AFTER the test was launched.
+  # Use the first unique commit (not tip) to handle branches that fork
+  # from old base commits but have new rebase-specific work.
   if [[ "$launch_epoch" -gt 0 ]]; then
     local branch_epoch
-    branch_epoch=$(git -C "$repo" log -1 --format='%ct' "$result_branch" 2>/dev/null || echo 0)
+    branch_epoch=$(git -C "$repo" log --reverse --format='%ct' "${default_br}..${result_branch}" 2>/dev/null | head -1)
+    : "${branch_epoch:=0}"
     if [[ "$branch_epoch" -gt 0 && "$branch_epoch" -lt "$launch_epoch" ]]; then
       echo "stale branch (created before launch) — skipping to prevent mis-recording"
       return 1
