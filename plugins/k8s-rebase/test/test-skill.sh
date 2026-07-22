@@ -384,7 +384,8 @@ mutate_plugin() {
   for spec in "${specs[@]}"; do
     case "$spec" in
       pattern:*)
-        local key="${spec#pattern:}" heading="${TAG_TO_PATTERN[$key]:-}"
+        local key="${spec#pattern:}"
+        local heading="${TAG_TO_PATTERN[$key]:-}"
         [[ -z "$heading" ]] && { rm -rf "$dest"; die "Unknown pattern: $key"; }
         local pfile="$dest/docs/k8s-rebase-patterns.md"
         awk -v hdr="### $heading" '/^### / && index($0, hdr) == 1 { skip=1; next } /^### / && skip { skip=0 } skip { next } { print }' \
