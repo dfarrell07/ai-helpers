@@ -39,8 +39,9 @@ repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 resolve_repo() {
   local r="${1%/}"
   [[ -z "$r" ]] && return 1
-  [[ -d "$r" ]] && { (cd "$r" && pwd); return 0; }
+  # Prefer $HOME/ovnk/ expansion for short names (avoids CWD-relative false hits)
   [[ -d "$HOME/ovnk/$r" ]] && { echo "$HOME/ovnk/$r"; return 0; }
+  [[ -d "$r" ]] && { (cd "$r" && pwd); return 0; }
   return 1
 }
 
