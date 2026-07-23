@@ -222,50 +222,6 @@ cmd_run() {
   [[ "$launched" -gt 0 ]] && info "Monitor: test-skill.sh results" || { warn "No sessions launched"; return 1; }
 }
 
-cmd_status() {
-  local repos=("$@")
-  [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
-  build_session_cache
-  printf "%-45s %7s %18s %5s %s\n" "REPO" "COMMITS" "SESSION" "GATES" "K8S"
-  printf "%-45s %7s %18s %5s %s\n" "----" "-------" "-------" "-----" "---"
-  for repo in "${repos[@]}"; do
-    [[ -d "$repo" ]] || continue
-    local short branch session_state="-"
-    short=$(repo_short "$repo")
-    branch=$(find_newest_branch "$repo")
-    local session_info
-    session_info=$(session_for_repo "$repo")
-    if [[ -n "$session_info" ]]; then
-      local tag mins
-      tag=$(echo "$session_info" | cut -f2)
-      mins=$(echo "$session_info" | cut -f3)
-      [[ "$mins" =~ ^[0-9]+$ ]] && session_state="$tag ${mins}m"
-    fi
-    if [[ -z "$branch" ]]; then
-      printf "%-45s %7s %18s %5s %s\n" "$short" "-" "$session_state" "-" "-"
-      continue
-    fi
-    cd "$repo" || continue
-    local default_br commits gates="-" k8s_ver="?"
-    default_br=$(default_branch)
-    commits=$(git rev-list --count "$default_br".."$branch" 2>/dev/null || echo 0)
-    local wdir gate_dir
-    wdir=$(git worktree list 2>/dev/null | grep -E "\[$branch( locked)?\]" | awk '{print $1}' | head -1)
-    : "${wdir:=$repo}"
-    gate_dir="$wdir/.rebase-tmp/gates"
-    if [[ -d "$gate_dir" ]]; then
-      local gt gp
-      gt=$(find "$gate_dir" -name '*.report' 2>/dev/null | wc -l)
-      gp=$(find "$gate_dir" -name '*.report' -exec grep -liE '^(VERDICT|RESULT|STATUS): PASS' {} + 2>/dev/null | wc -l)
-      [[ "$gt" -gt 0 ]] && gates="${gp}/${gt}"
-    fi
-    k8s_ver=$(find "$wdir" -maxdepth 3 -name 'go.mod' -not -path '*/vendor/*' -print0 2>/dev/null \
-      | xargs -0 -I{} awk '/k8s\.io\/api / && !/=>/ {print $2; exit}' {} 2>/dev/null | head -1)
-    : "${k8s_ver:=?}"
-    printf "%-45s %7s %18s %5s %s\n" "$short" "$commits" "$session_state" "$gates" "$k8s_ver"
-  done
-}
-
 cmd_stop() {
   local targets=("$@")
   [[ ${#targets[@]} -eq 0 ]] && die "Usage: test-skill.sh stop <repo...|--all>"
@@ -920,10 +876,6 @@ case "$COMMAND" in
   set-known-good) cmd_set_known_good "$@" ;;
   stop)           cmd_stop "$@" ;;
   clean)          cmd_clean "$@" ;;
-  # Backward compat
-  status)         cmd_status "$@" ;;
-  run)            [[ $# -lt 1 ]] && die "Usage: run <version> [repos...]"; cmd_run "$1" "${@:2}" ;;
-  court)          cmd_court "$@" ;;
   -h|--help|help) usage ;;
   *)              die "Unknown command: $COMMAND (try --help)" ;;
 esac
