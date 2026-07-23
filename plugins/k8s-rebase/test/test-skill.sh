@@ -95,6 +95,7 @@ PYEOF
 
 build_session_cache() {
   _SESSION_CACHE_OK=false
+  info "Checking active sessions..."
   _SESSION_CACHE=$(timeout 10 claude agents --json 2>/dev/null \
     | python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
   if [[ -n "$_SESSION_CACHE" ]]; then
