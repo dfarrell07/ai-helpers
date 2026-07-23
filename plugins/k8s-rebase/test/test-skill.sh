@@ -211,6 +211,7 @@ cmd_run() {
     session_output=$(claude --bg \
       --plugin-dir "$PLUGIN_DIR" \
       --permission-mode "$PERMISSION_MODE" \
+      --disallowed-tools 'Bash(git push *)' 'Bash(*git push*)' 'Bash(gh pr create *)' 'Bash(*gh pr create*)' \
       "/k8s-rebase:k8s-rebase $version" 2>/dev/null)
     session_id=$(echo "$session_output" | grep 'backgrounded' | grep -oE '[a-f0-9]{8,}' | head -1)
     : "${session_id:=unknown}"

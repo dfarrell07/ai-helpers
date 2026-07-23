@@ -30,6 +30,17 @@ grep -qF '.rebase-tmp' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.re
 grep -qF '.config' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.config/' >> "$GIT_DIR_RESOLVED/info/exclude"
 grep -qF '.cache' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.cache/' >> "$GIT_DIR_RESOLVED/info/exclude"
 
+# Block git push — the skill must NEVER push; user does this manually
+HOOK_DIR="$(git rev-parse --git-common-dir 2>/dev/null || echo "$GIT_DIR_RESOLVED")/hooks"
+mkdir -p "$HOOK_DIR"
+cat > "$HOOK_DIR/pre-push" <<'HOOKEOF'
+#!/bin/bash
+echo "BLOCKED: git push disabled during k8s-rebase." >&2
+echo "To push manually, remove this hook: rm $(git rev-parse --git-common-dir)/hooks/pre-push" >&2
+exit 1
+HOOKEOF
+chmod +x "$HOOK_DIR/pre-push"
+
 # ── Helpers ──────────────────────────────────────────────────────────
 
 die() { echo "ERROR: $*" >&2; exit 1; }

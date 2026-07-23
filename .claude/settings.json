@@ -2,5 +2,15 @@
   "enabledPlugins": {
     "plugin-dev@claude-plugins-official": true,
     "skill-creator@claude-plugins-official": true
+  },
+  "permissions": {
+    "deny": [
+      "Bash(git push *)",
+      "Bash(git push)",
+      "Bash(*git push*)",
+      "Bash(gh pr create *)",
+      "Bash(gh pr create)",
+      "Bash(*gh pr create*)"
+    ]
   }
 }
