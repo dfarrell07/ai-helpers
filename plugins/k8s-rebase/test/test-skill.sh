@@ -525,11 +525,9 @@ _do_record_one() {
     [[ "$branch_epoch" -gt 0 && "$branch_epoch" -lt "$launch_epoch" ]] && { echo "stale branch"; return 1; }
   fi
 
-  local commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
-
   # Gate tally — every gate must produce a report, all must pass
-  local verdict="FAIL" gate_summary="no gates ran"
-  local gtotal=0 gpass=0 gfail=0 gskip=0
+  local verdict="FAIL"
+  local gtotal=0 gfail=0
   local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
   [[ "$expected_gates" -lt 1 ]] && expected_gates=33
   local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
@@ -543,33 +541,22 @@ _do_record_one() {
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       gv="${gv^^}"
-      case "$gv" in *PASS*) gpass=$((gpass+1));; *FAIL*) gfail=$((gfail+1));; *SKIP*) gskip=$((gskip+1));; esac
+      [[ "$gv" == *FAIL* ]] && gfail=$((gfail + 1))
     done
-    if [[ "$gtotal" -gt 0 ]]; then
-      local active=$((gtotal - gskip))
-      gate_summary="${gpass} pass, ${gfail} fail, ${gskip} skip (${gtotal}/${expected_gates})"
-      if [[ "$gfail" -gt 0 ]]; then verdict="FAIL"
-      elif [[ "$gtotal" -lt "$expected_gates" ]]; then verdict="FAIL"; gate_summary="${gate_summary} — missing $(( expected_gates - gtotal )) gates"
-      else verdict="PASS"; fi
-    fi
+    [[ "$gtotal" -ge "$expected_gates" && "$gfail" -eq 0 ]] && verdict="PASS"
   fi
 
-  # Known-good comparison
-  local kg_note="" kg_file="$state_dir/known_good_$repo_key"
+  # Known-good diff (informational — does not affect verdict)
+  local kg_hunks="" kg_vendor=""
+  local kg_file="$state_dir/known_good_$repo_key"
   [[ ! -f "$kg_file" ]] && kg_file="$state_dir/known-good-${repo_key}"
   if [[ -f "$kg_file" ]]; then
     local kg_branch=$(cat "$kg_file")
     if git -C "$repo" rev-parse --verify "$kg_branch" &>/dev/null; then
-      local kg_diff=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null)
-      local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
-      if [[ -z "$kg_diff" ]]; then kg_note="identical-to-known-good"
-      elif [[ -z "$kg_diff_nv" ]]; then kg_note="vendor-only-diff"
-      else
-        local kg_nv=$(echo "$kg_diff_nv" | grep -c '^@@' || true)
-        local kg_all=$(echo "$kg_diff" | grep -c '^@@' || true)
-        kg_note="diff-vs-known-good:${kg_nv}h"
-        [[ "$kg_all" -ne "$kg_nv" ]] && kg_note="${kg_note}(+$((kg_all - kg_nv))vendor)"
-      fi
+      local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+      local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+      kg_hunks="$kg_diff_nv"
+      [[ "$kg_diff_all" -gt "$kg_diff_nv" ]] && kg_vendor="$((kg_diff_all - kg_diff_nv))"
     fi
   fi
 
@@ -581,17 +568,17 @@ _do_record_one() {
     detail="$gfail gate(s) failed"
   elif [[ "$gtotal" -lt "$expected_gates" ]]; then
     detail="missing $((expected_gates - gtotal)) of $expected_gates gates"
-  elif [[ "$kg_note" == "identical-to-known-good" ]]; then
-    detail="identical to known-good"
-  elif [[ "$kg_note" == "vendor-only-diff" ]]; then
-    detail="matches known-good (vendor-only diff)"
-  elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* ]]; then
-    local _hunks=$(echo "$kg_note" | grep -oE '[0-9]+' | head -1)
-    local _vend=$(echo "$kg_note" | grep -oE '\+[0-9]+' | head -1)
-    detail="${_hunks} code hunks from known-good"
-    [[ -n "$_vend" ]] && detail="$detail (${_vend} vendor)"
+  elif [[ -n "$kg_hunks" ]]; then
+    if [[ "$kg_hunks" -eq 0 && -z "$kg_vendor" ]]; then
+      detail="identical to known-good"
+    elif [[ "$kg_hunks" -eq 0 ]]; then
+      detail="matches known-good (vendor-only diff)"
+    else
+      detail="${kg_hunks} code hunks from known-good"
+      [[ -n "$kg_vendor" ]] && detail="$detail (+${kg_vendor} vendor)"
+    fi
   else
-    detail="all $gtotal gates pass"
+    detail="all gates pass (no known-good set)"
   fi
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key="${spec//[:\/\ ]/_}_$repo_key"
