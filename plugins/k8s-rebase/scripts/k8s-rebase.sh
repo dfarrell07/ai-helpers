@@ -33,10 +33,13 @@ grep -qF '.cache' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.cache/'
 # Block git push — the skill must NEVER push; user does this manually
 HOOK_DIR="$(git rev-parse --git-common-dir 2>/dev/null || echo "$GIT_DIR_RESOLVED")/hooks"
 mkdir -p "$HOOK_DIR"
+[[ -f "$HOOK_DIR/pre-push" ]] && ! grep -q 'k8s-rebase' "$HOOK_DIR/pre-push" 2>/dev/null \
+  && cp "$HOOK_DIR/pre-push" "$HOOK_DIR/pre-push.bak.$$"
 cat > "$HOOK_DIR/pre-push" <<'HOOKEOF'
 #!/bin/bash
+# k8s-rebase guard — remove this file to push manually
 echo "BLOCKED: git push disabled during k8s-rebase." >&2
-echo "To push manually, remove this hook: rm $(git rev-parse --git-common-dir)/hooks/pre-push" >&2
+echo "To push: rm $(git rev-parse --git-common-dir 2>/dev/null || echo .git)/hooks/pre-push" >&2
 exit 1
 HOOKEOF
 chmod +x "$HOOK_DIR/pre-push"

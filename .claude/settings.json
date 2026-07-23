@@ -8,9 +8,12 @@
       "Bash(git push *)",
       "Bash(git push)",
       "Bash(*git push*)",
+      "Bash(git -c *push*)",
+      "Bash(*send-pack*)",
       "Bash(gh pr create *)",
       "Bash(gh pr create)",
-      "Bash(*gh pr create*)"
+      "Bash(*gh pr create*)",
+      "Bash(*gh api*repos*pulls*)"
     ]
   }
 }
