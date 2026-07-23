@@ -4,6 +4,8 @@
 SCRIPT := test/test-skill.sh
 VERSION ?= 1.36.2
 SPEC ?= all
+REPO ?= $(repo)
+BRANCH ?= $(branch)
 
 help: ## Show available targets
 	@echo "k8s-rebase test targets:"
