@@ -525,6 +525,9 @@ _do_record_one() {
     [[ "$branch_epoch" -gt 0 && "$branch_epoch" -lt "$launch_epoch" ]] && { echo "stale branch"; return 1; }
   fi
 
+  local commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
+  [[ "$commits" -eq 0 ]] && { echo "no commits (no-op)"; return 1; }
+
   # Gate tally — every gate must produce a report, all must pass
   local verdict="FAIL"
   local gtotal=0 gfail=0
