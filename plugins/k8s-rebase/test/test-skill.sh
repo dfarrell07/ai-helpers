@@ -833,37 +833,28 @@ cmd_results() {
     return 0
   fi
 
-  # Cross-repo matrix
-  cmd_status
-  echo ""
-
-  # Recent results
+  # Per-repo latest results
   local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
   if [[ -f "$tsv" ]]; then
-    local total=$(wc -l < "$tsv")
-    local pass_count=$(awk -F'\t' '$4=="PASS"' "$tsv" | wc -l)
-    local fail_count=$(awk -F'\t' '$4=="FAIL"' "$tsv" | wc -l)
-    echo "Results: $total total ($pass_count PASS, $fail_count FAIL)"
-    echo ""
-    echo "Recent:"
-    printf "  %-22s %-8s %-42s %s\n" "TIME" "VERDICT" "REPO" "DIFF"
-    tail -5 "$tsv" | while IFS=$'\t' read -r ts spec repo verdict detail; do
-      printf "  %-22s %-8s %-42s %s\n" "$ts" "$verdict" "$repo" "$detail"
-    done
-
-    # Overall verdict
-    echo ""
-    local all_pass=true any_untested=false
+    printf "%-45s %-8s %s\n" "REPO" "VERDICT" "DETAIL"
+    printf "%-45s %-8s %s\n" "----" "-------" "------"
+    local all_pass=true
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
-      local latest=$(awk -F'\t' -v r="$short" '$3==r && $2~/^all/' "$tsv" | tail -1 | cut -f4)
-      if [[ -z "$latest" ]]; then
-        any_untested=true
-      elif [[ "$latest" != "PASS" ]]; then
+      local latest_line=$(awk -F'\t' -v r="$short" '$3==r && $2~/^all/' "$tsv" | tail -1)
+      if [[ -n "$latest_line" ]]; then
+        local verdict=$(echo "$latest_line" | cut -f4)
+        local detail=$(echo "$latest_line" | cut -f5)
+        [[ "$verdict" != "PASS" ]] && all_pass=false
+        printf "%-45s %-8s %s\n" "$short" "$verdict" "$detail"
+      else
         all_pass=false
+        printf "%-45s %-8s %s\n" "$short" "-" "not tested"
       fi
     done
-    if $all_pass && ! $any_untested; then
+
+    echo ""
+    if $all_pass; then
       echo "OVERALL: PASS"
     else
       echo "OVERALL: FAIL"
