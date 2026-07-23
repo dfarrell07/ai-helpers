@@ -527,22 +527,18 @@ _do_record_one() {
 
   local commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
 
-  # Gate tally
-  local verdict="FAIL" gate_summary="no-gates"
+  # Gate tally — every gate must produce a report, all must pass
+  local verdict="FAIL" gate_summary="no gates ran"
   local gtotal=0 gpass=0 gfail=0 gskip=0
+  local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+  [[ "$expected_gates" -lt 1 ]] && expected_gates=33
   local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
   if [[ -n "$wt_path" && ! -d "$gate_dir" ]]; then
-    # Worktree exists but gates dir doesn't — run is in progress, don't fall back to stale repo-root data
     gate_dir=""
-  else
-    if [[ -n "$wt_path" ]]; then
-      : # worktree exists — only use its gates, don't fall back to stale repo root
-    else
-      gate_dir="$repo/.rebase-tmp/gates"
-    fi
+  elif [[ -z "$wt_path" ]]; then
+    gate_dir="$repo/.rebase-tmp/gates"
   fi
   if [[ -d "$gate_dir" ]]; then
-    local gtotal=0 gpass=0 gfail=0 gskip=0
     for f in "$gate_dir"/*.report; do
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
@@ -551,10 +547,9 @@ _do_record_one() {
     done
     if [[ "$gtotal" -gt 0 ]]; then
       local active=$((gtotal - gskip))
-      gate_summary="gates:${gpass}/${active}"
-      [[ "$gskip" -gt 0 ]] && gate_summary="${gate_summary}(${gskip}skip)"
+      gate_summary="${gpass} pass, ${gfail} fail, ${gskip} skip (${gtotal}/${expected_gates})"
       if [[ "$gfail" -gt 0 ]]; then verdict="FAIL"
-      elif [[ "$active" -lt 5 ]]; then verdict="FAIL"; gate_summary="${gate_summary}(incomplete)"
+      elif [[ "$gtotal" -lt "$expected_gates" ]]; then verdict="FAIL"; gate_summary="${gate_summary} — missing $(( expected_gates - gtotal )) gates"
       else verdict="PASS"; fi
     fi
   fi
@@ -578,8 +573,8 @@ _do_record_one() {
     fi
   fi
 
-  # Override verdict from known-good (only if gates actually ran)
-  if [[ "$gtotal" -gt 0 && "$gfail" -eq 0 ]]; then
+  # Override verdict from known-good (only if ALL gates ran and none failed)
+  if [[ "$gtotal" -ge "$expected_gates" && "$gfail" -eq 0 ]]; then
     if [[ "$kg_note" == "identical-to-known-good" || "$kg_note" == "vendor-only-diff" ]]; then
       verdict="PASS"
     elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* && "$verdict" == "FAIL" ]]; then
@@ -591,8 +586,12 @@ _do_record_one() {
 
   # Build human-readable detail
   local detail=""
-  if [[ "$gfail" -gt 0 ]]; then
+  if [[ "$gtotal" -eq 0 ]]; then
+    detail="no gates ran (bug)"
+  elif [[ "$gfail" -gt 0 ]]; then
     detail="$gfail gate(s) failed"
+  elif [[ "$gtotal" -lt "$expected_gates" ]]; then
+    detail="missing $((expected_gates - gtotal)) of $expected_gates gates"
   elif [[ "$kg_note" == "identical-to-known-good" ]]; then
     detail="identical to known-good"
   elif [[ "$kg_note" == "vendor-only-diff" ]]; then
@@ -602,10 +601,8 @@ _do_record_one() {
     local _vend=$(echo "$kg_note" | grep -oE '\+[0-9]+' | head -1)
     detail="${_hunks} code hunks from known-good"
     [[ -n "$_vend" ]] && detail="$detail (${_vend} vendor)"
-  elif [[ "$gate_summary" == "no-gates" ]]; then
-    detail="no gates ran (bug)"
   else
-    detail="$gate_summary"
+    detail="all $gtotal gates pass"
   fi
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key="${spec//[:\/\ ]/_}_$repo_key"
