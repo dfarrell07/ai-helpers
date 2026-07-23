@@ -604,7 +604,7 @@ auto_record() {
   [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]] && return 0
 
   build_session_cache
-  $_SESSION_CACHE_OK || { warn "Session cache unreliable — skipping auto-record"; return 1; }
+  $_SESSION_CACHE_OK || return 0
 
   local recorded=0
   local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
