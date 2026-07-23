@@ -2,13 +2,7 @@
 # test-skill.sh — Test the k8s-rebase skill by running it blind (without
 # patterns doc or autofix functions) and verifying the results are correct.
 #
-# Usage:
-#   test-skill.sh test-all                     Run core suite (6 repos)
-#   test-skill.sh test <spec> <repo>           Run specific test
-#   test-skill.sh results [repo] [--court]     Show results / deep-dive
-#   test-skill.sh set-known-good <repo> <br>   Set reference branch
-#   test-skill.sh stop [repo|--all]            Stop running tests
-#   test-skill.sh clean [repos...]             Cleanup worktrees
+# Use via Makefile:  cd plugins/k8s-rebase && make help
 
 set -uo pipefail
 
@@ -263,7 +257,6 @@ cmd_clean() {
   local repos=("$@")
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
   build_session_cache
-  require_session_cache
   for repo in "${repos[@]}"; do
     repo=$(resolve_repo "$repo") || continue
     local existing=$(session_for_repo "$repo")
@@ -283,6 +276,7 @@ cmd_clean() {
   if [[ -d "$RESULTS_DIR" ]]; then
     local old_mutated=$(find "$RESULTS_DIR" -maxdepth 1 -name 'mutated-*' -type d 2>/dev/null | wc -l)
     [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
+    [[ -d "$RESULTS_DIR/court" ]] && { rm -rf "$RESULTS_DIR/court" 2>/dev/null; info "Cleaned court artifacts"; }
   fi
 }
 
@@ -431,7 +425,7 @@ cmd_test() {
 cmd_test_all() {
   local version="1.36.2"
   [[ "${1:-}" == "--version" ]] && { shift; version="${1:-1.36.2}"; shift; }
-  local launched=0 queued=0
+  local launched=0
   build_session_cache
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
@@ -441,13 +435,12 @@ cmd_test_all() {
       continue
     fi
     if [[ "$launched" -ge "$MAX_CONCURRENT" ]]; then
-      queued=$((queued + 1))
-      info "QUEUED $(repo_short "$repo") (max $MAX_CONCURRENT concurrent)"
+      info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — launch separately)"
       continue
     fi
     cmd_test "all" "$repo" --version "$version" && launched=$((launched + 1))
   done
-  info "Launched: $launched | Queued: $queued | Monitor: $(basename "$0") results"
+  info "Launched: $launched | Monitor: make results"
 }
 
 # ── Recording ──────────────────────────────────────────────────────────
@@ -609,14 +602,8 @@ auto_record() {
 # ── Adversarial Court ──────────────────────────────────────────────────
 
 cmd_court() {
-  [[ $# -lt 3 ]] && die "Usage: test-skill.sh results <repo> --court  OR  court <result> <known-good> <repo>"
+  [[ $# -lt 3 ]] && die "Usage: make court repo=<repo>"
   local result_branch="$1" known_good="$2" repo="$3"
-  local mutation_context=""
-  local i=4
-  while [[ $i -le $# ]]; do
-    [[ "${!i}" == "--context" ]] && { local next=$((i+1)); mutation_context="${!next:-}"; }
-    i=$((i+1))
-  done
 
   cd "$repo" || die "Cannot cd to $repo"
   git rev-parse --verify "$result_branch" &>/dev/null || die "Branch not found: $result_branch"
@@ -635,9 +622,6 @@ cmd_court() {
   local preexisting="
 A difference is a REGRESSION only if the result branch introduced a NEW problem.
 Pre-existing issues (on base/main before rebase) that the known-good cleaned up are EQUIVALENT."
-  [[ -n "$mutation_context" ]] && preexisting="MUTATION: knowledge removed: $mutation_context
-$preexisting"
-
   if [[ "$hunks" -lt 5 ]]; then
     info "Small diff — single classifier"
     local out=$(printf '%s\n%s\n%s\n\n%s\n\nClassify each difference. End with VERDICT: PASS or FAIL' \
