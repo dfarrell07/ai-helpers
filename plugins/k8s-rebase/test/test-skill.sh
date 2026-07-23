@@ -98,8 +98,8 @@ build_session_cache() {
   if $_SESSION_CACHE_BUILT; then return 0; fi
   _SESSION_CACHE_OK=false
   command -v claude &>/dev/null || { _SESSION_CACHE_BUILT=true; return 0; }
-  _SESSION_CACHE=$(timeout 3 claude agents --json 2>/dev/null \
-    | timeout 3 python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
+  _SESSION_CACHE=$(timeout -k 1 3 claude agents --json 2>/dev/null \
+    | timeout -k 1 3 python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
   [[ -n "$_SESSION_CACHE" ]] && _SESSION_CACHE_OK=true
   _SESSION_CACHE_BUILT=true
 }
