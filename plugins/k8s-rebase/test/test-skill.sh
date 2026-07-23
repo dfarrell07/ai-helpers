@@ -59,6 +59,7 @@ default_branch() {
 
 _SESSION_CACHE=""
 _SESSION_CACHE_OK=false
+_SESSION_CACHE_BUILT=false
 
 _SESSION_PARSER=$(cat <<'PYEOF'
 import json, sys, time, os
@@ -94,23 +95,21 @@ PYEOF
 )
 
 build_session_cache() {
+  if $_SESSION_CACHE_BUILT; then return 0; fi
   _SESSION_CACHE_OK=false
   info "Checking active sessions..."
-  _SESSION_CACHE=$(timeout 10 claude agents --json 2>/dev/null \
+  _SESSION_CACHE=$(timeout 5 claude agents --json 2>/dev/null \
     | python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
   if [[ -n "$_SESSION_CACHE" ]]; then
     _SESSION_CACHE_OK=true
   else
-    _SESSION_CACHE=$(timeout 5 claude agents --json 2>/dev/null \
-      | python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
-    if [[ -n "$_SESSION_CACHE" ]]; then
-      _SESSION_CACHE_OK=true
-    elif timeout 3 claude agents --json &>/dev/null; then
+    if timeout 3 claude agents --json &>/dev/null; then
       _SESSION_CACHE_OK=true
     else
       warn "claude agents --json failed — session detection unreliable"
     fi
   fi
+  _SESSION_CACHE_BUILT=true
 }
 
 require_session_cache() {
