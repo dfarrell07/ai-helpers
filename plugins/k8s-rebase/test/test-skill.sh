@@ -530,6 +530,16 @@ _do_record_one() {
   else
     detail="all gates pass (no known-good set)"
   fi
+  # Run court to verify result quality
+  if [[ "$verdict" == "PASS" && -n "$kg_hunks" && "$kg_hunks" -gt 0 && -f "$kg_file" ]]; then
+    local kg_branch=$(cat "$kg_file")
+    info "Court review: $short ($kg_hunks code hunks vs known-good)..."
+    local court_verdict="FAIL"
+    cmd_court "$result_branch" "$kg_branch" "$repo" 2>&1 && court_verdict="PASS"
+    detail="$detail — court: $court_verdict"
+    [[ "$court_verdict" == "FAIL" ]] && verdict="FAIL"
+  fi
+
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key="${spec//[:\/\ ]/_}_$repo_key"
   mkdir -p "$state_dir/done"
