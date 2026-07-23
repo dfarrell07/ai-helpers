@@ -573,17 +573,6 @@ _do_record_one() {
     fi
   fi
 
-  # Override verdict from known-good (only if ALL gates ran and none failed)
-  if [[ "$gtotal" -ge "$expected_gates" && "$gfail" -eq 0 ]]; then
-    if [[ "$kg_note" == "identical-to-known-good" || "$kg_note" == "vendor-only-diff" ]]; then
-      verdict="PASS"
-    elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* && "$verdict" == "FAIL" ]]; then
-      local _nv=$(echo "$kg_note" | grep -oE '^diff-vs-known-good:([0-9]+)h' | grep -oE '[0-9]+')
-      : "${_nv:=999}"
-      [[ "$_nv" -le 30 ]] && verdict="PASS"
-    fi
-  fi
-
   # Build human-readable detail
   local detail=""
   if [[ "$gtotal" -eq 0 ]]; then
