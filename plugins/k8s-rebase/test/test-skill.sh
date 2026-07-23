@@ -97,18 +97,10 @@ PYEOF
 build_session_cache() {
   if $_SESSION_CACHE_BUILT; then return 0; fi
   _SESSION_CACHE_OK=false
-  info "Checking active sessions..."
-  _SESSION_CACHE=$(timeout 5 claude agents --json 2>/dev/null \
-    | python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
-  if [[ -n "$_SESSION_CACHE" ]]; then
-    _SESSION_CACHE_OK=true
-  else
-    if timeout 3 claude agents --json &>/dev/null; then
-      _SESSION_CACHE_OK=true
-    else
-      warn "claude agents --json failed — session detection unreliable"
-    fi
-  fi
+  command -v claude &>/dev/null || { _SESSION_CACHE_BUILT=true; return 0; }
+  _SESSION_CACHE=$(timeout 3 claude agents --json 2>/dev/null \
+    | timeout 3 python3 -c "$_SESSION_PARSER" "$IDLE_TIMEOUT_MIN" 2>/dev/null || true)
+  [[ -n "$_SESSION_CACHE" ]] && _SESSION_CACHE_OK=true
   _SESSION_CACHE_BUILT=true
 }
 
