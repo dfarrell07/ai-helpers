@@ -219,7 +219,7 @@ cmd_run() {
     info "Launched $short -> $session_id"
     launched=$((launched + 1))
   done
-  [[ "$launched" -gt 0 ]] && info "Monitor: test-skill.sh results" || { warn "No sessions launched"; return 1; }
+  [[ "$launched" -gt 0 ]] && info "Monitor: make results" || { warn "No sessions launched"; return 1; }
 }
 
 cmd_stop() {
@@ -389,7 +389,6 @@ cmd_test() {
   info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
   local mutated
   mutated=$(mutate_plugin "${specs[@]}") || exit 1
-  info "Mutated plugin: $mutated"
 
   # Clean stale worktree branches
   (cd "$repo" && git worktree prune 2>/dev/null || true
@@ -426,7 +425,7 @@ cmd_test() {
     fi
     die "Launch failed for $(repo_short "$repo")"
   fi
-  info "When done: $(basename "$0") results"
+  info "When done: make results"
 }
 
 cmd_test_all() {
