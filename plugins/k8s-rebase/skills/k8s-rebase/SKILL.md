@@ -724,6 +724,10 @@ Do NOT stop here — the rebase is incomplete without the PR command.
 
 ### Step 5: PR and cleanup
 
+**CRITICAL: NEVER run `git push` or `gh pr create` yourself. Only
+print commands for the user to copy-paste. You must not push to any
+remote or create any PR — the user does this manually.**
+
 **5a. Gather data and detect downstream:**
 
 ```bash
@@ -741,8 +745,9 @@ one, use `REPLACE-WITH-JIRA-KEY:` as the title prefix so the
 placeholder is impossible to overlook.
 
 **5b. Generate `gh pr create` command.** Do NOT execute this
-command yourself. Print the complete, ready-to-paste command
-for the user.
+command yourself — NEVER run `git push` or `gh pr create`.
+Print the complete, ready-to-paste command for the user.
+The user will push and create the PR themselves.
 
 Run `git log --oneline $BASE..HEAD` to get the commit list.
 Write a PR body that includes:
