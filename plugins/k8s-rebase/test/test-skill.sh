@@ -36,6 +36,14 @@ error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 
+resolve_repo() {
+  local r="${1%/}"
+  [[ -z "$r" ]] && return 1
+  [[ -d "$r" ]] && { (cd "$r" && pwd); return 0; }
+  [[ -d "$HOME/ovnk/$r" ]] && { echo "$HOME/ovnk/$r"; return 0; }
+  return 1
+}
+
 default_branch() {
   local b
   b=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
@@ -195,7 +203,8 @@ cmd_run() {
   build_session_cache
   require_session_cache
   for repo in "${repos[@]}"; do
-    [[ -d "$repo" ]] || { warn "Not found: $repo"; continue; }
+    local repo_input="$repo"
+    repo=$(resolve_repo "$repo") || { warn "Not found: $repo_input"; continue; }
     local short existing_session
     short=$(repo_short "$repo")
     existing_session=$(session_for_repo "$repo")
@@ -306,7 +315,7 @@ cmd_clean() {
   build_session_cache
   require_session_cache
   for repo in "${repos[@]}"; do
-    [[ -d "$repo" ]] || continue
+    repo=$(resolve_repo "$repo") || continue
     local existing=$(session_for_repo "$repo")
     [[ -n "$existing" ]] && { warn "Active session on $(repo_short "$repo") — skipping"; continue; }
     cd "$repo" || continue
@@ -420,7 +429,8 @@ cmd_test() {
   done
   [[ ${#specs[@]} -eq 0 ]] && die "No spec (use: all, fn:<tag>, pattern:<key>)"
   [[ -z "$repo" ]] && die "No repo path"
-  [[ -d "$repo" ]] || die "Not found: $repo"
+  local repo_input="$repo"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
 
   info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
   local mutated
@@ -563,7 +573,7 @@ _do_record_one() {
         local kg_nv=$(echo "$kg_diff_nv" | grep -c '^@@' || true)
         local kg_all=$(echo "$kg_diff" | grep -c '^@@' || true)
         kg_note="diff-vs-known-good:${kg_nv}h"
-        [[ "$kg_all" -ne "$kg_nv" ]] && kg_note="${kg_note}(+${kg_all}vendor)"
+        [[ "$kg_all" -ne "$kg_nv" ]] && kg_note="${kg_note}(+$((kg_all - kg_nv))vendor)"
       fi
     fi
   fi
@@ -757,7 +767,8 @@ cmd_results() {
 
   if [[ -n "$repo" ]]; then
     # Single-repo deep-dive
-    [[ -d "$repo" ]] || die "Not found: $repo"
+    local repo_input="$repo"
+    repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
     local short=$(repo_short "$repo")
     cd "$repo" || die "Cannot cd to $repo"
     local wt=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
@@ -863,7 +874,8 @@ cmd_results() {
 cmd_set_known_good() {
   [[ $# -lt 2 ]] && die "Usage: test-skill.sh set-known-good <repo> <branch>"
   local repo="$1" branch="$2"
-  [[ -d "$repo" ]] || die "Not found: $repo"
+  local repo_input="$repo"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
   cd "$repo" || die "Cannot cd to $repo"
   git rev-parse --verify "$branch" &>/dev/null || die "Branch not found: $branch"
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
@@ -890,12 +902,14 @@ Commands:
 Specs: all, all-fns, all-patterns, fn:<tag>, pattern:<key>
 Tags: $(echo "${!TAG_TO_PATTERN[@]}" | tr ' ' ', ')
 
+Repos accept full paths or short names (openshift/multus-cni, ovn-org/ovn-kubernetes).
+
 Examples:
   $(basename "$0") test-all
-  $(basename "$0") test all ~/ovnk/openshift/multus-cni
+  $(basename "$0") test all openshift/multus-cni
   $(basename "$0") results
-  $(basename "$0") results ~/ovnk/openshift/multus-cni --court
-  $(basename "$0") set-known-good ~/ovnk/openshift/multus-cni bump1.36
+  $(basename "$0") results openshift/multus-cni --court
+  $(basename "$0") set-known-good openshift/multus-cni bump1.36
 EOF
   exit 0
 }
