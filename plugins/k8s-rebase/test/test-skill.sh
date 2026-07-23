@@ -549,7 +549,6 @@ _do_record_one() {
   # Known-good diff (informational — does not affect verdict)
   local kg_hunks="" kg_vendor=""
   local kg_file="$state_dir/known_good_$repo_key"
-  [[ ! -f "$kg_file" ]] && kg_file="$state_dir/known-good-${repo_key}"
   if [[ -f "$kg_file" ]]; then
     local kg_branch=$(cat "$kg_file")
     if git -C "$repo" rev-parse --verify "$kg_branch" &>/dev/null; then
@@ -772,18 +771,26 @@ cmd_results() {
       gate_dir="$repo/.rebase-tmp/gates"
     fi
 
+    local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+    [[ "$expected_gates" -lt 1 ]] && expected_gates=33
     echo "── $short ──"
     if $wt_in_progress; then
       echo "Run in progress (worktree exists, gates not yet written)"
     elif [[ -d "$gate_dir" ]]; then
-      local pass=0 fail=0 skip=0 total=0
+      local total=0 gfail=0
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue; total=$((total+1))
         local v=$(grep -iE '^VERDICT:' "$f" 2>/dev/null | head -1)
         v="${v^^}"
-        case "$v" in *PASS*) pass=$((pass+1));; *FAIL*) fail=$((fail+1));; *SKIP*) skip=$((skip+1));; esac
+        [[ "$v" == *FAIL* ]] && gfail=$((gfail+1))
       done
-      echo "Gates: $pass PASS, $fail FAIL, $skip SKIP ($total total)"
+      if [[ "$total" -ge "$expected_gates" && "$gfail" -eq 0 ]]; then
+        echo "Gates: all $total pass"
+      elif [[ "$gfail" -gt 0 ]]; then
+        echo "Gates: $gfail FAILED ($total/$expected_gates complete)"
+      else
+        echo "Gates: $total/$expected_gates complete (in progress)"
+      fi
       # Show failed gates inline
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue
@@ -796,13 +803,12 @@ cmd_results() {
         }
       done
     else
-      echo "No gate reports found"
+      echo "Gates: none (no reports found)"
     fi
 
     # Known-good comparison
     local repo_key=$(echo "$short" | tr '/' '_')
     local kg_file="$PLUGIN_DIR/test/.matrix-state/known_good_$repo_key"
-    [[ ! -f "$kg_file" ]] && kg_file="$PLUGIN_DIR/test/.matrix-state/known-good-${repo_key}"
     if [[ -f "$kg_file" ]]; then
       local kg=$(cat "$kg_file")
       local branch=$(find_newest_branch "$repo")
@@ -854,11 +860,9 @@ cmd_results() {
       fi
     done
     if $all_pass && ! $any_untested; then
-      echo "OVERALL: PASS (all repos)"
-    elif $all_pass && $any_untested; then
-      echo "OVERALL: PASS (tested repos) — some untested"
+      echo "OVERALL: PASS"
     else
-      echo "OVERALL: FAIL — some repos need attention"
+      echo "OVERALL: FAIL"
     fi
   fi
 }
