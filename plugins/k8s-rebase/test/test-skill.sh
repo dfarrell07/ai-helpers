@@ -815,7 +815,11 @@ cmd_results() {
       if [[ -n "$branch" && -n "$kg" ]]; then
         local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
         echo ""
-        echo "Known-good: $kg ($nv non-vendor hunks diff)"
+        if [[ "$nv" -eq 0 ]]; then
+          echo "Diff vs known-good branch $kg: identical (non-vendor)"
+        else
+          echo "Diff vs known-good branch $kg: $nv code hunks differ"
+        fi
         $court && cmd_court "$branch" "$kg" "$repo"
       fi
     fi
