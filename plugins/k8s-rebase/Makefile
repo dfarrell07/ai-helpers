@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help test test-one results results-repo court set-known-good stop clean
+.PHONY: help test test-one results court set-known-good stop clean
 
 SCRIPT := test/test-skill.sh
 VERSION ?= 1.36.2
@@ -11,11 +11,10 @@ help: ## Show available targets
 	@echo "k8s-rebase test targets:"
 	@echo ""
 	@echo "  make test                            Run blind test suite (all repos)"
-	@echo "  make test-one REPO=<r> [SPEC=<s>]    Test one repo (SPEC default: all)"
-	@echo "  make results                         Show results matrix"
-	@echo "  make results-repo REPO=<r>           Deep-dive one repo"
-	@echo "  make court REPO=<r>                  Adversarial court review"
-	@echo "  make set-known-good REPO=<r> BRANCH=<b>  Set reference branch for comparison"
+	@echo "  make test-one repo=<r> [spec=<s>]    Test one repo (spec default: all)"
+	@echo "  make results [repo=<r>]              Results matrix, or deep-dive one repo"
+	@echo "  make court repo=<r>                  Adversarial court review"
+	@echo "  make set-known-good repo=<r> branch=<b>  Set reference branch"
 	@echo "  make stop                            Stop all test sessions"
 	@echo "  make clean                           Cleanup worktrees and mutated dirs"
 	@echo ""
@@ -25,24 +24,20 @@ help: ## Show available targets
 test: ## Run blind test suite across all repos
 	@bash $(SCRIPT) test-all --version $(VERSION)
 
-test-one: ## Test one repo: REPO=openshift/multus-cni [SPEC=all]
-	@test -n "$(REPO)" || (echo "ERROR: REPO required. Usage: make test-one REPO=openshift/multus-cni" && exit 1)
+test-one: ## Test one repo: make test-one repo=openshift/multus-cni
+	@test -n "$(REPO)" || (echo "ERROR: repo required. Usage: make test-one repo=openshift/multus-cni" && exit 1)
 	@bash $(SCRIPT) test $(SPEC) $(REPO) --version $(VERSION)
 
-results: ## Show results matrix
-	@bash $(SCRIPT) results
-
-results-repo: ## Deep-dive one repo: REPO=openshift/multus-cni
-	@test -n "$(REPO)" || (echo "ERROR: REPO required. Usage: make results-repo REPO=openshift/multus-cni" && exit 1)
+results: ## Results matrix, or deep-dive: make results repo=openshift/multus-cni
 	@bash $(SCRIPT) results $(REPO)
 
-court: ## Adversarial court review: REPO=openshift/multus-cni
-	@test -n "$(REPO)" || (echo "ERROR: REPO required. Usage: make court REPO=openshift/multus-cni" && exit 1)
+court: ## Adversarial court review: make court repo=openshift/multus-cni
+	@test -n "$(REPO)" || (echo "ERROR: repo required. Usage: make court repo=openshift/multus-cni" && exit 1)
 	@bash $(SCRIPT) results $(REPO) --court
 
-set-known-good: ## Set reference branch: REPO=openshift/multus-cni BRANCH=bump1.36
-	@test -n "$(REPO)" || (echo "ERROR: REPO required. Usage: make set-known-good REPO=openshift/multus-cni BRANCH=bump1.36" && exit 1)
-	@test -n "$(BRANCH)" || (echo "ERROR: BRANCH required. Usage: make set-known-good REPO=openshift/multus-cni BRANCH=bump1.36" && exit 1)
+set-known-good: ## Set reference branch: make set-known-good repo=openshift/multus-cni branch=bump1.36
+	@test -n "$(REPO)" || (echo "ERROR: repo required. Usage: make set-known-good repo=openshift/multus-cni branch=bump1.36" && exit 1)
+	@test -n "$(BRANCH)" || (echo "ERROR: branch required. Usage: make set-known-good repo=openshift/multus-cni branch=bump1.36" && exit 1)
 	@bash $(SCRIPT) set-known-good $(REPO) $(BRANCH)
 
 stop: ## Stop all test sessions
