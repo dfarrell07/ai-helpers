@@ -587,7 +587,24 @@ _do_record_one() {
     [[ "$_nv" -le 30 ]] && { kg_note="${kg_note}(code-correct)"; verdict="PASS"; }
   fi
 
-  local detail="${commits}c $gate_summary${kg_note:+ $kg_note}"
+  # Build human-readable detail
+  local detail=""
+  if [[ "$gfail" -gt 0 ]]; then
+    detail="$gfail gate(s) failed"
+  elif [[ "$kg_note" == "identical-to-known-good" ]]; then
+    detail="identical to known-good"
+  elif [[ "$kg_note" == "vendor-only-diff" ]]; then
+    detail="matches known-good (vendor-only diff)"
+  elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* ]]; then
+    local _hunks=$(echo "$kg_note" | grep -oE '[0-9]+' | head -1)
+    local _vend=$(echo "$kg_note" | grep -oE '\+[0-9]+' | head -1)
+    detail="${_hunks} code hunks from known-good"
+    [[ -n "$_vend" ]] && detail="$detail (${_vend} vendor)"
+  elif [[ "$gate_summary" == "no-gates" ]]; then
+    detail="no gates produced"
+  else
+    detail="$gate_summary"
+  fi
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key="${spec//[:\/\ ]/_}_$repo_key"
   mkdir -p "$state_dir/done"
@@ -844,9 +861,9 @@ cmd_results() {
     echo "Results: $total total ($pass_count PASS, $fail_count FAIL)"
     echo ""
     echo "Recent:"
-    printf "  %-22s %-8s %-40s %s\n" "TIME" "VERDICT" "REPO" "DETAILS"
+    printf "  %-22s %-8s %-42s %s\n" "TIME" "VERDICT" "REPO" "DIFF"
     tail -5 "$tsv" | while IFS=$'\t' read -r ts spec repo verdict detail; do
-      printf "  %-22s %-8s %-40s %s\n" "$ts" "$verdict" "$repo" "$detail"
+      printf "  %-22s %-8s %-42s %s\n" "$ts" "$verdict" "$repo" "$detail"
     done
 
     # Overall verdict
