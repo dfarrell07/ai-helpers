@@ -532,6 +532,7 @@ _do_record_one() {
 
   # Gate tally
   local verdict="DONE" gate_summary="no-gates"
+  local gtotal=0 gpass=0 gfail=0 gskip=0
   local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
   if [[ -n "$wt_path" && ! -d "$gate_dir" ]]; then
     # Worktree exists but gates dir doesn't — run is in progress, don't fall back to stale repo-root data
@@ -548,7 +549,8 @@ _do_record_one() {
     for f in "$gate_dir"/*.report; do
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-      case "$gv" in *PASS*|*pass*) gpass=$((gpass+1));; *FAIL*|*fail*) gfail=$((gfail+1));; *SKIP*|*skip*) gskip=$((gskip+1));; esac
+      gv="${gv^^}"
+      case "$gv" in *PASS*) gpass=$((gpass+1));; *FAIL*) gfail=$((gfail+1));; *SKIP*) gskip=$((gskip+1));; esac
     done
     if [[ "$gtotal" -gt 0 ]]; then
       local active=$((gtotal - gskip))
@@ -789,6 +791,7 @@ cmd_results() {
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue; total=$((total+1))
         local v=$(grep -iE '^VERDICT:' "$f" 2>/dev/null | head -1)
+        v="${v^^}"
         case "$v" in *PASS*) pass=$((pass+1));; *FAIL*) fail=$((fail+1));; *SKIP*) skip=$((skip+1));; esac
       done
       echo "Gates: $pass PASS, $fail FAIL, $skip SKIP ($total total)"
@@ -796,6 +799,7 @@ cmd_results() {
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue
         local v=$(grep -iE '^VERDICT:' "$f" 2>/dev/null | head -1)
+        v="${v^^}"
         [[ "$v" == *"FAIL"* ]] && {
           echo ""
           echo "FAILED: $(basename "$f" .report)"
