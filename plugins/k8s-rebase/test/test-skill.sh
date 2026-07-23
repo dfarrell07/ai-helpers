@@ -528,7 +528,7 @@ _do_record_one() {
   local commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
 
   # Gate tally
-  local verdict="DONE" gate_summary="no-gates"
+  local verdict="FAIL" gate_summary="no-gates"
   local gtotal=0 gpass=0 gfail=0 gskip=0
   local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
   if [[ -n "$wt_path" && ! -d "$gate_dir" ]]; then
@@ -554,7 +554,7 @@ _do_record_one() {
       gate_summary="gates:${gpass}/${active}"
       [[ "$gskip" -gt 0 ]] && gate_summary="${gate_summary}(${gskip}skip)"
       if [[ "$gfail" -gt 0 ]]; then verdict="FAIL"
-      elif [[ "$active" -lt 5 ]]; then verdict="DONE"; gate_summary="${gate_summary}(incomplete)"
+      elif [[ "$active" -lt 5 ]]; then verdict="FAIL"; gate_summary="${gate_summary}(incomplete)"
       else verdict="PASS"; fi
     fi
   fi
@@ -578,13 +578,15 @@ _do_record_one() {
     fi
   fi
 
-  # Override verdict from known-good
-  if [[ "$kg_note" == "identical-to-known-good" || "$kg_note" == "vendor-only-diff" ]]; then
-    verdict="PASS"
-  elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* ]] && [[ "$verdict" == "FAIL" || "$verdict" == "DONE" ]]; then
-    local _nv=$(echo "$kg_note" | grep -oE '^diff-vs-known-good:([0-9]+)h' | grep -oE '[0-9]+')
-    : "${_nv:=999}"
-    [[ "$_nv" -le 30 ]] && { kg_note="${kg_note}(code-correct)"; verdict="PASS"; }
+  # Override verdict from known-good (only if gates actually ran)
+  if [[ "$gtotal" -gt 0 && "$gfail" -eq 0 ]]; then
+    if [[ "$kg_note" == "identical-to-known-good" || "$kg_note" == "vendor-only-diff" ]]; then
+      verdict="PASS"
+    elif [[ -n "$kg_note" && "$kg_note" == diff-vs-known-good:* && "$verdict" == "FAIL" ]]; then
+      local _nv=$(echo "$kg_note" | grep -oE '^diff-vs-known-good:([0-9]+)h' | grep -oE '[0-9]+')
+      : "${_nv:=999}"
+      [[ "$_nv" -le 30 ]] && verdict="PASS"
+    fi
   fi
 
   # Build human-readable detail
@@ -601,7 +603,7 @@ _do_record_one() {
     detail="${_hunks} code hunks from known-good"
     [[ -n "$_vend" ]] && detail="$detail (${_vend} vendor)"
   elif [[ "$gate_summary" == "no-gates" ]]; then
-    detail="no gates produced"
+    detail="no gates ran (bug)"
   else
     detail="$gate_summary"
   fi
