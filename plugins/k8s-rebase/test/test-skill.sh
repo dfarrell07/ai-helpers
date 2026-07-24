@@ -733,8 +733,10 @@ cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
   [[ "$expected_gates" -lt 1 ]] && expected_gates=33
-  printf "%-42s %-10s %-40s %s\n" "REPO" "GATES" "LATEST COMMIT" "DIFF"
-  printf "%-42s %-10s %-40s %s\n" "----" "-----" "-------------" "----"
+  # Get session states in one call
+  local _agents_json=$(timeout -k 1 10 claude agents --json 2>/dev/null || true)
+  printf "%-42s %-12s %-10s %-35s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "DIFF"
+  printf "%-42s %-12s %-10s %-35s %s\n" "----" "-------" "-----" "-------------" "----"
   local active=0
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
@@ -742,6 +744,19 @@ cmd_watch() {
     local _rk=$(echo "$short" | tr '/' '_')
     [[ -f "$state_dir/running/$_rk" ]] || continue
     active=$((active + 1))
+    local _raw=$(cat "$state_dir/running/$_rk")
+    local _sid=$(echo "$_raw" | cut -f3)
+    local session_state="?"
+    if [[ -n "$_sid" && -n "$_agents_json" ]]; then
+      session_state=$(echo "$_agents_json" | python3 -c "
+import json,sys
+for s in json.load(sys.stdin):
+    if s.get('id','').startswith('${_sid}'):
+        print(s.get('state','?'))
+        break
+else: print('gone')
+" 2>/dev/null || echo "?")
+    fi
     local wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
     local gc=0 gf=0 commit_msg="(starting)" diff_info="-"
     if [[ -n "$wt" && -d "$wt/.rebase-tmp/gates" ]]; then
@@ -766,7 +781,7 @@ cmd_watch() {
     fi
     local gate_str="${gc}/${expected_gates}"
     [[ "$gf" -gt 0 ]] && gate_str="${gate_str} (${gf}F)"
-    printf "%-42s %-10s %-40s %s\n" "$short" "$gate_str" "$commit_msg" "$diff_info"
+    printf "%-42s %-12s %-10s %-35s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
   done
   [[ "$active" -eq 0 ]] && echo "(no active tests)"
   return 0
