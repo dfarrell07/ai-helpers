@@ -724,6 +724,61 @@ FILES: $diff_stat"
   error "VERDICT: FAIL ($fail-$pass)"; return 1
 }
 
+# ── Watch ──────────────────────────────────────────────────────────────
+
+cmd_watch() {
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+  [[ "$expected_gates" -lt 1 ]] && expected_gates=33
+  echo "k8s-rebase test monitor (Ctrl-C to exit)"
+  echo ""
+  while true; do
+    clear
+    echo "k8s-rebase test monitor (Ctrl-C to exit)"
+    echo ""
+    printf "%-42s %-10s %-40s %s\n" "REPO" "GATES" "LATEST COMMIT" "DIFF"
+    printf "%-42s %-10s %-40s %s\n" "----" "-----" "-------------" "----"
+    local active=0
+    for repo in "${DEFAULT_REPOS[@]}"; do
+      [[ -d "$repo" ]] || continue
+      local short=$(repo_short "$repo")
+      local _rk=$(echo "$short" | tr '/' '_')
+      [[ -f "$state_dir/running/$_rk" ]] || continue
+      active=$((active + 1))
+      local wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+      local gc=0 gf=0 commit_msg="(starting)" diff_info="-"
+      if [[ -n "$wt" && -d "$wt/.rebase-tmp/gates" ]]; then
+        gc=$(ls "$wt/.rebase-tmp/gates/"*.report 2>/dev/null | wc -l)
+        for f in "$wt/.rebase-tmp/gates/"*.report; do
+          [[ -f "$f" ]] || continue
+          local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+          [[ "${v^^}" == *FAIL* ]] && gf=$((gf + 1))
+        done
+        commit_msg=$(git -C "$wt" log --format="%s" -1 2>/dev/null | head -c 38)
+      elif [[ -n "$wt" ]]; then
+        commit_msg=$(git -C "$wt" log --format="%s" -1 2>/dev/null | head -c 38)
+      fi
+      # Known-good diff
+      local kg_file="$state_dir/known_good_$_rk"
+      if [[ -f "$kg_file" && -n "$wt" ]]; then
+        local kg=$(cat "$kg_file")
+        local branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+        if [[ -n "$branch" ]] && git -C "$repo" rev-parse --verify "$kg" &>/dev/null; then
+          local nv=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+          diff_info="${nv}h"
+        fi
+      fi
+      local gate_str="${gc}/${expected_gates}"
+      [[ "$gf" -gt 0 ]] && gate_str="${gate_str} (${gf}F)"
+      printf "%-42s %-10s %-40s %s\n" "$short" "$gate_str" "$commit_msg" "$diff_info"
+    done
+    [[ "$active" -eq 0 ]] && echo "(no active tests)"
+    echo ""
+    echo "Last updated: $(date +%H:%M:%S)"
+    sleep 30
+  done
+}
+
 # ── Results Display ────────────────────────────────────────────────────
 
 cmd_results() {
@@ -912,6 +967,7 @@ COMMAND="$1"; shift
 case "$COMMAND" in
   test-all)       cmd_test_all "$@" ;;
   test)           cmd_test "$@" ;;
+  watch)          cmd_watch "$@" ;;
   results)        cmd_results "$@" ;;
   set-known-good)   cmd_set_known_good "$@" ;;
   set-from-commit)  cmd_set_from_commit "$@" ;;

@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help test results court set-known-good set-from-commit stop clean
+.PHONY: help test watch results court set-known-good set-from-commit stop clean
 
 SCRIPT := test/test-skill.sh
 VERSION ?= 1.36.2
@@ -12,6 +12,7 @@ help: ## Show available targets
 	@echo "k8s-rebase test targets:"
 	@echo ""
 	@echo "  make test [repo=<r>] [commit=<sha>]   Test all repos (3 at a time), or one repo"
+	@echo "  make watch                            Live monitor of active test sessions"
 	@echo "  make results [repo=<r>]               Results matrix, or deep-dive one repo"
 	@echo "  make court repo=<r>                   Adversarial court review"
 	@echo "  make set-known-good repo=<r> branch=<b>   Set reference branch"
@@ -28,6 +29,9 @@ test: ## Test all repos, or one: make test repo=openshift/multus-cni [commit=abc
 	else \
 		bash $(SCRIPT) test-all --version $(VERSION); \
 	fi
+
+watch: ## Live monitor of active test sessions (Ctrl-C to exit)
+	@bash $(SCRIPT) watch
 
 results: ## Results matrix, or deep-dive: make results repo=openshift/multus-cni
 	@bash $(SCRIPT) results $(REPO)
