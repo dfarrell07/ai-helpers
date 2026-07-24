@@ -205,6 +205,8 @@ cmd_run() {
       cd "$repo" || { warn "Skipping $short"; continue; }
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
       [[ -n "$(git status --porcelain 2>/dev/null)" ]] && { warn "Uncommitted changes in $short"; continue; }
+      local _db=$(default_branch)
+      git checkout "$_db" 2>/dev/null || true
       git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
       git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
         || { warn "Cannot checkout $from_commit"; continue; }
