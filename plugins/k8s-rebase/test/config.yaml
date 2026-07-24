@@ -1,0 +1,16 @@
+version: "1.36.2"
+
+repos:
+  ovn-org/ovn-kubernetes:
+    known_good: bump1.36
+    from_commit: f261f146c0625bbdb5933298cfcbebd7f392223d
+  ovn-kubernetes/ovn-kubernetes-mcp:
+    known_good: bump1.36-20260717052952
+  openshift/multus-cni:
+    known_good: bump1.36
+  openshift/ingress-node-firewall:
+    known_good: bump1.36
+  openshift/cloud-network-config-controller:
+    known_good: bump1.36-20260616200013
+  openshift/cluster-network-operator:
+    known_good: bump1.36

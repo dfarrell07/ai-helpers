@@ -10,17 +10,31 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="${PLUGIN_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." 2>/dev/null && pwd || echo /tmp)/.work/test-harness}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
+CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}"
 MAX_CONCURRENT=3
 IDLE_TIMEOUT_MIN=120
 
-DEFAULT_REPOS=(
-  "$HOME/ovnk/ovn-org/ovn-kubernetes"
-  "$HOME/ovnk/ovn-kubernetes/ovn-kubernetes-mcp"
-  "$HOME/ovnk/openshift/multus-cni"
-  "$HOME/ovnk/openshift/ingress-node-firewall"
-  "$HOME/ovnk/openshift/cloud-network-config-controller"
-  "$HOME/ovnk/openshift/cluster-network-operator"
-)
+# Load config from YAML
+_load_config() {
+  command -v yq &>/dev/null || die "yq required — install from https://github.com/mikefarah/yq"
+  [[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
+  VERSION=$(yq '.version // "1.36.2"' "$CONFIG_FILE")
+  DEFAULT_REPOS=()
+  while IFS= read -r repo_short; do
+    [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$HOME/ovnk/$repo_short")
+  done < <(yq '.repos | keys | .[]' "$CONFIG_FILE")
+  # Write per-repo configs to .matrix-state (for functions that read files)
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  mkdir -p "$state_dir"
+  for repo_short in $(yq '.repos | keys | .[]' "$CONFIG_FILE"); do
+    local _rk=$(echo "$repo_short" | tr '/' '_')
+    local kg=$(yq ".repos.\"$repo_short\".known_good // \"\"" "$CONFIG_FILE")
+    local fc=$(yq ".repos.\"$repo_short\".from_commit // \"\"" "$CONFIG_FILE")
+    [[ -n "$kg" ]] && echo "$kg" > "$state_dir/known_good_$_rk"
+    [[ -n "$fc" ]] && echo "$fc" > "$state_dir/from_commit_$_rk"
+  done
+}
+_load_config
 
 # ── Utilities ──────────────────────────────────────────────────────────
 
@@ -390,7 +404,7 @@ _repo_from_key() {
 }
 
 cmd_test() {
-  local version="1.36.2" specs=() repo="" from_commit=""
+  local version="$VERSION" specs=() repo="" from_commit=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --version) shift; version="${1:-}"; [[ -z "$version" ]] && die "--version needs value" ;;
@@ -451,8 +465,8 @@ cmd_test() {
 }
 
 cmd_test_all() {
-  local version="1.36.2"
-  [[ "${1:-}" == "--version" ]] && { shift; version="${1:-1.36.2}"; shift; }
+  local version="$VERSION"
+  [[ "${1:-}" == "--version" ]] && { shift; version="${1:-$VERSION}"; shift; }
   local launched=0 active=0
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   # Count already-running repos toward the limit

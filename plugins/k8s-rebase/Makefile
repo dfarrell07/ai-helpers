@@ -2,7 +2,6 @@
 .PHONY: help test watch results court set-known-good set-from-commit stop clean
 
 SCRIPT := test/test-skill.sh
-VERSION ?= 1.36.2
 SPEC ?= all
 REPO ?= $(repo)
 BRANCH ?= $(branch)
@@ -20,14 +19,14 @@ help: ## Show available targets
 	@echo "  make stop                             Stop all test sessions"
 	@echo "  make clean                            Cleanup worktrees and mutated dirs"
 	@echo ""
-	@echo "Repos: openshift/multus-cni, ovn-org/ovn-kubernetes, etc."
+	@echo "Config: test/config.yaml (repos, version, known-good, from-commit)"
 	@echo "Specs: all, fn:<tag>, pattern:<key>, all-fns, all-patterns"
 
 test: ## Test all repos, or one: make test repo=openshift/multus-cni [commit=abc123]
 	@if [ -n "$(REPO)" ]; then \
-		bash $(SCRIPT) test $(SPEC) $(REPO) --version $(VERSION) $(if $(COMMIT),--from-commit $(COMMIT)); \
+		bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
 	else \
-		bash $(SCRIPT) test-all --version $(VERSION); \
+		bash $(SCRIPT) test-all; \
 	fi
 
 watch: ## Show active test status (use: watch -n 30 make watch)
