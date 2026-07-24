@@ -272,6 +272,11 @@ cmd_clean() {
     [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
     [[ -d "$RESULTS_DIR/court" ]] && { rm -rf "$RESULTS_DIR/court" 2>/dev/null; info "Cleaned court artifacts"; }
   fi
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  if [[ -d "$state_dir/done" ]]; then
+    rm -rf "$state_dir/done"/* "$state_dir/running"/* 2>/dev/null
+    info "Cleared test state (done + running)"
+  fi
   return 0
 }
 
