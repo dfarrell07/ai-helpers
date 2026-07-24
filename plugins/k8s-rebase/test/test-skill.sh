@@ -466,13 +466,21 @@ cmd_test_all() {
     local _rk=$(repo_short "$repo" | tr '/' '_')
     [[ -f "$state_dir/running/$_rk" ]] && { info "SKIP $(repo_short "$repo") (already running)"; continue; }
     [[ -f "$state_dir/done/all_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
+    local _fc_file="$state_dir/from_commit_$_rk"
+    local _fc_args=()
+    [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
+    # Skip repos already at target version with no from-commit set
+    if [[ ${#_fc_args[@]} -eq 0 ]]; then
+      local _cur_ver=$(grep 'k8s.io/api ' "$repo/go.mod" 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
+      if [[ "$_cur_ver" == *"$version"* ]]; then
+        warn "SKIP $(repo_short "$repo") (already at $_cur_ver — use: make set-from-commit repo=$(repo_short "$repo") commit=<sha>)"
+        continue
+      fi
+    fi
     if [[ $((active + launched)) -ge "$MAX_CONCURRENT" ]]; then
       info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
       continue
     fi
-    local _fc_file="$state_dir/from_commit_$_rk"
-    local _fc_args=()
-    [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
     cmd_test "all" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
   done
   info "Launched: $launched ($active already active) | Monitor: make results"
@@ -907,7 +915,17 @@ cmd_results() {
         printf "%-45s %-8s %-20s %s\n" "$short" "$verdict" "$ts" "$detail"
       else
         all_pass=false
-        printf "%-45s %-8s %-20s %s\n" "$short" "-" "" "not tested"
+        local _rk=$(echo "$short" | tr '/' '_')
+        local _reason="not tested"
+        # Check if repo is already at target version
+        local _resolved=$(resolve_repo "$short" 2>/dev/null)
+        if [[ -n "$_resolved" ]]; then
+          local _ver=$(grep 'k8s.io/api ' "$_resolved/go.mod" 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
+          if [[ "$_ver" == *"$VERSION"* ]] && [[ ! -f "$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk" ]]; then
+            _reason="already at $_ver — set from-commit to test"
+          fi
+        fi
+        printf "%-45s %-8s %-20s %s\n" "$short" "-" "" "$_reason"
       fi
     done
 
