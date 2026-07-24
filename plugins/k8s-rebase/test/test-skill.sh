@@ -427,9 +427,12 @@ cmd_test_all() {
     [[ -d "$repo" ]] || continue
     [[ -n "$(session_for_repo "$repo")" ]] && active=$((active + 1))
   done
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
+    local _rk=$(repo_short "$repo" | tr '/' '_')
     [[ -n "$(session_for_repo "$repo")" ]] && { info "SKIP $(repo_short "$repo") (active session)"; continue; }
+    [[ -f "$state_dir/done/all_$_rk" || -f "$state_dir/done/all-patterns_all-fns_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     if [[ $((active + launched)) -ge "$MAX_CONCURRENT" ]]; then
       info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
       continue
