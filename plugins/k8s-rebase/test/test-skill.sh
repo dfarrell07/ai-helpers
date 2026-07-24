@@ -273,10 +273,7 @@ cmd_clean() {
     [[ -d "$RESULTS_DIR/court" ]] && { rm -rf "$RESULTS_DIR/court" 2>/dev/null; info "Cleaned court artifacts"; }
   fi
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
-  if [[ -d "$state_dir/done" ]]; then
-    rm -rf "$state_dir/done"/* "$state_dir/running"/* 2>/dev/null
-    info "Cleared test state (done + running)"
-  fi
+  [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
   return 0
 }
 
@@ -437,7 +434,7 @@ cmd_test_all() {
     [[ -d "$repo" ]] || continue
     local _rk=$(repo_short "$repo" | tr '/' '_')
     [[ -n "$(session_for_repo "$repo")" ]] && { info "SKIP $(repo_short "$repo") (active session)"; continue; }
-    [[ -f "$state_dir/done/all_$_rk" || -f "$state_dir/done/all-patterns_all-fns_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
+    [[ -f "$state_dir/done/all_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     if [[ $((active + launched)) -ge "$MAX_CONCURRENT" ]]; then
       info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
       continue
