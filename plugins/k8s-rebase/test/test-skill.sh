@@ -256,6 +256,7 @@ cmd_stop() {
     fi
     if $should_stop; then
       claude stop "$sid" 2>/dev/null || true
+      rm -f "$running_file"
       info "Stopped $short"
       killed=$((killed + 1))
     fi
