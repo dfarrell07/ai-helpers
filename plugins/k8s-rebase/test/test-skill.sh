@@ -218,8 +218,9 @@ cmd_run() {
     session_output=$(claude --bg \
       --plugin-dir "$PLUGIN_DIR" \
       --permission-mode "$PERMISSION_MODE" \
-      --disallowed-tools 'Bash(git push *)' 'Bash(*git push*)' 'Bash(git -c *push*)' 'Bash(*send-pack*)' 'Bash(gh pr create *)' 'Bash(*gh pr create*)' 'Bash(*gh api*repos*pulls*)' \
-      "/k8s-rebase:k8s-rebase $version" 2>/dev/null)
+      "/k8s-rebase:k8s-rebase $version" \
+      --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*)' \
+      2>/dev/null)
     session_id=$(echo "$session_output" | grep 'backgrounded' | grep -oE '[a-f0-9]{8,}' | head -1)
     : "${session_id:=unknown}"
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
