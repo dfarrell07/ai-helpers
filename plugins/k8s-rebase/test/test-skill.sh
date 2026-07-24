@@ -98,11 +98,6 @@ build_session_cache() {
   _SESSION_CACHE_BUILT=true
 }
 
-require_session_cache() {
-  if ! $_SESSION_CACHE_OK; then
-    die "Session cache unavailable — refusing destructive operation"
-  fi
-}
 
 session_for_repo() {
   local repo="$1" short
@@ -188,7 +183,6 @@ cmd_run() {
 
   local launched=0
   build_session_cache
-  require_session_cache
   for repo in "${repos[@]}"; do
     local repo_input="$repo"
     repo=$(resolve_repo "$repo") || { warn "Not found: $repo_input"; continue; }
