@@ -420,22 +420,23 @@ cmd_test() {
 cmd_test_all() {
   local version="1.36.2"
   [[ "${1:-}" == "--version" ]] && { shift; version="${1:-1.36.2}"; shift; }
-  local launched=0
+  local launched=0 active=0
   build_session_cache
+  # Count already-active sessions toward the limit
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
-    local existing=$(session_for_repo "$repo")
-    if [[ -n "$existing" ]]; then
-      info "SKIP $(repo_short "$repo") (active session)"
-      continue
-    fi
-    if [[ "$launched" -ge "$MAX_CONCURRENT" ]]; then
-      info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — launch separately)"
+    [[ -n "$(session_for_repo "$repo")" ]] && active=$((active + 1))
+  done
+  for repo in "${DEFAULT_REPOS[@]}"; do
+    [[ -d "$repo" ]] || continue
+    [[ -n "$(session_for_repo "$repo")" ]] && { info "SKIP $(repo_short "$repo") (active session)"; continue; }
+    if [[ $((active + launched)) -ge "$MAX_CONCURRENT" ]]; then
+      info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
       continue
     fi
     cmd_test "all" "$repo" --version "$version" && launched=$((launched + 1))
   done
-  info "Launched: $launched | Monitor: make results"
+  info "Launched: $launched ($active already active) | Monitor: make results"
 }
 
 # ── Recording ──────────────────────────────────────────────────────────

@@ -10,7 +10,7 @@ BRANCH ?= $(branch)
 help: ## Show available targets
 	@echo "k8s-rebase test targets:"
 	@echo ""
-	@echo "  make test                            Run blind test suite (all repos)"
+	@echo "  make test                            Run blind test suite (3 at a time, re-run for next batch)"
 	@echo "  make test-one repo=<r> [spec=<s>]    Test one repo (spec default: all)"
 	@echo "  make results [repo=<r>]              Results matrix, or deep-dive one repo"
 	@echo "  make court repo=<r>                  Adversarial court review"
