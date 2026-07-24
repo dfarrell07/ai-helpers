@@ -759,19 +759,14 @@ else: print('gone')
 " 2>/dev/null || echo "?")
     fi
     local wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
-    local gc=0 gf=0 commit_msg="(starting)" diff_info="-" n_commits=0
+    local gc=0 gf=0 commit_msg="-" diff_info="-"
     if [[ -n "$wt" ]]; then
-      # Count skill's commits (not repo history)
       local _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
       : "${_db:=main}"
       local _branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
       if [[ -n "$_branch" ]]; then
-        n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
-        if [[ "$n_commits" -gt 0 ]]; then
-          commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 30)
-        else
-          commit_msg="(rebasing)"
-        fi
+        local n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
+        [[ "$n_commits" -gt 0 ]] && commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 30)
       fi
       if [[ -d "$wt/.rebase-tmp/gates" ]]; then
         gc=$(ls "$wt/.rebase-tmp/gates/"*.report 2>/dev/null | wc -l)
