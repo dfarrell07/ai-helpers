@@ -495,10 +495,10 @@ _do_record_one() {
     || default_br="master"
 
   if [[ "$launch_epoch" -gt 0 ]]; then
-    local branch_epoch
-    branch_epoch=$(git -C "$repo" log --reverse --format='%ct' "${default_br}..${result_branch}" 2>/dev/null | head -1)
-    : "${branch_epoch:=0}"
-    [[ "$branch_epoch" -gt 0 && "$branch_epoch" -lt "$launch_epoch" ]] && { echo "stale branch"; return 1; }
+    local branch_tip_epoch
+    branch_tip_epoch=$(git -C "$repo" log -1 --format='%ct' "$result_branch" 2>/dev/null)
+    : "${branch_tip_epoch:=0}"
+    [[ "$branch_tip_epoch" -gt 0 && "$branch_tip_epoch" -lt "$launch_epoch" ]] && { echo "stale branch"; return 1; }
   fi
 
   local commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
@@ -885,6 +885,7 @@ Commands:
   test <spec> <repo> [--version]    Run specific test case
   results [repo] [--court]          Show results matrix or deep-dive one repo
   set-known-good <repo> <branch>    Set reference branch for comparison
+  set-from-commit <repo> <commit>   Set pre-merge commit for historical testing
   stop [repo...|--all]              Stop running test sessions
   clean [repos...]                  Cleanup worktrees and containers
 
