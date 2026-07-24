@@ -222,6 +222,7 @@ cmd_run() {
     : "${session_id:=unknown}"
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
     info "Launched $short -> $session_id"
+    echo "$session_id" > "$RESULTS_DIR/.last_session_id" 2>/dev/null
     launched=$((launched + 1))
   done
   [[ "$launched" -gt 0 ]] && info "Monitor: make results" || { warn "No sessions launched"; return 1; }
@@ -232,36 +233,33 @@ cmd_stop() {
   [[ ${#targets[@]} -eq 0 ]] && die "Usage: test-skill.sh stop <repo...|--all>"
   local stop_all=false
   [[ "${targets[0]}" == "--all" ]] && { stop_all=true; targets=(); }
-  build_session_cache
-  [[ -z "$_SESSION_CACHE" ]] && { info "No active sessions"; return 0; }
-  local my_ancestors="" _pid=$$
-  while [[ -n "$_pid" && "$_pid" != "1" && "$_pid" != "0" ]]; do
-    my_ancestors="$my_ancestors $_pid"
-    _pid=$(ps -o ppid= -p "$_pid" 2>/dev/null | tr -d ' ')
-  done
+
+  # Read session IDs from running files (no session cache needed)
+  local state_dir="$PLUGIN_DIR/test/.matrix-state/running"
+  [[ ! -d "$state_dir" ]] && { info "No active sessions"; return 0; }
   local killed=0
-  while IFS=$'\t' read -r cwd tag elapsed pid sid full_sid; do
-    [[ -z "$pid" ]] && continue
-    echo "$my_ancestors" | grep -qw "$pid" && continue
+  for running_file in "$state_dir"/*; do
+    [[ -f "$running_file" ]] || continue
+    local repo_key=$(basename "$running_file")
+    local raw=$(cat "$running_file")
+    local sid=$(echo "$raw" | cut -f3)
+    [[ -z "$sid" ]] && continue
+    local short=$(echo "$repo_key" | tr '_' '/')
     local should_stop=false
     if $stop_all; then
-      for dr in "${DEFAULT_REPOS[@]}"; do
-        local dr_short=$(repo_short "$dr")
-        [[ "$cwd" == *"/$dr_short" || "$cwd" == *"/$dr_short/"* ]] && { should_stop=true; break; }
-      done
+      should_stop=true
     else
       for t in "${targets[@]}"; do
-        [[ "$sid" == "$t"* || "$cwd" == *"/$t" || "$cwd" == *"/$t/.claude"* ]] && { should_stop=true; break; }
+        [[ "$short" == *"$t"* || "$sid" == "$t"* ]] && { should_stop=true; break; }
       done
     fi
     if $should_stop; then
       claude stop "$sid" 2>/dev/null || true
-      sleep 2
-      info "Stopped $(echo "$cwd" | sed "s|$HOME/ovnk/||;s|/\.claude/.*||")"
+      info "Stopped $short"
       killed=$((killed + 1))
     fi
-  done <<< "$_SESSION_CACHE"
-  [[ "$killed" -eq 0 ]] && info "No matching sessions"
+  done
+  [[ "$killed" -eq 0 ]] && info "No active sessions"
 }
 
 cmd_clean() {
@@ -440,6 +438,10 @@ cmd_test() {
     fi
     die "Launch failed for $(repo_short "$repo")"
   fi
+  # Append session ID to running file for reliable stop
+  local _sid=$(cat "$RESULTS_DIR/.last_session_id" 2>/dev/null)
+  [[ -n "$_sid" ]] && printf '%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" > "$_state_dir/running/$_repo_key"
+  rm -f "$RESULTS_DIR/.last_session_id" 2>/dev/null
   info "When done: make results"
 }
 
