@@ -272,6 +272,7 @@ cmd_clean() {
     [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
     [[ -d "$RESULTS_DIR/court" ]] && { rm -rf "$RESULTS_DIR/court" 2>/dev/null; info "Cleaned court artifacts"; }
   fi
+  return 0
 }
 
 # ── Mutation ───────────────────────────────────────────────────────────
