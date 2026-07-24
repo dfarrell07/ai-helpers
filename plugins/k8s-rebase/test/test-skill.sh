@@ -793,9 +793,14 @@ else: print('gone')
     fi
     local gate_str="${gc}/${expected_gates}"
     [[ "$gf" -gt 0 ]] && gate_str="${gate_str} (${gf}F)"
-    printf "%-42s %-10s %-8s %-32s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+    if [[ "$session_state" == "gone" || "$session_state" == "done" ]]; then
+      rm -f "$state_dir/running/$_rk"
+      active=$((active - 1))
+    else
+      printf "%-42s %-10s %-8s %-32s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+    fi
   done
-  [[ "$active" -eq 0 ]] && echo "(no active tests)"
+  [[ "$active" -le 0 ]] && echo "(no active tests)"
   return 0
 }
 
