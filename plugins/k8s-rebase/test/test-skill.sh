@@ -472,6 +472,7 @@ cmd_test_all() {
   [[ "${1:-}" == "--version" ]] && { shift; version="${1:-$VERSION}"; shift; }
   local launched=0 active=0
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local _agents_json=$(claude agents --json 2>/dev/null || true)
   # Count already-running repos toward the limit
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
@@ -481,14 +482,36 @@ cmd_test_all() {
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
     local _rk=$(repo_short "$repo" | tr '/' '_')
-    [[ -f "$state_dir/running/$_rk" ]] && { info "SKIP $(repo_short "$repo") (already running)"; continue; }
+    if [[ -f "$state_dir/running/$_rk" ]]; then
+      local _run_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
+      if [[ -n "$_run_sid" && -n "$_agents_json" ]]; then
+        local _alive=$(echo "$_agents_json" | python3 -c "
+import json,sys
+for s in json.load(sys.stdin):
+    if s.get('id','').startswith('${_run_sid}') and s.get('state') not in ('done',None):
+        print('yes'); break
+" 2>/dev/null)
+        if [[ "$_alive" != "yes" ]]; then
+          rm -f "$state_dir/running/$_rk"
+          active=$((active - 1))
+        else
+          info "SKIP $(repo_short "$repo") (already running)"
+          continue
+        fi
+      else
+        info "SKIP $(repo_short "$repo") (already running)"
+        continue
+      fi
+    fi
     [[ -f "$state_dir/done/all_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     local _fc_file="$state_dir/from_commit_$_rk"
     local _fc_args=()
     [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
     # Skip repos already at target version with no from-commit set
     if [[ ${#_fc_args[@]} -eq 0 ]]; then
-      local _cur_ver=$(grep 'k8s.io/api ' "$repo/go.mod" 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
+      local _def_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+      : "${_def_br:=main}"
+      local _cur_ver=$(git -C "$repo" show "origin/${_def_br}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
       if [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]]; then
         warn "SKIP $(repo_short "$repo") (already at $_cur_ver — use: make set-from-commit repo=$(repo_short "$repo") commit=<sha>)"
         continue
@@ -932,7 +955,9 @@ cmd_results() {
         # Check if repo is already at target version
         local _resolved=$(resolve_repo "$short" 2>/dev/null)
         if [[ -n "$_resolved" ]]; then
-          local _ver=$(grep 'k8s.io/api ' "$_resolved/go.mod" 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
+          local _dbr=$(git -C "$_resolved" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+          : "${_dbr:=main}"
+          local _ver=$(git -C "$_resolved" show "origin/${_dbr}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
           if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ ! -f "$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk" ]]; then
             _reason="already at $_ver — set from-commit to test"
           fi
