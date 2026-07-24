@@ -736,8 +736,8 @@ cmd_watch() {
   [[ "$expected_gates" -lt 1 ]] && expected_gates=33
   # Get session states — no timeout, this is a foreground command
   local _agents_json=$(claude agents --json 2>/dev/null || true)
-  printf "%-42s %-10s %-8s %-5s %-32s %s\n" "REPO" "SESSION" "GATES" "CMT" "LATEST" "DIFF"
-  printf "%-42s %-10s %-8s %-5s %-32s %s\n" "----" "-------" "-----" "---" "------" "----"
+  printf "%-42s %-10s %-8s %-32s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "DIFF"
+  printf "%-42s %-10s %-8s %-32s %s\n" "----" "-------" "-----" "-------------" "----"
   local active=0
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
@@ -793,7 +793,7 @@ else: print('gone')
     fi
     local gate_str="${gc}/${expected_gates}"
     [[ "$gf" -gt 0 ]] && gate_str="${gate_str} (${gf}F)"
-    printf "%-42s %-10s %-8s %-5s %-32s %s\n" "$short" "$session_state" "$gate_str" "$n_commits" "$commit_msg" "$diff_info"
+    printf "%-42s %-10s %-8s %-32s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
   done
   [[ "$active" -eq 0 ]] && echo "(no active tests)"
   return 0
