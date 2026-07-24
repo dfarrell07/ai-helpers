@@ -733,8 +733,8 @@ cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
   [[ "$expected_gates" -lt 1 ]] && expected_gates=33
-  # Get session states in one call
-  local _agents_json=$(timeout -k 1 10 claude agents --json 2>/dev/null || true)
+  # Get session states — no timeout, this is a foreground command
+  local _agents_json=$(claude agents --json 2>/dev/null || true)
   printf "%-42s %-12s %-10s %-35s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "DIFF"
   printf "%-42s %-12s %-10s %-35s %s\n" "----" "-------" "-----" "-------------" "----"
   local active=0
