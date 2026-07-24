@@ -736,8 +736,8 @@ cmd_watch() {
   [[ "$expected_gates" -lt 1 ]] && expected_gates=33
   # Get session states — no timeout, this is a foreground command
   local _agents_json=$(claude agents --json 2>/dev/null || true)
-  printf "%-42s %-12s %-10s %-35s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "DIFF"
-  printf "%-42s %-12s %-10s %-35s %s\n" "----" "-------" "-----" "-------------" "----"
+  printf "%-42s %-10s %-8s %-5s %-32s %s\n" "REPO" "SESSION" "GATES" "CMT" "LATEST" "DIFF"
+  printf "%-42s %-10s %-8s %-5s %-32s %s\n" "----" "-------" "-----" "---" "------" "----"
   local active=0
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
@@ -759,17 +759,28 @@ else: print('gone')
 " 2>/dev/null || echo "?")
     fi
     local wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
-    local gc=0 gf=0 commit_msg="(starting)" diff_info="-"
-    if [[ -n "$wt" && -d "$wt/.rebase-tmp/gates" ]]; then
-      gc=$(ls "$wt/.rebase-tmp/gates/"*.report 2>/dev/null | wc -l)
-      for f in "$wt/.rebase-tmp/gates/"*.report; do
-        [[ -f "$f" ]] || continue
-        local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-        [[ "${v^^}" == *FAIL* ]] && gf=$((gf + 1))
-      done
-      commit_msg=$(git -C "$wt" log --format="%s" -1 2>/dev/null | head -c 38)
-    elif [[ -n "$wt" ]]; then
-      commit_msg=$(git -C "$wt" log --format="%s" -1 2>/dev/null | head -c 38)
+    local gc=0 gf=0 commit_msg="(starting)" diff_info="-" n_commits=0
+    if [[ -n "$wt" ]]; then
+      # Count skill's commits (not repo history)
+      local _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+      : "${_db:=main}"
+      local _branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+      if [[ -n "$_branch" ]]; then
+        n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
+        if [[ "$n_commits" -gt 0 ]]; then
+          commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 30)
+        else
+          commit_msg="(rebasing)"
+        fi
+      fi
+      if [[ -d "$wt/.rebase-tmp/gates" ]]; then
+        gc=$(ls "$wt/.rebase-tmp/gates/"*.report 2>/dev/null | wc -l)
+        for f in "$wt/.rebase-tmp/gates/"*.report; do
+          [[ -f "$f" ]] || continue
+          local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+          [[ "${v^^}" == *FAIL* ]] && gf=$((gf + 1))
+        done
+      fi
     fi
     local kg_file="$state_dir/known_good_$_rk"
     if [[ -f "$kg_file" && -n "$wt" ]]; then
@@ -782,7 +793,7 @@ else: print('gone')
     fi
     local gate_str="${gc}/${expected_gates}"
     [[ "$gf" -gt 0 ]] && gate_str="${gate_str} (${gf}F)"
-    printf "%-42s %-12s %-10s %-35s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+    printf "%-42s %-10s %-8s %-5s %-32s %s\n" "$short" "$session_state" "$gate_str" "$n_commits" "$commit_msg" "$diff_info"
   done
   [[ "$active" -eq 0 ]] && echo "(no active tests)"
   return 0
