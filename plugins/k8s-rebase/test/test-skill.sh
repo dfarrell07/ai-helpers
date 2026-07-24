@@ -783,20 +783,21 @@ cmd_results() {
   # Per-repo latest results
   local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
   if [[ -f "$tsv" ]]; then
-    printf "%-45s %-8s %s\n" "REPO" "VERDICT" "DETAIL"
-    printf "%-45s %-8s %s\n" "----" "-------" "------"
+    printf "%-45s %-8s %-20s %s\n" "REPO" "VERDICT" "LAST RUN" "DETAIL"
+    printf "%-45s %-8s %-20s %s\n" "----" "-------" "--------" "------"
     local all_pass=true
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
       local latest_line=$(awk -F'\t' -v r="$short" '$3==r && $2~/^all/' "$tsv" | tail -1)
       if [[ -n "$latest_line" ]]; then
+        local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
         local verdict=$(echo "$latest_line" | cut -f4)
         local detail=$(echo "$latest_line" | cut -f5)
         [[ "$verdict" != "PASS" ]] && all_pass=false
-        printf "%-45s %-8s %s\n" "$short" "$verdict" "$detail"
+        printf "%-45s %-8s %-20s %s\n" "$short" "$verdict" "$ts" "$detail"
       else
         all_pass=false
-        printf "%-45s %-8s %s\n" "$short" "-" "not tested"
+        printf "%-45s %-8s %-20s %s\n" "$short" "-" "" "not tested"
       fi
     done
 
