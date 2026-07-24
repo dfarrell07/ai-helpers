@@ -222,7 +222,8 @@ cmd_run() {
     : "${session_id:=unknown}"
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
     info "Launched $short -> $session_id"
-    echo "$session_id" > "$RESULTS_DIR/.last_session_id" 2>/dev/null
+    local _rk=$(repo_short "$repo" | tr '/' '_')
+    echo "$session_id" > "$RESULTS_DIR/.session_id_$_rk" 2>/dev/null
     launched=$((launched + 1))
   done
   [[ "$launched" -gt 0 ]] && info "Monitor: make results" || { warn "No sessions launched"; return 1; }
@@ -230,7 +231,7 @@ cmd_run() {
 
 cmd_stop() {
   local targets=("$@")
-  [[ ${#targets[@]} -eq 0 ]] && die "Usage: test-skill.sh stop <repo...|--all>"
+  [[ ${#targets[@]} -eq 0 ]] && die "Usage: make stop"
   local stop_all=false
   [[ "${targets[0]}" == "--all" ]] && { stop_all=true; targets=(); }
 
@@ -439,9 +440,9 @@ cmd_test() {
     die "Launch failed for $(repo_short "$repo")"
   fi
   # Append session ID to running file for reliable stop
-  local _sid=$(cat "$RESULTS_DIR/.last_session_id" 2>/dev/null)
+  local _sid=$(cat "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null)
   [[ -n "$_sid" ]] && printf '%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" > "$_state_dir/running/$_repo_key"
-  rm -f "$RESULTS_DIR/.last_session_id" 2>/dev/null
+  rm -f "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null
   info "When done: make results"
 }
 
@@ -528,10 +529,10 @@ _do_record_one() {
   fi
 
   # Known-good diff (informational — does not affect verdict)
-  local kg_hunks="" kg_vendor=""
+  local kg_hunks="" kg_vendor="" kg_branch=""
   local kg_file="$state_dir/known_good_$repo_key"
   if [[ -f "$kg_file" ]]; then
-    local kg_branch=$(cat "$kg_file")
+    kg_branch=$(cat "$kg_file")
     if git -C "$repo" rev-parse --verify "$kg_branch" &>/dev/null; then
       local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
       local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
@@ -561,8 +562,7 @@ _do_record_one() {
     detail="all gates pass (no known-good set)"
   fi
   # Run court to verify result quality
-  if [[ "$verdict" == "PASS" && -n "$kg_hunks" && "$kg_hunks" -gt 0 && -f "$kg_file" ]]; then
-    local kg_branch=$(cat "$kg_file")
+  if [[ "$verdict" == "PASS" && -n "$kg_hunks" && "$kg_hunks" -gt 0 && -n "$kg_branch" ]]; then
     info "Court review: $short ($kg_hunks code hunks vs known-good)..."
     local court_verdict="FAIL"
     cmd_court "$result_branch" "$kg_branch" "$repo" && court_verdict="PASS"
@@ -762,7 +762,7 @@ cmd_results() {
       local total=0 gfail=0
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue; total=$((total+1))
-        local v=$(grep -iE '^VERDICT:' "$f" 2>/dev/null | head -1)
+        local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
         [[ "$v" == *FAIL* ]] && gfail=$((gfail+1))
       done
@@ -776,7 +776,7 @@ cmd_results() {
       # Show failed gates inline
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue
-        local v=$(grep -iE '^VERDICT:' "$f" 2>/dev/null | head -1)
+        local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
         [[ "$v" == *"FAIL"* ]] && {
           echo ""
