@@ -454,17 +454,17 @@ cmd_test_all() {
   local version="1.36.2"
   [[ "${1:-}" == "--version" ]] && { shift; version="${1:-1.36.2}"; shift; }
   local launched=0 active=0
-  build_session_cache
-  # Count already-active sessions toward the limit
-  for repo in "${DEFAULT_REPOS[@]}"; do
-    [[ -d "$repo" ]] || continue
-    [[ -n "$(session_for_repo "$repo")" ]] && active=$((active + 1))
-  done
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  # Count already-running repos toward the limit
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
     local _rk=$(repo_short "$repo" | tr '/' '_')
-    [[ -n "$(session_for_repo "$repo")" ]] && { info "SKIP $(repo_short "$repo") (active session)"; continue; }
+    [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
+  done
+  for repo in "${DEFAULT_REPOS[@]}"; do
+    [[ -d "$repo" ]] || continue
+    local _rk=$(repo_short "$repo" | tr '/' '_')
+    [[ -f "$state_dir/running/$_rk" ]] && { info "SKIP $(repo_short "$repo") (already running)"; continue; }
     [[ -f "$state_dir/done/all_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     if [[ $((active + launched)) -ge "$MAX_CONCURRENT" ]]; then
       info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
