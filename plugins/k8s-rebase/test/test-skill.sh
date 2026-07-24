@@ -26,12 +26,14 @@ _load_config() {
   # Write per-repo configs to .matrix-state (for functions that read files)
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   mkdir -p "$state_dir"
-  for repo_short in $(yq '.repos | keys | .[]' "$CONFIG_FILE"); do
-    local _rk=$(echo "$repo_short" | tr '/' '_')
-    local kg=$(yq ".repos.\"$repo_short\".known_good // \"\"" "$CONFIG_FILE")
-    local fc=$(yq ".repos.\"$repo_short\".from_commit // \"\"" "$CONFIG_FILE")
-    [[ -n "$kg" ]] && echo "$kg" > "$state_dir/known_good_$_rk"
-    [[ -n "$fc" ]] && echo "$fc" > "$state_dir/from_commit_$_rk"
+  for _repo_name in $(yq '.repos | keys | .[]' "$CONFIG_FILE"); do
+    local _rk=$(echo "$_repo_name" | tr '/' '_')
+    local kg=$(yq ".repos.\"$_repo_name\".known_good // \"\"" "$CONFIG_FILE")
+    local fc=$(yq ".repos.\"$_repo_name\".from_commit // \"\"" "$CONFIG_FILE")
+    if [[ -n "$kg" ]]; then echo "$kg" > "$state_dir/known_good_$_rk"
+    else rm -f "$state_dir/known_good_$_rk"; fi
+    if [[ -n "$fc" ]]; then echo "$fc" > "$state_dir/from_commit_$_rk"
+    else rm -f "$state_dir/from_commit_$_rk"; fi
   done
 }
 _load_config
@@ -486,7 +488,7 @@ cmd_test_all() {
     # Skip repos already at target version with no from-commit set
     if [[ ${#_fc_args[@]} -eq 0 ]]; then
       local _cur_ver=$(grep 'k8s.io/api ' "$repo/go.mod" 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
-      if [[ "$_cur_ver" == *"$version"* ]]; then
+      if [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]]; then
         warn "SKIP $(repo_short "$repo") (already at $_cur_ver — use: make set-from-commit repo=$(repo_short "$repo") commit=<sha>)"
         continue
       fi
@@ -810,12 +812,7 @@ else: print('gone')
     fi
     local gate_str="${gc}/${expected_gates}"
     [[ "$gf" -gt 0 ]] && gate_str="${gate_str} (${gf}F)"
-    if [[ "$session_state" == "gone" || "$session_state" == "done" ]]; then
-      rm -f "$state_dir/running/$_rk"
-      active=$((active - 1))
-    else
-      printf "%-42s %-10s %-8s %-32s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
-    fi
+    printf "%-42s %-10s %-8s %-32s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
   done
   [[ "$active" -le 0 ]] && echo "(no active tests)"
   return 0
@@ -935,7 +932,7 @@ cmd_results() {
         local _resolved=$(resolve_repo "$short" 2>/dev/null)
         if [[ -n "$_resolved" ]]; then
           local _ver=$(grep 'k8s.io/api ' "$_resolved/go.mod" 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
-          if [[ "$_ver" == *"$VERSION"* ]] && [[ ! -f "$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk" ]]; then
+          if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ ! -f "$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk" ]]; then
             _reason="already at $_ver — set from-commit to test"
           fi
         fi
