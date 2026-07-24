@@ -18,7 +18,8 @@ IDLE_TIMEOUT_MIN=120
 _load_config() {
   command -v yq &>/dev/null || die "yq required — install from https://github.com/mikefarah/yq"
   [[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
-  VERSION=$(yq '.version // "1.36.2"' "$CONFIG_FILE")
+  VERSION=$(yq '.version' "$CONFIG_FILE")
+  [[ -z "$VERSION" || "$VERSION" == "null" ]] && die "version not set in $CONFIG_FILE"
   DEFAULT_REPOS=()
   while IFS= read -r repo_short; do
     [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$HOME/ovnk/$repo_short")
