@@ -177,7 +177,14 @@ cmd_run() {
   command -v claude &>/dev/null || die "claude CLI not found"
   local version="$1"; shift
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Version must be X.Y.Z"
-  local repos=("$@")
+  local from_commit=""
+  local repos=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --from-commit) shift; from_commit="${1:-}" ;;
+      *) repos+=("$1") ;;
+    esac; shift
+  done
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
   mkdir -p "$RESULTS_DIR" || die "Cannot create $RESULTS_DIR"
 
@@ -194,7 +201,17 @@ cmd_run() {
       continue
     fi
     remove_worktrees "$repo"
-    reset_to_default "$repo" || { warn "Skipping $short"; continue; }
+    if [[ -n "$from_commit" ]]; then
+      cd "$repo" || { warn "Skipping $short"; continue; }
+      git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
+      [[ -n "$(git status --porcelain 2>/dev/null)" ]] && { warn "Uncommitted changes in $short"; continue; }
+      git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
+      git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
+        || { warn "Cannot checkout $from_commit"; continue; }
+      info "$short -> ${from_commit:0:8} (historical)"
+    else
+      reset_to_default "$repo" || { warn "Skipping $short"; continue; }
+    fi
     local session_output session_id
     session_output=$(claude --bg \
       --plugin-dir "$PLUGIN_DIR" \
@@ -258,6 +275,12 @@ cmd_clean() {
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
     remove_worktrees "$repo"
+    # Clean temp branches from historical testing and recover to default branch
+    for tb in $(git branch --no-color | tr -d ' *' | grep '^_test-from-'); do
+      git branch -D "$tb" 2>/dev/null
+    done
+    local _cur=$(git branch --show-current 2>/dev/null)
+    [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null || true; }
   done
   if command -v podman &>/dev/null; then
     local pruned=0
@@ -364,10 +387,11 @@ _repo_from_key() {
 }
 
 cmd_test() {
-  local version="1.36.2" specs=() repo=""
+  local version="1.36.2" specs=() repo="" from_commit=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --version) shift; version="${1:-}"; [[ -z "$version" ]] && die "--version needs value" ;;
+      --from-commit) shift; from_commit="${1:-}"; [[ -z "$from_commit" ]] && die "--from-commit needs value" ;;
       pattern:*|fn:*|all-patterns|all-fns|all) specs+=("$1") ;;
       *) repo="$1" ;;
     esac; shift
@@ -408,7 +432,7 @@ cmd_test() {
   printf '%s\t%s\n' "${specs[*]}" "$(date +%s)" > "$_state_dir/running/$_repo_key"
 
   # Launch via session run (subshell to scope PLUGIN_DIR to the mutated copy)
-  if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo"); then
+  if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${from_commit:+--from-commit "$from_commit"}); then
     if [[ -n "$_prev_running" ]]; then
       echo "$_prev_running" > "$_state_dir/running/$_repo_key"
     else
@@ -439,7 +463,10 @@ cmd_test_all() {
       info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
       continue
     fi
-    cmd_test "all" "$repo" --version "$version" && launched=$((launched + 1))
+    local _fc_file="$state_dir/from_commit_$_rk"
+    local _fc_arg=""
+    [[ -f "$_fc_file" ]] && _fc_arg="--from-commit $(cat "$_fc_file")"
+    cmd_test "all" "$repo" --version "$version" $_fc_arg && launched=$((launched + 1))
   done
   info "Launched: $launched ($active already active) | Monitor: make results"
 }
@@ -816,10 +843,10 @@ cmd_results() {
   fi
 }
 
-# ── Known-Good Management ──────────────────────────────────────────────
+# ── Configuration ──────────────────────────────────────────────────────
 
 cmd_set_known_good() {
-  [[ $# -lt 2 ]] && die "Usage: test-skill.sh set-known-good <repo> <branch>"
+  [[ $# -lt 2 ]] && die "Usage: set-known-good <repo> <branch>"
   local repo="$1" branch="$2"
   local repo_input="$repo"
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
@@ -830,6 +857,20 @@ cmd_set_known_good() {
   mkdir -p "$state_dir"
   echo "$branch" > "$state_dir/known_good_$repo_key"
   info "Set known-good for $(repo_short "$repo"): $branch"
+}
+
+cmd_set_from_commit() {
+  [[ $# -lt 2 ]] && die "Usage: set-from-commit <repo> <commit>"
+  local repo="$1" commit="$2"
+  local repo_input="$repo"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+  cd "$repo" || die "Cannot cd to $repo"
+  local full_sha=$(git rev-parse --verify "$commit" 2>/dev/null) || die "Commit not found: $commit"
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local repo_key=$(repo_short "$repo" | tr '/' '_')
+  mkdir -p "$state_dir"
+  echo "$full_sha" > "$state_dir/from_commit_$repo_key"
+  info "Set from-commit for $(repo_short "$repo"): ${full_sha:0:12}"
 }
 
 # ── Main Dispatch ──────────────────────────────────────────────────────
@@ -868,8 +909,9 @@ case "$COMMAND" in
   test-all)       cmd_test_all "$@" ;;
   test)           cmd_test "$@" ;;
   results)        cmd_results "$@" ;;
-  set-known-good) cmd_set_known_good "$@" ;;
-  stop)           cmd_stop "$@" ;;
+  set-known-good)   cmd_set_known_good "$@" ;;
+  set-from-commit)  cmd_set_from_commit "$@" ;;
+  stop)             cmd_stop "$@" ;;
   clean)          cmd_clean "$@" ;;
   -h|--help|help) usage ;;
   *)              die "Unknown command: $COMMAND (try --help)" ;;
