@@ -275,12 +275,12 @@ cmd_clean() {
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
     remove_worktrees "$repo"
-    # Clean temp branches from historical testing and recover to default branch
-    for tb in $(git branch --no-color | tr -d ' *' | grep '^_test-from-'); do
-      git branch -D "$tb" 2>/dev/null
-    done
+    # Recover to default branch first (so we can delete temp branches)
     local _cur=$(git branch --show-current 2>/dev/null)
     [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null || true; }
+    for tb in $(git branch --no-color | tr -d ' *' | grep '^_test-from-'); do
+      git branch -D "$tb" 2>/dev/null || true
+    done
   done
   if command -v podman &>/dev/null; then
     local pruned=0
@@ -464,9 +464,9 @@ cmd_test_all() {
       continue
     fi
     local _fc_file="$state_dir/from_commit_$_rk"
-    local _fc_arg=""
-    [[ -f "$_fc_file" ]] && _fc_arg="--from-commit $(cat "$_fc_file")"
-    cmd_test "all" "$repo" --version "$version" $_fc_arg && launched=$((launched + 1))
+    local _fc_args=()
+    [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
+    cmd_test "all" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
   done
   info "Launched: $launched ($active already active) | Monitor: make results"
 }
@@ -865,7 +865,8 @@ cmd_set_from_commit() {
   local repo_input="$repo"
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
   cd "$repo" || die "Cannot cd to $repo"
-  local full_sha=$(git rev-parse --verify "$commit" 2>/dev/null) || die "Commit not found: $commit"
+  local full_sha
+  full_sha=$(git rev-parse --verify "$commit" 2>/dev/null) || die "Commit not found: $commit"
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local repo_key=$(repo_short "$repo" | tr '/' '_')
   mkdir -p "$state_dir"
