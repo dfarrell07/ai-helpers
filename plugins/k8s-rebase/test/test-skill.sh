@@ -736,8 +736,8 @@ cmd_watch() {
   [[ "$expected_gates" -lt 1 ]] && expected_gates=33
   # Get session states — no timeout, this is a foreground command
   local _agents_json=$(claude agents --json 2>/dev/null || true)
-  printf "%-42s %-10s %-8s %-32s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "DIFF"
-  printf "%-42s %-10s %-8s %-32s %s\n" "----" "-------" "-----" "-------------" "----"
+  printf "%-42s %-10s %-8s %-32s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
+  printf "%-42s %-10s %-8s %-32s %s\n" "----" "-------" "-----" "-------------" "-------------"
   local active=0
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
@@ -788,7 +788,7 @@ else: print('gone')
       local branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
       if [[ -n "$branch" ]] && git -C "$repo" rev-parse --verify "$kg" &>/dev/null; then
         local nv=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-        diff_info="${nv}h"
+        diff_info="${nv} hunks"
       fi
     fi
     local gate_str="${gc}/${expected_gates}"
