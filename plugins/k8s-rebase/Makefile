@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help test test-one results court set-known-good stop clean
+.PHONY: help test results court set-known-good stop clean
 
 SCRIPT := test/test-skill.sh
 VERSION ?= 1.36.2
@@ -10,8 +10,7 @@ BRANCH ?= $(branch)
 help: ## Show available targets
 	@echo "k8s-rebase test targets:"
 	@echo ""
-	@echo "  make test                            Run blind test suite (3 at a time, re-run for next batch)"
-	@echo "  make test-one repo=<r> [spec=<s>]    Test one repo (spec default: all)"
+	@echo "  make test [repo=<r>] [spec=<s>]      Test all repos (3 at a time), or one repo"
 	@echo "  make results [repo=<r>]              Results matrix, or deep-dive one repo"
 	@echo "  make court repo=<r>                  Adversarial court review"
 	@echo "  make set-known-good repo=<r> branch=<b>  Set reference branch"
@@ -21,12 +20,12 @@ help: ## Show available targets
 	@echo "Repos: openshift/multus-cni, ovn-org/ovn-kubernetes, etc."
 	@echo "Specs: all, fn:<tag>, pattern:<key>, all-fns, all-patterns"
 
-test: ## Run blind test suite across all repos
-	@bash $(SCRIPT) test-all --version $(VERSION)
-
-test-one: ## Test one repo: make test-one repo=openshift/multus-cni
-	@test -n "$(REPO)" || (echo "ERROR: repo required. Usage: make test-one repo=openshift/multus-cni" && exit 1)
-	@bash $(SCRIPT) test $(SPEC) $(REPO) --version $(VERSION)
+test: ## Test all repos, or one: make test repo=openshift/multus-cni
+	@if [ -n "$(REPO)" ]; then \
+		bash $(SCRIPT) test $(SPEC) $(REPO) --version $(VERSION); \
+	else \
+		bash $(SCRIPT) test-all --version $(VERSION); \
+	fi
 
 results: ## Results matrix, or deep-dive: make results repo=openshift/multus-cni
 	@bash $(SCRIPT) results $(REPO)
