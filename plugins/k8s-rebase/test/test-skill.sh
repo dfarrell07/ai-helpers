@@ -535,7 +535,7 @@ _do_record_one() {
     local kg_branch=$(cat "$kg_file")
     info "Court review: $short ($kg_hunks code hunks vs known-good)..."
     local court_verdict="FAIL"
-    cmd_court "$result_branch" "$kg_branch" "$repo" 2>&1 && court_verdict="PASS"
+    cmd_court "$result_branch" "$kg_branch" "$repo" && court_verdict="PASS"
     detail="$detail — court: $court_verdict"
     [[ "$court_verdict" == "FAIL" ]] && verdict="FAIL"
   fi
@@ -638,7 +638,7 @@ Pre-existing issues (on base/main before rebase) that the known-good cleaned up 
       "$direction" "$preexisting" "$diff_stat" "$diff_nv" \
       | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
     local v=$(echo "$out" | grep -oE 'VERDICT: (PASS|FAIL)' | tail -1)
-    echo "$out" | tail -10
+    echo "$out" | tail -10 >&2
     case "$v" in "VERDICT: PASS") info "PASS";; "VERDICT: FAIL") error "FAIL"; return 1;; *) error "INCONCLUSIVE"; return 1;; esac
     return 0
   fi
