@@ -473,13 +473,25 @@ cmd_test_all() {
   local launched=0 active=0
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local _agents_json=$(claude agents --json 2>/dev/null || true)
+  # Sort repos by least recently tested (oldest first, untested first)
+  local tsv="$state_dir/results.tsv"
+  local sorted_repos=()
+  while IFS= read -r repo; do
+    sorted_repos+=("$repo")
+  done < <(for repo in "${DEFAULT_REPOS[@]}"; do
+    [[ -d "$repo" ]] || continue
+    local short=$(repo_short "$repo")
+    local last_ts=$(awk -F'\t' -v r="$short" '$3==r && $2~/^all/ {ts=$1} END{print ts}' "$tsv" 2>/dev/null)
+    echo "${last_ts:-0000}	$repo"
+  done | sort | cut -f2)
+  [[ ${#sorted_repos[@]} -eq 0 ]] && sorted_repos=("${DEFAULT_REPOS[@]}")
   # Count already-running repos toward the limit
-  for repo in "${DEFAULT_REPOS[@]}"; do
+  for repo in "${sorted_repos[@]}"; do
     [[ -d "$repo" ]] || continue
     local _rk=$(repo_short "$repo" | tr '/' '_')
     [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
   done
-  for repo in "${DEFAULT_REPOS[@]}"; do
+  for repo in "${sorted_repos[@]}"; do
     [[ -d "$repo" ]] || continue
     local _rk=$(repo_short "$repo" | tr '/' '_')
     if [[ -f "$state_dir/running/$_rk" ]]; then
