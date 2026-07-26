@@ -525,6 +525,13 @@ for s in json.load(sys.stdin):
       : "${_def_br:=main}"
       git -C "$repo" rev-parse --verify "origin/$_def_br" &>/dev/null || _def_br="master"
       local _cur_ver=$(git -C "$repo" show "origin/${_def_br}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+      # Some repos have go.mod in subdirectories (e.g., go-controller/)
+      if [[ -z "$_cur_ver" ]]; then
+        _cur_ver=$(git -C "$repo" ls-tree -r --name-only "origin/${_def_br}" 2>/dev/null \
+          | grep '/go.mod$' | head -1 \
+          | xargs -I{} git -C "$repo" show "origin/${_def_br}:{}" 2>/dev/null \
+          | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+      fi
       if [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]]; then
         warn "SKIP $(repo_short "$repo") (already at $_cur_ver — use: make set-from-commit repo=$(repo_short "$repo") commit=<sha>)"
         continue
@@ -974,6 +981,12 @@ cmd_results() {
           : "${_dbr:=main}"
           git -C "$_resolved" rev-parse --verify "origin/$_dbr" &>/dev/null || _dbr="master"
           local _ver=$(git -C "$_resolved" show "origin/${_dbr}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+          if [[ -z "$_ver" ]]; then
+            _ver=$(git -C "$_resolved" ls-tree -r --name-only "origin/${_dbr}" 2>/dev/null \
+              | grep '/go.mod$' | head -1 \
+              | xargs -I{} git -C "$_resolved" show "origin/${_dbr}:{}" 2>/dev/null \
+              | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+          fi
           if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ ! -f "$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk" ]]; then
             _reason="already at $_ver — set from-commit to test"
           fi
