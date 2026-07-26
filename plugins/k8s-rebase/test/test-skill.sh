@@ -965,8 +965,8 @@ cmd_results() {
   # Per-repo latest results
   local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
   if [[ -f "$tsv" ]]; then
-    printf "%-45s %-8s %-20s %s\n" "REPO" "VERDICT" "LAST RUN" "DETAIL"
-    printf "%-45s %-8s %-20s %s\n" "----" "-------" "--------" "------"
+    printf "%-45s %-8s %-8s %-20s %s\n" "REPO" "VERDICT" "COURT" "LAST RUN" "DETAIL"
+    printf "%-45s %-8s %-8s %-20s %s\n" "----" "-------" "-----" "--------" "------"
     local all_pass=true
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
@@ -975,8 +975,14 @@ cmd_results() {
         local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
         local verdict=$(echo "$latest_line" | cut -f4)
         local detail=$(echo "$latest_line" | cut -f5)
+        local court_result="-"
+        if [[ "$detail" == *"court: PASS"* ]]; then court_result="PASS"
+        elif [[ "$detail" == *"court: FAIL"* ]]; then court_result="FAIL"
+        fi
+        # Strip court suffix from detail for cleaner display
+        detail=$(echo "$detail" | sed 's/ — court: [A-Z]*$//')
         [[ "$verdict" != "PASS" ]] && all_pass=false
-        printf "%-45s %-8s %-20s %s\n" "$short" "$verdict" "$ts" "$detail"
+        printf "%-45s %-8s %-8s %-20s %s\n" "$short" "$verdict" "$court_result" "$ts" "$detail"
       else
         all_pass=false
         local _rk=$(echo "$short" | tr '/' '_')
@@ -998,7 +1004,7 @@ cmd_results() {
             _reason="already at $_ver — set from-commit to test"
           fi
         fi
-        printf "%-45s %-8s %-20s %s\n" "$short" "-" "" "$_reason"
+        printf "%-45s %-8s %-8s %-20s %s\n" "$short" "-" "-" "" "$_reason"
       fi
     done
 
