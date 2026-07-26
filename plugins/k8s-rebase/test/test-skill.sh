@@ -228,6 +228,17 @@ cmd_run() {
       git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
         || { warn "Cannot checkout $from_commit"; continue; }
       info "$short -> ${from_commit:0:8} (historical)"
+      # Set worktree.baseRef so Claude creates worktrees from HEAD (our historical commit)
+      mkdir -p "$repo/.claude"
+      local _had_settings=false
+      [[ -f "$repo/.claude/settings.json" ]] && _had_settings=true
+      python3 -c "
+import json, os
+p = '$repo/.claude/settings.json'
+d = json.load(open(p)) if os.path.exists(p) else {}
+d['worktree'] = {'baseRef': 'head'}
+json.dump(d, open(p, 'w'), indent=2)
+" 2>/dev/null
     else
       reset_to_default "$repo" || { warn "Skipping $short"; continue; }
     fi
