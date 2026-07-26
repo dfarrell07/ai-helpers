@@ -421,6 +421,13 @@ cmd_test() {
   local repo_input="$repo"
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
 
+  # Read from_commit from config if not passed via CLI
+  if [[ -z "$from_commit" ]]; then
+    local _rk=$(repo_short "$repo" | tr '/' '_')
+    local _fc_file="$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk"
+    [[ -f "$_fc_file" ]] && from_commit=$(cat "$_fc_file")
+  fi
+
   info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
   local mutated
   mutated=$(mutate_plugin "${specs[@]}") || exit 1
