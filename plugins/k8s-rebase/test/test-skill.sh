@@ -844,7 +844,9 @@ else: print('gone')
       local branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
       if [[ -n "$branch" ]] && git -C "$repo" rev-parse --verify "$kg" &>/dev/null; then
         local nv=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-        diff_info="${nv} hunks"
+        local nv_all=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+        diff_info="${nv} code"
+        [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
       fi
     fi
     local gate_str="${gc}/${expected_gates}"
