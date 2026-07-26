@@ -309,6 +309,17 @@ cmd_clean() {
     # Recover to default branch first (so we can delete temp branches)
     local _cur=$(git branch --show-current 2>/dev/null)
     [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null || true; }
+    # Remove worktree.baseRef override left by from-commit testing
+    if [[ -f "$repo/.claude/settings.json" ]]; then
+      python3 -c "
+import json, os
+p = '$repo/.claude/settings.json'
+d = json.load(open(p))
+d.pop('worktree', None)
+if d: json.dump(d, open(p, 'w'), indent=2)
+else: os.remove(p)
+" 2>/dev/null
+    fi
     for tb in $(git branch --no-color | tr -d ' *' | grep '^_test-from-'); do
       git branch -D "$tb" 2>/dev/null || true
     done
