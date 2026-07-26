@@ -2,7 +2,7 @@
 .PHONY: help test watch results court set-known-good set-from-commit stop clean
 
 SCRIPT := test/test-skill.sh
-SPEC ?= all
+SPEC ?= none
 REPO ?= $(repo)
 BRANCH ?= $(branch)
 COMMIT ?= $(commit)
@@ -20,7 +20,7 @@ help: ## Show available targets
 	@echo "  make clean                            Cleanup worktrees and mutated dirs"
 	@echo ""
 	@echo "Config: test/config.yaml (repos, version, known-good, from-commit)"
-	@echo "Specs: all, fn:<tag>, pattern:<key>, all-fns, all-patterns"
+	@echo "Specs: none (default, full skill), all (blind, no patterns/fns), fn:<tag>, pattern:<key>"
 
 test: ## Test all repos, or one: make test repo=openshift/multus-cni [commit=abc123]
 	@if [ -n "$(REPO)" ]; then \

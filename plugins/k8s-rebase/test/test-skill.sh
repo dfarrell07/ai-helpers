@@ -423,7 +423,7 @@ cmd_test() {
     case "$1" in
       --version) shift; version="${1:-}"; [[ -z "$version" ]] && die "--version needs value" ;;
       --from-commit) shift; from_commit="${1:-}"; [[ -z "$from_commit" ]] && die "--from-commit needs value" ;;
-      pattern:*|fn:*|all-patterns|all-fns|all) specs+=("$1") ;;
+      none|pattern:*|fn:*|all-patterns|all-fns|all) specs+=("$1") ;;
       *) repo="$1" ;;
     esac; shift
   done
@@ -441,7 +441,11 @@ cmd_test() {
 
   info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
   local mutated
-  mutated=$(mutate_plugin "${specs[@]}") || exit 1
+  if [[ "${specs[*]}" == "none" ]]; then
+    mutated="$PLUGIN_DIR"
+  else
+    mutated=$(mutate_plugin "${specs[@]}") || exit 1
+  fi
 
   # Clean stale worktree branches
   (cd "$repo" && git worktree prune 2>/dev/null || true
@@ -499,7 +503,7 @@ cmd_test_all() {
   done < <(for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
     local short=$(repo_short "$repo")
-    local last_ts=$(awk -F'\t' -v r="$short" '$3==r && $2~/^all/ {ts=$1} END{print ts}' "$tsv" 2>/dev/null)
+    local last_ts=$(awk -F'\t' -v r="$short" '$3==r && ($2~/^all/ || $2=="none") {ts=$1} END{print ts}' "$tsv" 2>/dev/null)
     echo "${last_ts:-0000}	$repo"
   done | sort | cut -f2)
   [[ ${#sorted_repos[@]} -eq 0 ]] && sorted_repos=("${DEFAULT_REPOS[@]}")
@@ -533,7 +537,7 @@ for s in json.load(sys.stdin):
         continue
       fi
     fi
-    [[ -f "$state_dir/done/all_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
+    [[ -f "$state_dir/done/none_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     local _fc_file="$state_dir/from_commit_$_rk"
     local _fc_args=()
     [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
@@ -559,7 +563,7 @@ for s in json.load(sys.stdin):
       info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
       continue
     fi
-    cmd_test "all" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
+    cmd_test "none" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
   done
   info "Launched: $launched ($active already active) | Monitor: make results"
 }
@@ -981,7 +985,7 @@ cmd_results() {
     local all_pass=true
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
-      local latest_line=$(awk -F'\t' -v r="$short" '$3==r && $2~/^all/' "$tsv" | tail -1)
+      local latest_line=$(awk -F'\t' -v r="$short" '$3==r && ($2~/^all/ || $2=="none")' "$tsv" | tail -1)
       if [[ -n "$latest_line" ]]; then
         local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
         local verdict=$(echo "$latest_line" | cut -f4)
