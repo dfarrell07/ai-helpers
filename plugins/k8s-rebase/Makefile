@@ -6,6 +6,7 @@ SPEC ?= none
 REPO ?= $(repo)
 BRANCH ?= $(branch)
 COMMIT ?= $(commit)
+JOBS ?= $(jobs)
 
 help: ## Show available targets
 	@echo ""
@@ -13,7 +14,7 @@ help: ## Show available targets
 	@echo "  ────────────────────────"
 	@echo ""
 	@echo "  Test"
-	@echo "    make test                                Run all repos (3 at a time, re-run for next batch)"
+	@echo "    make test                                Run all repos (3 at a time, or: make test jobs=6)"
 	@echo "    make test repo=<r>                       Test one repo"
 	@echo "    make test repo=<r> commit=<sha>          Test from a specific historical commit"
 	@echo "    make test spec=<s>                       Test with mutation (see specs below)"
@@ -47,9 +48,9 @@ help: ## Show available targets
 
 test: ## Run tests
 	@if [ -n "$(REPO)" ]; then \
-		bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
+		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
 	else \
-		bash $(SCRIPT) test-all; \
+		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) bash $(SCRIPT) test-all; \
 	fi
 
 watch: ## Show active test status

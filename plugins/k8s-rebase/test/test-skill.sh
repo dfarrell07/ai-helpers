@@ -11,7 +11,7 @@ PLUGIN_DIR="${PLUGIN_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." 2>/dev/null && pwd || echo /tmp)/.work/test-harness}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}"
-MAX_CONCURRENT=3
+MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
 IDLE_TIMEOUT_MIN=120
 
 # Load config from YAML
