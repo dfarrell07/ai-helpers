@@ -539,6 +539,7 @@ else: os.remove(p)
 }
 
 cmd_test_all() {
+  local spec="${1:-none}"; shift || true
   local version="$VERSION"
   [[ "${1:-}" == "--version" ]] && { shift; version="${1:-$VERSION}"; shift; }
   local launched=0 active=0
@@ -589,7 +590,8 @@ for s in json.load(sys.stdin):
         continue
       fi
     fi
-    [[ -f "$state_dir/done/none_$_rk" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
+    local _done_key="${spec//[:\/\ ]/_}_$_rk"
+    [[ -f "$state_dir/done/$_done_key" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     local _fc_file="$state_dir/from_commit_$_rk"
     local _fc_args=()
     [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
@@ -615,7 +617,7 @@ for s in json.load(sys.stdin):
       info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
       continue
     fi
-    _SKIP_CONCURRENCY_CHECK=1 cmd_test "none" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
+    _SKIP_CONCURRENCY_CHECK=1 cmd_test "$spec" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
   done
   info "Launched: $launched ($active already active) | Monitor: make results"
 }

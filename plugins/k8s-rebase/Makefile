@@ -50,7 +50,7 @@ test: ## Run tests
 	@if [ -n "$(REPO)" ]; then \
 		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
 	else \
-		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) bash $(SCRIPT) test-all; \
+		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) bash $(SCRIPT) test-all $(SPEC); \
 	fi
 
 watch: ## Show active test status
