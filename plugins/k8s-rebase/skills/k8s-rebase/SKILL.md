@@ -739,11 +739,11 @@ IS_DOWNSTREAM=$(git remote -v 2>/dev/null | grep -q 'openshift/' && echo true ||
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 ```
 
-If `IS_DOWNSTREAM` is true, ask the user for the Jira ticket key
-before generating the PR command. OpenShift merge bots require
-`jira/valid-reference` to allow merge. If the user does not have
-one, use `REPLACE-WITH-JIRA-KEY:` as the title prefix so the
-placeholder is impossible to overlook.
+If `IS_DOWNSTREAM` is true, the PR title needs a Jira ticket key
+(OpenShift merge bots require `jira/valid-reference`). If the user
+is interactive, ask for the key. If running in background mode
+(no interactive user), use `REPLACE-WITH-JIRA-KEY:` as the title
+prefix — do NOT prompt or wait for input.
 
 **5b. Generate `gh pr create` command.** Do NOT execute this
 command yourself — NEVER run `git push` or `gh pr create`.
