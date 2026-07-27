@@ -671,10 +671,10 @@ _do_record_one() {
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       gv="${gv^^}"
-      if [[ "$gv" == *SKIP* ]]; then
-        gskip=$((gskip + 1))
-      elif [[ "$gv" != *PASS* ]]; then
+      if [[ "$gv" == *FAIL* ]]; then
         gfail=$((gfail + 1))
+      elif [[ "$gv" != *PASS* ]]; then
+        gskip=$((gskip + 1))
       fi
     done
     [[ "$gtotal" -ge "$expected_gates" && "$gfail" -eq 0 ]] && verdict="PASS"
@@ -986,8 +986,8 @@ else: print('gone')
         for f in "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json; do
           [[ -f "$f" ]] || continue
           local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-          if [[ "${v^^}" == *SKIP* ]]; then gs=$((gs + 1))
-          elif [[ -n "${v^^}" && "${v^^}" != *PASS* ]]; then gf=$((gf + 1)); fi
+          if [[ "${v^^}" == *FAIL* ]]; then gf=$((gf + 1))
+          elif [[ "${v^^}" != *PASS* ]]; then gs=$((gs + 1)); fi
         done
       fi
     fi
@@ -1053,8 +1053,8 @@ cmd_results() {
         [[ -f "$f" ]] || continue; total=$((total+1))
         local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
-        if [[ "$v" == *SKIP* ]]; then gskip=$((gskip+1))
-        elif [[ -n "$v" && "$v" != *PASS* ]]; then gfail=$((gfail+1)); fi
+        if [[ "$v" == *FAIL* ]]; then gfail=$((gfail+1))
+        elif [[ "$v" != *PASS* ]]; then gskip=$((gskip+1)); fi
       done
       local _skip_note=""
       [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
