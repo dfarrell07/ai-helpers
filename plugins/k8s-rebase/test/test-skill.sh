@@ -691,10 +691,11 @@ _do_record_one() {
   local detail=""
   if [[ "$gtotal" -eq 0 ]]; then
     detail="no gates ran (bug)"
-  elif [[ "$gfail" -gt 0 ]]; then
-    detail="$gfail gate(s) failed"
   elif [[ "$gtotal" -lt "$expected_gates" ]]; then
     detail="missing $((expected_gates - gtotal)) of $expected_gates gates"
+    [[ "$gfail" -gt 0 ]] && detail="$detail, $gfail failed"
+  elif [[ "$gfail" -gt 0 ]]; then
+    detail="$gfail gate(s) failed"
   elif [[ -n "$kg_hunks" ]]; then
     if [[ "$kg_hunks" -eq 0 && -z "$kg_vendor" ]]; then
       detail="identical to known-good"
