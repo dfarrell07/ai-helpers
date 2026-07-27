@@ -794,8 +794,15 @@ auto_record() {
       recorded=$((recorded + 1))
       info "Recorded: $result"
     elif $_session_dead; then
+      local _fail_detail="${result:-session ended without result}"
+      local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
+      local _done_key="${spec//[:\/\ ]/_}_$repo_key"
+      mkdir -p "$state_dir/done"
+      echo "$ts	$spec	$short	FAIL	$_fail_detail" > "$state_dir/done/$_done_key"
       rm -f "$running_file"
-      warn "Cleared stale running file for $short (session gone, no result)"
+      recorded=$((recorded + 1))
+      warn "Recorded FAIL for $short ($_fail_detail)"
     fi
   done
   [[ "$recorded" -gt 0 ]] && info "$recorded result(s) recorded"
