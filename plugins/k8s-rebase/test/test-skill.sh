@@ -829,6 +829,16 @@ cmd_court() {
 '-' lines are in RESULT but not known-good. '+' lines are in known-good but not result.
 'deleted file' = exists in result, not known-good."
   local preexisting="
+PASS/FAIL CRITERIA: PASS means the result is a valid, correct k8s rebase.
+FAIL means it has a data-correctness regression that would break compilation,
+tests, or runtime behavior.
+Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
+- Style choices (import ordering, variable naming, comment wording)
+- Dependency version drift (newer x/ deps, different go.sum hashes)
+- Extra fixes the result made that the known-good didn't
+- Different but equally valid approaches to the same problem
+- OWNERS/reviewers file differences
+- go.mod replace directives for forks vs upstream
 A difference is a REGRESSION only if the result branch introduced a NEW problem.
 Pre-existing issues (on base/main before rebase) that the known-good cleaned up are EQUIVALENT."
   if [[ "$hunks" -lt 5 ]]; then
