@@ -2,7 +2,7 @@
 .PHONY: help test watch results court set-known-good set-from-commit stop clean
 
 SCRIPT := test/test-skill.sh
-SPEC ?= none
+SPEC ?= $(if $(spec),$(spec),none)
 REPO ?= $(repo)
 BRANCH ?= $(branch)
 COMMIT ?= $(commit)
