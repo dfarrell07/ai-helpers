@@ -839,31 +839,23 @@ fix_crd_int64_validation() {
   # 2. Patch format: int64 directly into the CRD YAML files
   #    (immediate fix without re-running codegen, which would strip
   #    hand-edited metadata blocks from unrelated CRDs)
-  local files fixed=0
+  # Part 1: Add kubebuilder markers to Go types (ensures future codegen is correct)
+  local files
   files=$(find . -name "*types*.go" -path "*/crd/*" -not -path "*/vendor/*" 2>/dev/null)
-  [[ -z "$files" ]] && return 0
   for f in $files; do
     if grep -q "Maximum.*4294967295" "$f" && ! grep -q "Format.*int64\|Format=int64" "$f"; then
       echo ":: Adding Format=int64 kubebuilder marker in $f"
       sed -i '/Maximum.*4294967295/a\\t// +kubebuilder:validation:Format=int64' "$f"
-      fixed=1
     fi
   done
-  if [[ "$fixed" -eq 1 ]]; then
-    # Patch CRD YAML files directly instead of re-running codegen
-    # (which strips hand-edited metadata blocks from unrelated CRDs).
-    # Handles two cases:
-    # - format: int32 exists (Phase 2 codegen ran) → change to int64
-    # - no format line (Phase 2 codegen failed) → insert format: int64
-    echo ":: Patching CRD YAML files: ensure format: int64 for uint32 fields"
-    local helm_crd_dir
-    helm_crd_dir=$(find . -path "*/helm/*/crds" -type d -not -path "*/vendor/*" | head -1)
-    local output_dir
-    output_dir=$(find . -path "*/_output/crds" -type d -not -path "*/vendor/*" | head -1)
-    for dir in $helm_crd_dir $output_dir; do
-      [[ -n "$dir" && -d "$dir" ]] || continue
-      for crd_yaml in "$dir"/*.yaml; do
-        [[ -f "$crd_yaml" ]] || continue
+  # Part 2: Patch CRD YAML files directly (runs unconditionally —
+  # repos like CNO have vendored CRD YAMLs with no types.go)
+  local crd_yamls
+  crd_yamls=$(find . -name "*.yaml" -not -path "*/vendor/*" -not -path "*/.claude/*" \
+    -exec grep -l "maximum: 4294967295" {} \; 2>/dev/null)
+  [[ -z "$crd_yamls" ]] && return 0
+  echo ":: Patching CRD YAML files: ensure format: int64 for uint32 fields"
+  for crd_yaml in $crd_yamls; do
         grep -q "maximum: 4294967295" "$crd_yaml" || continue
         # Two cases:
         # 1. "format: int32" before "maximum: 4294967295" → replace with int64
@@ -894,9 +886,7 @@ fix_crd_int64_validation() {
         else
           echo "  WARNING: format: int32 still precedes maximum: 4294967295 in $(basename "$crd_yaml")"
         fi
-      done
-    done
-  fi
+  done
 }
 
 fix_crd_name_validation() {

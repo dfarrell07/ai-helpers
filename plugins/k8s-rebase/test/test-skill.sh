@@ -667,7 +667,7 @@ _do_record_one() {
     gate_dir="$repo/.rebase-tmp/gates"
   fi
   if [[ -d "$gate_dir" ]]; then
-    for f in "$gate_dir"/*.report; do
+    for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       gv="${gv^^}"
@@ -734,9 +734,9 @@ _do_record_one() {
     echo "$ts	$spec	$short	$verdict	$detail"
     if [[ -d "$gate_dir" && "$gtotal" -gt 0 ]]; then
       echo "---GATE-REPORTS---"
-      for f in "$gate_dir"/*.report; do
+      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
         [[ -f "$f" ]] || continue
-        echo "=== $(basename "$f" .report) ==="
+        echo "=== $(basename "${f%.report}" .json) ==="
         cat "$f"; echo ""
       done
     fi
@@ -779,7 +779,7 @@ auto_record() {
       # Gate-completion override
       local _wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
       local _gc=0
-      [[ -n "$_wt" && -d "$_wt/.rebase-tmp/gates" ]] && _gc=$(ls "$_wt/.rebase-tmp/gates"/*.report 2>/dev/null | wc -l)
+      [[ -n "$_wt" && -d "$_wt/.rebase-tmp/gates" ]] && _gc=$(ls "$_wt/.rebase-tmp/gates"/*.report "$_wt/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)
       if [[ "$_gc" -ge "$_expected_gates" ]]; then
         info "Gate-complete: $spec on $short ($_gc/$_expected_gates gates)"
       else
@@ -972,8 +972,8 @@ else: print('gone')
         [[ "$n_commits" -gt 0 ]] && commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 30)
       fi
       if [[ -d "$wt/.rebase-tmp/gates" ]]; then
-        gc=$(ls "$wt/.rebase-tmp/gates/"*.report 2>/dev/null | wc -l)
-        for f in "$wt/.rebase-tmp/gates/"*.report; do
+        gc=$(ls "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json 2>/dev/null | wc -l)
+        for f in "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json; do
           [[ -f "$f" ]] || continue
           local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
           if [[ "${v^^}" == *SKIP* ]]; then gs=$((gs + 1))
@@ -1039,7 +1039,7 @@ cmd_results() {
       echo "Run in progress (worktree exists, gates not yet written)"
     elif [[ -d "$gate_dir" ]]; then
       local total=0 gfail=0 gskip=0
-      for f in "$gate_dir"/*.report; do
+      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
         [[ -f "$f" ]] || continue; total=$((total+1))
         local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
@@ -1056,13 +1056,13 @@ cmd_results() {
         echo "Gates: $total/$expected_gates complete (in progress${_skip_note})"
       fi
       # Show failed gates inline
-      for f in "$gate_dir"/*.report; do
+      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
         [[ -f "$f" ]] || continue
         local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
         [[ "$v" == *"FAIL"* ]] && {
           echo ""
-          echo "FAILED: $(basename "$f" .report)"
+          echo "FAILED: $(basename "${f%.report}" .json)"
           cat "$f"
         }
       done
