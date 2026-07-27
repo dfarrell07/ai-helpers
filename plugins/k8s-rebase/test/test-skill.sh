@@ -251,8 +251,6 @@ cmd_run() {
       info "$short -> ${from_commit:0:8} (historical)"
       # Set worktree.baseRef so Claude creates worktrees from HEAD (our historical commit)
       mkdir -p "$repo/.claude"
-      local _had_settings=false
-      [[ -f "$repo/.claude/settings.json" ]] && _had_settings=true
       python3 -c "
 import json, os
 p = '$repo/.claude/settings.json'
@@ -360,6 +358,7 @@ else: os.remove(p)
   fi
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
+  [[ -d "$state_dir/running" ]] && { rm -f "$state_dir/running"/* 2>/dev/null; info "Cleared running files"; }
   return 0
 }
 
@@ -514,6 +513,13 @@ cmd_test() {
     else
       rm -f "$_state_dir/running/$_repo_key"
     fi
+    # Recover repo from temp branch if from_commit was used
+    if [[ -n "$from_commit" && -d "$repo" ]]; then
+      local _db; _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+      : "${_db:=main}"
+      git -C "$repo" checkout "$_db" 2>/dev/null || true
+      git -C "$repo" branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
+    fi
     die "Launch failed for $(repo_short "$repo")"
   fi
   # Append session ID to running file for reliable stop
@@ -552,7 +558,10 @@ cmd_test_all() {
     local _rk=$(repo_short "$repo" | tr '/' '_')
     if [[ -f "$state_dir/running/$_rk" ]]; then
       local _run_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
-      if [[ -n "$_run_sid" && -n "$_agents_json" ]]; then
+      if [[ -z "$_run_sid" ]]; then
+        rm -f "$state_dir/running/$_rk"
+        active=$((active - 1))
+      elif [[ -n "$_agents_json" ]]; then
         local _alive=$(echo "$_agents_json" | python3 -c "
 import json,sys
 for s in json.load(sys.stdin):
