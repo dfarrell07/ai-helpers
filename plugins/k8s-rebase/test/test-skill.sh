@@ -41,10 +41,8 @@ _load_config() {
     local _rk=$(echo "$_repo_name" | tr '/' '_')
     local kg=$(yq ".repos.\"$_repo_name\".known_good // \"\"" "$CONFIG_FILE")
     local fc=$(yq ".repos.\"$_repo_name\".from_commit // \"\"" "$CONFIG_FILE")
-    if [[ -n "$kg" ]]; then echo "$kg" > "$state_dir/known_good_$_rk"
-    else rm -f "$state_dir/known_good_$_rk"; fi
-    if [[ -n "$fc" ]]; then echo "$fc" > "$state_dir/from_commit_$_rk"
-    else rm -f "$state_dir/from_commit_$_rk"; fi
+    [[ -n "$kg" ]] && echo "$kg" > "$state_dir/known_good_$_rk"
+    [[ -n "$fc" ]] && echo "$fc" > "$state_dir/from_commit_$_rk"
   done
 }
 _load_config
@@ -513,14 +511,22 @@ cmd_test() {
     else
       rm -f "$_state_dir/running/$_repo_key"
     fi
-    # Recover repo from temp branch if from_commit was used
+    # Recover repo from temp branch and settings override if from_commit was used
     if [[ -n "$from_commit" && -d "$repo" ]]; then
       local _db; _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
       : "${_db:=main}"
       git -C "$repo" checkout "$_db" 2>/dev/null || true
       git -C "$repo" branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
+      [[ -f "$repo/.claude/settings.json" ]] && python3 -c "
+import json, os
+p = '$repo/.claude/settings.json'
+d = json.load(open(p))
+d.pop('worktree', None)
+if d: json.dump(d, open(p, 'w'), indent=2)
+else: os.remove(p)
+" 2>/dev/null
     fi
-    die "Launch failed for $(repo_short "$repo")"
+    error "Launch failed for $(repo_short "$repo")"; return 1
   fi
   # Append session ID to running file for reliable stop
   local _sid=$(cat "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null)
@@ -755,6 +761,7 @@ auto_record() {
     [[ -f "$state_dir/done/$done_key" ]] && { rm -f "$running_file"; continue; }
 
     local _session=$(session_for_repo "$repo")
+    local _session_dead=false
     if [[ -n "$_session" ]]; then
       # Gate-completion override
       local _wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
@@ -765,12 +772,17 @@ auto_record() {
       else
         continue
       fi
+    else
+      _session_dead=true
     fi
 
     local result
     if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch"); then
       recorded=$((recorded + 1))
       info "Recorded: $result"
+    elif $_session_dead; then
+      rm -f "$running_file"
+      warn "Cleared stale running file for $short (session gone, no result)"
     fi
   done
   [[ "$recorded" -gt 0 ]] && info "$recorded result(s) recorded"
