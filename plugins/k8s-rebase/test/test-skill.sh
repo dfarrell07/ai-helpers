@@ -124,7 +124,6 @@ session_for_repo() {
     [[ -z "$cwd" ]] && continue
     [[ "$cwd" == *"/${short}/"* || "$cwd" == *"/${short}" ]] || continue
     [[ "$state" == "done" ]] && continue
-    [[ "$state" == "blocked" && ( -z "$pid" || "$pid" == "0" ) ]] && continue
     [[ -z "$pid" || "$pid" == "0" ]] && continue
     [[ "$state" == "idle" && "${elapsed:-0}" -gt "$IDLE_TIMEOUT_MIN" ]] && continue
     if [[ "$cwd" == *"/.claude/worktrees/"* && ! -d "$cwd" ]]; then
@@ -666,7 +665,7 @@ _do_record_one() {
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       gv="${gv^^}"
-      [[ "$gv" == *FAIL* ]] && gfail=$((gfail + 1))
+      [[ "$gv" == *PASS* ]] || gfail=$((gfail + 1))
     done
     [[ "$gtotal" -ge "$expected_gates" && "$gfail" -eq 0 ]] && verdict="PASS"
   fi
@@ -813,9 +812,17 @@ A difference is a REGRESSION only if the result branch introduced a NEW problem.
 Pre-existing issues (on base/main before rebase) that the known-good cleaned up are EQUIVALENT."
   if [[ "$hunks" -lt 5 ]]; then
     info "Small diff — single classifier"
-    local out=$(printf '%s\n%s\n%s\n\n%s\n\nClassify each difference. End with VERDICT: PASS or FAIL' \
-      "$direction" "$preexisting" "$diff_stat" "$diff_nv" \
-      | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
+    local out
+    out=$(cat <<EOF_CLASSIFY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null
+$direction
+$preexisting
+$diff_stat
+
+$diff_nv
+
+Classify each difference. End with VERDICT: PASS or FAIL
+EOF_CLASSIFY
+    ) || true
     local v=$(echo "$out" | grep -oE 'VERDICT: (PASS|FAIL)' | tail -1)
     echo "$out" | tail -10 >&2
     case "$v" in "VERDICT: PASS") info "PASS";; "VERDICT: FAIL") error "FAIL"; return 1;; *) error "INCONCLUSIVE"; return 1;; esac
@@ -837,26 +844,56 @@ FILES: $diff_stat"
   mkdir -p "$cdir"
 
   info "Phase A: Prosecution + Defense..."
-  printf '%s\n\nYou are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.' "$context" \
-    | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>/dev/null &
+  cat <<EOF_PROS | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>/dev/null &
+$context
+
+You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.
+EOF_PROS
   local p1=$!
-  printf '%s\n\nYou are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.' "$context" \
-    | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>/dev/null &
+  cat <<EOF_DEF | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>/dev/null &
+$context
+
+You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.
+EOF_DEF
   local p2=$!
   wait "$p1" "$p2" 2>/dev/null || true
   local pros=$(cat "$cdir/pros.txt") def=$(cat "$cdir/def.txt")
   [[ -z "$pros" || -z "$def" ]] && { error "Prosecution/defense empty"; return 1; }
 
   info "Phase B: Judge..."
-  local judge=$(printf 'PROSECUTION:\n%s\n\nDEFENSE:\n%s\n\nDIFF:\n%s\n\nFact-check only. Strike unsupported claims. No verdict.' \
-    "$pros" "$def" "$diff_nv" | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null) || true
+  local judge
+  judge=$(cat <<EOF_JUDGE | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null
+PROSECUTION:
+$pros
+
+DEFENSE:
+$def
+
+DIFF:
+$diff_nv
+
+Fact-check only. Strike unsupported claims. No verdict.
+EOF_JUDGE
+  ) || true
   echo "$judge" > "$cdir/judge.txt"
 
   info "Phase C: Jury (3 votes, parallel)..."
-  local jury_prompt=$(printf 'DIFF:\n%s\n\nPROSECUTION:\n%s\n\nDEFENSE:\n%s\n\nJUDGE:\n%s\n\nVote: VERDICT: PASS or FAIL. One sentence.' \
-    "$diff_nv" "$pros" "$def" "$judge")
   for j in 1 2 3; do
-    printf '%s' "$jury_prompt" | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>/dev/null &
+    cat <<EOF_JURY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>/dev/null &
+DIFF:
+$diff_nv
+
+PROSECUTION:
+$pros
+
+DEFENSE:
+$def
+
+JUDGE:
+$judge
+
+Vote: VERDICT: PASS or FAIL. One sentence.
+EOF_JURY
   done
   wait 2>/dev/null || true
 
@@ -918,7 +955,7 @@ else: print('gone')
         for f in "$wt/.rebase-tmp/gates/"*.report; do
           [[ -f "$f" ]] || continue
           local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-          [[ "${v^^}" == *FAIL* ]] && gf=$((gf + 1))
+          [[ "${v^^}" == *PASS* ]] || gf=$((gf + 1))
         done
       fi
     fi
@@ -981,7 +1018,7 @@ cmd_results() {
         [[ -f "$f" ]] || continue; total=$((total+1))
         local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
-        [[ "$v" == *FAIL* ]] && gfail=$((gfail+1))
+        [[ "$v" == *PASS* ]] || gfail=$((gfail+1))
       done
       if [[ "$total" -ge "$expected_gates" && "$gfail" -eq 0 ]]; then
         echo "Gates: all $total pass"
@@ -1096,11 +1133,12 @@ cmd_set_known_good() {
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
   cd "$repo" || die "Cannot cd to $repo"
   git rev-parse --verify "$branch" &>/dev/null || die "Branch not found: $branch"
-  local state_dir="$PLUGIN_DIR/test/.matrix-state"
-  local repo_key=$(repo_short "$repo" | tr '/' '_')
-  mkdir -p "$state_dir"
-  echo "$branch" > "$state_dir/known_good_$repo_key"
-  info "Set known-good for $(repo_short "$repo"): $branch"
+  local short=$(repo_short "$repo")
+  yq -i ".repos.\"$short\".known_good = \"$branch\"" "$CONFIG_FILE"
+  local repo_key=$(echo "$short" | tr '/' '_')
+  mkdir -p "$PLUGIN_DIR/test/.matrix-state"
+  echo "$branch" > "$PLUGIN_DIR/test/.matrix-state/known_good_$repo_key"
+  info "Set known-good for $short: $branch"
 }
 
 cmd_set_from_commit() {
@@ -1111,11 +1149,12 @@ cmd_set_from_commit() {
   cd "$repo" || die "Cannot cd to $repo"
   local full_sha
   full_sha=$(git rev-parse --verify "$commit" 2>/dev/null) || die "Commit not found: $commit"
-  local state_dir="$PLUGIN_DIR/test/.matrix-state"
-  local repo_key=$(repo_short "$repo" | tr '/' '_')
-  mkdir -p "$state_dir"
-  echo "$full_sha" > "$state_dir/from_commit_$repo_key"
-  info "Set from-commit for $(repo_short "$repo"): ${full_sha:0:12}"
+  local short=$(repo_short "$repo")
+  yq -i ".repos.\"$short\".from_commit = \"$full_sha\"" "$CONFIG_FILE"
+  local repo_key=$(echo "$short" | tr '/' '_')
+  mkdir -p "$PLUGIN_DIR/test/.matrix-state"
+  echo "$full_sha" > "$PLUGIN_DIR/test/.matrix-state/from_commit_$repo_key"
+  info "Set from-commit for $short: ${full_sha:0:12}"
 }
 
 # ── Main Dispatch ──────────────────────────────────────────────────────
