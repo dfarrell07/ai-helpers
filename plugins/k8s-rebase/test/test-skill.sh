@@ -657,7 +657,7 @@ _do_record_one() {
 
   # Gate tally — every gate must produce a report, all must pass
   local verdict="FAIL"
-  local gtotal=0 gfail=0
+  local gtotal=0 gfail=0 gskip=0
   local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
   [[ "$expected_gates" -lt 1 ]] && expected_gates=33
   local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
@@ -671,7 +671,11 @@ _do_record_one() {
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       gv="${gv^^}"
-      [[ "$gv" == *PASS* ]] || gfail=$((gfail + 1))
+      if [[ "$gv" == *SKIP* ]]; then
+        gskip=$((gskip + 1))
+      elif [[ "$gv" != *PASS* ]]; then
+        gfail=$((gfail + 1))
+      fi
     done
     [[ "$gtotal" -ge "$expected_gates" && "$gfail" -eq 0 ]] && verdict="PASS"
   fi
@@ -691,13 +695,16 @@ _do_record_one() {
 
   # Build human-readable detail
   local detail=""
+  local _gate_suffix=""
+  [[ "$gskip" -gt 0 ]] && _gate_suffix=", ${gskip} skipped"
   if [[ "$gtotal" -eq 0 ]]; then
     detail="no gates ran (bug)"
   elif [[ "$gtotal" -lt "$expected_gates" ]]; then
     detail="missing $((expected_gates - gtotal)) of $expected_gates gates"
     [[ "$gfail" -gt 0 ]] && detail="$detail, $gfail failed"
+    [[ "$gskip" -gt 0 ]] && detail="$detail$_gate_suffix"
   elif [[ "$gfail" -gt 0 ]]; then
-    detail="$gfail gate(s) failed"
+    detail="$gfail gate(s) failed${_gate_suffix}"
   elif [[ -n "$kg_hunks" ]]; then
     if [[ "$kg_hunks" -eq 0 && -z "$kg_vendor" ]]; then
       detail="identical to known-good"
@@ -948,7 +955,7 @@ else: print('gone')
 " 2>/dev/null || echo "?")
     fi
     local wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
-    local gc=0 gf=0 commit_msg="-" diff_info="-"
+    local gc=0 gf=0 gs=0 commit_msg="-" diff_info="-"
     if [[ -n "$wt" ]]; then
       local _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
       : "${_db:=main}"
@@ -962,7 +969,8 @@ else: print('gone')
         for f in "$wt/.rebase-tmp/gates/"*.report; do
           [[ -f "$f" ]] || continue
           local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-          [[ -n "${v^^}" && "${v^^}" != *PASS* ]] && gf=$((gf + 1))
+          if [[ "${v^^}" == *SKIP* ]]; then gs=$((gs + 1))
+          elif [[ -n "${v^^}" && "${v^^}" != *PASS* ]]; then gf=$((gf + 1)); fi
         done
       fi
     fi
@@ -978,7 +986,10 @@ else: print('gone')
       fi
     fi
     local gate_str="${gc}/${expected_gates}"
-    [[ "$gf" -gt 0 ]] && gate_str="${gate_str} (${gf}F)"
+    local _gsuffix=""
+    [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
+    [[ "$gs" -gt 0 ]] && _gsuffix="${_gsuffix:+${_gsuffix},}${gs}S"
+    [[ -n "$_gsuffix" ]] && gate_str="${gate_str} (${_gsuffix})"
     printf "%-42s %-10s %-8s %-32s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
   done
   [[ "$active" -le 0 ]] && echo "(no active tests)"
@@ -1020,19 +1031,22 @@ cmd_results() {
     if $wt_in_progress; then
       echo "Run in progress (worktree exists, gates not yet written)"
     elif [[ -d "$gate_dir" ]]; then
-      local total=0 gfail=0
+      local total=0 gfail=0 gskip=0
       for f in "$gate_dir"/*.report; do
         [[ -f "$f" ]] || continue; total=$((total+1))
         local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
-        [[ -n "$v" && "$v" != *PASS* ]] && gfail=$((gfail+1))
+        if [[ "$v" == *SKIP* ]]; then gskip=$((gskip+1))
+        elif [[ -n "$v" && "$v" != *PASS* ]]; then gfail=$((gfail+1)); fi
       done
+      local _skip_note=""
+      [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
       if [[ "$total" -ge "$expected_gates" && "$gfail" -eq 0 ]]; then
-        echo "Gates: all $total pass"
+        echo "Gates: all $total pass${_skip_note}"
       elif [[ "$gfail" -gt 0 ]]; then
-        echo "Gates: $gfail FAILED ($total/$expected_gates complete)"
+        echo "Gates: $gfail FAILED ($total/$expected_gates complete${_skip_note})"
       else
-        echo "Gates: $total/$expected_gates complete (in progress)"
+        echo "Gates: $total/$expected_gates complete (in progress${_skip_note})"
       fi
       # Show failed gates inline
       for f in "$gate_dir"/*.report; do
