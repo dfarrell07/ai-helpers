@@ -14,6 +14,14 @@ CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
 IDLE_TIMEOUT_MIN=120
 
+# ── Utilities ──────────────────────────────────────────────────────────
+
+info()  { echo ":: $*" >&2; }
+warn()  { echo "WARNING: $*" >&2; }
+error() { echo "ERROR: $*" >&2; }
+die()   { error "$@"; exit 1; }
+repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
+
 # Load config from YAML
 _load_config() {
   command -v yq &>/dev/null || die "yq required — install from https://github.com/mikefarah/yq"
@@ -40,14 +48,6 @@ _load_config() {
   done
 }
 _load_config
-
-# ── Utilities ──────────────────────────────────────────────────────────
-
-info()  { echo ":: $*" >&2; }
-warn()  { echo "WARNING: $*" >&2; }
-error() { echo "ERROR: $*" >&2; }
-die()   { error "$@"; exit 1; }
-repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 
 resolve_repo() {
   local r="${1%/}"
@@ -475,6 +475,8 @@ cmd_test() {
   local mutated
   if [[ "${specs[*]}" == "none" ]]; then
     mutated="$PLUGIN_DIR"
+  elif [[ " ${specs[*]} " == *" none "* ]]; then
+    die "Cannot mix 'none' with other specs"
   else
     mutated=$(mutate_plugin "${specs[@]}") || exit 1
   fi
@@ -718,7 +720,7 @@ _do_record_one() {
 auto_record() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local running_dir="$state_dir/running"
-  [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]] && return 0
+  if [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]]; then return 0; fi
 
   build_session_cache
   $_SESSION_CACHE_OK || return 0
