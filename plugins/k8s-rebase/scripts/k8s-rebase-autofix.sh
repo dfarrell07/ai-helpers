@@ -851,41 +851,38 @@ fix_crd_int64_validation() {
   # Part 2: Patch CRD YAML files directly (runs unconditionally —
   # repos like CNO have vendored CRD YAMLs with no types.go)
   local crd_yamls
-  crd_yamls=$(find . -name "*.yaml" -not -path "*/vendor/*" -not -path "*/.claude/*" \
+  crd_yamls=$(find . \( -path "*/crds/*.yaml" -o -path "*/crd/*.yaml" \
+    -o -path "*/bindata/*.yaml" -o -path "*/manifests/*.yaml" \
+    -o -path "*/config/crd/*.yaml" -o -path "*/_output/*.yaml" \) \
+    -not -path "*/vendor/*" -not -path "*/.claude/*" -not -path "*/testdata/*" \
     -exec grep -l "maximum: 4294967295" {} \; 2>/dev/null)
   [[ -z "$crd_yamls" ]] && return 0
   echo ":: Patching CRD YAML files: ensure format: int64 for uint32 fields"
   for crd_yaml in $crd_yamls; do
-        grep -q "maximum: 4294967295" "$crd_yaml" || continue
-        # Two cases:
-        # 1. "format: int32" before "maximum: 4294967295" → replace with int64
-        # 2. No format line before "maximum: 4294967295" → insert int64
-        # The awk also buffers "format: int64" lines so it's idempotent —
-        # an already-fixed field is recognized and passed through unchanged.
-        awk '
-          /format: int(32|64)/ { prev=$0; prev_nr=NR; next }
-          /maximum: 4294967295/ {
-            if (prev_nr==NR-1) {
-              sub(/int32/, "int64", prev)
-              print prev
-            } else {
-              if (prev!="") print prev
-              match($0, /^[[:space:]]*/);
-              printf "%s%s\n", substr($0, 1, RLENGTH), "format: int64"
-            }
-            print; prev=""; next
-          }
-          { if (prev!="") print prev; prev=""; print }
-          END { if (prev!="") print prev }
-        ' "$crd_yaml" > "${crd_yaml}.tmp"
-        chmod --reference="$crd_yaml" "${crd_yaml}.tmp" 2>/dev/null || true
-        mv "${crd_yaml}.tmp" "$crd_yaml"
-        # Verify: no format: int32 should remain before maximum: 4294967295
-        if ! awk '/format: int32/{p=1;next} /maximum: 4294967295/{if(p){found=1;exit}} {p=0} END{exit !found}' "$crd_yaml" 2>/dev/null; then
-          echo "  Patched $(basename "$crd_yaml")"
-        else
-          echo "  WARNING: format: int32 still precedes maximum: 4294967295 in $(basename "$crd_yaml")"
-        fi
+    grep -q "maximum: 4294967295" "$crd_yaml" || continue
+    awk '
+      /format: int(32|64)/ { prev=$0; prev_nr=NR; next }
+      /maximum: 4294967295/ {
+        if (prev_nr==NR-1) {
+          sub(/int32/, "int64", prev)
+          print prev
+        } else {
+          if (prev!="") print prev
+          match($0, /^[[:space:]]*/);
+          printf "%s%s\n", substr($0, 1, RLENGTH), "format: int64"
+        }
+        print; prev=""; next
+      }
+      { if (prev!="") print prev; prev=""; print }
+      END { if (prev!="") print prev }
+    ' "$crd_yaml" > "${crd_yaml}.tmp"
+    chmod --reference="$crd_yaml" "${crd_yaml}.tmp" 2>/dev/null || true
+    mv "${crd_yaml}.tmp" "$crd_yaml"
+    if ! awk '/format: int32/{p=1;next} /maximum: 4294967295/{if(p){found=1;exit}} {p=0} END{exit !found}' "$crd_yaml" 2>/dev/null; then
+      echo "  Patched $(basename "$crd_yaml")"
+    else
+      echo "  WARNING: format: int32 still precedes maximum: 4294967295 in $(basename "$crd_yaml")"
+    fi
   done
 }
 
