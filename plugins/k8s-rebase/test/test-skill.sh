@@ -315,10 +315,12 @@ cmd_clean() {
   local repos=("$@")
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
   build_session_cache
+  local cleaned_keys=()
   for repo in "${repos[@]}"; do
     repo=$(resolve_repo "$repo") || continue
     local existing=$(session_for_repo "$repo")
     [[ -n "$existing" ]] && { warn "Active session on $(repo_short "$repo") — skipping"; continue; }
+    cleaned_keys+=($(repo_short "$repo" | tr '/' '_'))
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
     remove_worktrees "$repo"
@@ -355,7 +357,9 @@ else: os.remove(p)
   fi
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
-  [[ -d "$state_dir/running" ]] && { rm -f "$state_dir/running"/* 2>/dev/null; info "Cleared running files"; }
+  for _ck in "${cleaned_keys[@]}"; do
+    rm -f "$state_dir/running/$_ck" 2>/dev/null
+  done
   return 0
 }
 
@@ -793,9 +797,9 @@ cmd_court() {
   [[ $# -lt 3 ]] && die "Usage: make court repo=<repo>"
   local result_branch="$1" known_good="$2" repo="$3"
 
-  cd "$repo" || die "Cannot cd to $repo"
-  git rev-parse --verify "$result_branch" &>/dev/null || die "Branch not found: $result_branch"
-  git rev-parse --verify "$known_good" &>/dev/null || die "Branch not found: $known_good"
+  cd "$repo" || { error "Cannot cd to $repo"; return 1; }
+  git rev-parse --verify "$result_branch" &>/dev/null || { error "Branch not found: $result_branch"; return 1; }
+  git rev-parse --verify "$known_good" &>/dev/null || { error "Branch not found: $known_good"; return 1; }
 
   local diff_nv=$(git diff "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
   [[ -z "$diff_nv" ]] && { info "PASS: identical (non-vendor)"; return 0; }
@@ -955,7 +959,7 @@ else: print('gone')
         for f in "$wt/.rebase-tmp/gates/"*.report; do
           [[ -f "$f" ]] || continue
           local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-          [[ "${v^^}" == *PASS* ]] || gf=$((gf + 1))
+          [[ -n "${v^^}" && "${v^^}" != *PASS* ]] && gf=$((gf + 1))
         done
       fi
     fi
@@ -1018,7 +1022,7 @@ cmd_results() {
         [[ -f "$f" ]] || continue; total=$((total+1))
         local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
-        [[ "$v" == *PASS* ]] || gfail=$((gfail+1))
+        [[ -n "$v" && "$v" != *PASS* ]] && gfail=$((gfail+1))
       done
       if [[ "$total" -ge "$expected_gates" && "$gfail" -eq 0 ]]; then
         echo "Gates: all $total pass"
