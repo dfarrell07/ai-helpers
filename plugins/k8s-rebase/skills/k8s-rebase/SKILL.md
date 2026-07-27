@@ -374,6 +374,7 @@ shows autofix commits with "Applied:" in the message):
 - KIND image: `grep -rn 'kindest/node:' . --include='*.sh' --include='*.yaml' --include='*.yml' | grep -v vendor/` — update to `v<k8s-version>`
   (e.g., v1.36.1 for k8s 1.36). Check https://hub.docker.com/r/kindest/node/tags for the latest patch.
 - kubeadm v1beta4: `grep -rn 'extraArgs:' . --include='*.yaml' --include='*.yml' --include='*.sh' | grep -v vendor/` — if the format is `extraArgs:\n    key: value` (flat map), convert to `extraArgs:\n- name: key\n  value: "value"` (list-of-objects). Required for k8s >= 1.31.
+- CI dependency versions: `grep -rn 'metallb_version\|KUBEVIRT_VERSION\|KIND_VERSION' . --include='*.sh' | grep -v vendor/` — k8s version bumps tighten CRD validation, breaking older pinned versions of MetalLB, KubeVirt, etc. Check each pinned version's release notes for k8s compatibility. Bump to latest compatible release.
 - Feature gate exports: `grep -rn 'KUBE_FEATURE_' . --include='*.sh' | grep -v vendor/` — check the rebase script output for new default-true gates. Add `export KUBE_FEATURE_<name>=false` to `hack/test-go.sh` if the repo's tests use fake clientsets with informers.
 
 **Verify the script actually ran** — if the output is empty or

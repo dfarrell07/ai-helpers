@@ -12,6 +12,12 @@ For each modified e2e file, check:
   old KIND with a new k8s will fail. Report the fix command:
   `sed -i 's/KIND_VERSION=v<old>/KIND_VERSION=v<new>/' <file>`
 - Are external tool versions consistent across all CI files?
+- CI dependency versions (MetalLB, KubeVirt, etc.): k8s version
+  bumps tighten CRD validation. Check pinned versions:
+  `grep -rn 'metallb_version\|KUBEVIRT_VERSION' . --include='*.sh' | grep -v vendor/`
+  If a pinned version predates the target k8s release, its CRDs
+  may use schemas (e.g., format:int32 for uint32 fields) that the
+  new k8s rejects. Bump to the latest release of each dependency.
 - Do configuration formats (e.g., kubeadm config apiVersion)
   match what the new k8s version requires? Search the web for
   "k8s <version> kubeadm config" if unsure about required format.

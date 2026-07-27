@@ -27,8 +27,9 @@ Report each candidate with its classification, detection
 command, and fix description. If no systematic fixes were
 found, report "No new patterns discovered."
 
-VERDICT: This is an informational gate — always PASS. Report
-systematic patterns for future autofix improvement.
+VERDICT: This is an INFORMATIONAL gate. The verdict is ALWAYS
+PASS regardless of findings. Findings are suggestions for future
+skill improvement, not rebase failures. NEVER use FAIL.
 
 Rules: report specific findings, not "looks good." You are
 read-only — do not edit repo files. Your sole
@@ -45,5 +46,5 @@ bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -p
   "detail line 1" "detail line 2"
 ```
 
-Use PASS, FAIL, or SKIP as the verdict. Replace the summary and
-details with your actual findings.
+Use PASS as the verdict (this gate is informational — never FAIL).
+Replace the summary and details with your actual findings.
