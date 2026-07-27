@@ -14,7 +14,7 @@ help: ## Show available targets
 	@echo "  ────────────────────────"
 	@echo ""
 	@echo "  Test"
-	@echo "    make test                                Run all repos (3 at a time, or: make test jobs=6)"
+	@echo "    make test                                Run all repos (max_concurrent from config.yaml, or: make test jobs=6)"
 	@echo "    make test repo=<r>                       Test one repo"
 	@echo "    make test repo=<r> commit=<sha>          Test from a specific historical commit"
 	@echo "    make test spec=<s>                       Test with mutation (see specs below)"
@@ -43,7 +43,7 @@ help: ## Show available targets
 	@echo "         openshift/cloud-network-config-controller, openshift/cluster-network-operator,"
 	@echo "         ovn-kubernetes/ovn-kubernetes-mcp"
 	@echo ""
-	@echo "  Config file: test/config.yaml"
+	@echo "  Config file: test/config.yaml (version, max_concurrent, repos, known_good, from_commit)"
 	@echo ""
 
 test: ## Run tests

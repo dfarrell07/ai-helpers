@@ -20,6 +20,8 @@ _load_config() {
   [[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
   VERSION=$(yq '.version' "$CONFIG_FILE")
   [[ -z "$VERSION" || "$VERSION" == "null" ]] && die "version not set in $CONFIG_FILE"
+  local _mc=$(yq '.max_concurrent // ""' "$CONFIG_FILE")
+  [[ -n "$_mc" && "$_mc" != "null" ]] && MAX_CONCURRENT="$_mc"
   DEFAULT_REPOS=()
   while IFS= read -r repo_short; do
     [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$HOME/ovnk/$repo_short")
@@ -205,6 +207,23 @@ cmd_run() {
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
   mkdir -p "$RESULTS_DIR" || die "Cannot create $RESULTS_DIR"
 
+  # Enforce concurrency limit (skip when called from cmd_test_all which has its own tracking)
+  if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
+    local _running_dir="$PLUGIN_DIR/test/.matrix-state/running"
+    if [[ -d "$_running_dir" ]]; then
+      local _active_count=0
+      for _rf in "$_running_dir"/*; do
+        [[ -f "$_rf" ]] && _active_count=$((_active_count + 1))
+      done
+      if [[ $((_active_count + ${#repos[@]})) -gt "$MAX_CONCURRENT" ]]; then
+        local _avail=$((MAX_CONCURRENT - _active_count))
+        [[ "$_avail" -le 0 ]] && { error "Already at max ($MAX_CONCURRENT concurrent). Stop a session first: make stop"; return 1; }
+        warn "$_active_count already running, launching only $_avail of ${#repos[@]} (max $MAX_CONCURRENT — set in config.yaml)"
+        repos=("${repos[@]:0:$_avail}")
+      fi
+    fi
+  fi
+
   local launched=0
   build_session_cache
   for repo in "${repos[@]}"; do
@@ -221,12 +240,13 @@ cmd_run() {
     if [[ -n "$from_commit" ]]; then
       cd "$repo" || { warn "Skipping $short"; continue; }
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
-      [[ -n "$(git status --porcelain 2>/dev/null)" ]] && { warn "Uncommitted changes in $short"; continue; }
       local _db=$(default_branch)
       git checkout "$_db" 2>/dev/null || true
+      git reset --hard "origin/$_db" 2>/dev/null || true
+      git clean -fd 2>/dev/null || true
       git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
       git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
-        || { sleep 1; git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" \
+        || { git fetch origin 2>/dev/null; git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" \
         || { warn "Cannot checkout $from_commit"; continue; }; }
       info "$short -> ${from_commit:0:8} (historical)"
       # Set worktree.baseRef so Claude creates worktrees from HEAD (our historical commit)
@@ -575,7 +595,7 @@ for s in json.load(sys.stdin):
       info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
       continue
     fi
-    cmd_test "none" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
+    _SKIP_CONCURRENCY_CHECK=1 cmd_test "none" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
   done
   info "Launched: $launched ($active already active) | Monitor: make results"
 }
