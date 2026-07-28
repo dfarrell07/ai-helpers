@@ -1,0 +1,1310 @@
+#!/bin/bash
+# test-skill.sh — Test the k8s-rebase skill by running it blind (without
+# patterns doc or autofix functions) and verifying the results are correct.
+#
+# Use via Makefile:  cd plugins/k8s-rebase && make help
+
+set -uo pipefail
+
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+PLUGIN_DIR="${PLUGIN_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
+RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." 2>/dev/null && pwd || echo /tmp)/.work/test-harness}"
+PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
+CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}"
+MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
+
+# ── Utilities ──────────────────────────────────────────────────────────
+
+info()  { echo ":: $*" >&2; }
+warn()  { echo "WARNING: $*" >&2; }
+error() { echo "ERROR: $*" >&2; }
+die()   { error "$@"; exit 1; }
+repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
+
+# Load config from YAML
+_load_config() {
+  command -v yq &>/dev/null || die "yq required — install from https://github.com/mikefarah/yq"
+  [[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
+  VERSION=$(yq '.version' "$CONFIG_FILE")
+  [[ -z "$VERSION" || "$VERSION" == "null" ]] && die "version not set in $CONFIG_FILE"
+  local _mc=$(yq '.max_concurrent // ""' "$CONFIG_FILE")
+  [[ -n "$_mc" && "$_mc" != "null" ]] && MAX_CONCURRENT="$_mc"
+  DEFAULT_REPOS=()
+  while IFS= read -r repo_short; do
+    [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$HOME/ovnk/$repo_short")
+  done < <(yq '.repos | keys | .[]' "$CONFIG_FILE")
+  # Write per-repo configs to .matrix-state (for functions that read files)
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  mkdir -p "$state_dir"
+  for _repo_name in $(yq '.repos | keys | .[]' "$CONFIG_FILE"); do
+    local _rk=$(echo "$_repo_name" | tr '/' '_')
+    local kg=$(yq ".repos.\"$_repo_name\".known_good // \"\"" "$CONFIG_FILE")
+    local fc=$(yq ".repos.\"$_repo_name\".from_commit // \"\"" "$CONFIG_FILE")
+    local xf=$(yq ".repos.\"$_repo_name\".expected_fail // \"\"" "$CONFIG_FILE")
+    [[ -n "$kg" ]] && echo "$kg" > "$state_dir/known_good_$_rk"
+    [[ -n "$fc" ]] && echo "$fc" > "$state_dir/from_commit_$_rk"
+    [[ "$xf" == "true" ]] && echo "1" > "$state_dir/expected_fail_$_rk" || rm -f "$state_dir/expected_fail_$_rk"
+  done
+}
+_load_config
+
+resolve_repo() {
+  local r="${1%/}"
+  [[ -z "$r" ]] && return 1
+  # Prefer $HOME/ovnk/ expansion for short names (avoids CWD-relative false hits)
+  [[ -d "$HOME/ovnk/$r" ]] && { echo "$HOME/ovnk/$r"; return 0; }
+  [[ -d "$r" ]] && { (cd "$r" && pwd); return 0; }
+  return 1
+}
+
+default_branch() {
+  local b
+  b=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+  [[ -z "$b" ]] && b="main"
+  git rev-parse --verify "$b" &>/dev/null \
+    || git rev-parse --verify "origin/$b" &>/dev/null \
+    || b="master"
+  echo "$b"
+}
+
+# ── Session Management ─────────────────────────────────────────────────
+
+_SESSION_CACHE=""
+_SESSION_CACHE_OK=false
+_SESSION_CACHE_BUILT=false
+
+_SESSION_PARSER=$(cat <<'PYEOF'
+import json, sys, time, os
+try:
+    data = json.load(sys.stdin)
+    if not isinstance(data, list): sys.exit(0)
+except (json.JSONDecodeError, ValueError): sys.exit(0)
+now = time.time() * 1000
+for s in data:
+    try:
+        cwd = s.get('cwd', '')
+        raw_state = s.get('state')
+        raw_status = s.get('status')
+        if raw_state == 'working' and raw_status in ('idle', 'done'):
+            st = raw_status
+        else:
+            st = raw_state or raw_status or '?'
+        pid = s.get('pid') or '0'
+        full_sid = s.get('sessionId', '?')
+        sid = s.get('id') or full_sid[:8]
+        started = s.get('startedAt', 0)
+        elapsed = max(0, int((now - started) / 60000)) if started else 0
+        # done is done — don't remap to idle even if PID lingers
+        print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
+    except (TypeError, ValueError): pass
+PYEOF
+)
+
+build_session_cache() {
+  if $_SESSION_CACHE_BUILT; then return 0; fi
+  _SESSION_CACHE_OK=false
+  command -v claude &>/dev/null || { _SESSION_CACHE_BUILT=true; return 0; }
+  _SESSION_CACHE=$(timeout -k 1 10 claude agents --json 2>/dev/null \
+    | timeout -k 1 5 python3 -c "$_SESSION_PARSER" 2>/dev/null || true)
+  [[ -n "$_SESSION_CACHE" ]] && _SESSION_CACHE_OK=true
+  _SESSION_CACHE_BUILT=true
+}
+
+
+session_for_repo() {
+  local repo="$1" short
+  short=$(repo_short "$repo")
+  local match=""
+  while IFS=$'\t' read -r cwd state elapsed pid _rest; do
+    [[ -z "$cwd" ]] && continue
+    [[ "$cwd" == *"/${short}/"* || "$cwd" == *"/${short}" ]] || continue
+    [[ "$state" == "done" ]] && continue
+    [[ -z "$pid" || "$pid" == "0" ]] && continue
+    if [[ "$cwd" == *"/.claude/worktrees/"* && ! -d "$cwd" ]]; then
+      continue
+    fi
+    match="$cwd	$state	$elapsed	$pid	$_rest"
+  done <<< "$_SESSION_CACHE"
+  [[ -n "$match" ]] && echo "$match"
+}
+
+# ── Session Commands ───────────────────────────────────────────────────
+
+find_newest_branch() {
+  local repo="$1"
+  (cd "$repo" 2>/dev/null || return 1
+  local wt_line
+  wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
+  if [[ -n "$wt_line" ]]; then
+    local wt_branch
+    wt_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+    [[ -n "$wt_branch" ]] && { echo "$wt_branch"; return 0; }
+  fi
+  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1 || true)
+}
+
+reset_to_default() {
+  local repo="$1"
+  cd "$repo" || { error "Cannot cd to $repo"; return 1; }
+  [[ -n "$(git status --porcelain 2>/dev/null)" ]] && { error "Uncommitted changes in $repo"; return 1; }
+  local default_br
+  default_br=$(default_branch)
+  git checkout "$default_br" &>/dev/null || { error "Cannot checkout $default_br"; return 1; }
+  GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>/dev/null || true
+  info "$(repo_short "$repo") -> $default_br @ $(git rev-parse --short HEAD)"
+}
+
+remove_worktrees() {
+  local repo="$1"
+  cd "$repo" 2>/dev/null || return 1
+  local wt_lines default_br
+  wt_lines=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' || true)
+  [[ -z "$wt_lines" ]] && return 0
+  default_br=$(default_branch)
+  while IFS= read -r line; do
+    local wt_path wt_branch commit_count=0
+    wt_path=$(echo "$line" | awk '{print $1}')
+    wt_branch=$(echo "$line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+    [[ -n "$wt_branch" ]] && commit_count=$(git rev-list --count "$default_br".."$wt_branch" 2>/dev/null || echo 0)
+    git worktree unlock "$wt_path" 2>/dev/null || true
+    git worktree remove "$wt_path" --force 2>/dev/null \
+      || { rm -rf "$wt_path" 2>/dev/null; git worktree prune 2>/dev/null; } \
+      || { warn "Could not remove worktree: $wt_path"; continue; }
+    if [[ "$commit_count" -gt 0 ]]; then
+      info "Removed worktree (branch preserved, $commit_count commits)"
+    else
+      [[ -n "$wt_branch" ]] && git branch -D "$wt_branch" 2>/dev/null || true
+      info "Removed worktree (empty branch deleted)"
+    fi
+  done <<< "$wt_lines"
+}
+
+cmd_run() {
+  command -v claude &>/dev/null || die "claude CLI not found"
+  local version="$1"; shift
+  [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Version must be X.Y.Z"
+  local from_commit=""
+  local repos=()
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --from-commit) shift; from_commit="${1:-}" ;;
+      *) repos+=("$1") ;;
+    esac; shift
+  done
+  [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
+  mkdir -p "$RESULTS_DIR" || die "Cannot create $RESULTS_DIR"
+
+  # Enforce concurrency limit (skip when called from cmd_test_all which has its own tracking)
+  if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
+    local _running_dir="$PLUGIN_DIR/test/.matrix-state/running"
+    if [[ -d "$_running_dir" ]]; then
+      local _active_count=0
+      for _rf in "$_running_dir"/*; do
+        [[ -f "$_rf" ]] && _active_count=$((_active_count + 1))
+      done
+      if [[ $((_active_count + ${#repos[@]})) -gt "$MAX_CONCURRENT" ]]; then
+        local _avail=$((MAX_CONCURRENT - _active_count))
+        [[ "$_avail" -le 0 ]] && { error "Already at max ($MAX_CONCURRENT concurrent). Stop a session first: make stop"; return 1; }
+        warn "$_active_count already running, launching only $_avail of ${#repos[@]} (max $MAX_CONCURRENT — set in config.yaml)"
+        repos=("${repos[@]:0:$_avail}")
+      fi
+    fi
+  fi
+
+  local launched=0
+  build_session_cache
+  for repo in "${repos[@]}"; do
+    local repo_input="$repo"
+    repo=$(resolve_repo "$repo") || { warn "Not found: $repo_input"; continue; }
+    local short existing_session
+    short=$(repo_short "$repo")
+    existing_session=$(session_for_repo "$repo")
+    if [[ -n "$existing_session" ]]; then
+      warn "Active session on $short — stop it first"
+      continue
+    fi
+    remove_worktrees "$repo"
+    if [[ -n "$from_commit" ]]; then
+      cd "$repo" || { warn "Skipping $short"; continue; }
+      git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
+      local _db=$(default_branch)
+      git checkout "$_db" 2>/dev/null || true
+      git reset --hard "origin/$_db" 2>/dev/null || true
+      git clean -fd 2>/dev/null || true
+      git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
+      git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
+        || { git fetch origin 2>/dev/null; git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" \
+        || { warn "Cannot checkout $from_commit"; continue; }; }
+      info "$short -> ${from_commit:0:8} (historical)"
+      # Set worktree.baseRef so Claude creates worktrees from HEAD (our historical commit)
+      mkdir -p "$repo/.claude"
+      python3 -c "
+import json, os
+p = '$repo/.claude/settings.json'
+d = json.load(open(p)) if os.path.exists(p) else {}
+d['worktree'] = {'baseRef': 'head'}
+json.dump(d, open(p, 'w'), indent=2)
+" 2>/dev/null
+    else
+      reset_to_default "$repo" || { warn "Skipping $short"; continue; }
+    fi
+    local session_output session_id
+    session_output=$(claude --bg \
+      --plugin-dir "$PLUGIN_DIR" \
+      --permission-mode "$PERMISSION_MODE" \
+      "/k8s-rebase:k8s-rebase $version" \
+      --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*)' \
+      2>/dev/null)
+    session_id=$(echo "$session_output" | grep 'backgrounded' | grep -oE '[a-f0-9]{8,}' | head -1)
+    : "${session_id:=unknown}"
+    [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
+    info "Launched $short -> $session_id"
+    local _rk=$(repo_short "$repo" | tr '/' '_')
+    echo "$session_id" > "$RESULTS_DIR/.session_id_$_rk" 2>/dev/null
+    launched=$((launched + 1))
+  done
+  [[ "$launched" -gt 0 ]] || { warn "No sessions launched"; return 1; }
+}
+
+cmd_stop() {
+  local targets=("$@")
+  [[ ${#targets[@]} -eq 0 ]] && die "Usage: make stop"
+  local stop_all=false
+  [[ "${targets[0]}" == "--all" ]] && { stop_all=true; targets=(); }
+
+  # Read session IDs from running files (no session cache needed)
+  local state_dir="$PLUGIN_DIR/test/.matrix-state/running"
+  [[ ! -d "$state_dir" ]] && { info "No active sessions"; return 0; }
+  local killed=0
+  for running_file in "$state_dir"/*; do
+    [[ -f "$running_file" ]] || continue
+    local repo_key=$(basename "$running_file")
+    local raw=$(cat "$running_file")
+    local sid=$(echo "$raw" | cut -f3)
+    [[ -z "$sid" ]] && continue
+    local short=$(echo "$repo_key" | tr '_' '/')
+    local should_stop=false
+    if $stop_all; then
+      should_stop=true
+    else
+      for t in "${targets[@]}"; do
+        [[ "$short" == *"$t"* || "$sid" == "$t"* ]] && { should_stop=true; break; }
+      done
+    fi
+    if $should_stop; then
+      claude stop "$sid" 2>/dev/null || true
+      rm -f "$running_file"
+      info "Stopped $short"
+      killed=$((killed + 1))
+    fi
+  done
+  [[ "$killed" -eq 0 ]] && info "No active sessions"
+}
+
+cmd_clean() {
+  local repos=("$@")
+  [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
+  build_session_cache
+  local cleaned_keys=()
+  for repo in "${repos[@]}"; do
+    repo=$(resolve_repo "$repo") || continue
+    local existing=$(session_for_repo "$repo")
+    [[ -n "$existing" ]] && { warn "Active session on $(repo_short "$repo") — skipping"; continue; }
+    cleaned_keys+=($(repo_short "$repo" | tr '/' '_'))
+    cd "$repo" || continue
+    git worktree prune 2>/dev/null || true
+    remove_worktrees "$repo"
+    # Recover to default branch first (so we can delete temp branches)
+    local _cur=$(git branch --show-current 2>/dev/null)
+    [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null || true; }
+    # Remove worktree.baseRef override left by from-commit testing
+    if [[ -f "$repo/.claude/settings.json" ]]; then
+      python3 -c "
+import json, os
+p = '$repo/.claude/settings.json'
+d = json.load(open(p))
+d.pop('worktree', None)
+if d: json.dump(d, open(p, 'w'), indent=2)
+else: os.remove(p)
+" 2>/dev/null
+    fi
+    for tb in $(git branch --no-color | tr -d ' *' | grep '^_test-from-'); do
+      git branch -D "$tb" 2>/dev/null || true
+    done
+  done
+  if command -v podman &>/dev/null; then
+    local pruned=0
+    while IFS= read -r cid; do
+      [[ -z "$cid" ]] && continue
+      podman rm "$cid" &>/dev/null && pruned=$((pruned + 1))
+    done < <(podman ps -a --filter status=exited --filter name=k8s-rebase --format '{{.ID}}' 2>/dev/null)
+    [[ "$pruned" -gt 0 ]] && info "Pruned $pruned containers"
+  fi
+  if [[ -d "$RESULTS_DIR" ]]; then
+    local old_mutated=$(find "$RESULTS_DIR" -maxdepth 1 -name 'mutated-*' -type d 2>/dev/null | wc -l)
+    [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
+    [[ -d "$RESULTS_DIR/court" ]] && { rm -rf "$RESULTS_DIR/court" 2>/dev/null; info "Cleaned court artifacts"; }
+  fi
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
+  for _ck in "${cleaned_keys[@]}"; do
+    rm -f "$state_dir/running/$_ck" 2>/dev/null
+  done
+  return 0
+}
+
+# ── Mutation ───────────────────────────────────────────────────────────
+
+declare -A TAG_TO_PATTERN=(
+  [xexp]="golang.org/x/exp" [reflect_ptr]="Deprecated stdlib/apimachinery symbols"
+  [fieldsv1]="Deprecated stdlib/apimachinery symbols" [klog_v2]="Deprecated stdlib/apimachinery symbols"
+  [eventf]="Deprecated stdlib/apimachinery symbols" [imports]="Deprecated stdlib/apimachinery symbols"
+  [bounding_dirs]="deepcopy-gen --bounding-dirs removed" [obsgen]="WithConditions + ObservedGeneration"
+  [conformance_renames]="Conformance suite rename" [addtoscheme]="AddToScheme"
+  [mocks]="Deprecated stdlib/apimachinery symbols" [crd_int64_validation]="Project CRD int64 validation"
+  [crd_name_validation]="CRD metadata.name validation" [feature_gates]="RelaxedServiceNameValidation"
+  [kind_image]="E2e framework changes" [kind_version]="E2e framework changes"
+  [metallb_version]="MetalLB CRD validation" [kubevirt_version]="KubeVirt version incompatibility"
+  [relaxed_service_name_validation]="RelaxedServiceNameValidation" [kubeadm_v1beta4]="kubeadm v1beta4 format"
+  [docs_version]="Deprecated stdlib/apimachinery symbols" [version_refs]="Deprecated stdlib/apimachinery symbols"
+  [go_version]="E2e framework changes" [lint_version]="golangci-lint"
+  [network_policy_api_crds]="MetalLB CRD validation" [banp_egresspeer]="EgressPeer type divergence"
+)
+
+mutate_plugin() {
+  local label="mutated-$(date +%s)"
+  local dest="$RESULTS_DIR/$label"
+  mkdir -p "$RESULTS_DIR" 2>/dev/null || true
+  cp -r "$PLUGIN_DIR" "$dest" || die "Cannot copy plugin to $dest"
+
+  local has_all_patterns=false has_all_fns=false
+  local -A seen_specs=()
+  local specs=()
+  for spec in "$@"; do
+    [[ -n "${seen_specs[$spec]+x}" ]] && continue
+    seen_specs[$spec]=1
+    case "$spec" in
+      all) has_all_patterns=true; has_all_fns=true; specs+=(all-patterns all-fns) ;;
+      all-patterns) has_all_patterns=true; specs+=("$spec") ;;
+      all-fns) has_all_fns=true; specs+=("$spec") ;;
+      pattern:*) $has_all_patterns || specs+=("$spec") ;;
+      fn:*) $has_all_fns || specs+=("$spec") ;;
+      *) rm -rf "$dest"; die "Unknown spec: $spec" ;;
+    esac
+  done
+
+  for spec in "${specs[@]}"; do
+    case "$spec" in
+      pattern:*)
+        local key="${spec#pattern:}"
+        local heading="${TAG_TO_PATTERN[$key]:-}"
+        [[ -z "$heading" ]] && { rm -rf "$dest"; die "Unknown pattern: $key"; }
+        local pfile="$dest/docs/k8s-rebase-patterns.md"
+        awk -v hdr="### $heading" '/^### / && index($0, hdr) == 1 { skip=1; next } /^### / && skip { skip=0 } skip { next } { print }' \
+          "$pfile" > "$pfile.tmp" && mv "$pfile.tmp" "$pfile"
+        info "Removed pattern: $heading" ;;
+      fn:*)
+        local ftag="${spec#fn:}" afile="$dest/scripts/k8s-rebase-autofix.sh"
+        grep -q "^fix_${ftag}()" "$afile" 2>/dev/null || { rm -rf "$dest"; die "Function fix_${ftag}() not found"; }
+        awk -v fn="fix_${ftag}" '$0 ~ "^"fn"\\(\\)" { print $0; print "  return 0"; skip=1; next } skip && /^\}/ { print; skip=0; next } skip { next } { print }' \
+          "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
+        info "Neutered: fix_${ftag}()" ;;
+      all-patterns)
+        sed -i '/^### /,$ { /^## /!d }' "$dest/docs/k8s-rebase-patterns.md"
+        info "Removed all patterns" ;;
+      all-fns)
+        local afile="$dest/scripts/k8s-rebase-autofix.sh"
+        awk '/^fix_[a-z0-9_]+\(\)/ && !/fix_uncommitted/ { print $0; print "  return 0"; skip=1; next } skip && /^\}/ { print; skip=0; next } skip { next } { print }' \
+          "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
+        info "Neutered all functions" ;;
+    esac
+  done
+
+  local skillfile="$dest/skills/k8s-rebase/SKILL.md"
+  [[ -f "$skillfile" ]] && {
+    sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-autofix.sh\"[^)]*)|echo \"$dest/scripts/k8s-rebase-autofix.sh\")|" "$skillfile"
+    sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-patterns.md\"[^)]*)|echo \"$dest/docs/k8s-rebase-patterns.md\")|" "$skillfile"
+  }
+  bash -n "$dest/scripts/k8s-rebase-autofix.sh" || { rm -rf "$dest"; die "Mutation produced invalid bash"; }
+  echo "$dest"
+}
+
+# ── Test Execution ─────────────────────────────────────────────────────
+
+_repo_from_key() {
+  local key="$1"
+  local org="${key%%_*}" name="${key#*_}"
+  local path="$HOME/ovnk/$org/$name"
+  [[ -d "$path" ]] && { echo "$path"; return 0; }
+  return 1
+}
+
+cmd_test() {
+  local version="$VERSION" specs=() repo="" from_commit=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version) shift; version="${1:-}"; [[ -z "$version" ]] && die "--version needs value" ;;
+      --from-commit) shift; from_commit="${1:-}"; [[ -z "$from_commit" ]] && die "--from-commit needs value" ;;
+      none|pattern:*|fn:*|all-patterns|all-fns|all) specs+=("$1") ;;
+      *) repo="$1" ;;
+    esac; shift
+  done
+  [[ ${#specs[@]} -eq 0 ]] && die "No spec (use: all, fn:<tag>, pattern:<key>)"
+  [[ -z "$repo" ]] && die "No repo path"
+  local repo_input="$repo"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+
+  # Read from_commit from config if not passed via CLI
+  if [[ -z "$from_commit" ]]; then
+    local _rk=$(repo_short "$repo" | tr '/' '_')
+    local _fc_file="$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk"
+    [[ -f "$_fc_file" ]] && from_commit=$(cat "$_fc_file")
+  fi
+
+  info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
+  local mutated
+  if [[ "${specs[*]}" == "none" ]]; then
+    mutated="$PLUGIN_DIR"
+  elif [[ " ${specs[*]} " == *" none "* ]]; then
+    die "Cannot mix 'none' with other specs"
+  else
+    mutated=$(mutate_plugin "${specs[@]}") || exit 1
+  fi
+
+  # Clean stale worktree branches
+  (cd "$repo" && git worktree prune 2>/dev/null || true
+   local _db; _db=$(default_branch)
+   for wt_branch in $(git branch | tr -d ' *' | grep 'worktree-k8s-rebase' | grep -v '^archived-'); do
+     local _ahead=$(git rev-list --count "$_db".."$wt_branch" 2>/dev/null || echo 0)
+     if [[ "$_ahead" -gt 0 ]]; then
+       local _ts=$(date +%Y%m%d%H%M%S)
+       git branch -m "$wt_branch" "archived-${wt_branch}-${_ts}" 2>/dev/null
+     else
+       git branch -D "$wt_branch" 2>/dev/null
+     fi
+   done)
+
+  # Track in running state
+  local _state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local _repo_key
+  _repo_key=$(repo_short "$repo" | tr '/' '_')
+  mkdir -p "$_state_dir/running" "$_state_dir/done"
+  # Remove old done file so auto_record can re-record this test
+  local _done_key="${specs[*]}"
+  _done_key="${_done_key//[:\/\ ]/_}_$_repo_key"
+  [[ -f "$_state_dir/done/$_done_key" ]] && rm -f "$_state_dir/done/$_done_key"
+  # Launch via session run (subshell to scope PLUGIN_DIR to the mutated copy)
+  if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${from_commit:+--from-commit "$from_commit"}); then
+    # Recover repo from temp branch and settings override if from_commit was used
+    if [[ -n "$from_commit" && -d "$repo" ]]; then
+      local _db; _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+      : "${_db:=main}"
+      git -C "$repo" checkout "$_db" 2>/dev/null || true
+      git -C "$repo" branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
+      [[ -f "$repo/.claude/settings.json" ]] && python3 -c "
+import json, os
+p = '$repo/.claude/settings.json'
+d = json.load(open(p))
+d.pop('worktree', None)
+if d: json.dump(d, open(p, 'w'), indent=2)
+else: os.remove(p)
+" 2>/dev/null
+    fi
+    error "Launch failed for $(repo_short "$repo")"; return 1
+  fi
+  # Append session ID to running file for reliable stop
+  local _sid=$(cat "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null)
+  [[ -n "$_sid" ]] && printf '%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" > "$_state_dir/running/$_repo_key"
+  rm -f "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null
+  # Wait for completion when called standalone (not from cmd_test_all)
+  if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
+    info "Waiting for $(repo_short "$repo") to complete..."
+    trap 'info "Interrupted — session still running in background"; exit 130' INT TERM
+    local _cache_fails=0
+    while [[ -f "$_state_dir/running/$_repo_key" ]]; do
+      sleep 60
+      _SESSION_CACHE_BUILT=false
+      auto_record
+      if ! $_SESSION_CACHE_OK; then
+        _cache_fails=$((_cache_fails + 1))
+        [[ "$_cache_fails" -ge 5 ]] && { warn "Session cache failed 5 times — clearing running file"; rm -f "$_state_dir/running/$_repo_key"; break; }
+      else
+        _cache_fails=0
+      fi
+    done
+    trap - INT TERM
+    cmd_results "$(repo_short "$repo")"
+  fi
+}
+
+cmd_test_all() {
+  local spec="${1:-none}"; shift || true
+  local version="$VERSION"
+  [[ "${1:-}" == "--version" ]] && { shift; version="${1:-$VERSION}"; shift; }
+  local launched=0 active=0
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local _agents_json=$(claude agents --json 2>/dev/null || true)
+  # Sort repos by least recently tested (oldest first, untested first)
+  local tsv="$state_dir/results.tsv"
+  local sorted_repos=()
+  while IFS= read -r repo; do
+    sorted_repos+=("$repo")
+  done < <(for repo in "${DEFAULT_REPOS[@]}"; do
+    [[ -d "$repo" ]] || continue
+    local short=$(repo_short "$repo")
+    local last_ts=$(awk -F'\t' -v r="$short" '$3==r && ($2~/^all/ || $2=="none") {ts=$1} END{print ts}' "$tsv" 2>/dev/null)
+    echo "${last_ts:-0000}	$repo"
+  done | sort | cut -f2)
+  [[ ${#sorted_repos[@]} -eq 0 ]] && sorted_repos=("${DEFAULT_REPOS[@]}")
+  # Count already-running repos toward the limit
+  for repo in "${sorted_repos[@]}"; do
+    [[ -d "$repo" ]] || continue
+    local _rk=$(repo_short "$repo" | tr '/' '_')
+    [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
+  done
+  for repo in "${sorted_repos[@]}"; do
+    [[ -d "$repo" ]] || continue
+    local _rk=$(repo_short "$repo" | tr '/' '_')
+    if [[ -f "$state_dir/running/$_rk" ]]; then
+      local _run_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
+      if [[ -z "$_run_sid" ]]; then
+        rm -f "$state_dir/running/$_rk"
+        active=$((active - 1))
+      elif [[ -n "$_agents_json" ]]; then
+        local _alive=$(echo "$_agents_json" | python3 -c "
+import json,sys
+for s in json.load(sys.stdin):
+    if s.get('id','').startswith('${_run_sid}') and s.get('state') not in ('done',None):
+        print('yes'); break
+" 2>/dev/null)
+        if [[ "$_alive" != "yes" ]]; then
+          rm -f "$state_dir/running/$_rk"
+          active=$((active - 1))
+        else
+          info "SKIP $(repo_short "$repo") (already running)"
+          continue
+        fi
+      else
+        info "SKIP $(repo_short "$repo") (already running)"
+        continue
+      fi
+    fi
+    local _done_key="${spec//[:\/\ ]/_}_$_rk"
+    [[ -f "$state_dir/done/$_done_key" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
+    local _fc_file="$state_dir/from_commit_$_rk"
+    local _fc_args=()
+    [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
+    # Skip repos already at target version with no from-commit set
+    if [[ ${#_fc_args[@]} -eq 0 ]]; then
+      local _def_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+      : "${_def_br:=main}"
+      git -C "$repo" rev-parse --verify "origin/$_def_br" &>/dev/null || _def_br="master"
+      local _cur_ver=$(git -C "$repo" show "origin/${_def_br}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+      # Some repos have go.mod in subdirectories (e.g., go-controller/)
+      if [[ -z "$_cur_ver" ]]; then
+        _cur_ver=$(git -C "$repo" ls-tree -r --name-only "origin/${_def_br}" 2>/dev/null \
+          | grep '/go.mod$' | head -1 \
+          | xargs -I{} git -C "$repo" show "origin/${_def_br}:{}" 2>/dev/null \
+          | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+      fi
+      if [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]]; then
+        warn "SKIP $(repo_short "$repo") (already at $_cur_ver — use: make set-from-commit repo=$(repo_short "$repo") commit=<sha>)"
+        continue
+      fi
+    fi
+    if [[ $((active + launched)) -ge "$MAX_CONCURRENT" ]]; then
+      info "SKIP $(repo_short "$repo") (max $MAX_CONCURRENT concurrent — run make test again when slots free)"
+      continue
+    fi
+    _SKIP_CONCURRENCY_CHECK=1 cmd_test "$spec" "$repo" --version "$version" "${_fc_args[@]}" && launched=$((launched + 1))
+  done
+  info "Launched: $launched ($active already active)"
+
+  # Phase 2: wait for all sessions, record results, launch remaining repos
+  trap 'info "Interrupted — sessions still running in background"; exit 130' INT TERM
+  local _cache_fails=0
+  while [[ -n "$(ls -A "$state_dir/running" 2>/dev/null)" ]]; do
+    sleep 60
+    _SESSION_CACHE_BUILT=false
+    auto_record
+    if ! $_SESSION_CACHE_OK; then
+      _cache_fails=$((_cache_fails + 1))
+      [[ "$_cache_fails" -ge 5 ]] && { warn "Session cache failed 5 times — clearing stale running files"; rm -f "$state_dir/running"/*; break; }
+    else
+      _cache_fails=0
+    fi
+    # Re-count active and launch newly-eligible repos into freed slots
+    active=0
+    for repo in "${sorted_repos[@]}"; do
+      [[ -d "$repo" ]] || continue
+      local _rk=$(repo_short "$repo" | tr '/' '_')
+      [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
+    done
+    for repo in "${sorted_repos[@]}"; do
+      [[ -d "$repo" ]] || continue
+      local _rk=$(repo_short "$repo" | tr '/' '_')
+      [[ -f "$state_dir/running/$_rk" ]] && continue
+      local _done_key="${spec//[:\/\ ]/_}_$_rk"
+      [[ -f "$state_dir/done/$_done_key" ]] && continue
+      local _fc_file="$state_dir/from_commit_$_rk"
+      local _fc_args=()
+      [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
+      if [[ ${#_fc_args[@]} -eq 0 ]]; then
+        local _def_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+        : "${_def_br:=main}"
+        git -C "$repo" rev-parse --verify "origin/$_def_br" &>/dev/null || _def_br="master"
+        local _cur_ver=$(git -C "$repo" show "origin/${_def_br}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+        if [[ -z "$_cur_ver" ]]; then
+          _cur_ver=$(git -C "$repo" ls-tree -r --name-only "origin/${_def_br}" 2>/dev/null \
+            | grep '/go.mod$' | head -1 \
+            | xargs -I{} git -C "$repo" show "origin/${_def_br}:{}" 2>/dev/null \
+            | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+        fi
+        [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]] && continue
+      fi
+      [[ "$active" -ge "$MAX_CONCURRENT" ]] && break
+      _SKIP_CONCURRENCY_CHECK=1 cmd_test "$spec" "$repo" --version "$version" "${_fc_args[@]}" && { active=$((active + 1)); info "Launched $(repo_short "$repo") (slot freed)"; }
+    done
+  done
+  trap - INT TERM
+  cmd_results
+}
+
+# ── Recording ──────────────────────────────────────────────────────────
+
+_do_record_one() {
+  local repo="$1" repo_key="$2" spec="$3" state_dir="$4" launch_epoch="${5:-0}"
+  local short=$(repo_short "$repo")
+
+  local result_branch="" wt_line="" wt_path=""
+  wt_line=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
+  if [[ -n "$wt_line" ]]; then
+    result_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+    wt_path=$(echo "$wt_line" | awk '{print $1}')
+  fi
+  [[ -z "$result_branch" ]] && \
+    result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1)
+  [[ -z "$result_branch" ]] && { echo "no branch found"; return 1; }
+
+  local default_br
+  default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+  : "${default_br:=main}"
+  git -C "$repo" rev-parse --verify "$default_br" &>/dev/null \
+    || git -C "$repo" rev-parse --verify "origin/$default_br" &>/dev/null \
+    || default_br="master"
+
+  if [[ "$launch_epoch" -gt 0 ]]; then
+    local branch_tip_epoch
+    branch_tip_epoch=$(git -C "$repo" log -1 --format='%ct' "$result_branch" 2>/dev/null)
+    : "${branch_tip_epoch:=0}"
+    [[ "$branch_tip_epoch" -gt 0 && "$branch_tip_epoch" -lt "$launch_epoch" ]] && { echo "stale branch"; return 1; }
+  fi
+
+  local commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
+  [[ "$commits" -eq 0 ]] && { echo "no commits (no-op)"; return 1; }
+
+  # Gate tally — every gate must produce a report, all must pass
+  local verdict="FAIL"
+  local gtotal=0 gfail=0 gskip=0
+  local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+  [[ "$expected_gates" -lt 1 ]] && expected_gates=33
+  local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
+  if [[ -n "$wt_path" && ! -d "$gate_dir" ]]; then
+    gate_dir=""
+  elif [[ -z "$wt_path" ]]; then
+    gate_dir="$repo/.rebase-tmp/gates"
+  fi
+  if [[ -d "$gate_dir" ]]; then
+    for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
+      [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
+      local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+      gv="${gv^^}"
+      if [[ "$gv" == *FAIL* ]]; then
+        gfail=$((gfail + 1))
+      elif [[ "$gv" != *PASS* ]]; then
+        gskip=$((gskip + 1))
+      fi
+    done
+    [[ "$gtotal" -ge "$expected_gates" && "$gfail" -eq 0 ]] && verdict="PASS"
+  fi
+
+  # Known-good diff (informational — does not affect verdict)
+  local kg_hunks="" kg_vendor="" kg_branch=""
+  local kg_file="$state_dir/known_good_$repo_key"
+  if [[ -f "$kg_file" ]]; then
+    kg_branch=$(cat "$kg_file")
+    if git -C "$repo" rev-parse --verify "$kg_branch" &>/dev/null; then
+      local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+      local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+      kg_hunks="$kg_diff_nv"
+      [[ "$kg_diff_all" -gt "$kg_diff_nv" ]] && kg_vendor="$((kg_diff_all - kg_diff_nv))"
+    fi
+  fi
+
+  # Build human-readable detail
+  local detail=""
+  local _gate_suffix=""
+  [[ "$gskip" -gt 0 ]] && _gate_suffix=", ${gskip} skipped"
+  if [[ "$gtotal" -eq 0 ]]; then
+    detail="no gates ran (bug)"
+  elif [[ "$gtotal" -lt "$expected_gates" ]]; then
+    detail="missing $((expected_gates - gtotal)) of $expected_gates gates"
+    [[ "$gfail" -gt 0 ]] && detail="$detail, $gfail failed"
+    [[ "$gskip" -gt 0 ]] && detail="$detail$_gate_suffix"
+  elif [[ "$gfail" -gt 0 ]]; then
+    detail="$gfail gate(s) failed${_gate_suffix}"
+  elif [[ -n "$kg_hunks" ]]; then
+    if [[ "$kg_hunks" -eq 0 && -z "$kg_vendor" ]]; then
+      detail="identical to known-good"
+    elif [[ "$kg_hunks" -eq 0 ]]; then
+      detail="matches known-good (vendor-only diff)"
+    else
+      detail="${kg_hunks} code hunks from known-good"
+      [[ -n "$kg_vendor" ]] && detail="$detail (+${kg_vendor} vendor)"
+    fi
+  else
+    detail="all gates pass (no known-good set)"
+  fi
+  # Run court to verify result quality
+  if [[ "$verdict" == "PASS" && -n "$kg_hunks" && "$kg_hunks" -gt 0 && -n "$kg_branch" ]]; then
+    info "Court review: $short ($kg_hunks code hunks vs known-good)..."
+    local court_verdict="FAIL"
+    cmd_court "$result_branch" "$kg_branch" "$repo" && court_verdict="PASS"
+    detail="$detail — court: $court_verdict"
+    [[ "$court_verdict" == "FAIL" ]] && verdict="FAIL"
+  fi
+
+  local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local done_key="${spec//[:\/\ ]/_}_$repo_key"
+  mkdir -p "$state_dir/done"
+  printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
+  {
+    echo "$ts	$spec	$short	$verdict	$detail"
+    if [[ -d "$gate_dir" && "$gtotal" -gt 0 ]]; then
+      echo "---GATE-REPORTS---"
+      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
+        [[ -f "$f" ]] || continue
+        echo "=== $(basename "${f%.report}" .json) ==="
+        cat "$f"; echo ""
+      done
+    fi
+  } > "$state_dir/done/$done_key"
+  rm -f "$state_dir/running/$repo_key"
+  printf '%-20s %-42s %-8s %s' "$spec" "$short" "$verdict" "$detail"
+}
+
+auto_record() {
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local running_dir="$state_dir/running"
+  if [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]]; then return 0; fi
+
+  build_session_cache
+  $_SESSION_CACHE_OK || return 0
+
+  local recorded=0
+  local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+  [[ "$_expected_gates" -lt 1 ]] && _expected_gates=33
+
+  for running_file in "$running_dir"/*; do
+    [[ -f "$running_file" ]] || continue
+    local repo_key=$(basename "$running_file")
+    local _raw=$(cat "$running_file")
+    local spec=$(echo "$_raw" | cut -f1)
+    local launch_epoch=$(echo "$_raw" | cut -f2)
+    [[ "$launch_epoch" =~ ^[0-9]+$ ]] || launch_epoch=0
+    [[ -z "$spec" ]] && { rm -f "$running_file"; continue; }
+
+    local repo
+    repo=$(_repo_from_key "$repo_key") || true
+    [[ -z "$repo" || ! -d "$repo" ]] && continue
+    local short=$(repo_short "$repo")
+    local done_key="${spec//[:\/\ ]/_}_$repo_key"
+    [[ -f "$state_dir/done/$done_key" ]] && { rm -f "$running_file"; continue; }
+
+    local _session=$(session_for_repo "$repo")
+    local _session_dead=false
+    if [[ -n "$_session" ]]; then
+      # Gate-completion override
+      local _wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+      local _gc=0
+      [[ -n "$_wt" && -d "$_wt/.rebase-tmp/gates" ]] && _gc=$(ls "$_wt/.rebase-tmp/gates"/*.report "$_wt/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)
+      if [[ "$_gc" -ge "$_expected_gates" ]]; then
+        info "Gate-complete: $spec on $short ($_gc/$_expected_gates gates)"
+      else
+        continue
+      fi
+    else
+      _session_dead=true
+    fi
+
+    local result
+    if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch"); then
+      recorded=$((recorded + 1))
+      info "Recorded: $result"
+    elif $_session_dead; then
+      local _fail_detail="${result:-session ended without result}"
+      local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
+      local _done_key="${spec//[:\/\ ]/_}_$repo_key"
+      mkdir -p "$state_dir/done"
+      echo "$ts	$spec	$short	FAIL	$_fail_detail" > "$state_dir/done/$_done_key"
+      rm -f "$running_file"
+      recorded=$((recorded + 1))
+      warn "Recorded FAIL for $short ($_fail_detail)"
+    fi
+  done
+  [[ "$recorded" -gt 0 ]] && info "$recorded result(s) recorded"
+}
+
+# ── Adversarial Court ──────────────────────────────────────────────────
+
+cmd_court() {
+  [[ $# -lt 3 ]] && die "Usage: make court repo=<repo>"
+  local result_branch="$1" known_good="$2" repo="$3"
+
+  cd "$repo" || { error "Cannot cd to $repo"; return 1; }
+  git rev-parse --verify "$result_branch" &>/dev/null || { error "Branch not found: $result_branch"; return 1; }
+  git rev-parse --verify "$known_good" &>/dev/null || { error "Branch not found: $known_good"; return 1; }
+
+  local diff_nv=$(git diff "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
+  [[ -z "$diff_nv" ]] && { info "PASS: identical (non-vendor)"; return 0; }
+
+  local hunks=$(echo "$diff_nv" | grep -c '^@@' || true)
+  local diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
+  info "Diff: $hunks non-vendor hunks"
+
+  local direction="DIFF DIRECTION: 'git diff $result_branch $known_good'.
+'-' lines are in RESULT but not known-good. '+' lines are in known-good but not result.
+'deleted file' = exists in result, not known-good."
+  local preexisting="
+PASS/FAIL CRITERIA: PASS means the result is a valid, correct k8s rebase.
+FAIL means it has a data-correctness regression that would break compilation,
+tests, or runtime behavior.
+Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
+- Style choices (import ordering, variable naming, comment wording)
+- Dependency version drift (newer x/ deps, different go.sum hashes)
+- Extra fixes the result made that the known-good didn't
+- Fixes in known-good that the result lacks, IF the result still
+  compiles and passes vet without them (scope differences, not bugs)
+- Different but equally valid API migration paths (e.g., AddToScheme
+  vs Install — both work if the vendored package exports both)
+- OWNERS/reviewers file differences
+- go.mod replace directives for forks vs upstream
+A difference is a REGRESSION only if it would cause a build failure,
+test failure, or runtime behavioral change (wrong types, broken wire
+format, dropped functionality). Pre-existing issues on the base
+branch are EQUIVALENT, not regressions."
+  if [[ "$hunks" -lt 5 ]]; then
+    info "Small diff — single classifier"
+    local out
+    out=$(cat <<EOF_CLASSIFY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null
+$direction
+$preexisting
+$diff_stat
+
+$diff_nv
+
+Classify each difference. End with VERDICT: PASS or FAIL
+EOF_CLASSIFY
+    ) || true
+    local v=$(echo "$out" | grep -oE 'VERDICT: (PASS|FAIL)' | tail -1)
+    echo "$out" | tail -10 >&2
+    case "$v" in "VERDICT: PASS") info "PASS";; "VERDICT: FAIL") error "FAIL"; return 1;; *) error "INCONCLUSIVE"; return 1;; esac
+    return 0
+  fi
+
+  local logs=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")".."$result_branch" 2>/dev/null | head -15)
+  local context="$direction
+$preexisting
+
+DIFF (non-vendor):
+$diff_nv
+
+COMMITS: $logs
+FILES: $diff_stat"
+
+  mkdir -p "$RESULTS_DIR/court" 2>/dev/null
+  local cdir="$RESULTS_DIR/court/$(date +%s)"
+  mkdir -p "$cdir"
+
+  info "Phase A: Prosecution + Defense..."
+  cat <<EOF_PROS | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>/dev/null &
+$context
+
+You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.
+EOF_PROS
+  local p1=$!
+  cat <<EOF_DEF | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>/dev/null &
+$context
+
+You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.
+EOF_DEF
+  local p2=$!
+  wait "$p1" "$p2" 2>/dev/null || true
+  local pros=$(cat "$cdir/pros.txt") def=$(cat "$cdir/def.txt")
+  [[ -z "$pros" || -z "$def" ]] && { error "Prosecution/defense empty"; return 1; }
+
+  info "Phase B: Judge..."
+  local judge
+  judge=$(cat <<EOF_JUDGE | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null
+PROSECUTION:
+$pros
+
+DEFENSE:
+$def
+
+DIFF:
+$diff_nv
+
+Fact-check only. Strike unsupported claims. No verdict.
+EOF_JUDGE
+  ) || true
+  echo "$judge" > "$cdir/judge.txt"
+
+  info "Phase C: Jury (3 votes, parallel)..."
+  for j in 1 2 3; do
+    cat <<EOF_JURY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>/dev/null &
+DIFF:
+$diff_nv
+
+PROSECUTION:
+$pros
+
+DEFENSE:
+$def
+
+JUDGE:
+$judge
+
+Vote: VERDICT: PASS or FAIL. One sentence.
+EOF_JURY
+  done
+  wait 2>/dev/null || true
+
+  local pass=0 fail=0
+  for j in 1 2 3; do
+    local jv=$(grep -oE 'VERDICT: (PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null | tail -1)
+    case "$jv" in "VERDICT: PASS") pass=$((pass+1)); info "  Juror $j: PASS";; "VERDICT: FAIL") fail=$((fail+1)); info "  Juror $j: FAIL";; *) info "  Juror $j: ABSTAIN";; esac
+  done
+
+  info "Jury: $pass PASS, $fail FAIL"
+  local total=$((pass + fail))
+  [[ "$total" -lt 2 ]] && { error "INCONCLUSIVE (no quorum)"; return 1; }
+  [[ "$pass" -gt "$fail" ]] && { info "VERDICT: PASS ($pass-$fail)"; return 0; }
+  error "VERDICT: FAIL ($fail-$pass)"; return 1
+}
+
+# ── Watch ──────────────────────────────────────────────────────────────
+
+cmd_watch() {
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+  [[ "$expected_gates" -lt 1 ]] && expected_gates=33
+  # Get session states — no timeout, this is a foreground command
+  local _agents_json=$(claude agents --json 2>/dev/null || true)
+  printf "%-42s %-10s %-8s %-32s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
+  printf "%-42s %-10s %-8s %-32s %s\n" "----" "-------" "-----" "-------------" "-------------"
+  local active=0
+  for repo in "${DEFAULT_REPOS[@]}"; do
+    [[ -d "$repo" ]] || continue
+    local short=$(repo_short "$repo")
+    local _rk=$(echo "$short" | tr '/' '_')
+    [[ -f "$state_dir/running/$_rk" ]] || continue
+    active=$((active + 1))
+    local _raw=$(cat "$state_dir/running/$_rk")
+    local _sid=$(echo "$_raw" | cut -f3)
+    local session_state="?"
+    if [[ -n "$_sid" && -n "$_agents_json" ]]; then
+      session_state=$(echo "$_agents_json" | python3 -c "
+import json,sys
+for s in json.load(sys.stdin):
+    if s.get('id','').startswith('${_sid}'):
+        print(s.get('state','?'))
+        break
+else: print('gone')
+" 2>/dev/null || echo "?")
+    fi
+    local wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+    local gc=0 gf=0 gs=0 commit_msg="-" diff_info="-"
+    if [[ -n "$wt" ]]; then
+      local _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+      : "${_db:=main}"
+      local _branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+      if [[ -n "$_branch" ]]; then
+        local n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
+        [[ "$n_commits" -gt 0 ]] && commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 30)
+      fi
+      if [[ -d "$wt/.rebase-tmp/gates" ]]; then
+        gc=$(ls "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json 2>/dev/null | wc -l)
+        for f in "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json; do
+          [[ -f "$f" ]] || continue
+          local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+          if [[ "${v^^}" == *FAIL* ]]; then gf=$((gf + 1))
+          elif [[ "${v^^}" != *PASS* ]]; then gs=$((gs + 1)); fi
+        done
+      fi
+    fi
+    local kg_file="$state_dir/known_good_$_rk"
+    if [[ -f "$kg_file" && -n "$wt" ]]; then
+      local kg=$(cat "$kg_file")
+      local branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+      if [[ -n "$branch" ]] && git -C "$repo" rev-parse --verify "$kg" &>/dev/null; then
+        local nv=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+        local nv_all=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+        diff_info="${nv} code"
+        [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
+      fi
+    fi
+    # Show "court" when session is done but gates complete and no done file
+    if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
+      local _done_key="${_raw%%	*}"
+      _done_key="${_done_key//[:\/\ ]/_}_$_rk"
+      if [[ "$gc" -ge "$expected_gates" && ! -f "$state_dir/done/$_done_key" ]]; then
+        session_state="court"
+      fi
+    fi
+    local gate_str="${gc}/${expected_gates}"
+    local _gsuffix=""
+    [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
+    [[ "$gs" -gt 0 ]] && _gsuffix="${_gsuffix:+${_gsuffix},}${gs}S"
+    [[ -n "$_gsuffix" ]] && gate_str="${gate_str} (${_gsuffix})"
+    printf "%-42s %-10s %-8s %-32s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+  done
+  [[ "$active" -le 0 ]] && echo "(no active tests)"
+  return 0
+}
+
+# ── Results Display ────────────────────────────────────────────────────
+
+cmd_results() {
+  local repo="" court=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --court) court=true ;;
+      *) repo="$1" ;;
+    esac; shift
+  done
+
+  # Auto-record completed runs first
+  auto_record
+
+  if [[ -n "$repo" ]]; then
+    # Single-repo deep-dive
+    local repo_input="$repo"
+    repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+    local short=$(repo_short "$repo")
+    cd "$repo" || die "Cannot cd to $repo"
+    local wt=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+    local gate_dir="" wt_in_progress=false
+    if [[ -n "$wt" ]]; then
+      gate_dir="$wt/.rebase-tmp/gates"
+      [[ ! -d "$gate_dir" ]] && wt_in_progress=true
+    else
+      gate_dir="$repo/.rebase-tmp/gates"
+    fi
+
+    local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+    [[ "$expected_gates" -lt 1 ]] && expected_gates=33
+    echo "── $short ──"
+    if $wt_in_progress; then
+      echo "Run in progress (worktree exists, gates not yet written)"
+    elif [[ -d "$gate_dir" ]]; then
+      local total=0 gfail=0 gskip=0
+      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
+        [[ -f "$f" ]] || continue; total=$((total+1))
+        local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+        v="${v^^}"
+        if [[ "$v" == *FAIL* ]]; then gfail=$((gfail+1))
+        elif [[ "$v" != *PASS* ]]; then gskip=$((gskip+1)); fi
+      done
+      local _skip_note=""
+      [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
+      if [[ "$total" -ge "$expected_gates" && "$gfail" -eq 0 ]]; then
+        echo "Gates: all $total pass${_skip_note}"
+      elif [[ "$gfail" -gt 0 ]]; then
+        echo "Gates: $gfail FAILED ($total/$expected_gates complete${_skip_note})"
+      else
+        echo "Gates: $total/$expected_gates complete (in progress${_skip_note})"
+      fi
+      # Show failed gates inline
+      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
+        [[ -f "$f" ]] || continue
+        local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+        v="${v^^}"
+        [[ "$v" == *"FAIL"* ]] && {
+          echo ""
+          echo "FAILED: $(basename "${f%.report}" .json)"
+          cat "$f"
+        }
+      done
+    else
+      echo "Gates: none (no reports found)"
+    fi
+
+    # Known-good comparison
+    local repo_key=$(echo "$short" | tr '/' '_')
+    local kg_file="$PLUGIN_DIR/test/.matrix-state/known_good_$repo_key"
+    if [[ -f "$kg_file" ]]; then
+      local kg=$(cat "$kg_file")
+      local branch=$(find_newest_branch "$repo")
+      if [[ -n "$branch" && -n "$kg" ]]; then
+        local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+        echo ""
+        if [[ "$nv" -eq 0 ]]; then
+          echo "Diff vs known-good branch $kg: identical (non-vendor)"
+        else
+          echo "Diff vs known-good branch $kg: $nv code hunks differ"
+        fi
+        $court && cmd_court "$branch" "$kg" "$repo"
+      fi
+    fi
+
+    # Recent results for this repo
+    echo ""
+    echo "Recent results:"
+    awk -F'\t' -v r="$short" '$3==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts spec r verdict detail; do
+      printf "  %-22s %-8s %s\n" "$ts" "$verdict" "$detail"
+    done
+    return 0
+  fi
+
+  # Per-repo latest results
+  local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
+  if [[ -f "$tsv" ]]; then
+    printf "%-45s %-8s %-8s %-20s %s\n" "REPO" "VERDICT" "COURT" "LAST RUN" "DETAIL"
+    printf "%-45s %-8s %-8s %-20s %s\n" "----" "-------" "-----" "--------" "------"
+    local all_pass=true
+    for repo in "${DEFAULT_REPOS[@]}"; do
+      local short=$(repo_short "$repo")
+      local _rk=$(echo "$short" | tr '/' '_')
+      local latest_line=$(awk -F'\t' -v r="$short" '$3==r && ($2~/^all/ || $2=="none")' "$tsv" | tail -1)
+      if [[ -n "$latest_line" ]]; then
+        local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
+        local verdict=$(echo "$latest_line" | cut -f4)
+        local detail=$(echo "$latest_line" | cut -f5)
+        local court_result="-"
+        if [[ "$detail" == *"court: PASS"* ]]; then court_result="PASS"
+        elif [[ "$detail" == *"court: FAIL"* ]]; then court_result="FAIL"
+        fi
+        # Strip court suffix from detail for cleaner display
+        detail=$(echo "$detail" | sed 's/ — court: [A-Z]*$//')
+        local _xf_file="$PLUGIN_DIR/test/.matrix-state/expected_fail_$_rk"
+        if [[ -f "$_xf_file" && "$verdict" != "PASS" ]]; then
+          verdict="XFAIL"
+        elif [[ "$verdict" != "PASS" ]]; then
+          all_pass=false
+        fi
+        printf "%-45s %-8s %-8s %-20s %s\n" "$short" "$verdict" "$court_result" "$ts" "$detail"
+      else
+        local _xf_file="$PLUGIN_DIR/test/.matrix-state/expected_fail_$_rk"
+        [[ ! -f "$_xf_file" ]] && all_pass=false
+        local _rk=$(echo "$short" | tr '/' '_')
+        local _reason="not tested"
+        # Check if repo is already at target version
+        local _resolved=$(resolve_repo "$short" 2>/dev/null)
+        if [[ -n "$_resolved" ]]; then
+          local _dbr=$(git -C "$_resolved" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+          : "${_dbr:=main}"
+          git -C "$_resolved" rev-parse --verify "origin/$_dbr" &>/dev/null || _dbr="master"
+          local _ver=$(git -C "$_resolved" show "origin/${_dbr}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+          if [[ -z "$_ver" ]]; then
+            _ver=$(git -C "$_resolved" ls-tree -r --name-only "origin/${_dbr}" 2>/dev/null \
+              | grep '/go.mod$' | head -1 \
+              | xargs -I{} git -C "$_resolved" show "origin/${_dbr}:{}" 2>/dev/null \
+              | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+          fi
+          if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ ! -f "$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk" ]]; then
+            _reason="already at $_ver — set from-commit to test"
+          fi
+        fi
+        printf "%-45s %-8s %-8s %-20s %s\n" "$short" "-" "-" "" "$_reason"
+      fi
+    done
+
+    echo ""
+    if $all_pass; then
+      echo "OVERALL: PASS"
+    else
+      echo "OVERALL: FAIL"
+    fi
+  fi
+}
+
+# ── Configuration ──────────────────────────────────────────────────────
+
+cmd_set_known_good() {
+  [[ $# -lt 2 ]] && die "Usage: set-known-good <repo> <branch>"
+  local repo="$1" branch="$2"
+  local repo_input="$repo"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+  cd "$repo" || die "Cannot cd to $repo"
+  git rev-parse --verify "$branch" &>/dev/null || die "Branch not found: $branch"
+  local short=$(repo_short "$repo")
+  yq -i ".repos.\"$short\".known_good = \"$branch\"" "$CONFIG_FILE"
+  local repo_key=$(echo "$short" | tr '/' '_')
+  mkdir -p "$PLUGIN_DIR/test/.matrix-state"
+  echo "$branch" > "$PLUGIN_DIR/test/.matrix-state/known_good_$repo_key"
+  info "Set known-good for $short: $branch"
+}
+
+cmd_set_from_commit() {
+  [[ $# -lt 2 ]] && die "Usage: set-from-commit <repo> <commit>"
+  local repo="$1" commit="$2"
+  local repo_input="$repo"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+  cd "$repo" || die "Cannot cd to $repo"
+  local full_sha
+  full_sha=$(git rev-parse --verify "$commit" 2>/dev/null) || die "Commit not found: $commit"
+  local short=$(repo_short "$repo")
+  yq -i ".repos.\"$short\".from_commit = \"$full_sha\"" "$CONFIG_FILE"
+  local repo_key=$(echo "$short" | tr '/' '_')
+  mkdir -p "$PLUGIN_DIR/test/.matrix-state"
+  echo "$full_sha" > "$PLUGIN_DIR/test/.matrix-state/from_commit_$repo_key"
+  info "Set from-commit for $short: ${full_sha:0:12}"
+}
+
+# ── Main Dispatch ──────────────────────────────────────────────────────
+
+usage() {
+  cat <<EOF
+Usage: $(basename "$0") <command> [args...]
+
+Commands:
+  test-all [--version X.Y.Z]        Run core suite (all 6 repos, batches of $MAX_CONCURRENT)
+  test <spec> <repo> [--version]    Run specific test case
+  results [repo] [--court]          Show results matrix or deep-dive one repo
+  set-known-good <repo> <branch>    Set reference branch for comparison
+  set-from-commit <repo> <commit>   Set pre-merge commit for historical testing
+  stop [repo...|--all]              Stop running test sessions
+  clean [repos...]                  Cleanup worktrees and containers
+
+Specs: all, all-fns, all-patterns, fn:<tag>, pattern:<key>
+Tags: $(echo "${!TAG_TO_PATTERN[@]}" | tr ' ' ', ')
+
+Repos accept full paths or short names (openshift/multus-cni, ovn-org/ovn-kubernetes).
+
+Examples:
+  $(basename "$0") test-all
+  $(basename "$0") test all openshift/multus-cni
+  $(basename "$0") results
+  $(basename "$0") results openshift/multus-cni --court
+  $(basename "$0") set-known-good openshift/multus-cni bump1.36
+EOF
+  exit 0
+}
+
+[[ $# -eq 0 ]] && usage
+
+COMMAND="$1"; shift
+case "$COMMAND" in
+  test-all)       cmd_test_all "$@" ;;
+  test)           cmd_test "$@" ;;
+  watch)          cmd_watch "$@" ;;
+  results)        cmd_results "$@" ;;
+  set-known-good)   cmd_set_known_good "$@" ;;
+  set-from-commit)  cmd_set_from_commit "$@" ;;
+  stop)             cmd_stop "$@" ;;
+  clean)          cmd_clean "$@" ;;
+  -h|--help|help) usage ;;
+  *)              die "Unknown command: $COMMAND (try --help)" ;;
+esac
