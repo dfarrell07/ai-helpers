@@ -837,7 +837,6 @@ auto_record() {
   if [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]]; then return 0; fi
 
   build_session_cache
-  $_SESSION_CACHE_OK || return 0
 
   local recorded=0
   local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
