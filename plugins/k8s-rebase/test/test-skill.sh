@@ -520,25 +520,35 @@ else: os.remove(p)
   if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
     info "Waiting for $(repo_short "$repo") to complete..."
     trap 'info "Interrupted — session still running in background"; exit 130' INT TERM
-    local _cache_fails=0
+    local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+    [[ "$_expected_gates" -lt 1 ]] && _expected_gates=33
+    local _last_activity=$(date +%s)
     while [[ -f "$_state_dir/running/$_repo_key" ]]; do
       sleep 60
-      _SESSION_CACHE_BUILT=false
-      auto_record
-      if ! $_SESSION_CACHE_OK; then
-        _cache_fails=$((_cache_fails + 1))
-        if [[ "$_cache_fails" -ge 10 ]]; then
-          local _sid=$(cut -f3 "$_state_dir/running/$_repo_key" 2>/dev/null)
-          if [[ -n "$_sid" ]] && claude agents --json 2>/dev/null | grep -q "$_sid"; then
-            _cache_fails=0
-          else
-            warn "Session unreachable after 10 cache failures — recording as failed"
-            rm -f "$_state_dir/running/$_repo_key"
-            break
-          fi
-        fi
-      else
-        _cache_fails=0
+      # Check gate completion by watching files (no session cache needed)
+      local _wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+      local _gc=0
+      [[ -n "$_wt" && -d "$_wt/.rebase-tmp/gates" ]] && _gc=$(ls "$_wt/.rebase-tmp/gates"/*.report "$_wt/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)
+      # Check for any recent file activity in the worktree
+      if [[ -n "$_wt" ]]; then
+        local _newest=$(find "$_wt" -type f -newer "$_state_dir/running/$_repo_key" 2>/dev/null | head -1)
+        [[ -n "$_newest" ]] && _last_activity=$(date +%s)
+      fi
+      # Gates complete — try to record
+      if [[ "$_gc" -ge "$_expected_gates" ]]; then
+        _SESSION_CACHE_BUILT=false
+        auto_record
+      fi
+      # No activity for 15 min — session likely dead
+      local _idle=$(( $(date +%s) - _last_activity ))
+      if [[ "$_idle" -gt 900 ]]; then
+        _SESSION_CACHE_BUILT=false
+        auto_record
+        [[ -f "$_state_dir/running/$_repo_key" ]] && {
+          warn "No activity for 15 min — recording as failed"
+          rm -f "$_state_dir/running/$_repo_key"
+          break
+        }
       fi
     done
     trap - INT TERM
@@ -631,24 +641,35 @@ for s in json.load(sys.stdin):
 
   # Phase 2: wait for all sessions, record results, launch remaining repos
   trap 'info "Interrupted — sessions still running in background"; exit 130' INT TERM
-  local _cache_fails=0
+  local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+  [[ "$_expected_gates" -lt 1 ]] && _expected_gates=33
+  local _last_activity=$(date +%s)
   while [[ -n "$(ls -A "$state_dir/running" 2>/dev/null)" ]]; do
     sleep 60
-    _SESSION_CACHE_BUILT=false
-    auto_record
-    if ! $_SESSION_CACHE_OK; then
-      _cache_fails=$((_cache_fails + 1))
-      if [[ "$_cache_fails" -ge 10 ]]; then
-        if claude agents --json 2>/dev/null | grep -q '"state"'; then
-          _cache_fails=0
-        else
-          warn "Session cache unreachable after 10 failures — clearing running files"
-          rm -f "$state_dir/running"/*
-          break
-        fi
+    # Check for file activity across all running repos
+    for _rf in "$state_dir/running"/*; do
+      [[ -f "$_rf" ]] || continue
+      local _rk_check=$(basename "$_rf")
+      local _repo_check=$(_repo_from_key "$_rk_check" 2>/dev/null) || continue
+      local _wt_check=$(git -C "$_repo_check" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+      if [[ -n "$_wt_check" ]]; then
+        local _newest=$(find "$_wt_check" -type f -newer "$_rf" 2>/dev/null | head -1)
+        [[ -n "$_newest" ]] && _last_activity=$(date +%s)
+        local _gc_check=0
+        [[ -d "$_wt_check/.rebase-tmp/gates" ]] && _gc_check=$(ls "$_wt_check/.rebase-tmp/gates"/*.report "$_wt_check/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)
+        [[ "$_gc_check" -ge "$_expected_gates" ]] && { _SESSION_CACHE_BUILT=false; auto_record; }
       fi
-    else
-      _cache_fails=0
+    done
+    # No activity for 15 min — try auto_record to clean dead sessions
+    local _idle=$(( $(date +%s) - _last_activity ))
+    if [[ "$_idle" -gt 900 ]]; then
+      _SESSION_CACHE_BUILT=false
+      auto_record
+      [[ -n "$(ls -A "$state_dir/running" 2>/dev/null)" ]] && {
+        warn "No activity for 15 min — clearing stale running files"
+        rm -f "$state_dir/running"/*
+        break
+      }
     fi
     # Re-count active and launch newly-eligible repos into freed slots
     active=0
