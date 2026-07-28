@@ -24,7 +24,7 @@ help: ## Show available targets
 	@echo "    watch -n 10 make watch                   Live dashboard (refreshes every 10s)"
 	@echo ""
 	@echo "  Results"
-	@echo "    make results                             Summary for all repos"
+	@echo "    make results                             Summary for all repos (runs court, may take 10-15 min)"
 	@echo "    make results repo=<r>                    Deep-dive one repo (gates, diff, history)"
 	@echo "    make court repo=<r>                      Adversarial court review (prosecution/defense/jury)"
 	@echo ""

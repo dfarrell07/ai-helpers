@@ -1002,6 +1002,14 @@ else: print('gone')
         [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
       fi
     fi
+    # Show "court" when session is done but gates complete and no done file
+    if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
+      local _done_key="${_raw%%	*}"
+      _done_key="${_done_key//[:\/\ ]/_}_$_rk"
+      if [[ "$gc" -ge "$expected_gates" && ! -f "$state_dir/done/$_done_key" ]]; then
+        session_state="court"
+      fi
+    fi
     local gate_str="${gc}/${expected_gates}"
     local _gsuffix=""
     [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
