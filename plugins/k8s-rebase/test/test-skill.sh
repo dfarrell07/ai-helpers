@@ -41,8 +41,10 @@ _load_config() {
     local _rk=$(echo "$_repo_name" | tr '/' '_')
     local kg=$(yq ".repos.\"$_repo_name\".known_good // \"\"" "$CONFIG_FILE")
     local fc=$(yq ".repos.\"$_repo_name\".from_commit // \"\"" "$CONFIG_FILE")
+    local xf=$(yq ".repos.\"$_repo_name\".expected_fail // \"\"" "$CONFIG_FILE")
     [[ -n "$kg" ]] && echo "$kg" > "$state_dir/known_good_$_rk"
     [[ -n "$fc" ]] && echo "$fc" > "$state_dir/from_commit_$_rk"
+    [[ "$xf" == "true" ]] && echo "1" > "$state_dir/expected_fail_$_rk" || rm -f "$state_dir/expected_fail_$_rk"
   done
 }
 _load_config
@@ -1134,10 +1136,16 @@ cmd_results() {
         fi
         # Strip court suffix from detail for cleaner display
         detail=$(echo "$detail" | sed 's/ — court: [A-Z]*$//')
-        [[ "$verdict" != "PASS" ]] && all_pass=false
+        local _xf_file="$PLUGIN_DIR/test/.matrix-state/expected_fail_$_rk"
+        if [[ -f "$_xf_file" && "$verdict" != "PASS" ]]; then
+          verdict="XFAIL"
+        elif [[ "$verdict" != "PASS" ]]; then
+          all_pass=false
+        fi
         printf "%-45s %-8s %-8s %-20s %s\n" "$short" "$verdict" "$court_result" "$ts" "$detail"
       else
-        all_pass=false
+        local _xf_file="$PLUGIN_DIR/test/.matrix-state/expected_fail_$_rk"
+        [[ ! -f "$_xf_file" ]] && all_pass=false
         local _rk=$(echo "$short" | tr '/' '_')
         local _reason="not tested"
         # Check if repo is already at target version

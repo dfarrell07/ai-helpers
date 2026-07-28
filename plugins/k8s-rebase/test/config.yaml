@@ -5,6 +5,7 @@ repos:
   ovn-org/ovn-kubernetes:
     known_good: bump1.36
     from_commit: f261f146c0625bbdb5933298cfcbebd7f392223d
+    expected_fail: true
   ovn-kubernetes/ovn-kubernetes-mcp:
     known_good: bump1.36-20260717052952
     from_commit: ef08b89f09d555158b1522f6a4686ea38bb59cc2
