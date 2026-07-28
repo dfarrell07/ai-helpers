@@ -527,7 +527,16 @@ else: os.remove(p)
       auto_record
       if ! $_SESSION_CACHE_OK; then
         _cache_fails=$((_cache_fails + 1))
-        [[ "$_cache_fails" -ge 5 ]] && { warn "Session cache failed 5 times — clearing running file"; rm -f "$_state_dir/running/$_repo_key"; break; }
+        if [[ "$_cache_fails" -ge 10 ]]; then
+          local _sid=$(cut -f3 "$_state_dir/running/$_repo_key" 2>/dev/null)
+          if [[ -n "$_sid" ]] && claude agents --json 2>/dev/null | grep -q "$_sid"; then
+            _cache_fails=0
+          else
+            warn "Session unreachable after 10 cache failures — recording as failed"
+            rm -f "$_state_dir/running/$_repo_key"
+            break
+          fi
+        fi
       else
         _cache_fails=0
       fi
@@ -629,7 +638,15 @@ for s in json.load(sys.stdin):
     auto_record
     if ! $_SESSION_CACHE_OK; then
       _cache_fails=$((_cache_fails + 1))
-      [[ "$_cache_fails" -ge 5 ]] && { warn "Session cache failed 5 times — clearing stale running files"; rm -f "$state_dir/running"/*; break; }
+      if [[ "$_cache_fails" -ge 10 ]]; then
+        if claude agents --json 2>/dev/null | grep -q '"state"'; then
+          _cache_fails=0
+        else
+          warn "Session cache unreachable after 10 failures — clearing running files"
+          rm -f "$state_dir/running"/*
+          break
+        fi
+      fi
     else
       _cache_fails=0
     fi
@@ -1227,6 +1244,8 @@ cmd_results() {
     else
       echo "OVERALL: FAIL"
     fi
+  else
+    echo "No results yet. Run: make test"
   fi
 }
 
