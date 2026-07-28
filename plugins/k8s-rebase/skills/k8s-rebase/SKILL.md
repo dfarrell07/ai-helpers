@@ -59,6 +59,20 @@ maintainer trust. If the failure is pre-existing (same test
 fails on the base branch), note it in the commit message but
 do not skip it.
 
+**Scope discipline:** Every change must be directly required by
+the Kubernetes version bump. The test: does the build or tests
+fail without this change? If yes, it is in scope. If no, leave
+it. Do not refactor, reorganize, consolidate, or add features.
+Do not add struct tags (like omitempty), merge functions, rename
+interfaces, or restructure packages unless the new k8s version
+breaks the existing code. If a deprecated API has a 1:1
+replacement, use it. If it requires architectural changes, note
+it as out-of-scope and move on.
+
+**Commit format:** Body lines must not exceed 72 characters. The
+`Assisted-by` and `Signed-off-by` trailers must each appear
+exactly once per commit — do not duplicate them.
+
 **Git operations:** Never use negated pathspecs with `git add`
 (e.g., `git add -A -- . ':!dir'`). They fail when the path
 is gitignored. Use plain `git add -A` instead.
@@ -738,6 +752,11 @@ GO_VER=$(grep '^go ' "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}')
 IS_DOWNSTREAM=$(git remote -v 2>/dev/null | grep -q 'openshift/' && echo true || echo false)
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 ```
+
+**OCP version for downstream repos:** Read the OCP version from
+existing `.ci-operator.yaml` or Dockerfiles (`grep -rn 'openshift-[0-9]' .`
+or `grep -rn 'ocp/[0-9]' .`). Never guess or increment the OCP major
+version — use the version already in the repo's CI configs.
 
 If `IS_DOWNSTREAM` is true, the PR title needs a Jira ticket key
 (OpenShift merge bots require `jira/valid-reference`). If the user
