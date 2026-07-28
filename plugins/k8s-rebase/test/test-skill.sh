@@ -175,12 +175,8 @@ remove_worktrees() {
     wt_branch=$(echo "$line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
     [[ -n "$wt_branch" ]] && commit_count=$(git rev-list --count "$default_br".."$wt_branch" 2>/dev/null || echo 0)
     git worktree unlock "$wt_path" 2>/dev/null || true
-    if [[ -d "$wt_path" ]] && [[ -n "$(git -C "$wt_path" status --porcelain 2>/dev/null)" ]]; then
-      warn "Worktree $wt_path has uncommitted changes — skipping"
-      continue
-    fi
-    git worktree remove "$wt_path" 2>/dev/null \
-      || git worktree remove "$wt_path" --force 2>/dev/null \
+    git worktree remove "$wt_path" --force 2>/dev/null \
+      || { rm -rf "$wt_path" 2>/dev/null; git worktree prune 2>/dev/null; } \
       || { warn "Could not remove worktree: $wt_path"; continue; }
     if [[ "$commit_count" -gt 0 ]]; then
       info "Removed worktree (branch preserved, $commit_count commits)"
