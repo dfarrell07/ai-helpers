@@ -266,10 +266,14 @@ json.dump(d, open(p, 'w'), indent=2)
       reset_to_default "$repo" || { warn "Skipping $short"; continue; }
     fi
     local session_output session_id
+    local _prompt="/k8s-rebase:k8s-rebase $version"
+    if [[ -n "$from_commit" ]]; then
+      _prompt="$_prompt — IMPORTANT: Do NOT switch to master/main. You are on a test branch at a historical commit. Work from HEAD as-is. The worktree.baseRef is set to 'head' so your worktree will branch from the current commit."
+    fi
     session_output=$(claude --bg \
       --plugin-dir "$PLUGIN_DIR" \
       --permission-mode "$PERMISSION_MODE" \
-      "/k8s-rebase:k8s-rebase $version" \
+      "$_prompt" \
       --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*)' \
       2>/dev/null)
     session_id=$(echo "$session_output" | grep 'backgrounded' | grep -oE '[a-f0-9]{8,}' | head -1)
