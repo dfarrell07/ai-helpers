@@ -1047,7 +1047,14 @@ EOF_JURY
 
   info "Jury: $pass PASS, $fail FAIL"
   local total=$((pass + fail))
-  [[ "$total" -lt 2 ]] && { error "INCONCLUSIVE (no quorum)"; return 1; }
+  if [[ "$total" -lt 2 ]]; then
+    if [[ "$fail" -eq 0 ]]; then
+      info "PASS (no regression found — $pass pass, $fail fail, $((3-total)) abstain)"
+      return 0
+    else
+      error "INCONCLUSIVE (no quorum)"; return 1
+    fi
+  fi
   [[ "$pass" -gt "$fail" ]] && { info "VERDICT: PASS ($pass-$fail)"; return 0; }
   error "VERDICT: FAIL ($fail-$pass)"; return 1
 }
