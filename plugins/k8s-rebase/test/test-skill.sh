@@ -231,7 +231,10 @@ cmd_run() {
       git checkout "$_db" 2>/dev/null || true
       git reset --hard "origin/$_db" 2>/dev/null || true
       git clean -fd 2>/dev/null || true
-      git fetch --all 2>/dev/null || true
+      git fetch --all --no-tags 2>/dev/null || true
+      for _remote in $(git remote 2>/dev/null); do
+        git fetch "$_remote" "$(git symbolic-ref "refs/remotes/$_remote/HEAD" 2>/dev/null | sed "s|refs/remotes/$_remote/||" || echo master)" 2>/dev/null || true
+      done
       git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
       git switch -c "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
         || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
