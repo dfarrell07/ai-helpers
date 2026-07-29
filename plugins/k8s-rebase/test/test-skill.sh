@@ -717,6 +717,7 @@ _do_record_one() {
   if [[ -n "$wt_line" ]]; then
     result_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
     wt_path=$(echo "$wt_line" | awk '{print $1}')
+    [[ ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; wt_path=""; }
   fi
   [[ -z "$result_branch" ]] && \
     result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1)
