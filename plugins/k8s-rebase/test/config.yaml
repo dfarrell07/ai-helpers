@@ -12,8 +12,10 @@ repos:
     known_good: bump1.36
   openshift/ingress-node-firewall:
     known_good: bump1.36
+    from_commit: f1e4ccd4d9e9b51c74c8e2aa35137ce9744cd581
   openshift/cloud-network-config-controller:
     known_good: bump1.36-20260616200013
+    from_commit: 2d69ad953cfaa419e9b6221da9edb152ded91e0b
   openshift/cluster-network-operator:
     known_good: bump1.36
     from_commit: 76e94f220c5088324e41bdf237049ebf621546b9
