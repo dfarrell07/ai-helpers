@@ -44,6 +44,17 @@ _load_config() {
     [[ -n "$kg" ]] && echo "$kg" > "$state_dir/known_good_$_rk"
     [[ -n "$fc" ]] && echo "$fc" > "$state_dir/from_commit_$_rk"
     [[ "$xf" == "true" ]] && echo "1" > "$state_dir/expected_fail_$_rk" || rm -f "$state_dir/expected_fail_$_rk"
+    # Validate from_commit SHA exists in the repo
+    if [[ -n "$fc" && -d "$HOME/ovnk/$_repo_name" ]]; then
+      if ! git -C "$HOME/ovnk/$_repo_name" rev-parse --verify "$fc^{commit}" &>/dev/null; then
+        local _actual=$(git -C "$HOME/ovnk/$_repo_name" rev-parse "${fc:0:12}" 2>/dev/null)
+        if [[ -n "$_actual" && "$_actual" != "$fc" ]]; then
+          die "$_repo_name: from_commit SHA mismatch — config has $fc but repo resolves ${fc:0:12} to $_actual"
+        else
+          warn "$_repo_name: from_commit $fc not found locally (may need git fetch)"
+        fi
+      fi
+    fi
   done
 }
 _load_config
@@ -233,7 +244,14 @@ cmd_run() {
       git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
       git switch -c "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
         || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
-        || { warn "Cannot checkout $from_commit"; continue; }
+        || {
+          if ! git rev-parse --verify "${from_commit}^{tree}" &>/dev/null; then
+            warn "$short: tree for $from_commit unreadable (try: git -C $repo repack -a -d)"
+          else
+            warn "$short: checkout failed for ${from_commit:0:12}"
+          fi
+          continue
+        }
       info "$short -> ${from_commit:0:8} (historical)"
       # Set worktree.baseRef so Claude creates worktrees from HEAD (our historical commit)
       mkdir -p "$repo/.claude"
@@ -581,7 +599,7 @@ cmd_test_all() {
   done < <(for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
     local short=$(repo_short "$repo")
-    local last_ts=$(awk -F'\t' -v r="$short" '$3==r && ($2~/^all/ || $2=="none") {ts=$1} END{print ts}' "$tsv" 2>/dev/null)
+    local last_ts=$(awk -F'\t' -v r="$short" '$4==r && ($3~/^all/ || $3=="none") {ts=$1} END{print ts}' "$tsv" 2>/dev/null)
     echo "${last_ts:-0000}	$repo"
   done | sort | cut -f2)
   [[ ${#sorted_repos[@]} -eq 0 ]] && sorted_repos=("${DEFAULT_REPOS[@]}")
@@ -835,9 +853,9 @@ _do_record_one() {
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key="${spec//[:\/\ ]/_}_$repo_key"
   mkdir -p "$state_dir/done"
-  printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$VERSION" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
   {
-    echo "$ts	$spec	$short	$verdict	$detail"
+    echo "$ts	$VERSION	$spec	$short	$verdict	$detail"
     if [[ -d "$gate_dir" && "$gtotal" -gt 0 ]]; then
       echo "---GATE-REPORTS---"
       for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
@@ -901,10 +919,10 @@ auto_record() {
     elif $_session_dead; then
       local _fail_detail="${result:-session ended without result}"
       local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      printf '%s\t%s\t%s\t%s\t%s\n' "$ts" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$VERSION" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
       local _done_key="${spec//[:\/\ ]/_}_$repo_key"
       mkdir -p "$state_dir/done"
-      echo "$ts	$spec	$short	FAIL	$_fail_detail" > "$state_dir/done/$_done_key"
+      echo "$ts	$VERSION	$spec	$short	FAIL	$_fail_detail" > "$state_dir/done/$_done_key"
       rm -f "$running_file"
       recorded=$((recorded + 1))
       warn "Recorded FAIL for $short ($_fail_detail)"
@@ -1226,8 +1244,8 @@ cmd_results() {
     # Recent results for this repo
     echo ""
     echo "Recent results:"
-    awk -F'\t' -v r="$short" '$3==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts spec r verdict detail; do
-      printf "  %-22s %-8s %s\n" "$ts" "$verdict" "$detail"
+    awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts ver spec r verdict detail; do
+      printf "  %-22s %-8s %-8s %s\n" "$ts" "$ver" "$verdict" "$detail"
     done
     return 0
   fi
@@ -1241,11 +1259,11 @@ cmd_results() {
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
       local _rk=$(echo "$short" | tr '/' '_')
-      local latest_line=$(awk -F'\t' -v r="$short" '$3==r && ($2~/^all/ || $2=="none")' "$tsv" | tail -1)
+      local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
       if [[ -n "$latest_line" ]]; then
         local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
-        local verdict=$(echo "$latest_line" | cut -f4)
-        local detail=$(echo "$latest_line" | cut -f5)
+        local verdict=$(echo "$latest_line" | cut -f5)
+        local detail=$(echo "$latest_line" | cut -f6)
         local court_result="-"
         if [[ "$detail" == *"court: PASS"* ]]; then court_result="PASS"
         elif [[ "$detail" == *"court: FAIL"* ]]; then court_result="FAIL"
