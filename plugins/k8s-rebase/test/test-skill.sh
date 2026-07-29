@@ -542,41 +542,22 @@ else: os.remove(p)
     local _last_activity=$(date +%s)
     while [[ -f "$_state_dir/running/$_repo_key" ]]; do
       sleep 60
-      # Check gate completion by watching files (no session cache needed)
-      local _wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
-      local _gc=0
-      [[ -n "$_wt" && -d "$_wt/.rebase-tmp/gates" ]] && _gc=$(ls "$_wt/.rebase-tmp/gates"/*.report "$_wt/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)
-      # Check for any recent file activity in the worktree
-      if [[ -n "$_wt" ]]; then
-        local _newest=$(find "$_wt" -type f -newer "$_state_dir/running/$_repo_key" 2>/dev/null | head -1)
-        [[ -n "$_newest" ]] && _last_activity=$(date +%s)
-      fi
-      # Gates complete — try to record
-      if [[ "$_gc" -ge "$_expected_gates" ]]; then
-        _SESSION_CACHE_BUILT=false
-        auto_record
-      fi
-      # No file activity for 15 min — check if session is still alive
-      local _idle=$(( $(date +%s) - _last_activity ))
-      if [[ "$_idle" -gt 900 ]]; then
-        local _sid=$(cut -f3 "$_state_dir/running/$_repo_key" 2>/dev/null)
-        local _alive=$(claude agents --json 2>/dev/null | python3 -c "
+      local _sid=$(cut -f3 "$_state_dir/running/$_repo_key" 2>/dev/null)
+      # Check if session is still alive
+      local _alive=$(claude agents --json 2>/dev/null | python3 -c "
 import json,sys
 for s in json.load(sys.stdin):
     if s.get('id','').startswith('${_sid}') and s.get('state') not in ('done',None):
         print('yes'); break
 " 2>/dev/null)
-        if [[ "$_alive" == "yes" ]]; then
-          _last_activity=$(date +%s)
-        else
-          _SESSION_CACHE_BUILT=false
-          auto_record
-          [[ -f "$_state_dir/running/$_repo_key" ]] && {
-            warn "Session dead and no file activity — recording as failed"
-            rm -f "$_state_dir/running/$_repo_key"
-            break
-          }
-        fi
+      if [[ "$_alive" != "yes" ]]; then
+        _SESSION_CACHE_BUILT=false
+        auto_record
+        [[ -f "$_state_dir/running/$_repo_key" ]] && {
+          warn "Session ended — recording result"
+          rm -f "$_state_dir/running/$_repo_key"
+          break
+        }
       fi
     done
     trap - INT TERM
