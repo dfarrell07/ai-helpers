@@ -229,10 +229,7 @@ cmd_run() {
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
       local _db=$(default_branch)
       git checkout "$_db" 2>/dev/null || true
-      git reset --hard "origin/$_db" 2>/dev/null || true
-      git clean -fd 2>/dev/null || true
-      git fetch --all --no-tags 2>/dev/null || true
-      git repack -a -d -q 2>/dev/null || true
+      git pull --ff-only 2>/dev/null || true
       git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
       git switch -c "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
         || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
