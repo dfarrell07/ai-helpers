@@ -655,40 +655,34 @@ for s in json.load(sys.stdin):
   local _last_activity=$(date +%s)
   while [[ -n "$(ls -A "$state_dir/running" 2>/dev/null)" ]]; do
     sleep 60
-    # Check for file activity across all running repos
+    # Check each running session — record if done, clear if dead
+    local _any_done=false
     for _rf in "$state_dir/running"/*; do
       [[ -f "$_rf" ]] || continue
-      local _rk_check=$(basename "$_rf")
-      local _repo_check=$(_repo_from_key "$_rk_check" 2>/dev/null) || continue
-      local _wt_check=$(git -C "$_repo_check" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
-      if [[ -n "$_wt_check" ]]; then
-        local _newest=$(find "$_wt_check" -type f -newer "$_rf" 2>/dev/null | head -1)
-        [[ -n "$_newest" ]] && _last_activity=$(date +%s)
-        local _gc_check=0
-        [[ -d "$_wt_check/.rebase-tmp/gates" ]] && _gc_check=$(ls "$_wt_check/.rebase-tmp/gates"/*.report "$_wt_check/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)
-        [[ "$_gc_check" -ge "$_expected_gates" ]] && { _SESSION_CACHE_BUILT=false; auto_record; }
-      fi
+      local _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
+      local _alive=$(claude agents --json 2>/dev/null | python3 -c "
+import json,sys
+for s in json.load(sys.stdin):
+    if s.get('id','').startswith('${_sid_check}') and s.get('state') not in ('done',None):
+        print('yes'); break
+" 2>/dev/null)
+      [[ "$_alive" != "yes" ]] && _any_done=true
     done
-    # No file activity for 15 min — check if any session is still alive
-    local _idle=$(( $(date +%s) - _last_activity ))
-    if [[ "$_idle" -gt 900 ]]; then
-      local _any_alive=false
+    if $_any_done; then
+      _SESSION_CACHE_BUILT=false
+      auto_record
+      # Clear running files for dead sessions that auto_record didn't handle
       for _rf in "$state_dir/running"/*; do
         [[ -f "$_rf" ]] || continue
         local _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
-        [[ -n "$_sid_check" ]] && claude agents --json 2>/dev/null | grep -q "$_sid_check" && { _any_alive=true; break; }
+        local _alive=$(claude agents --json 2>/dev/null | python3 -c "
+import json,sys
+for s in json.load(sys.stdin):
+    if s.get('id','').startswith('${_sid_check}') and s.get('state') not in ('done',None):
+        print('yes'); break
+" 2>/dev/null)
+        [[ "$_alive" != "yes" ]] && rm -f "$_rf"
       done
-      if $_any_alive; then
-        _last_activity=$(date +%s)
-      else
-        _SESSION_CACHE_BUILT=false
-        auto_record
-        [[ -n "$(ls -A "$state_dir/running" 2>/dev/null)" ]] && {
-          warn "All sessions dead and no file activity — clearing running files"
-          rm -f "$state_dir/running"/*
-          break
-        }
-      fi
     fi
     # Re-count active and launch newly-eligible repos into freed slots
     active=0
