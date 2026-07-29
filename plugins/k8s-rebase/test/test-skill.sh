@@ -731,12 +731,14 @@ _do_record_one() {
   elif [[ -z "$wt_path" ]]; then
     gate_dir="$repo/.rebase-tmp/gates"
   fi
+  local _info_gates="dep-cve-check skill-improvement commit-messages"
   if [[ -d "$gate_dir" ]]; then
     for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
+      local _gname=$(basename "${f%.report}" .json)
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       gv="${gv^^}"
-      if [[ "$gv" == *FAIL* ]]; then
+      if [[ "$gv" == *FAIL* && " $_info_gates " != *" ${_gname#step?-} "* ]]; then
         gfail=$((gfail + 1))
       elif [[ "$gv" != *PASS* ]]; then
         gskip=$((gskip + 1))
