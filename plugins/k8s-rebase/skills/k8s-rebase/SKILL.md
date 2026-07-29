@@ -176,11 +176,14 @@ repo's CI config in `openshift/release` or compare with an
 existing manual rebase PR for the correct `openshift-X.Y`
 version in `.ci-operator.yaml` and Dockerfiles.
 
-**Gate:** After the script finishes (or is killed), verify the
-rebase is complete before proceeding:
+**Gate:** Find the gate prompt directory, read each file listed
+below with `cat`, and launch one subagent per file with the
+file's contents as the prompt. Prepend the repo path to each
+prompt so the subagent knows where to look.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step1-rebase" -type d 2>/dev/null | head -1)
+cat "$GATE_DIR/rebase-completeness.md"  # read this, use as subagent prompt
 ```
 Gate files:
 - `rebase-completeness.md` (count)
