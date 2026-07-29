@@ -233,7 +233,8 @@ cmd_run() {
       git clean -fd 2>/dev/null || true
       git fetch --all 2>/dev/null || true
       git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
-      git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
+      git switch -c "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
+        || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
         || { warn "Cannot checkout $from_commit"; continue; }
       info "$short -> ${from_commit:0:8} (historical)"
       # Set worktree.baseRef so Claude creates worktrees from HEAD (our historical commit)
