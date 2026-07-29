@@ -16,4 +16,4 @@ repos:
     from_commit: 07b7325494176e8ea00cf05e2f3c45f30bb961aa
   openshift/cluster-network-operator:
     known_good: cb1b11933937
-    from_commit: d8c7bbfd0f34c3ef3e6b1b00b5d04f8b3bdb81a2
+    from_commit: d8c7bbfd0f34e2b1ffd97697d2172e8ae0ba8caf
