@@ -59,6 +59,20 @@ _load_config() {
 }
 _load_config
 
+_repo_k8s_version() {
+  local repo="$1" ref="${2:-origin/$(git -C "$1" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')}"
+  [[ "$ref" == "origin/" ]] && ref="origin/main"
+  git -C "$repo" rev-parse --verify "$ref" &>/dev/null || ref="origin/master"
+  local ver=$(git -C "$repo" show "${ref}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+  if [[ -z "$ver" ]]; then
+    ver=$(git -C "$repo" ls-tree -r --name-only "$ref" 2>/dev/null \
+      | grep '/go.mod$' | head -1 \
+      | xargs -I{} git -C "$repo" show "${ref}:{}" 2>/dev/null \
+      | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+  fi
+  echo "$ver"
+}
+
 _set_worktree_base() {
   local repo="$1" mode="${2:-head}"
   mkdir -p "$repo/.claude"
@@ -620,17 +634,7 @@ for s in json.load(sys.stdin):
     [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
     # Skip repos already at target version with no from-commit set
     if [[ ${#_fc_args[@]} -eq 0 ]]; then
-      local _def_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-      : "${_def_br:=main}"
-      git -C "$repo" rev-parse --verify "origin/$_def_br" &>/dev/null || _def_br="master"
-      local _cur_ver=$(git -C "$repo" show "origin/${_def_br}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
-      # Some repos have go.mod in subdirectories (e.g., go-controller/)
-      if [[ -z "$_cur_ver" ]]; then
-        _cur_ver=$(git -C "$repo" ls-tree -r --name-only "origin/${_def_br}" 2>/dev/null \
-          | grep '/go.mod$' | head -1 \
-          | xargs -I{} git -C "$repo" show "origin/${_def_br}:{}" 2>/dev/null \
-          | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
-      fi
+      local _cur_ver=$(_repo_k8s_version "$repo")
       if [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]]; then
         warn "SKIP $(repo_short "$repo") (already at $_cur_ver — use: make set-from-commit repo=$(repo_short "$repo") commit=<sha>)"
         continue
@@ -703,16 +707,7 @@ for s in json.load(sys.stdin):
       local _fc_args=()
       [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
       if [[ ${#_fc_args[@]} -eq 0 ]]; then
-        local _def_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-        : "${_def_br:=main}"
-        git -C "$repo" rev-parse --verify "origin/$_def_br" &>/dev/null || _def_br="master"
-        local _cur_ver=$(git -C "$repo" show "origin/${_def_br}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
-        if [[ -z "$_cur_ver" ]]; then
-          _cur_ver=$(git -C "$repo" ls-tree -r --name-only "origin/${_def_br}" 2>/dev/null \
-            | grep '/go.mod$' | head -1 \
-            | xargs -I{} git -C "$repo" show "origin/${_def_br}:{}" 2>/dev/null \
-            | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
-        fi
+        local _cur_ver=$(_repo_k8s_version "$repo")
         [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]] && continue
       fi
       [[ "$active" -ge "$MAX_CONCURRENT" ]] && break
@@ -1262,16 +1257,7 @@ cmd_results() {
         # Check if repo is already at target version
         local _resolved=$(resolve_repo "$short" 2>/dev/null)
         if [[ -n "$_resolved" ]]; then
-          local _dbr=$(git -C "$_resolved" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-          : "${_dbr:=main}"
-          git -C "$_resolved" rev-parse --verify "origin/$_dbr" &>/dev/null || _dbr="master"
-          local _ver=$(git -C "$_resolved" show "origin/${_dbr}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
-          if [[ -z "$_ver" ]]; then
-            _ver=$(git -C "$_resolved" ls-tree -r --name-only "origin/${_dbr}" 2>/dev/null \
-              | grep '/go.mod$' | head -1 \
-              | xargs -I{} git -C "$_resolved" show "origin/${_dbr}:{}" 2>/dev/null \
-              | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
-          fi
+          local _ver=$(_repo_k8s_version "$_resolved")
           if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ ! -f "$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk" ]]; then
             _reason="already at $_ver — set from-commit to test"
           fi
