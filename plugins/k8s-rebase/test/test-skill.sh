@@ -77,17 +77,29 @@ _set_worktree_base() {
   local repo="$1" mode="${2:-head}"
   mkdir -p "$repo/.claude"
   python3 -c "
-import json, os
-p = '$repo/.claude/settings.json'
+import json, os, sys
+p = os.path.join(sys.argv[1], '.claude', 'settings.json')
+mode = sys.argv[2]
 d = json.load(open(p)) if os.path.exists(p) else {}
-if '$mode' == 'remove':
+if mode == 'remove':
     d.pop('worktree', None)
     if d: json.dump(d, open(p, 'w'), indent=2)
     else: os.remove(p)
 else:
-    d['worktree'] = {'baseRef': '$mode'}
+    d['worktree'] = {'baseRef': mode}
     json.dump(d, open(p, 'w'), indent=2)
-" 2>/dev/null
+" "$repo" "$mode" 2>/dev/null
+}
+
+_session_alive() {
+  local sid="$1"
+  [[ -z "$sid" ]] && return 1
+  claude agents --json 2>/dev/null | python3 -c "
+import json,sys
+for s in json.load(sys.stdin):
+    if s.get('id','').startswith('$sid') and s.get('state') not in ('done','blocked',None):
+        print('yes'); break
+" 2>/dev/null | grep -q yes
 }
 
 resolve_repo() {
@@ -550,14 +562,7 @@ cmd_test() {
     while [[ -f "$_state_dir/running/$_repo_key" ]]; do
       sleep 60
       local _sid=$(cut -f3 "$_state_dir/running/$_repo_key" 2>/dev/null)
-      # Check if session is still alive
-      local _alive=$(claude agents --json 2>/dev/null | python3 -c "
-import json,sys
-for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_sid}') and s.get('state') not in ('done','blocked',None):
-        print('yes'); break
-" 2>/dev/null)
-      if [[ "$_alive" != "yes" ]]; then
+      if ! _session_alive "$_sid"; then
         _SESSION_CACHE_BUILT=false
         auto_record
         [[ -f "$_state_dir/running/$_repo_key" ]] && {
@@ -578,7 +583,6 @@ cmd_test_all() {
   [[ "${1:-}" == "--version" ]] && { shift; version="${1:-$VERSION}"; shift; }
   local launched=0 active=0
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
-  local _agents_json=$(claude agents --json 2>/dev/null || true)
   # Sort repos by least recently tested (oldest first, untested first)
   local tsv="$state_dir/results.tsv"
   local sorted_repos=()
@@ -605,23 +609,12 @@ cmd_test_all() {
       if [[ -z "$_run_sid" ]]; then
         rm -f "$state_dir/running/$_rk"
         active=$((active - 1))
-      elif [[ -n "$_agents_json" ]]; then
-        local _alive=$(echo "$_agents_json" | python3 -c "
-import json,sys
-for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_run_sid}') and s.get('state') not in ('done','blocked',None):
-        print('yes'); break
-" 2>/dev/null)
-        if [[ "$_alive" != "yes" ]]; then
-          rm -f "$state_dir/running/$_rk"
-          active=$((active - 1))
-        else
-          info "SKIP $(repo_short "$repo") (already running)"
-          continue
-        fi
-      else
+      elif _session_alive "$_run_sid"; then
         info "SKIP $(repo_short "$repo") (already running)"
         continue
+      else
+        rm -f "$state_dir/running/$_rk"
+        active=$((active - 1))
       fi
     fi
     local _done_key="${spec//[:\/\ ]/_}_$_rk"
@@ -654,28 +647,15 @@ for s in json.load(sys.stdin):
     for _rf in "$state_dir/running"/*; do
       [[ -f "$_rf" ]] || continue
       local _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
-      local _alive=$(claude agents --json 2>/dev/null | python3 -c "
-import json,sys
-for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_sid_check}') and s.get('state') not in ('done','blocked',None):
-        print('yes'); break
-" 2>/dev/null)
-      [[ "$_alive" != "yes" ]] && _any_done=true
+      _session_alive "$_sid_check" || _any_done=true
     done
     if $_any_done; then
       _SESSION_CACHE_BUILT=false
       auto_record
-      # Clear running files for dead sessions that auto_record didn't handle
       for _rf in "$state_dir/running"/*; do
         [[ -f "$_rf" ]] || continue
         local _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
-        local _alive=$(claude agents --json 2>/dev/null | python3 -c "
-import json,sys
-for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_sid_check}') and s.get('state') not in ('done','blocked',None):
-        print('yes'); break
-" 2>/dev/null)
-        [[ "$_alive" != "yes" ]] && rm -f "$_rf"
+        _session_alive "$_sid_check" || rm -f "$_rf"
       done
     fi
     # Re-count active and launch newly-eligible repos into freed slots
