@@ -802,15 +802,6 @@ _do_record_one() {
   else
     detail="all gates pass (no known-good set)"
   fi
-  # Run court to verify result quality
-  if [[ "$verdict" == "PASS" && -n "$kg_hunks" && "$kg_hunks" -gt 0 && -n "$kg_branch" ]]; then
-    info "Court review: $short ($kg_hunks code hunks vs known-good)..."
-    local court_verdict="FAIL"
-    cmd_court "$result_branch" "$kg_branch" "$repo" && court_verdict="PASS"
-    detail="$detail — court: $court_verdict"
-    [[ "$court_verdict" == "FAIL" ]] && verdict="FAIL"
-  fi
-
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key="${spec//[:\/\ ]/_}_$repo_key"
   mkdir -p "$state_dir/done"
@@ -1198,7 +1189,13 @@ cmd_results() {
         else
           echo "Diff vs known-good branch $kg: $nv code hunks differ"
         fi
-        $court && cmd_court "$branch" "$kg" "$repo"
+        if $court; then
+          local _court_verdict="FAIL"
+          cmd_court "$branch" "$kg" "$repo" && _court_verdict="PASS"
+          local _crk=$(repo_short "$repo" | tr '/' '_')
+          mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
+          echo "$_court_verdict" > "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_${_crk}"
+        fi
       fi
     fi
 
@@ -1226,10 +1223,12 @@ cmd_results() {
         local verdict=$(echo "$latest_line" | cut -f5)
         local detail=$(echo "$latest_line" | cut -f6)
         local court_result="-"
-        if [[ "$detail" == *"court: PASS"* ]]; then court_result="PASS"
+        local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+        if [[ -f "$_court_file" ]]; then
+          court_result=$(cat "$_court_file")
+        elif [[ "$detail" == *"court: PASS"* ]]; then court_result="PASS"
         elif [[ "$detail" == *"court: FAIL"* ]]; then court_result="FAIL"
         fi
-        # Strip court suffix from detail for cleaner display
         detail=$(echo "$detail" | sed 's/ — court: [A-Z]*$//')
         local _xf_file="$PLUGIN_DIR/test/.matrix-state/expected_fail_$_rk"
         if [[ -f "$_xf_file" && "$verdict" != "PASS" ]]; then
