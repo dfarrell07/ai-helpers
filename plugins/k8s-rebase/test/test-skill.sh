@@ -541,7 +541,7 @@ cmd_test() {
   fi
   # Append session ID to running file for reliable stop
   local _sid=$(cat "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null)
-  [[ -n "$_sid" ]] && printf '%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" > "$_state_dir/running/$_repo_key"
+  [[ -n "$_sid" ]] && printf '%s\t%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" "$version" > "$_state_dir/running/$_repo_key"
   rm -f "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null
   # Wait for completion when called standalone (not from cmd_test_all)
   if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
@@ -709,7 +709,7 @@ for s in json.load(sys.stdin):
 # ── Recording ──────────────────────────────────────────────────────────
 
 _do_record_one() {
-  local repo="$1" repo_key="$2" spec="$3" state_dir="$4" launch_epoch="${5:-0}"
+  local repo="$1" repo_key="$2" spec="$3" state_dir="$4" launch_epoch="${5:-0}" _rec_version="${6:-$VERSION}"
   local short=$(repo_short "$repo")
 
   local result_branch="" wt_line="" wt_path=""
@@ -805,9 +805,9 @@ _do_record_one() {
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key="${spec//[:\/\ ]/_}_$repo_key"
   mkdir -p "$state_dir/done"
-  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$VERSION" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
+  printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
   {
-    echo "$ts	$VERSION	$spec	$short	$verdict	$detail"
+    echo "$ts	$_rec_version	$spec	$short	$verdict	$detail"
     if [[ -d "$gate_dir" && "$gtotal" -gt 0 ]]; then
       echo "---GATE-REPORTS---"
       for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
@@ -839,6 +839,8 @@ auto_record() {
     local spec=$(echo "$_raw" | cut -f1)
     local launch_epoch=$(echo "$_raw" | cut -f2)
     [[ "$launch_epoch" =~ ^[0-9]+$ ]] || launch_epoch=0
+    local _run_version=$(echo "$_raw" | cut -f4)
+    : "${_run_version:=$VERSION}"
     [[ -z "$spec" ]] && { rm -f "$running_file"; continue; }
 
     local repo
@@ -865,16 +867,16 @@ auto_record() {
     fi
 
     local result
-    if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch"); then
+    if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch" "$_run_version"); then
       recorded=$((recorded + 1))
       info "Recorded: $result"
     elif $_session_dead; then
       local _fail_detail="${result:-session ended without result}"
       local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$VERSION" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
+      printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_run_version" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
       local _done_key="${spec//[:\/\ ]/_}_$repo_key"
       mkdir -p "$state_dir/done"
-      echo "$ts	$VERSION	$spec	$short	FAIL	$_fail_detail" > "$state_dir/done/$_done_key"
+      echo "$ts	$_run_version	$spec	$short	FAIL	$_fail_detail" > "$state_dir/done/$_done_key"
       rm -f "$running_file"
       recorded=$((recorded + 1))
       warn "Recorded FAIL for $short ($_fail_detail)"
