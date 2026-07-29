@@ -554,7 +554,7 @@ cmd_test() {
       local _alive=$(claude agents --json 2>/dev/null | python3 -c "
 import json,sys
 for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_sid}') and s.get('state') not in ('done',None):
+    if s.get('id','').startswith('${_sid}') and s.get('state') not in ('done','blocked',None):
         print('yes'); break
 " 2>/dev/null)
       if [[ "$_alive" != "yes" ]]; then
@@ -609,7 +609,7 @@ cmd_test_all() {
         local _alive=$(echo "$_agents_json" | python3 -c "
 import json,sys
 for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_run_sid}') and s.get('state') not in ('done',None):
+    if s.get('id','').startswith('${_run_sid}') and s.get('state') not in ('done','blocked',None):
         print('yes'); break
 " 2>/dev/null)
         if [[ "$_alive" != "yes" ]]; then
@@ -657,7 +657,7 @@ for s in json.load(sys.stdin):
       local _alive=$(claude agents --json 2>/dev/null | python3 -c "
 import json,sys
 for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_sid_check}') and s.get('state') not in ('done',None):
+    if s.get('id','').startswith('${_sid_check}') and s.get('state') not in ('done','blocked',None):
         print('yes'); break
 " 2>/dev/null)
       [[ "$_alive" != "yes" ]] && _any_done=true
@@ -672,7 +672,7 @@ for s in json.load(sys.stdin):
         local _alive=$(claude agents --json 2>/dev/null | python3 -c "
 import json,sys
 for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_sid_check}') and s.get('state') not in ('done',None):
+    if s.get('id','').startswith('${_sid_check}') and s.get('state') not in ('done','blocked',None):
         print('yes'); break
 " 2>/dev/null)
         [[ "$_alive" != "yes" ]] && rm -f "$_rf"
