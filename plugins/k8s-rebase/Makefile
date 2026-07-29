@@ -7,6 +7,8 @@ REPO ?= $(repo)
 BRANCH ?= $(branch)
 COMMIT ?= $(commit)
 JOBS ?= $(jobs)
+VER ?= $(version)
+CONFIG ?= test/config$(if $(VER),-$(shell echo $(VER) | grep -oE '[0-9]+\.[0-9]+'),).yaml
 
 help: ## Show available targets
 	@echo ""
@@ -18,6 +20,7 @@ help: ## Show available targets
 	@echo "    make test repo=<r>                       Test one repo"
 	@echo "    make test repo=<r> commit=<sha>          Test from a specific historical commit"
 	@echo "    make test spec=<s>                       Test with mutation (see specs below)"
+	@echo "    make test version=1.35.2                 Test against an older k8s version"
 	@echo ""
 	@echo "  Monitor"
 	@echo "    make watch                               Show test progress once"
@@ -43,38 +46,39 @@ help: ## Show available targets
 	@echo "         openshift/cloud-network-config-controller, openshift/cluster-network-operator,"
 	@echo "         ovn-kubernetes/ovn-kubernetes-mcp"
 	@echo ""
+	@echo "  Versions: $(shell ls test/config-*.yaml 2>/dev/null | sed 's|test/config-||;s|\.yaml||' | tr '\n' ' ')"
 	@echo "  Config file: test/config.yaml (version, max_concurrent, repos, known_good, from_commit)"
 	@echo ""
 
 test: ## Run tests
 	@if [ -n "$(REPO)" ]; then \
-		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
+		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
 	else \
-		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) bash $(SCRIPT) test-all $(SPEC); \
+		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) test-all $(SPEC); \
 	fi
 
 watch: ## Show active test status
-	@bash $(SCRIPT) watch
+	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) watch
 
 results: ## Show results
-	@bash $(SCRIPT) results $(REPO)
+	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO)
 
 court: ## Adversarial court review
 	@test -n "$(REPO)" || (echo "ERROR: repo required. Usage: make court repo=openshift/multus-cni" && exit 1)
-	@bash $(SCRIPT) results $(REPO) --court
+	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO) --court
 
 set-known-good: ## Set reference branch
 	@test -n "$(REPO)" || (echo "ERROR: repo required" && exit 1)
 	@test -n "$(BRANCH)" || (echo "ERROR: branch required" && exit 1)
-	@bash $(SCRIPT) set-known-good $(REPO) $(BRANCH)
+	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) set-known-good $(REPO) $(BRANCH)
 
 set-from-commit: ## Set pre-merge commit
 	@test -n "$(REPO)" || (echo "ERROR: repo required" && exit 1)
 	@test -n "$(COMMIT)" || (echo "ERROR: commit required" && exit 1)
-	@bash $(SCRIPT) set-from-commit $(REPO) $(COMMIT)
+	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) set-from-commit $(REPO) $(COMMIT)
 
 stop: ## Stop all sessions
-	@bash $(SCRIPT) stop --all || true
+	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) stop --all || true
 
 clean: ## Reset everything
 	@bash $(SCRIPT) clean

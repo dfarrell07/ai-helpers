@@ -1,0 +1,22 @@
+version: "1.35.3"
+max_concurrent: 3
+
+repos:
+  ovn-org/ovn-kubernetes:
+    known_good: 0c8e8d3fe1e2
+    from_commit: 1df941622c2716e29e4e9a3a18e23e80ccaa6310
+  ovn-kubernetes/ovn-kubernetes-mcp:
+    known_good: a4899b33a9ad
+    from_commit: 36ac87c1aec7a4e25b20e05edc60ed08e5f08447
+  openshift/multus-cni:
+    known_good: d801f0f40708
+    from_commit: 7063fb6206da981701dd6bde05972b19c90393a4
+  openshift/ingress-node-firewall:
+    known_good: 9214e5064396
+    from_commit: 1c7880a7aa38192761538fb98446acca09509e09
+  openshift/cloud-network-config-controller:
+    known_good: 6f38237490a1
+    from_commit: 035723854d7b30d7e113fdb8f4d6d6e33301e3f7
+  openshift/cluster-network-operator:
+    known_good: cb1b11933937
+    from_commit: 90f014d2aba34f39e5e8b2f3faa12e69a19a5b43
