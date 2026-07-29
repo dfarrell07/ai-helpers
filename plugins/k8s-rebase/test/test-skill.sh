@@ -547,9 +547,6 @@ cmd_test() {
   if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
     info "Waiting for $(repo_short "$repo") to complete..."
     trap 'info "Interrupted — session still running in background"; exit 130' INT TERM
-    local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
-    [[ "$_expected_gates" -lt 1 ]] && _expected_gates=33
-    local _last_activity=$(date +%s)
     while [[ -f "$_state_dir/running/$_repo_key" ]]; do
       sleep 60
       local _sid=$(cut -f3 "$_state_dir/running/$_repo_key" 2>/dev/null)
@@ -650,9 +647,6 @@ for s in json.load(sys.stdin):
 
   # Phase 2: wait for all sessions, record results, launch remaining repos
   trap 'info "Interrupted — sessions still running in background"; exit 130' INT TERM
-  local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
-  [[ "$_expected_gates" -lt 1 ]] && _expected_gates=33
-  local _last_activity=$(date +%s)
   while [[ -n "$(ls -A "$state_dir/running" 2>/dev/null)" ]]; do
     sleep 60
     # Check each running session — record if done, clear if dead
