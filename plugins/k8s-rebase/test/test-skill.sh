@@ -59,6 +59,23 @@ _load_config() {
 }
 _load_config
 
+_set_worktree_base() {
+  local repo="$1" mode="${2:-head}"
+  mkdir -p "$repo/.claude"
+  python3 -c "
+import json, os
+p = '$repo/.claude/settings.json'
+d = json.load(open(p)) if os.path.exists(p) else {}
+if '$mode' == 'remove':
+    d.pop('worktree', None)
+    if d: json.dump(d, open(p, 'w'), indent=2)
+    else: os.remove(p)
+else:
+    d['worktree'] = {'baseRef': '$mode'}
+    json.dump(d, open(p, 'w'), indent=2)
+" 2>/dev/null
+}
+
 resolve_repo() {
   local r="${1%/}"
   [[ -z "$r" ]] && return 1
@@ -253,15 +270,7 @@ cmd_run() {
           continue
         }
       info "$short -> ${from_commit:0:8} (historical)"
-      # Set worktree.baseRef so Claude creates worktrees from HEAD (our historical commit)
-      mkdir -p "$repo/.claude"
-      python3 -c "
-import json, os
-p = '$repo/.claude/settings.json'
-d = json.load(open(p)) if os.path.exists(p) else {}
-d['worktree'] = {'baseRef': 'head'}
-json.dump(d, open(p, 'w'), indent=2)
-" 2>/dev/null
+      _set_worktree_base "$repo" head
     else
       reset_to_default "$repo" || { warn "Skipping $short"; continue; }
     fi
@@ -338,17 +347,7 @@ cmd_clean() {
     # Recover to default branch first (so we can delete temp branches)
     local _cur=$(git branch --show-current 2>/dev/null)
     [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null || true; }
-    # Remove worktree.baseRef override left by from-commit testing
-    if [[ -f "$repo/.claude/settings.json" ]]; then
-      python3 -c "
-import json, os
-p = '$repo/.claude/settings.json'
-d = json.load(open(p))
-d.pop('worktree', None)
-if d: json.dump(d, open(p, 'w'), indent=2)
-else: os.remove(p)
-" 2>/dev/null
-    fi
+    _set_worktree_base "$repo" remove
     for tb in $(git branch --no-color | tr -d ' *' | grep '^_test-from-'); do
       git branch -D "$tb" 2>/dev/null || true
     done
@@ -522,14 +521,7 @@ cmd_test() {
       : "${_db:=main}"
       git -C "$repo" checkout "$_db" 2>/dev/null || true
       git -C "$repo" branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
-      [[ -f "$repo/.claude/settings.json" ]] && python3 -c "
-import json, os
-p = '$repo/.claude/settings.json'
-d = json.load(open(p))
-d.pop('worktree', None)
-if d: json.dump(d, open(p, 'w'), indent=2)
-else: os.remove(p)
-" 2>/dev/null
+      _set_worktree_base "$repo" remove
     fi
     error "Launch failed for $(repo_short "$repo")"; return 1
   fi
