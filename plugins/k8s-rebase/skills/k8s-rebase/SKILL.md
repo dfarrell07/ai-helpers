@@ -248,6 +248,9 @@ issues (e.g., Eventf arg count mismatches) that standalone
 - `context.Context` added as first parameter: pass `ctx` from
   the caller, not `context.TODO()`.
 - `ioutil.ReadFile`/`ReadDir` → `os.ReadFile`/`os.ReadDir`
+- `webhook.WithCustomValidator(scheme, &T{}, &V{})` →
+  `webhook.WithValidator[T](&V{})` (controller-runtime v0.23+,
+  the old `CustomValidator` interface is removed)
 
 Fix compilation errors from ALL modules (find all go.mod files).
 Note: some modules (e.g., `test/e2e`) have gitignored vendor
