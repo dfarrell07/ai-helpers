@@ -11,7 +11,6 @@ repos:
   openshift/ingress-node-firewall:
     known_good: 9214e5064396
     from_commit: 1c7880a7aa38192761538fb98446acca09509e09
-    expected_fail: true
   openshift/cloud-network-config-controller:
     known_good: 6f38237490a1
     from_commit: 07b7325494176e8ea00cf05e2f3c45f30bb961aa
