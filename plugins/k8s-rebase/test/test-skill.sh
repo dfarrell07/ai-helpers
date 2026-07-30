@@ -304,7 +304,8 @@ cmd_run() {
     local session_output session_id
     local _prompt="/k8s-rebase:k8s-rebase $version"
     if [[ -n "$from_commit" ]]; then
-      _prompt="$_prompt — IMPORTANT: Do NOT switch to master/main. You are on a test branch at a historical commit. Work from HEAD as-is. The worktree.baseRef is set to 'head' so your worktree will branch from the current commit."
+      _prompt="IMPORTANT: Do NOT switch to master/main. You are on a test branch at a historical commit. Work from HEAD as-is. The worktree.baseRef is set to 'head' so your worktree will branch from the current commit.
+/k8s-rebase:k8s-rebase $version"
     fi
     session_output=$(claude --bg \
       --plugin-dir "$PLUGIN_DIR" \
