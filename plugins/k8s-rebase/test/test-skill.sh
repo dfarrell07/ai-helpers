@@ -85,7 +85,7 @@ d = json.load(open(p)) if os.path.exists(p) else {}
 if mode == 'remove':
     d.pop('worktree', None)
     if d: json.dump(d, open(p, 'w'), indent=2)
-    else: os.remove(p)
+    elif os.path.exists(p): os.remove(p)
 else:
     d['worktree'] = {'baseRef': mode}
     json.dump(d, open(p, 'w'), indent=2)
@@ -394,6 +394,7 @@ cmd_clean() {
   fi
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
+  [[ -d "$state_dir/court" ]] && { rm -rf "$state_dir/court"/* 2>/dev/null; info "Cleared court verdicts"; }
   for _ck in "${cleaned_keys[@]}"; do
     rm -f "$state_dir/running/$_ck" 2>/dev/null
   done
@@ -807,8 +808,6 @@ auto_record() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local running_dir="$state_dir/running"
   if [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]]; then return 0; fi
-
-  build_session_cache
 
   local recorded=0
   local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)

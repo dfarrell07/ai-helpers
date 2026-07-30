@@ -62,8 +62,13 @@ do not skip it.
 **Scope and semantic preservation:** Every change must be
 directly required by the k8s version bump — does build, vet, or
 lint fail without it? Do not refactor, add features, or touch
-files that compile cleanly. Fix ONLY the cited issue at the
-cited location. When fixing compilation errors from API changes:
+files that compile cleanly. Do not add struct tags (like
+omitempty), merge functions, rename interfaces, or restructure
+packages. If a deprecated API has a 1:1 replacement and the
+compiler/linter flags it, use the replacement; if it requires
+architectural changes, note it as out-of-scope and move on.
+Fix ONLY the cited issue at the cited location. When fixing
+compilation errors from API changes:
 - Preserve behavior: never replace label selectors with
   `reflect.DeepEqual`, never change security flag defaults
   (`secureMetrics`, `SecureServing`), never swap `errors.Is` for
@@ -79,9 +84,10 @@ cited location. When fixing compilation errors from API changes:
 exactly one `Signed-off-by` and one `Assisted-by: Claude Code
 <noreply@anthropic.com>` trailer (scripts add automatically).
 Do not amend — create new commits on top. Use `git add -A` (no
-negated pathspecs). No `org/repo#N` in commit messages (causes
-notification spam). No inline comments in config files. If
-adding a `replace` directive, add a `// TODO: remove` comment.
+negated pathspecs). No `org/repo#N` in commit messages (causes notification
+spam — put PR/issue links in the PR body instead). No inline
+comments in config files. If adding a `replace` directive, add
+`// TODO: remove replace when upstream merges — track via Jira`.
 
 ---
 
