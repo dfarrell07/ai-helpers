@@ -384,11 +384,16 @@ Gate files:
 - `fix-correctness.md` (judge)
 
 Count gates must report 0. Judge gates must cite evidence.
-Investigate all concerns before proceeding. If you fix a step2
-issue, delete the stale gate report and re-run the gate:
-`rm .rebase-tmp/gates/<gate-name>.report` then re-launch the
-gate subagent to verify the fix. Otherwise auto-record sees
-the old FAIL and marks the entire run as failed.
+
+**Gate-fix loop:** If ANY gate reports FAIL:
+1. **Triage**: Read each FAIL report. Check base branch:
+   `git show $(git merge-base HEAD master 2>/dev/null ||
+   git merge-base HEAD main):<file>` — skip pre-existing issues.
+2. **Fix**: Fix the cited issue at the cited location. Commit.
+3. **Re-run**: Delete old report (`rm .rebase-tmp/gates/<gate>.report`),
+   re-launch the gate subagent. Stale FAIL reports cause
+   auto-record to mark the run as failed even if the fix worked.
+Repeat up to 3 times per gate.
 
 **When all step2 gates pass, proceed to Step 3 immediately.**
 Do NOT stop after step2 — Steps 3-5 are mandatory even if step2
