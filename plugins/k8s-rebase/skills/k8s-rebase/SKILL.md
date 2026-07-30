@@ -59,85 +59,29 @@ maintainer trust. If the failure is pre-existing (same test
 fails on the base branch), note it in the commit message but
 do not skip it.
 
-**Scope discipline:** Every change must be directly required by
-the Kubernetes version bump. The test: does build, vet, or lint
-(at the new lint version) fail without this change? If the file
-compiles, passes vet, and passes lint without your change, do
-not touch it — even if you see deprecations, style issues, or
-improvement opportunities. Do not refactor, reorganize,
-consolidate, or add features. Do not add struct tags (like
-omitempty), merge functions, rename interfaces, or restructure
-packages. If a deprecated API has a 1:1 replacement and the
-compiler/linter flags it, use the replacement. If it requires
-architectural changes, note it as out-of-scope and move on.
-When fixing a gate finding, fix ONLY the cited issue at the
-cited location — do not fix other issues you notice in the
-same file.
+**Scope and semantic preservation:** Every change must be
+directly required by the k8s version bump — does build, vet, or
+lint fail without it? Do not refactor, add features, or touch
+files that compile cleanly. Fix ONLY the cited issue at the
+cited location. When fixing compilation errors from API changes:
+- Preserve behavior: never replace label selectors with
+  `reflect.DeepEqual`, never change security flag defaults
+  (`secureMetrics`, `SecureServing`), never swap `errors.Is` for
+  `==`.
+- Preserve nil semantics: `*int32` nil means "server default",
+  `int32` zero means "set to 0" — use `ptr.To[int32](val)`.
+  Same for nil map vs empty map.
+- Adapt type signatures without altering surrounding logic.
+- Verify against base: `git show $(git merge-base HEAD master
+  2>/dev/null || git merge-base HEAD main):<file>`.
 
-**Semantic preservation:** When fixing compilation errors caused
-by API changes, preserve the original behavior. Specifically:
-- Never replace label selectors (`labels.SelectorFromSet`,
-  `Selector.Matches`) with `reflect.DeepEqual` — they have
-  different semantics (superset match vs exact match). Find the
-  updated API equivalent in the same package.
-- Never change security-related flag defaults (`secureMetrics`,
-  `SecureServing`, TLS enablement) — if a flag defaulted to
-  `true`, it must still default to `true` after your fix.
-- When a type signature changes (e.g., generic `Validator[T]`),
-  adapt the call site to the new signature without altering the
-  surrounding logic or defaults.
-- Nil vs zero-value: when converting `*int32` to `int32` (or
-  any pointer to value), nil meant "use server default" while
-  zero means "set to 0". Preserve nil semantics with a pointer
-  helper like `ptr.To[int32](val)`. Same for nil map vs empty
-  map — nil preserves "unset" semantics.
-- Error handling: do not change `errors.Is`/`errors.As` to `==`
-  comparison or vice versa — they have different unwrapping
-  behavior.
-- Before changing any comparison or default, read the original
-  with `git show $(git merge-base HEAD master 2>/dev/null ||
-  git merge-base HEAD main):<file>` and verify your change
-  preserves the same behavior.
-
-**Common k8s API migrations:** When the compiler flags a removed
-API, use these idiomatic replacements:
-- `pointer.Int32(v)` / `pointer.String(v)` →
-  `ptr.To[int32](v)` / `ptr.To(v)` (k8s.io/utils/ptr)
-- `sets.NewString(...)` → `sets.New[string](...)`
-  (k8s.io/apimachinery/pkg/util/sets)
-- Functions gaining `context.Context` as first parameter:
-  add `ctx` from the caller, do not use `context.TODO()` unless
-  no context is available in the call chain.
-- `ioutil.ReadFile` / `ioutil.ReadDir` → `os.ReadFile` /
-  `os.ReadDir` (Go 1.16+, `io/ioutil` deprecated)
-
-**Commit format:** Body lines must not exceed 72 characters. The
-`Assisted-by` and `Signed-off-by` trailers must each appear
-exactly once per commit — do not duplicate them.
-
-**Git operations:** Never use negated pathspecs with `git add`
-(e.g., `git add -A -- . ':!dir'`). They fail when the path
-is gitignored. Use plain `git add -A` instead.
-
-**AI disclosure:** All commits must include the trailer
-`Assisted-by: Claude Code <noreply@anthropic.com>`.
-The scripts add it automatically. For manual commits use:
-`git commit -s --trailer "Assisted-by: Claude Code <noreply@anthropic.com>"`
-Do not amend commits — create new commits on top.
-
-**Config file hygiene:** Do not add inline comments to config
-files (`.ci-operator.yaml`, `Dockerfile`) explaining why a
-version changed. The commit message is the explanation.
-
-**Commit message cross-references:** Do not use `org/repo#N`
-syntax in commit messages. It causes GitHub notification spam
-on every force-push. Use plain text in commit messages; put
-PR/issue links in the PR body instead.
-
-**Replace directive tracking:** If a `replace` directive is
-added for a temporary fork, add a go.mod comment noting that
-a tracking ticket is needed for its removal (e.g.,
-`// TODO: remove replace when upstream merges — track via Jira`).
+**Commits and git:** Body lines ≤72 chars. Each commit gets
+exactly one `Signed-off-by` and one `Assisted-by: Claude Code
+<noreply@anthropic.com>` trailer (scripts add automatically).
+Do not amend — create new commits on top. Use `git add -A` (no
+negated pathspecs). No `org/repo#N` in commit messages (causes
+notification spam). No inline comments in config files. If
+adding a `replace` directive, add a `// TODO: remove` comment.
 
 ---
 
@@ -231,9 +175,7 @@ If present, fix the codegen script (e.g., remove dropped flags),
 re-run codegen, commit, and re-verify.
 
 **When step1 gate passes and codegen issues are resolved,
-proceed to Step 2 immediately.** Do NOT stop here — Steps 2-5
-are mandatory even if step1 had zero issues. The rebase is NOT
-complete until you present a `gh pr create` command in Step 5.
+proceed to Step 2.**
 
 ---
 
@@ -293,6 +235,13 @@ Use `--quick` (~1 min, build + vet only) during fix iterations.
 `go test -run='^$'` which catches stricter format string
 issues (e.g., Eventf arg count mismatches) that standalone
 `go vet` misses — without running any tests.
+
+**Common API migrations** (use when the compiler flags a removed API):
+- `pointer.Int32(v)` → `ptr.To[int32](v)` (k8s.io/utils/ptr)
+- `sets.NewString(...)` → `sets.New[string](...)`
+- `context.Context` added as first parameter: pass `ctx` from
+  the caller, not `context.TODO()`.
+- `ioutil.ReadFile`/`ReadDir` → `os.ReadFile`/`os.ReadDir`
 
 Fix compilation errors from ALL modules (find all go.mod files).
 Note: some modules (e.g., `test/e2e`) have gitignored vendor
@@ -395,10 +344,7 @@ Count gates must report 0. Judge gates must cite evidence.
    auto-record to mark the run as failed even if the fix worked.
 Repeat up to 3 times per gate.
 
-**When all step2 gates pass, proceed to Step 3 immediately.**
-Do NOT stop after step2 — Steps 3-5 are mandatory even if step2
-had zero compilation errors. The rebase is NOT complete until
-you present a `gh pr create` command in Step 5.
+**When all step2 gates pass, proceed to Step 3.**
 
 To add a gate: create a new `.md` file in `step2-compilation/`
 and add it to this list.
@@ -501,7 +447,7 @@ discovers and fixes deprecated-but-compiling patterns without
 needing pre-existing autofix knowledge.
 
 **When all step3 gates pass (or remaining issues are reported
-after 3 attempts), proceed to Step 4.** Do NOT stop here.
+after 3 attempts), proceed to Step 4.**
 
 ### Step 4: Lint, test, and review
 
@@ -775,8 +721,7 @@ For each outdated dep:
 
 If `--bump-tools` was not passed, skip this step.
 
-You MUST proceed to Step 5 and present a `gh pr create` command.
-Do NOT stop here — the rebase is incomplete without the PR command.
+**Proceed to Step 5.**
 
 ### Step 5: PR and cleanup
 
