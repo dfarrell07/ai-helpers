@@ -18,6 +18,9 @@ ISSUES="${4:?Missing issue count}"
 SUMMARY="${5:?Missing summary}"
 shift 5
 
+[[ "$VERDICT" =~ ^(PASS|FAIL|SKIP)$ ]] || { echo "ERROR: verdict must be PASS, FAIL, or SKIP (got: $VERDICT)" >&2; exit 1; }
+[[ "$GATE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "ERROR: invalid gate name: $GATE_NAME" >&2; exit 1; }
+
 mkdir -p "$REPO/.rebase-tmp/gates"
 {
   echo "VERDICT: $VERDICT"
