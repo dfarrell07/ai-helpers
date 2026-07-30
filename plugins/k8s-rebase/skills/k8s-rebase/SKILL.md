@@ -350,7 +350,10 @@ Count gates must report 0. Judge gates must cite evidence.
    auto-record to mark the run as failed even if the fix worked.
 Repeat up to 3 times per gate.
 
-**When all step2 gates pass, proceed to Step 3.**
+**You MUST run all 6 step2 gates even if there were zero
+compilation errors.** Gates check more than compilation — they
+verify version consistency, diff scope, and type conversions.
+When all pass, proceed to Step 3.
 
 To add a gate: create a new `.md` file in `step2-compilation/`
 and add it to this list.
