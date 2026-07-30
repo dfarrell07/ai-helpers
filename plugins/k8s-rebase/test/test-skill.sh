@@ -832,10 +832,10 @@ auto_record() {
     local done_key="${spec//[:\/\ ]/_}_$repo_key"
     [[ -f "$state_dir/done/$done_key" ]] && { rm -f "$running_file"; continue; }
 
-    local _session=$(session_for_repo "$repo")
+    local _run_sid=$(echo "$_raw" | cut -f3)
     local _session_dead=false
-    if [[ -n "$_session" ]]; then
-      # Gate-completion override
+    if _session_alive "$_run_sid"; then
+      # Session still running — check if gates are complete
       local _wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
       local _gc=0
       [[ -n "$_wt" && -d "$_wt/.rebase-tmp/gates" ]] && _gc=$(ls "$_wt/.rebase-tmp/gates"/*.report "$_wt/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)

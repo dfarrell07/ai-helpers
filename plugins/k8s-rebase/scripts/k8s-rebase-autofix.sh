@@ -747,7 +747,7 @@ fix_relaxed_service_name_validation() {
     fi
   else
     grep -q "RelaxedServiceNameValidation" "$kind_yaml" && return 0
-    awk '/^networking:/ { print "featureGates:"; print "  RelaxedServiceNameValidation: true"; print "" } 1' "$kind_yaml" > "${kind_yaml}.tmp" && { chmod --reference="$kind_yaml" "${kind_yaml}.tmp" 2>/dev/null || true; } && mv "${kind_yaml}.tmp" "$kind_yaml"
+    awk '/^networking:/ { print "featureGates:"; print "  RelaxedServiceNameValidation: true"; print "" } 1' "$kind_yaml" > "${kind_yaml}.tmp" && { chmod "$(stat -c '%a' "$kind_yaml" 2>/dev/null || stat -f '%Lp' "$kind_yaml" 2>/dev/null || echo 644)" "${kind_yaml}.tmp" 2>/dev/null || true; } && mv "${kind_yaml}.tmp" "$kind_yaml"
     echo ":: Added RelaxedServiceNameValidation to kind.yaml.j2"
   fi
 }
@@ -824,7 +824,7 @@ fix_kubeadm_v1beta4() {
     return 0
   fi
 
-  chmod --reference="$kind_yaml" "${kind_yaml}.tmp" 2>/dev/null || true
+  chmod "$(stat -c '%a' "$kind_yaml" 2>/dev/null || stat -f '%Lp' "$kind_yaml" 2>/dev/null || echo 644)" "${kind_yaml}.tmp" 2>/dev/null || true
   mv "${kind_yaml}.tmp" "$kind_yaml"
   echo ":: Migrated kubeadm extraArgs to v1beta4 list format"
 }
@@ -876,7 +876,7 @@ fix_crd_int64_validation() {
       { if (prev!="") print prev; prev=""; print }
       END { if (prev!="") print prev }
     ' "$crd_yaml" > "${crd_yaml}.tmp"
-    chmod --reference="$crd_yaml" "${crd_yaml}.tmp" 2>/dev/null || true
+    chmod "$(stat -c '%a' "$crd_yaml" 2>/dev/null || stat -f '%Lp' "$crd_yaml" 2>/dev/null || echo 644)" "${crd_yaml}.tmp" 2>/dev/null || true
     mv "${crd_yaml}.tmp" "$crd_yaml"
     if ! awk '/format: int32/{p=1;next} /maximum: 4294967295/{if(p){found=1;exit}} {p=0} END{exit !found}' "$crd_yaml" 2>/dev/null; then
       echo "  Patched $(basename "$crd_yaml")"
@@ -927,7 +927,7 @@ fix_crd_name_validation() {
         echo "$old_file" | sed -n "${s_start},$((s_end - 1))p"
         tail -n "+${c_end}" "$crd_file"
       } > "${crd_file}.tmp"
-      chmod --reference="$crd_file" "${crd_file}.tmp" 2>/dev/null || true
+      chmod "$(stat -c '%a' "$crd_file" 2>/dev/null || stat -f '%Lp' "$crd_file" 2>/dev/null || echo 644)" "${crd_file}.tmp" 2>/dev/null || true
       mv "${crd_file}.tmp" "$crd_file"
     fi
   done
@@ -1186,7 +1186,7 @@ fix_feature_gates() {
     echo ":: Adding gates to SetFromMap in $tf"
     for g in "${sfm_gates[@]}"; do
       if ! grep -q "\"$g\"" "$tf"; then
-        sed -i "/SetFromMap/s/false}/false, \"${g}\": false}/" "$tf" 2>/dev/null || true
+        sed -i "/SetFromMap/s/\(true\|false\)}/\1, \"${g}\": false}/" "$tf" 2>/dev/null || true
       fi
     done
 
