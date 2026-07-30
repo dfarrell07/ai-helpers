@@ -511,8 +511,9 @@ lint. Repeat until `--no-test` exits 0.
 
 **4b. Verification wave:** Once 4a passes,
 launch ALL of the following subagents in one parallel wave.
-No modifications happen after this point — everything runs
-simultaneously.
+Do not skip, batch, or defer any gate — launch all 15 in a
+single message. Subagents run independently and do not consume
+your context. No modifications happen after this point.
 
 First, discover test packages:
 
