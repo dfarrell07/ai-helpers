@@ -2,6 +2,8 @@ version: "1.35.3"
 max_concurrent: 3
 
 repos:
+  ovn-org/ovn-kubernetes:
+    from_commit: 30f8075124249785d110d88687e47db15b6c0a00
   ovn-kubernetes/ovn-kubernetes-mcp:
     known_good: a4899b33a9ad
     from_commit: 36ac87c1aec7bc8f62e47ecbe161a1c972945773
