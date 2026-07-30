@@ -248,6 +248,8 @@ issues (e.g., Eventf arg count mismatches) that standalone
 - `context.Context` added as first parameter: pass `ctx` from
   the caller, not `context.TODO()`.
 - `ioutil.ReadFile`/`ReadDir` → `os.ReadFile`/`os.ReadDir`
+- `k8s.io/klog` → `k8s.io/klog/v2` (klog v1 removed in k8s
+  1.35+; also remove `k8s.io/klog` from go.mod if present)
 - `webhook.WithCustomValidator(scheme, &T{}, &V{})` →
   `webhook.WithValidator[T](&V{})` (controller-runtime v0.23+,
   the old `CustomValidator` interface is removed)
