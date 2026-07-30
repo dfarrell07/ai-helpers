@@ -86,10 +86,30 @@ by API changes, preserve the original behavior. Specifically:
 - When a type signature changes (e.g., generic `Validator[T]`),
   adapt the call site to the new signature without altering the
   surrounding logic or defaults.
+- Nil vs zero-value: when converting `*int32` to `int32` (or
+  any pointer to value), nil meant "use server default" while
+  zero means "set to 0". Preserve nil semantics with a pointer
+  helper like `ptr.To[int32](val)`. Same for nil map vs empty
+  map — nil preserves "unset" semantics.
+- Error handling: do not change `errors.Is`/`errors.As` to `==`
+  comparison or vice versa — they have different unwrapping
+  behavior.
 - Before changing any comparison or default, read the original
   with `git show $(git merge-base HEAD master 2>/dev/null ||
   git merge-base HEAD main):<file>` and verify your change
   preserves the same behavior.
+
+**Common k8s API migrations:** When the compiler flags a removed
+API, use these idiomatic replacements:
+- `pointer.Int32(v)` / `pointer.String(v)` →
+  `ptr.To[int32](v)` / `ptr.To(v)` (k8s.io/utils/ptr)
+- `sets.NewString(...)` → `sets.New[string](...)`
+  (k8s.io/apimachinery/pkg/util/sets)
+- Functions gaining `context.Context` as first parameter:
+  add `ctx` from the caller, do not use `context.TODO()` unless
+  no context is available in the call chain.
+- `ioutil.ReadFile` / `ioutil.ReadDir` → `os.ReadFile` /
+  `os.ReadDir` (Go 1.16+, `io/ioutil` deprecated)
 
 **Commit format:** Body lines must not exceed 72 characters. The
 `Assisted-by` and `Signed-off-by` trailers must each appear
@@ -103,9 +123,7 @@ is gitignored. Use plain `git add -A` instead.
 `Assisted-by: Claude Code <noreply@anthropic.com>`.
 The scripts add it automatically. For manual commits use:
 `git commit -s --trailer "Assisted-by: Claude Code <noreply@anthropic.com>"`
-When amending, check `git log --oneline -1` first to confirm
-HEAD is the commit you intend to amend. Use `--no-edit` to
-preserve existing trailers. Do NOT re-pass `-s` or `--trailer`.
+Do not amend commits — create new commits on top.
 
 **Config file hygiene:** Do not add inline comments to config
 files (`.ci-operator.yaml`, `Dockerfile`) explaining why a

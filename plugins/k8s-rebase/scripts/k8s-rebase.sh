@@ -321,7 +321,8 @@ fi
 CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || true)
 : "${DEFAULT_BRANCH:=main}"
-git fetch origin "$DEFAULT_BRANCH" --no-tags 2>/dev/null || true
+git fetch origin "$DEFAULT_BRANCH" --no-tags 2>/dev/null \
+  || info "WARNING: could not fetch origin/$DEFAULT_BRANCH — rebasing from local state"
 if [[ -z "$CURRENT_BRANCH" ]]; then
   info "WARNING: detached HEAD — rebase should start from the default branch ($DEFAULT_BRANCH)"
 elif [[ "$CURRENT_BRANCH" == "$DEFAULT_BRANCH" ]]; then
