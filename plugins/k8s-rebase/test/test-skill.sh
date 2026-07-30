@@ -92,10 +92,22 @@ else:
 " "$repo" "$mode" 2>/dev/null
 }
 
+_AGENTS_CACHE=""
+_AGENTS_CACHE_AGE=0
+
+_refresh_agents_cache() {
+  local now=$(date +%s)
+  if [[ $((now - _AGENTS_CACHE_AGE)) -gt 5 ]]; then
+    _AGENTS_CACHE=$(claude agents --json 2>/dev/null || true)
+    _AGENTS_CACHE_AGE=$now
+  fi
+}
+
 _session_alive() {
   local sid="$1"
   [[ -z "$sid" ]] && return 1
-  claude agents --json 2>/dev/null | python3 -c "
+  _refresh_agents_cache
+  echo "$_AGENTS_CACHE" | python3 -c "
 import json,sys
 for s in json.load(sys.stdin):
     if s.get('id','').startswith('$sid') and s.get('state') not in ('done','blocked',None):
