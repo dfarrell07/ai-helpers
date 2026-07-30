@@ -794,8 +794,8 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         if [[ "$OLD_LINT" != "$lint_target" ]]; then
           old_lint_bare="${OLD_LINT#v}"
           new_lint_bare="${lint_target#v}"
-          local _old_escaped="${OLD_LINT//./\\.}"
-          local _bare_escaped="${old_lint_bare//./\\.}"
+          _old_escaped="${OLD_LINT//./\\.}"
+          _bare_escaped="${old_lint_bare//./\\.}"
           sed -i "s|${_old_escaped}|${lint_target}|g; s|\b${_bare_escaped}\b|${new_lint_bare}|g" "$lintscript"
           CHANGED_FILES+="$lintscript"$'\n'
           info "  Updated golangci-lint: $OLD_LINT → $lint_target in $lintscript"
