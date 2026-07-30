@@ -317,12 +317,22 @@ else
   info "Controller-runtime: v0.${CR_MINOR}.x not on proxy — may not be released yet. Will use latest available."
 fi
 
-# Warn if not on the default branch
+# Ensure default branch is current with remote
 CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || true)
+: "${DEFAULT_BRANCH:=main}"
+git fetch origin "$DEFAULT_BRANCH" --no-tags 2>/dev/null || true
 if [[ -z "$CURRENT_BRANCH" ]]; then
-  info "WARNING: detached HEAD — rebase should start from the default branch (master/main)"
-elif [[ -n "$DEFAULT_BRANCH" && "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]]; then
+  info "WARNING: detached HEAD — rebase should start from the default branch ($DEFAULT_BRANCH)"
+elif [[ "$CURRENT_BRANCH" == "$DEFAULT_BRANCH" ]]; then
+  local_head=$(git rev-parse HEAD 2>/dev/null)
+  remote_head=$(git rev-parse "origin/$DEFAULT_BRANCH" 2>/dev/null)
+  if [[ "$local_head" != "$remote_head" ]]; then
+    info "Updating $DEFAULT_BRANCH to match origin..."
+    git merge --ff-only "origin/$DEFAULT_BRANCH" 2>/dev/null \
+      || info "WARNING: cannot fast-forward $DEFAULT_BRANCH — local changes exist"
+  fi
+elif [[ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]]; then
   info "WARNING: on '$CURRENT_BRANCH', not default branch '$DEFAULT_BRANCH' — rebase normally starts from '$DEFAULT_BRANCH'"
 fi
 

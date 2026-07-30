@@ -74,6 +74,23 @@ When fixing a gate finding, fix ONLY the cited issue at the
 cited location — do not fix other issues you notice in the
 same file.
 
+**Semantic preservation:** When fixing compilation errors caused
+by API changes, preserve the original behavior. Specifically:
+- Never replace label selectors (`labels.SelectorFromSet`,
+  `Selector.Matches`) with `reflect.DeepEqual` — they have
+  different semantics (superset match vs exact match). Find the
+  updated API equivalent in the same package.
+- Never change security-related flag defaults (`secureMetrics`,
+  `SecureServing`, TLS enablement) — if a flag defaulted to
+  `true`, it must still default to `true` after your fix.
+- When a type signature changes (e.g., generic `Validator[T]`),
+  adapt the call site to the new signature without altering the
+  surrounding logic or defaults.
+- Before changing any comparison or default, read the original
+  with `git show $(git merge-base HEAD master 2>/dev/null ||
+  git merge-base HEAD main):<file>` and verify your change
+  preserves the same behavior.
+
 **Commit format:** Body lines must not exceed 72 characters. The
 `Assisted-by` and `Signed-off-by` trailers must each appear
 exactly once per commit — do not duplicate them.
