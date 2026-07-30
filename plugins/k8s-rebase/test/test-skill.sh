@@ -12,7 +12,7 @@ RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." 2>/dev/null && pwd || echo 
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
-INFO_GATES="dep-cve-check skill-improvement commit-messages"
+INFO_GATES="dep-cve-check skill-improvement commit-messages maintainer-review"
 
 # ── Utilities ──────────────────────────────────────────────────────────
 
