@@ -12,6 +12,7 @@ RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." 2>/dev/null && pwd || echo 
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 CONFIG_FILE="${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
+INFO_GATES="dep-cve-check skill-improvement commit-messages"
 
 # ── Utilities ──────────────────────────────────────────────────────────
 
@@ -731,14 +732,13 @@ _do_record_one() {
   elif [[ -z "$wt_path" ]]; then
     gate_dir="$repo/.rebase-tmp/gates"
   fi
-  local _info_gates="dep-cve-check skill-improvement commit-messages"
   if [[ -d "$gate_dir" ]]; then
     for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
       [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
       local _gname=$(basename "${f%.report}" .json)
       local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       gv="${gv^^}"
-      if [[ "$gv" == *FAIL* && " $_info_gates " != *" ${_gname#step?-} "* ]]; then
+      if [[ "$gv" == *FAIL* && " $INFO_GATES " != *" ${_gname#step?-} "* ]]; then
         gfail=$((gfail + 1))
       elif [[ "$gv" != *PASS* ]]; then
         gskip=$((gskip + 1))
@@ -1056,8 +1056,9 @@ else: print('gone')
         gc=$(ls "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json 2>/dev/null | wc -l)
         for f in "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json; do
           [[ -f "$f" ]] || continue
+          local _gn=$(basename "${f%.report}" .json)
           local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-          if [[ "${v^^}" == *FAIL* ]]; then gf=$((gf + 1))
+          if [[ "${v^^}" == *FAIL* && " $INFO_GATES " != *" ${_gn#step?-} "* ]]; then gf=$((gf + 1))
           elif [[ "${v^^}" != *PASS* ]]; then gs=$((gs + 1)); fi
         done
       fi
@@ -1130,9 +1131,10 @@ cmd_results() {
       local total=0 gfail=0 gskip=0
       for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
         [[ -f "$f" ]] || continue; total=$((total+1))
+        local _gn=$(basename "${f%.report}" .json)
         local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
         v="${v^^}"
-        if [[ "$v" == *FAIL* ]]; then gfail=$((gfail+1))
+        if [[ "$v" == *FAIL* && " $INFO_GATES " != *" ${_gn#step?-} "* ]]; then gfail=$((gfail+1))
         elif [[ "$v" != *PASS* ]]; then gskip=$((gskip+1)); fi
       done
       local _skip_note=""
