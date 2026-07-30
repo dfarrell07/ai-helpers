@@ -115,7 +115,7 @@ restore_crd_metadata() {
         sed -n "${s_start},$((s_end - 1))p" "$saved"
         tail -n "+${c_end}" "$crd"
       } > "${crd}.tmp"
-      chmod --reference="$crd" "${crd}.tmp" 2>/dev/null || true
+      chmod "$(stat -c '%a' "$crd" 2>/dev/null || stat -f '%Lp' "$crd" 2>/dev/null || echo 644)" "${crd}.tmp" 2>/dev/null || true
       mv "${crd}.tmp" "$crd"
       restored=1
     fi
