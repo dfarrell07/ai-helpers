@@ -173,15 +173,20 @@ cat "$GATE_DIR/rebase-completeness.md"  # read this, use as subagent prompt
 Gate files:
 - `rebase-completeness.md` (count)
 
-If any check fails, fix the issue (commit staged changes,
-re-run codegen, etc.) before proceeding.
+**Gate-fix loop:** If the gate reports FAIL:
+1. **Fix**: For each failing check (missing codegen, uncommitted
+   changes, stale replace directives, wrong dep versions),
+   fix the issue and commit.
+2. **Re-run**: Delete old report (`rm .rebase-tmp/gates/step1-rebase-completeness.report`),
+   re-launch the gate subagent. The old FAIL persists in
+   auto-record if you don't re-run.
+Repeat until the gate passes.
 
 Also check `.rebase-tmp/summary.txt` for `## CODEGEN FAILURE`.
 If present, fix the codegen script (e.g., remove dropped flags),
 re-run codegen, commit, and re-verify.
 
-**When step1 gate passes and codegen issues are resolved,
-proceed to Step 2.**
+**When step1 gate passes, proceed to Step 2.**
 
 ---
 
@@ -358,7 +363,8 @@ Repeat up to 3 times per gate.
 **You MUST run all 6 step2 gates even if there were zero
 compilation errors.** Gates check more than compilation — they
 verify version consistency, diff scope, and type conversions.
-When all pass, proceed to Step 3.
+When all pass, proceed to Step 3 immediately. Do NOT stop —
+Steps 3-5 are mandatory even with zero compilation errors.
 
 To add a gate: create a new `.md` file in `step2-compilation/`
 and add it to this list.
@@ -461,7 +467,8 @@ discovers and fixes deprecated-but-compiling patterns without
 needing pre-existing autofix knowledge.
 
 **When all step3 gates pass (or remaining issues are reported
-after 3 attempts), proceed to Step 4.**
+after 3 attempts), proceed to Step 4 immediately.** Do NOT stop
+or declare the rebase "done" — Steps 4 and 5 are mandatory.
 
 ### Step 4: Lint, test, and review
 
@@ -736,7 +743,8 @@ For each outdated dep:
 
 If `--bump-tools` was not passed, skip this step.
 
-**Proceed to Step 5.**
+**Proceed to Step 5 immediately.** Do NOT stop — the rebase is
+incomplete without the PR command from Step 5.
 
 ### Step 5: PR and cleanup
 
