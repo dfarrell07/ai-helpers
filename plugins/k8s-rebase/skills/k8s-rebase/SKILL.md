@@ -652,12 +652,17 @@ Gate files:
 
 All count-checks must be 0. Investigate judgment concerns.
 
-**Gate-fix loop (same as step3):** If ANY gate reports FAIL
-(count gate with issues > 0, OR judge gate with verdict FAIL):
-1. **Triage**: Check each finding against the base branch
-   (`git show $BASE:<file>`). Skip pre-existing findings.
-2. **Fix**: For each NEW finding, fix and commit.
-3. **Re-run**: Delete old report, re-run the gate.
+**Gate-fix loop:** If ANY gate reports FAIL:
+1. **Triage**: Check each finding against the base branch:
+   `git show $(git merge-base HEAD master 2>/dev/null ||
+   git merge-base HEAD main):<file>` — if the same issue
+   exists on the base branch, it's pre-existing (skip it).
+   If the file was NOT modified by this branch (`git diff
+   $BASE..HEAD -- <file>` is empty), it's pre-existing.
+2. **Fix**: Fix each NEW finding at the cited location. Commit.
+3. **Re-run** (mandatory): `rm .rebase-tmp/gates/<gate>.report`
+   then re-launch the gate subagent. Stale FAIL reports cause
+   auto-record to mark the run as failed.
 Repeat up to 3 times per gate. Then proceed.
 
 If any test agent reports failures or timeouts:
