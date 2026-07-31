@@ -138,7 +138,7 @@ fi
 # Adding a gate for k8s 1.37+: one line here, everything else automatic.
 declare -A GATE_DEPS
 GATE_DEPS[WatchListClient]=""
-GATE_DEPS[InOrderInformersBatchProcess]=""
+GATE_DEPS[InOrderInformers]=""
 # k8s 1.37+: add new entries like:
 # GATE_DEPS[NewGate]="Dep1 Dep2 Dep3"
 
