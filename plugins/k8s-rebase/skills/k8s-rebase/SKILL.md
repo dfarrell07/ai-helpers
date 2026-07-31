@@ -265,9 +265,11 @@ to re-vendor leaves stale packages that cause CI failures.
 
 Fix compilation errors from ALL modules (find all go.mod files).
 Note: some modules (e.g., `test/e2e`) have gitignored vendor
-directories and won't compile locally. Errors in those modules
-(like unused variables) only surface in CI. Review `git diff`
-for changes to those modules before pushing.
+directories. Compile them with `-mod=mod` to download deps:
+`cd test/e2e && go build -mod=mod ./...`
+Fix any errors — API signature changes (new parameters,
+renamed functions) are common in test helpers. These errors
+only surface in CI if not fixed locally.
 
 If errors appear in `/go/pkg/mod/` paths (not the project's own
 code), a direct dependency is incompatible with the bumped k8s
