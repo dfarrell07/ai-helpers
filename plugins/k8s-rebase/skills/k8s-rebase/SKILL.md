@@ -470,6 +470,11 @@ attempts, report remaining issues and proceed. This loop
 discovers and fixes deprecated-but-compiling patterns without
 needing pre-existing autofix knowledge.
 
+Before proceeding: if you modified any go.mod in steps 2-3
+(gate-fix loop, manual dep bumps), re-run `go mod tidy &&
+go mod vendor` in each affected module directory. Stale vendor
+causes CI failures.
+
 **When all step3 gates pass (or remaining issues are reported
 after 3 attempts), proceed to Step 4 immediately.** Do NOT stop
 or declare the rebase "done" — Steps 4 and 5 are mandatory.
