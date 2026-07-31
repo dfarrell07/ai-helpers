@@ -367,6 +367,8 @@ fix_reflect_ptr() {
 }
 
 fix_fieldsv1() {
+  # GetRawBytes/NewFieldsV1 only exist in apimachinery v0.36+ (k8s 1.36+)
+  [[ "$K8S_MINOR" -lt 36 ]] && return 0
   local files
   files=$(grep -rln 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor)
   [[ -z "$files" ]] && return 0
