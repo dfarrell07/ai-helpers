@@ -259,6 +259,10 @@ issues (e.g., Eventf arg count mismatches) that standalone
   `webhook.WithValidator[T](&V{})` (controller-runtime v0.23+,
   the old `CustomValidator` interface is removed)
 
+After ANY `go get`, `go mod tidy`, or go.mod change, re-vendor
+if the module has a vendor directory: `go mod vendor`. Failing
+to re-vendor leaves stale packages that cause CI failures.
+
 Fix compilation errors from ALL modules (find all go.mod files).
 Note: some modules (e.g., `test/e2e`) have gitignored vendor
 directories and won't compile locally. Errors in those modules
@@ -519,10 +523,13 @@ suppressions preserve coverage for other checks.
 dead block. Do not simplify or restructure.
 
 **Error string casing (ST1005):** When lowercasing error strings
-for ST1005, grep for the OLD string in all Go files (not just
-tests). Both test assertions and production `strings.Contains`
-checks will break if the error text changes without updating
-the match.
+for ST1005, preserve acronyms — lowercase only the first letter,
+not the entire string: `"VIPs cannot"` → `"vIPs cannot"` is
+WRONG, `"vips cannot"` or keeping `"VIPs"` with a nolint
+directive is correct. Also grep for the OLD string in all Go
+files (not just tests) — test assertions and `strings.Contains`
+checks break if the error text changes without updating the
+match.
 
 **Test caching:** Always use `-count=1` when running tests
 manually. Go's test cache can return stale passes.
