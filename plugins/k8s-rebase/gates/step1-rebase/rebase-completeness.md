@@ -20,6 +20,11 @@ Report a count for each check:
 4. Dependency versions: check all go.mod files (excluding
    vendor/) for k8s.io/* deps. All should be at the same
    minor version. Count any at an older minor version.
+   EXCEPTION: if a version mismatch comes from a `replace`
+   directive that also exists on the base branch (`git show
+   $(git merge-base HEAD master 2>/dev/null || git merge-base
+   HEAD main):go.mod | grep replace`), it is pre-existing —
+   do NOT count it.
 
 5. Conflict markers: scan all non-vendor source files:
    `grep -rn '<<<<<<<\|>>>>>>>' --include='*.go' --include='*.yaml' --include='*.json' . | grep -v vendor/`
