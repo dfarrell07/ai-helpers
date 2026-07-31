@@ -759,7 +759,14 @@ _do_record_one() {
         gskip=$((gskip + 1))
       fi
     done
-    [[ "$gtotal" -ge "$expected_gates" && "$gfail" -eq 0 ]] && verdict="PASS"
+    # Reduce expected count for missing informational gates
+    local _missing_info=0
+    for _ig in $INFO_GATES; do
+      local _found=false
+      for f in "$gate_dir"/*"${_ig}"*; do [[ -f "$f" ]] && _found=true && break; done
+      $_found || _missing_info=$((_missing_info + 1))
+    done
+    [[ "$gtotal" -ge $((expected_gates - _missing_info)) && "$gfail" -eq 0 ]] && verdict="PASS"
   fi
 
   # Known-good diff (informational — does not affect verdict)
