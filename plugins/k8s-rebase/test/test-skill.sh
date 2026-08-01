@@ -9,6 +9,11 @@ set -uo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 PLUGIN_DIR="${PLUGIN_DIR:-$(cd "$SCRIPT_DIR/.." && pwd)}"
 RESULTS_DIR="${RESULTS_DIR:-$(cd "$PLUGIN_DIR/../.." 2>/dev/null && pwd || echo /tmp)/.work/test-harness}"
+REPOS_DIR="${REPOS_DIR:-$SCRIPT_DIR/.repos}"
+_repos_parent="$(cd "$(dirname "$REPOS_DIR")" 2>/dev/null && pwd)"
+[[ -z "$_repos_parent" ]] && { echo "ERROR: Cannot resolve REPOS_DIR: parent dir '$(dirname "$REPOS_DIR")' does not exist" >&2; exit 1; }
+REPOS_DIR="$_repos_parent/$(basename "$REPOS_DIR")"
+REPOS_DIR="${REPOS_DIR%/}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
@@ -20,8 +25,21 @@ info()  { echo ":: $*" >&2; }
 warn()  { echo "WARNING: $*" >&2; }
 error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
-repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
+repo_short() { local p="${1%/}"; echo "${p/#$REPOS_DIR\//}"; }
 repo_key() { repo_short "$1" | tr '/' '_'; }
+
+_ensure_repo() {
+  local name="$1" dest="$REPOS_DIR/$name"
+  if [[ -d "$dest/.git" ]]; then
+    git -C "$dest" rev-parse HEAD &>/dev/null && return 0
+    warn "Removing broken clone: $dest"
+    rm -rf "$dest"
+  fi
+  info "Cloning $name..."
+  mkdir -p "$(dirname "$dest")"
+  git clone --single-branch --no-tags "https://github.com/${name}.git" "$dest" &>/dev/null \
+    || { error "Clone failed: $name"; return 1; }
+}
 
 _done_key() { local s="${2//[:\/\ ]/_}"; echo "${1}_${s}_$3"; }
 
@@ -93,14 +111,14 @@ _load_config() {
   [[ -n "$_mc" && "$_mc" != "null" ]] && MAX_CONCURRENT="$_mc"
   DEFAULT_REPOS=()
   while IFS= read -r repo_short; do
-    [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$HOME/ovnk/$repo_short")
+    [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$REPOS_DIR/$repo_short")
   done < <(yq '.repos | keys | .[]' "$CONFIG_FILE")
   # Validate from_commit SHAs exist in repos
   for _repo_name in $(yq '.repos | keys | .[]' "$CONFIG_FILE"); do
     local fc=$(_config_val "$_repo_name" "from_commit")
-    if [[ -n "$fc" && -d "$HOME/ovnk/$_repo_name" ]]; then
-      if ! git -C "$HOME/ovnk/$_repo_name" rev-parse --verify "$fc^{commit}" &>/dev/null; then
-        local _actual=$(git -C "$HOME/ovnk/$_repo_name" rev-parse "${fc:0:12}" 2>/dev/null)
+    if [[ -n "$fc" && -d "$REPOS_DIR/$_repo_name" ]]; then
+      if ! git -C "$REPOS_DIR/$_repo_name" rev-parse --verify "$fc^{commit}" &>/dev/null; then
+        local _actual=$(git -C "$REPOS_DIR/$_repo_name" rev-parse "${fc:0:12}" 2>/dev/null)
         if [[ -n "$_actual" && "$_actual" != "$fc" ]]; then
           die "$_repo_name: from_commit SHA mismatch — config has $fc but repo resolves ${fc:0:12} to $_actual"
         else
@@ -148,8 +166,8 @@ _session_alive() {
 resolve_repo() {
   local r="${1%/}"
   [[ -z "$r" ]] && return 1
-  # Prefer $HOME/ovnk/ expansion for short names (avoids CWD-relative false hits)
-  [[ -d "$HOME/ovnk/$r" ]] && { echo "$HOME/ovnk/$r"; return 0; }
+  # Prefer $REPOS_DIR/ expansion for short names (avoids CWD-relative false hits)
+  [[ -d "$REPOS_DIR/$r" ]] && { echo "$REPOS_DIR/$r"; return 0; }
   [[ -d "$r" ]] && { (cd "$r" && pwd); return 0; }
   return 1
 }
@@ -309,6 +327,7 @@ cmd_run() {
   build_session_cache
   for repo in "${repos[@]}"; do
     local repo_input="$repo"
+    _ensure_repo "$(repo_short "$repo_input")"
     repo=$(resolve_repo "$repo") || { warn "Not found: $repo_input"; continue; }
     local short existing_session
     short=$(repo_short "$repo")
@@ -464,7 +483,8 @@ mutate_plugin() {
   local label="mutated-$(date +%s)"
   local dest="$RESULTS_DIR/$label"
   mkdir -p "$RESULTS_DIR" 2>/dev/null || true
-  cp -r "$PLUGIN_DIR" "$dest" || die "Cannot copy plugin to $dest"
+  command -v rsync &>/dev/null || die "rsync required"
+  rsync -a --exclude test/.repos --exclude test/.matrix-state "$PLUGIN_DIR/" "$dest/" || die "Cannot copy plugin to $dest"
 
   local has_all_patterns=false has_all_fns=false
   local -A seen_specs=()
@@ -521,7 +541,7 @@ mutate_plugin() {
 _repo_from_key() {
   local key="$1"
   local org="${key%%_*}" name="${key#*_}"
-  local path="$HOME/ovnk/$org/$name"
+  local path="$REPOS_DIR/$org/$name"
   [[ -d "$path" ]] && { echo "$path"; return 0; }
   return 1
 }
@@ -539,6 +559,7 @@ cmd_test() {
   [[ ${#specs[@]} -eq 0 ]] && die "No spec (use: all, fn:<tag>, pattern:<key>)"
   [[ -z "$repo" ]] && die "No repo path"
   local repo_input="$repo"
+  _ensure_repo "$(repo_short "$repo_input")"
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
 
   # Read from_commit from config if not passed via CLI
@@ -636,6 +657,7 @@ cmd_test_all() {
     [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
   done
   for repo in "${sorted_repos[@]}"; do
+    _ensure_repo "$(repo_short "$repo")"
     [[ -d "$repo" ]] || continue
     local _rk=$(repo_key "$repo")
     if [[ -f "$state_dir/running/$_rk" ]]; then
