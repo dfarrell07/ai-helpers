@@ -595,6 +595,7 @@ cmd_test() {
   local _done_key=$(_done_key "$version" "${specs[*]}" "$_repo_key")
   [[ -f "$_state_dir/done/$_done_key" ]] && rm -f "$_state_dir/done/$_done_key"
   # Launch via session run (subshell to scope PLUGIN_DIR to the mutated copy)
+  mkdir -p "$mutated/test/.matrix-state"
   if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${from_commit:+--from-commit "$from_commit"}); then
     # Recover repo from temp branch and settings override if from_commit was used
     if [[ -n "$from_commit" && -d "$repo" ]]; then
@@ -607,9 +608,9 @@ cmd_test() {
     error "Launch failed for $(repo_short "$repo")"; return 1
   fi
   # Append session ID to running file for reliable stop
-  local _sid=$(cat "$PLUGIN_DIR/test/.matrix-state/.session_id_$_repo_key" 2>/dev/null)
+  local _sid=$(cat "$mutated/test/.matrix-state/.session_id_$_repo_key" 2>/dev/null)
   [[ -n "$_sid" ]] && printf '%s\t%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" "$version" > "$_state_dir/running/$_repo_key"
-  rm -f "$PLUGIN_DIR/test/.matrix-state/.session_id_$_repo_key" 2>/dev/null
+  rm -f "$mutated/test/.matrix-state/.session_id_$_repo_key" 2>/dev/null
   # Wait for completion when called standalone (not from cmd_test_all)
   if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
     info "Waiting for $(repo_short "$repo") to complete..."
