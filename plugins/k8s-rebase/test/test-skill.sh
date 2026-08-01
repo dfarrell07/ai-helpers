@@ -22,6 +22,36 @@ error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 
+_done_key() { local s="${1//[:\/\ ]/_}"; echo "${s}_$2"; }
+
+_worktree_info() {
+  _WT_PATH="" _WT_BRANCH=""
+  local _wt_line
+  _wt_line=$(git -C "$1" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
+  [[ -z "$_wt_line" ]] && return 1
+  _WT_PATH=$(echo "$_wt_line" | awk '{print $1}')
+  _WT_BRANCH=$(echo "$_wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+}
+
+_tally_gates() {
+  local _gdir="$1" _gt=0 _gf=0 _gs=0
+  for _gf_file in "$_gdir"/*.report "$_gdir"/*.json; do
+    [[ -f "$_gf_file" ]] || continue; _gt=$((_gt + 1))
+    local _gn=$(basename "${_gf_file%.report}" .json)
+    local _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$_gf_file" 2>/dev/null | head -1)
+    _gv="${_gv^^}"
+    if [[ "$_gv" == *FAIL* && " $INFO_GATES " != *" ${_gn#step?-} "* ]]; then
+      _gf=$((_gf + 1))
+    elif [[ "$_gv" != *PASS* ]]; then
+      _gs=$((_gs + 1))
+    fi
+  done
+  echo "$_gt $_gf $_gs"
+}
+
+EXPECTED_GATES=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
+[[ "$EXPECTED_GATES" -lt 1 ]] && EXPECTED_GATES=33
+
 # Load config from YAML
 _load_config() {
   command -v yq &>/dev/null || die "yq required — install from https://github.com/mikefarah/yq"
@@ -552,8 +582,7 @@ cmd_test() {
   _repo_key=$(repo_short "$repo" | tr '/' '_')
   mkdir -p "$_state_dir/running" "$_state_dir/done"
   # Remove old done file so auto_record can re-record this test
-  local _done_key="${specs[*]}"
-  _done_key="${_done_key//[:\/\ ]/_}_$_repo_key"
+  local _done_key=$(_done_key "${specs[*]}" "$_repo_key")
   [[ -f "$_state_dir/done/$_done_key" ]] && rm -f "$_state_dir/done/$_done_key"
   # Launch via session run (subshell to scope PLUGIN_DIR to the mutated copy)
   if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${from_commit:+--from-commit "$from_commit"}); then
@@ -633,7 +662,7 @@ cmd_test_all() {
         active=$((active - 1))
       fi
     fi
-    local _done_key="${spec//[:\/\ ]/_}_$_rk"
+    local _done_key=$(_done_key "$spec" "$_rk")
     [[ -f "$state_dir/done/$_done_key" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     local _fc_file="$state_dir/from_commit_$_rk"
     local _fc_args=()
@@ -685,7 +714,7 @@ cmd_test_all() {
       [[ -d "$repo" ]] || continue
       local _rk=$(repo_short "$repo" | tr '/' '_')
       [[ -f "$state_dir/running/$_rk" ]] && continue
-      local _done_key="${spec//[:\/\ ]/_}_$_rk"
+      local _done_key=$(_done_key "$spec" "$_rk")
       [[ -f "$state_dir/done/$_done_key" ]] && continue
       local _fc_file="$state_dir/from_commit_$_rk"
       local _fc_args=()
@@ -708,13 +737,10 @@ _do_record_one() {
   local repo="$1" repo_key="$2" spec="$3" state_dir="$4" launch_epoch="${5:-0}" _rec_version="${6:-$VERSION}"
   local short=$(repo_short "$repo")
 
-  local result_branch="" wt_line="" wt_path=""
-  wt_line=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
-  if [[ -n "$wt_line" ]]; then
-    result_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
-    wt_path=$(echo "$wt_line" | awk '{print $1}')
-    [[ ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; wt_path=""; }
-  fi
+  local result_branch="" wt_path=""
+  _worktree_info "$repo" || true
+  result_branch="$_WT_BRANCH" wt_path="$_WT_PATH"
+  [[ -n "$wt_path" && ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; wt_path=""; }
   [[ -z "$result_branch" ]] && \
     result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1)
   [[ -z "$result_branch" ]] && { echo "no branch found"; return 1; }
@@ -739,8 +765,6 @@ _do_record_one() {
   # Gate tally — every gate must produce a report, all must pass
   local verdict="FAIL"
   local gtotal=0 gfail=0 gskip=0
-  local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
-  [[ "$expected_gates" -lt 1 ]] && expected_gates=33
   local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
   if [[ -n "$wt_path" && ! -d "$gate_dir" ]]; then
     gate_dir=""
@@ -748,17 +772,7 @@ _do_record_one() {
     gate_dir="$repo/.rebase-tmp/gates"
   fi
   if [[ -d "$gate_dir" ]]; then
-    for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
-      [[ -f "$f" ]] || continue; gtotal=$((gtotal + 1))
-      local _gname=$(basename "${f%.report}" .json)
-      local gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-      gv="${gv^^}"
-      if [[ "$gv" == *FAIL* && " $INFO_GATES " != *" ${_gname#step?-} "* ]]; then
-        gfail=$((gfail + 1))
-      elif [[ "$gv" != *PASS* ]]; then
-        gskip=$((gskip + 1))
-      fi
-    done
+    read -r gtotal gfail gskip <<< "$(_tally_gates "$gate_dir")"
     # Reduce expected count for missing informational gates
     local _missing_info=0
     for _ig in $INFO_GATES; do
@@ -766,7 +780,7 @@ _do_record_one() {
       for f in "$gate_dir"/*"${_ig}"*; do [[ -f "$f" ]] && _found=true && break; done
       $_found || _missing_info=$((_missing_info + 1))
     done
-    [[ "$gtotal" -ge $((expected_gates - _missing_info)) && "$gfail" -eq 0 ]] && verdict="PASS"
+    [[ "$gtotal" -ge $((EXPECTED_GATES - _missing_info)) && "$gfail" -eq 0 ]] && verdict="PASS"
   fi
 
   # Known-good diff (informational — does not affect verdict)
@@ -788,8 +802,8 @@ _do_record_one() {
   [[ "$gskip" -gt 0 ]] && _gate_suffix=", ${gskip} skipped"
   if [[ "$gtotal" -eq 0 ]]; then
     detail="no gates ran (bug)"
-  elif [[ "$gtotal" -lt "$expected_gates" ]]; then
-    detail="missing $((expected_gates - gtotal)) of $expected_gates gates"
+  elif [[ "$gtotal" -lt "$EXPECTED_GATES" ]]; then
+    detail="missing $((EXPECTED_GATES - gtotal)) of $EXPECTED_GATES gates"
     [[ "$gfail" -gt 0 ]] && detail="$detail, $gfail failed"
     [[ "$gskip" -gt 0 ]] && detail="$detail$_gate_suffix"
   elif [[ "$gfail" -gt 0 ]]; then
@@ -807,7 +821,7 @@ _do_record_one() {
     detail="all gates pass (no known-good set)"
   fi
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  local done_key="${spec//[:\/\ ]/_}_$repo_key"
+  local done_key=$(_done_key "$spec" "$repo_key")
   mkdir -p "$state_dir/done"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
   {
@@ -831,8 +845,6 @@ auto_record() {
   if [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]]; then return 0; fi
 
   local recorded=0
-  local _expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
-  [[ "$_expected_gates" -lt 1 ]] && _expected_gates=33
 
   for running_file in "$running_dir"/*; do
     [[ -f "$running_file" ]] || continue
@@ -849,18 +861,18 @@ auto_record() {
     repo=$(_repo_from_key "$repo_key") || true
     [[ -z "$repo" || ! -d "$repo" ]] && continue
     local short=$(repo_short "$repo")
-    local done_key="${spec//[:\/\ ]/_}_$repo_key"
+    local done_key=$(_done_key "$spec" "$repo_key")
     [[ -f "$state_dir/done/$done_key" ]] && { rm -f "$running_file"; continue; }
 
     local _run_sid=$(echo "$_raw" | cut -f3)
     local _session_dead=false
     if _session_alive "$_run_sid"; then
       # Session still running — check if gates are complete
-      local _wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
-      local _gc=0
+      _worktree_info "$repo" || true
+      local _wt="$_WT_PATH" _gc=0
       [[ -n "$_wt" && -d "$_wt/.rebase-tmp/gates" ]] && _gc=$(ls "$_wt/.rebase-tmp/gates"/*.report "$_wt/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)
-      if [[ "$_gc" -ge "$_expected_gates" ]]; then
-        info "Gate-complete: $spec on $short ($_gc/$_expected_gates gates)"
+      if [[ "$_gc" -ge "$EXPECTED_GATES" ]]; then
+        info "Gate-complete: $spec on $short ($_gc/$EXPECTED_GATES gates)"
       else
         continue
       fi
@@ -876,7 +888,7 @@ auto_record() {
       local _fail_detail="${result:-session ended without result}"
       local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_run_version" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
-      local _done_key="${spec//[:\/\ ]/_}_$repo_key"
+      local _done_key=$(_done_key "$spec" "$repo_key")
       mkdir -p "$state_dir/done"
       echo "$ts	$_run_version	$spec	$short	FAIL	$_fail_detail" > "$state_dir/done/$_done_key"
       rm -f "$running_file"
@@ -1018,8 +1030,6 @@ EOF_JURY
 
 cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
-  local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
-  [[ "$expected_gates" -lt 1 ]] && expected_gates=33
   # Get session states — no timeout, this is a foreground command
   local _agents_json=$(claude agents --json 2>/dev/null || true)
   printf "%-42s %-10s %-8s %-32s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
@@ -1044,32 +1054,24 @@ for s in json.load(sys.stdin):
 else: print('gone')
 " 2>/dev/null || echo "?")
     fi
-    local wt=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+    _worktree_info "$repo" || true
+    local wt="$_WT_PATH" _branch="$_WT_BRANCH"
     local gc=0 gf=0 gs=0 commit_msg="-" diff_info="-"
     if [[ -n "$wt" ]]; then
       local _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
       : "${_db:=main}"
-      local _branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
       if [[ -n "$_branch" ]]; then
         local n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
         [[ "$n_commits" -gt 0 ]] && commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 30)
       fi
       if [[ -d "$wt/.rebase-tmp/gates" ]]; then
-        gc=$(ls "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json 2>/dev/null | wc -l)
-        for f in "$wt/.rebase-tmp/gates/"*.report "$wt/.rebase-tmp/gates/"*.json; do
-          [[ -f "$f" ]] || continue
-          local _gn=$(basename "${f%.report}" .json)
-          local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-          if [[ "${v^^}" == *FAIL* && " $INFO_GATES " != *" ${_gn#step?-} "* ]]; then gf=$((gf + 1))
-          elif [[ "${v^^}" != *PASS* ]]; then gs=$((gs + 1)); fi
-        done
+        read -r gc gf gs <<< "$(_tally_gates "$wt/.rebase-tmp/gates")"
       fi
     fi
     local kg_file="$state_dir/known_good_$_rk"
     if [[ -f "$kg_file" && -n "$wt" ]]; then
       local kg=$(cat "$kg_file")
-      local branch=$(git -C "$repo" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
-      if [[ -n "$branch" ]] && git -C "$repo" rev-parse --verify "$kg" &>/dev/null; then
+      if [[ -n "$_branch" ]] && git -C "$repo" rev-parse --verify "$kg" &>/dev/null; then
         local nv=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
         local nv_all=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
         diff_info="${nv} code"
@@ -1078,13 +1080,12 @@ else: print('gone')
     fi
     # Show "court" when session is done but gates complete and no done file
     if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
-      local _done_key="${_raw%%	*}"
-      _done_key="${_done_key//[:\/\ ]/_}_$_rk"
-      if [[ "$gc" -ge "$expected_gates" && ! -f "$state_dir/done/$_done_key" ]]; then
+      local _done_key=$(_done_key "${_raw%%	*}" "$_rk")
+      if [[ "$gc" -ge "$EXPECTED_GATES" && ! -f "$state_dir/done/$_done_key" ]]; then
         session_state="court"
       fi
     fi
-    local gate_str="${gc}/${expected_gates}"
+    local gate_str="${gc}/${EXPECTED_GATES}"
     local _gsuffix=""
     [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
     [[ "$gs" -gt 0 ]] && _gsuffix="${_gsuffix:+${_gsuffix},}${gs}S"
@@ -1115,7 +1116,8 @@ cmd_results() {
     repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
     local short=$(repo_short "$repo")
     cd "$repo" || die "Cannot cd to $repo"
-    local wt=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1 | awk '{print $1}')
+    _worktree_info "$repo" || true
+    local wt="$_WT_PATH"
     local gate_dir="" wt_in_progress=false
     if [[ -n "$wt" ]]; then
       gate_dir="$wt/.rebase-tmp/gates"
@@ -1124,29 +1126,20 @@ cmd_results() {
       gate_dir="$repo/.rebase-tmp/gates"
     fi
 
-    local expected_gates=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
-    [[ "$expected_gates" -lt 1 ]] && expected_gates=33
     echo "── $short ──"
     if $wt_in_progress; then
       echo "Run in progress (worktree exists, gates not yet written)"
     elif [[ -d "$gate_dir" ]]; then
       local total=0 gfail=0 gskip=0
-      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
-        [[ -f "$f" ]] || continue; total=$((total+1))
-        local _gn=$(basename "${f%.report}" .json)
-        local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-        v="${v^^}"
-        if [[ "$v" == *FAIL* && " $INFO_GATES " != *" ${_gn#step?-} "* ]]; then gfail=$((gfail+1))
-        elif [[ "$v" != *PASS* ]]; then gskip=$((gskip+1)); fi
-      done
+      read -r total gfail gskip <<< "$(_tally_gates "$gate_dir")"
       local _skip_note=""
       [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
-      if [[ "$total" -ge "$expected_gates" && "$gfail" -eq 0 ]]; then
+      if [[ "$total" -ge "$EXPECTED_GATES" && "$gfail" -eq 0 ]]; then
         echo "Gates: all $total pass${_skip_note}"
       elif [[ "$gfail" -gt 0 ]]; then
-        echo "Gates: $gfail FAILED ($total/$expected_gates complete${_skip_note})"
+        echo "Gates: $gfail FAILED ($total/$EXPECTED_GATES complete${_skip_note})"
       else
-        echo "Gates: $total/$expected_gates complete (in progress${_skip_note})"
+        echo "Gates: $total/$EXPECTED_GATES complete (in progress${_skip_note})"
       fi
       # Show failed gates inline
       for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
