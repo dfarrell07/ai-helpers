@@ -3,20 +3,32 @@ max_concurrent: 3
 
 repos:
   ovn-org/ovn-kubernetes:
-    known_good: bump1.36
     from_commit: f261f146c0625bbdb5933298cfcbebd7f392223d
+    known_good:
+      url: https://github.com/dfarrell07/ovn-kubernetes.git
+      ref: bump1.36
   ovn-kubernetes/ovn-kubernetes-mcp:
-    known_good: bump1.36-20260717052952
     from_commit: ef08b89f09d555158b1522f6a4686ea38bb59cc2
+    known_good:
+      url: https://github.com/dfarrell07/ovn-kubernetes-mcp.git
+      ref: bump1.36-20260717052952
   openshift/multus-cni:
-    known_good: bump1.36
     from_commit: 7235e831cb6fedf857d3969d38ce1a1e9751d85d
+    known_good:
+      url: https://github.com/dfarrell07/multus-cni.git
+      ref: bump1.36
   openshift/ingress-node-firewall:
-    known_good: bump1.36
     from_commit: f1e4ccd4d9e9b51c74c8e2aa35137ce9744cd581
+    known_good:
+      url: https://github.com/dfarrell07/ingress-node-firewall.git
+      ref: bump1.36
   openshift/cloud-network-config-controller:
-    known_good: bump1.36-20260616200013
     from_commit: 2d69ad953cfaa419e9b6221da9edb152ded91e0b
+    known_good:
+      url: https://github.com/dfarrell07/cloud-network-config-controller.git
+      ref: bump1.36
   openshift/cluster-network-operator:
-    known_good: bump1.36
     from_commit: 76e94f220c5088324e41bdf237049ebf621546b9
+    known_good:
+      url: https://github.com/dfarrell07/cluster-network-operator.git
+      ref: bump1.36
