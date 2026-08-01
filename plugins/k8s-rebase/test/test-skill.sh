@@ -995,8 +995,9 @@ EOF_JURY
 
   local pass=0 fail=0
   for j in 1 2 3; do
-    local jv=$(grep -oE 'VERDICT: (PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null | tail -1)
-    case "$jv" in "VERDICT: PASS") pass=$((pass+1)); info "  Juror $j: PASS";; "VERDICT: FAIL") fail=$((fail+1)); info "  Juror $j: FAIL";; *) info "  Juror $j: ABSTAIN";; esac
+    local jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null | grep -ioE 'PASS|FAIL' | tail -1)
+    jv="${jv^^}"
+    case "$jv" in "PASS") pass=$((pass+1)); info "  Juror $j: PASS";; "FAIL") fail=$((fail+1)); info "  Juror $j: FAIL";; *) info "  Juror $j: ABSTAIN";; esac
   done
 
   info "Jury: $pass PASS, $fail FAIL"
