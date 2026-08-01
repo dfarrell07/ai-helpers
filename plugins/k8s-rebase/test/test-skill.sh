@@ -115,27 +115,13 @@ else:
 " "$repo" "$mode" 2>/dev/null
 }
 
-_AGENTS_CACHE=""
-_AGENTS_CACHE_AGE=0
-
-_refresh_agents_cache() {
-  local now=$(date +%s)
-  if [[ $((now - _AGENTS_CACHE_AGE)) -gt 5 ]]; then
-    _AGENTS_CACHE=$(claude agents --json 2>/dev/null || true)
-    _AGENTS_CACHE_AGE=$now
-  fi
-}
-
 _session_alive() {
   local sid="$1"
   [[ -z "$sid" ]] && return 1
-  _refresh_agents_cache
-  echo "$_AGENTS_CACHE" | python3 -c "
-import json,sys
-for s in json.load(sys.stdin):
-    if s.get('id','').startswith('$sid') and s.get('state') not in ('done','blocked',None):
-        print('yes'); break
-" 2>/dev/null | grep -q yes
+  build_session_cache
+  echo "$_SESSION_CACHE" | while IFS=$'\t' read -r _cwd _st _el _pid _sid _rest; do
+    [[ "$_sid" == "$sid"* ]] && [[ "$_st" != "done" && "$_st" != "blocked" && "$_st" != "?" ]] && echo "yes" && break
+  done | grep -q yes
 }
 
 resolve_repo() {
@@ -161,7 +147,7 @@ default_branch() {
 
 _SESSION_CACHE=""
 _SESSION_CACHE_OK=false
-_SESSION_CACHE_BUILT=false
+_SESSION_CACHE_AGE=0
 
 _SESSION_PARSER=$(cat <<'PYEOF'
 import json, sys, time, os
@@ -191,13 +177,14 @@ PYEOF
 )
 
 build_session_cache() {
-  if $_SESSION_CACHE_BUILT; then return 0; fi
+  local now=$(date +%s)
+  [[ $((now - _SESSION_CACHE_AGE)) -lt 5 ]] && return 0
   _SESSION_CACHE_OK=false
-  command -v claude &>/dev/null || { _SESSION_CACHE_BUILT=true; return 0; }
+  command -v claude &>/dev/null || { _SESSION_CACHE_AGE=$now; return 0; }
   _SESSION_CACHE=$(timeout -k 1 10 claude agents --json 2>/dev/null \
     | timeout -k 1 5 python3 -c "$_SESSION_PARSER" 2>/dev/null || true)
   [[ -n "$_SESSION_CACHE" ]] && _SESSION_CACHE_OK=true
-  _SESSION_CACHE_BUILT=true
+  _SESSION_CACHE_AGE=$now
 }
 
 
@@ -599,7 +586,7 @@ cmd_test() {
       sleep 60
       local _sid=$(cut -f3 "$_state_dir/running/$_repo_key" 2>/dev/null)
       if ! _session_alive "$_sid"; then
-        _SESSION_CACHE_BUILT=false
+        _SESSION_CACHE_AGE=0
         auto_record
         [[ -f "$_state_dir/running/$_repo_key" ]] && {
           warn "Session ended — recording result"
@@ -1021,8 +1008,8 @@ EOF_JURY
 
 cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
-  # Get session states — no timeout, this is a foreground command
-  local _agents_json=$(claude agents --json 2>/dev/null || true)
+  _SESSION_CACHE_AGE=0
+  build_session_cache
   printf "%-42s %-10s %-8s %-32s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
   printf "%-42s %-10s %-8s %-32s %s\n" "----" "-------" "-----" "-------------" "-------------"
   local active=0
@@ -1034,16 +1021,13 @@ cmd_watch() {
     active=$((active + 1))
     local _raw=$(cat "$state_dir/running/$_rk")
     local _sid=$(echo "$_raw" | cut -f3)
-    local session_state="?"
-    if [[ -n "$_sid" && -n "$_agents_json" ]]; then
-      session_state=$(echo "$_agents_json" | python3 -c "
-import json,sys
-for s in json.load(sys.stdin):
-    if s.get('id','').startswith('${_sid}'):
-        print(s.get('state','?'))
-        break
-else: print('gone')
-" 2>/dev/null || echo "?")
+    local session_state="gone"
+    if [[ -n "$_sid" ]]; then
+      local _found_state
+      _found_state=$(echo "$_SESSION_CACHE" | while IFS=$'\t' read -r _cwd _st _el _pid _s _rest; do
+        [[ "$_s" == "$_sid"* ]] && echo "$_st" && break
+      done)
+      [[ -n "$_found_state" ]] && session_state="$_found_state"
     fi
     _worktree_info "$repo" || true
     local wt="$_WT_PATH" _branch="$_WT_BRANCH"
