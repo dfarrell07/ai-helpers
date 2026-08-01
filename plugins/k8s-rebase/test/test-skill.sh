@@ -29,7 +29,8 @@ repo_short() { local p="${1%/}"; echo "${p/#$REPOS_DIR\//}"; }
 repo_key() { repo_short "$1" | tr '/' '_'; }
 
 _ensure_repo() {
-  local name="$1" dest="$REPOS_DIR/$name"
+  local name="$1"
+  local dest="$REPOS_DIR/$name"
   if [[ -d "$dest/.git" ]]; then
     git -C "$dest" rev-parse HEAD &>/dev/null && return 0
     warn "Removing broken clone: $dest"
