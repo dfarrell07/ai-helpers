@@ -1218,15 +1218,30 @@ _results_all() {
 # ── Configuration ──────────────────────────────────────────────────────
 
 cmd_set_known_good() {
-  [[ $# -lt 2 ]] && die "Usage: set-known-good <repo> <branch>"
-  local repo="$1" branch="$2"
+  local repo="" ref="" url=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --url) shift; url="${1:-}"; [[ -z "$url" ]] && die "--url needs value" ;;
+      *) [[ -z "$repo" ]] && repo="$1" || ref="$1" ;;
+    esac; shift
+  done
+  [[ -z "$repo" || -z "$ref" ]] && die "Usage: set-known-good <repo> <ref> [--url <url>]"
   local repo_input="$repo"
+  _ensure_repo "$(repo_short "$repo_input")"
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
-  cd "$repo" || die "Cannot cd to $repo"
-  git rev-parse --verify "$branch" &>/dev/null || die "Branch not found: $branch"
   local short=$(repo_short "$repo")
-  yq -i ".repos.\"$short\".known_good = \"$branch\"" "$CONFIG_FILE"
-  info "Set known-good for $short: $branch"
+
+  if [[ -n "$url" ]]; then
+    yq -i ".repos.\"$short\".known_good = {\"url\": \"$url\", \"ref\": \"$ref\"}" "$CONFIG_FILE"
+    info "Set known-good for $short: $ref (from $url)"
+  else
+    cd "$repo" || die "Cannot cd to $repo"
+    local resolved
+    resolved=$(git rev-parse --verify "$ref" 2>/dev/null) || die "Ref not found: $ref"
+    [[ "$ref" =~ ^[0-9a-fA-F]{6,40}$ ]] && ref="$resolved"
+    yq -i ".repos.\"$short\".known_good = \"$ref\"" "$CONFIG_FILE"
+    info "Set known-good for $short: $ref"
+  fi
 }
 
 cmd_set_from_commit() {
@@ -1252,7 +1267,7 @@ Commands:
   test-all [--version X.Y.Z]        Run core suite (all 6 repos, batches of $MAX_CONCURRENT)
   test <spec> <repo> [--version]    Run specific test case
   results [repo] [--court]          Show results matrix or deep-dive one repo
-  set-known-good <repo> <branch>    Set reference branch for comparison
+  set-known-good <repo> <ref> [--url <url>]  Set known-good reference
   set-from-commit <repo> <commit>   Set pre-merge commit for historical testing
   stop [repo...|--all]              Stop running test sessions
   clean [repos...]                  Cleanup worktrees and containers
@@ -1267,7 +1282,8 @@ Examples:
   $(basename "$0") test all openshift/multus-cni
   $(basename "$0") results
   $(basename "$0") results openshift/multus-cni --court
-  $(basename "$0") set-known-good openshift/multus-cni bump1.36
+  $(basename "$0") set-known-good openshift/multus-cni d801f0f40708
+  $(basename "$0") set-known-good openshift/multus-cni bump1.36 --url https://github.com/user/fork.git
 EOF
   exit 0
 }

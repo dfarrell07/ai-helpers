@@ -4,10 +4,12 @@
 SCRIPT := test/test-skill.sh
 SPEC ?= $(if $(spec),$(spec),none)
 REPO ?= $(repo)
-BRANCH ?= $(branch)
+REF ?= $(ref)
+URL ?= $(url)
 COMMIT ?= $(commit)
 JOBS ?= $(jobs)
 VER ?= $(version)
+REPOS ?= $(repos_dir)
 CONFIG ?= test/config$(if $(VER),-$(shell echo $(VER) | grep -oE '[0-9]+\.[0-9]+'),).yaml
 
 help: ## Show available targets
@@ -36,8 +38,9 @@ help: ## Show available targets
 	@echo "    make clean                               Reset everything (worktrees, state, temp branches)"
 	@echo ""
 	@echo "  Config"
-	@echo "    make set-known-good repo=<r> branch=<b>  Set reference branch for diff comparison"
-	@echo "    make set-from-commit repo=<r> commit=<sha>  Set pre-merge commit for historical testing"
+	@echo "    make set-known-good repo=<r> ref=<ref>          Set known-good reference (SHA or branch)"
+	@echo "    make set-known-good repo=<r> ref=<b> url=<u>    Set known-good from fork branch"
+	@echo "    make set-from-commit repo=<r> commit=<sha>      Set pre-merge commit for historical testing"
 	@echo ""
 	@echo "  Specs: none (default — full skill), all (blind — no patterns/autofix),"
 	@echo "         fn:<tag> (disable one autofix fn), pattern:<key> (remove one pattern)"
@@ -48,37 +51,38 @@ help: ## Show available targets
 	@echo ""
 	@echo "  Versions: $(shell ls test/config-*.yaml 2>/dev/null | sed 's|test/config-||;s|\.yaml||' | tr '\n' ' ')"
 	@echo "  Config file: test/config.yaml (version, max_concurrent, repos, known_good, from_commit)"
+	@echo "  Repos dir: test/.repos/ (override: repos_dir=/path/to/repos)"
 	@echo ""
 
 test: ## Run tests
 	@if [ -n "$(REPO)" ]; then \
-		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
+		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) $(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
 	else \
-		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) test-all $(SPEC); \
+		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) $(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) test-all $(SPEC); \
 	fi
 
 watch: ## Show active test status
-	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) watch
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) watch
 
 results: ## Show results
-	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO)
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO)
 
 court: ## Adversarial court review
 	@test -n "$(REPO)" || (echo "ERROR: repo required. Usage: make court repo=openshift/multus-cni" && exit 1)
-	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO) --court
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO) --court
 
-set-known-good: ## Set reference branch
+set-known-good: ## Set known-good reference
 	@test -n "$(REPO)" || (echo "ERROR: repo required" && exit 1)
-	@test -n "$(BRANCH)" || (echo "ERROR: branch required" && exit 1)
-	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) set-known-good $(REPO) $(BRANCH)
+	@test -n "$(REF)" || (echo "ERROR: ref required" && exit 1)
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) set-known-good $(REPO) $(REF) $(if $(URL),--url $(URL))
 
 set-from-commit: ## Set pre-merge commit
 	@test -n "$(REPO)" || (echo "ERROR: repo required" && exit 1)
 	@test -n "$(COMMIT)" || (echo "ERROR: commit required" && exit 1)
-	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) set-from-commit $(REPO) $(COMMIT)
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) set-from-commit $(REPO) $(COMMIT)
 
 stop: ## Stop all sessions
-	@CONFIG_FILE=$(CONFIG) bash $(SCRIPT) stop --all || true
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) stop --all || true
 
 clean: ## Reset everything
-	@bash $(SCRIPT) clean
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean
