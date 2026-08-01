@@ -23,7 +23,7 @@ die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
 repo_key() { repo_short "$1" | tr '/' '_'; }
 
-_done_key() { local s="${1//[:\/\ ]/_}"; echo "${s}_$2"; }
+_done_key() { local s="${2//[:\/\ ]/_}"; echo "${1}_${s}_$3"; }
 
 _worktree_info() {
   _WT_PATH="" _WT_BRANCH=""
@@ -408,7 +408,7 @@ cmd_clean() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
   [[ -d "$state_dir/court" ]] && { rm -rf "$state_dir/court"/* 2>/dev/null; info "Cleared court state"; }
-  rm -f "$state_dir"/.session_id_* 2>/dev/null
+  rm -f "$state_dir"/.session_id_* "$state_dir"/from_commit_* "$state_dir"/known_good_* "$state_dir"/expected_fail_* 2>/dev/null
   for _ck in "${cleaned_keys[@]}"; do
     rm -f "$state_dir/running/$_ck" 2>/dev/null
   done
@@ -550,7 +550,7 @@ cmd_test() {
   _repo_key=$(repo_key "$repo")
   mkdir -p "$_state_dir/running" "$_state_dir/done"
   # Remove old done file so auto_record can re-record this test
-  local _done_key=$(_done_key "${specs[*]}" "$_repo_key")
+  local _done_key=$(_done_key "$version" "${specs[*]}" "$_repo_key")
   [[ -f "$_state_dir/done/$_done_key" ]] && rm -f "$_state_dir/done/$_done_key"
   # Launch via session run (subshell to scope PLUGIN_DIR to the mutated copy)
   if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${from_commit:+--from-commit "$from_commit"}); then
@@ -630,7 +630,7 @@ cmd_test_all() {
         active=$((active - 1))
       fi
     fi
-    local _done_key=$(_done_key "$spec" "$_rk")
+    local _done_key=$(_done_key "$version" "$spec" "$_rk")
     [[ -f "$state_dir/done/$_done_key" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
     local _fc_args=()
@@ -682,7 +682,7 @@ cmd_test_all() {
       [[ -d "$repo" ]] || continue
       local _rk=$(repo_key "$repo")
       [[ -f "$state_dir/running/$_rk" ]] && continue
-      local _done_key=$(_done_key "$spec" "$_rk")
+      local _done_key=$(_done_key "$version" "$spec" "$_rk")
       [[ -f "$state_dir/done/$_done_key" ]] && continue
       local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
       local _fc_args=()
@@ -788,7 +788,7 @@ _do_record_one() {
     detail="all gates pass (no known-good set)"
   fi
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  local done_key=$(_done_key "$spec" "$repo_key")
+  local done_key=$(_done_key "$_rec_version" "$spec" "$repo_key")
   mkdir -p "$state_dir/done"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
   touch "$state_dir/done/$done_key"
@@ -818,7 +818,7 @@ auto_record() {
     repo=$(_repo_from_key "$repo_key") || true
     [[ -z "$repo" || ! -d "$repo" ]] && continue
     local short=$(repo_short "$repo")
-    local done_key=$(_done_key "$spec" "$repo_key")
+    local done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
     [[ -f "$state_dir/done/$done_key" ]] && { rm -f "$running_file"; continue; }
 
     local _run_sid=$(echo "$_raw" | cut -f3)
@@ -845,7 +845,7 @@ auto_record() {
       local _fail_detail="${result:-session ended without result}"
       local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_run_version" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
-      local _done_key=$(_done_key "$spec" "$repo_key")
+      local _done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
       mkdir -p "$state_dir/done"
       touch "$state_dir/done/$_done_key"
       rm -f "$running_file"
@@ -1034,7 +1034,7 @@ cmd_watch() {
     fi
     # Show "court" when session is done but gates complete and no done file
     if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
-      local _done_key=$(_done_key "${_raw%%	*}" "$_rk")
+      local _done_key=$(_done_key "$(echo "$_raw" | cut -f4)" "${_raw%%	*}" "$_rk")
       if [[ "$gc" -ge "$EXPECTED_GATES" && ! -f "$state_dir/done/$_done_key" ]]; then
         session_state="court"
       fi
