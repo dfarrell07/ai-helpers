@@ -217,7 +217,7 @@ reset_to_default() {
   local default_br
   default_br=$(default_branch)
   git checkout "$default_br" &>/dev/null || { error "Cannot checkout $default_br"; return 1; }
-  GIT_TERMINAL_PROMPT=0 git pull --ff-only 2>/dev/null || true
+  GIT_TERMINAL_PROMPT=0 git pull --ff-only &>/dev/null || true
   info "$(repo_short "$repo") -> $default_br @ $(git rev-parse --short HEAD)"
 }
 
@@ -238,10 +238,9 @@ remove_worktrees() {
       || { rm -rf "$wt_path" 2>/dev/null; git worktree prune 2>/dev/null; } \
       || { warn "Could not remove worktree: $wt_path"; continue; }
     if [[ "$commit_count" -gt 0 ]]; then
-      info "Removed worktree (branch preserved, $commit_count commits)"
+      info "Removed worktree (branch $wt_branch preserved, $commit_count commits)"
     else
-      [[ -n "$wt_branch" ]] && git branch -D "$wt_branch" 2>/dev/null || true
-      info "Removed worktree (empty branch deleted)"
+      info "Removed worktree (branch $wt_branch kept)"
     fi
   done <<< "$wt_lines"
 }
@@ -295,12 +294,12 @@ cmd_run() {
       cd "$repo" || { warn "Skipping $short"; continue; }
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
       local _db=$(default_branch)
-      git checkout -f "$_db" 2>/dev/null || true
-      git clean -fd 2>/dev/null || true
-      git fetch --all --no-tags 2>/dev/null || true
-      git branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
-      git switch -c "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
-        || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" 2>/dev/null \
+      git checkout -f "$_db" &>/dev/null || true
+      git clean -fd &>/dev/null || true
+      GIT_TERMINAL_PROMPT=0 git fetch origin --no-tags &>/dev/null || true
+      git branch -D "_test-from-${from_commit:0:8}" &>/dev/null || true
+      git switch -c "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
+        || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
         || {
           if ! git rev-parse --verify "${from_commit}^{tree}" &>/dev/null; then
             warn "$short: tree for $from_commit unreadable (try: git -C $repo repack -a -d)"
@@ -472,13 +471,11 @@ mutate_plugin() {
           "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
         info "Neutered: fix_${ftag}()" ;;
       all-patterns)
-        sed -i '/^### /,$ { /^## /!d }' "$dest/docs/k8s-rebase-patterns.md"
-        info "Removed all patterns" ;;
+        sed -i '/^### /,$ { /^## /!d }' "$dest/docs/k8s-rebase-patterns.md" ;;
       all-fns)
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
         awk '/^fix_[a-z0-9_]+\(\)/ && !/fix_uncommitted/ { print $0; print "  return 0"; skip=1; next } skip && /^\}/ { print; skip=0; next } skip { next } { print }' \
-          "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
-        info "Neutered all functions" ;;
+          "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile" ;;
     esac
   done
 
@@ -525,24 +522,20 @@ cmd_test() {
   local mutated
   if [[ "${specs[*]}" == "none" ]]; then
     mutated="$PLUGIN_DIR"
+    info "Mode: full skill (patterns + autofix enabled)"
   elif [[ " ${specs[*]} " == *" none "* ]]; then
     die "Cannot mix 'none' with other specs"
   else
     mutated=$(mutate_plugin "${specs[@]}") || exit 1
+    if [[ "${specs[*]}" == *"all-patterns"*"all-fns"* || "${specs[*]}" == "all" ]]; then
+      info "Mode: blind (patterns doc + autofix functions disabled)"
+    else
+      info "Mode: mutated (${specs[*]})"
+    fi
   fi
 
   # Clean stale worktree branches
-  (cd "$repo" && git worktree prune 2>/dev/null || true
-   local _db; _db=$(default_branch)
-   for wt_branch in $(git branch | tr -d ' *' | grep 'worktree-k8s-rebase' | grep -v '^archived-'); do
-     local _ahead=$(git rev-list --count "$_db".."$wt_branch" 2>/dev/null || echo 0)
-     if [[ "$_ahead" -gt 0 ]]; then
-       local _ts=$(date +%Y%m%d%H%M%S)
-       git branch -m "$wt_branch" "archived-${wt_branch}-${_ts}" 2>/dev/null
-     else
-       git branch -D "$wt_branch" 2>/dev/null
-     fi
-   done)
+  (cd "$repo" && git worktree prune 2>/dev/null || true)
 
   # Track in running state
   local _state_dir="$PLUGIN_DIR/test/.matrix-state"
