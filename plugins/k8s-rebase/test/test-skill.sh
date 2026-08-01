@@ -217,7 +217,7 @@ reset_to_default() {
   local default_br
   default_br=$(default_branch)
   git checkout "$default_br" &>/dev/null || { error "Cannot checkout $default_br"; return 1; }
-  GIT_TERMINAL_PROMPT=0 git pull --ff-only &>/dev/null || true
+  git pull --ff-only &>/dev/null || true
   info "$(repo_short "$repo") -> $default_br @ $(git rev-parse --short HEAD)"
 }
 
@@ -296,7 +296,7 @@ cmd_run() {
       local _db=$(default_branch)
       git checkout -f "$_db" &>/dev/null || true
       git clean -fd &>/dev/null || true
-      GIT_TERMINAL_PROMPT=0 git fetch origin --no-tags &>/dev/null || true
+      git fetch origin --no-tags &>/dev/null || true
       git branch -D "_test-from-${from_commit:0:8}" &>/dev/null || true
       git switch -c "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
         || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
