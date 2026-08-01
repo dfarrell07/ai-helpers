@@ -21,6 +21,7 @@ warn()  { echo "WARNING: $*" >&2; }
 error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$HOME\/ovnk\//}"; }
+repo_key() { repo_short "$1" | tr '/' '_'; }
 
 _done_key() { local s="${1//[:\/\ ]/_}"; echo "${s}_$2"; }
 
@@ -98,21 +99,13 @@ _repo_k8s_version() {
 }
 
 _set_worktree_base() {
-  local repo="$1" mode="${2:-head}"
-  mkdir -p "$repo/.claude"
-  python3 -c "
-import json, os, sys
-p = os.path.join(sys.argv[1], '.claude', 'settings.json')
-mode = sys.argv[2]
-d = json.load(open(p)) if os.path.exists(p) else {}
-if mode == 'remove':
-    d.pop('worktree', None)
-    if d: json.dump(d, open(p, 'w'), indent=2)
-    elif os.path.exists(p): os.remove(p)
-else:
-    d['worktree'] = {'baseRef': mode}
-    json.dump(d, open(p, 'w'), indent=2)
-" "$repo" "$mode" 2>/dev/null
+  local repo="$1" mode="${2:-head}" p="$repo/.claude/settings.json"
+  if [[ "$mode" == "remove" ]]; then
+    rm -f "$p"
+  else
+    mkdir -p "$repo/.claude"
+    jq -n --arg m "$mode" '{"worktree":{"baseRef":$m}}' > "$p"
+  fi
 }
 
 _session_alive() {
@@ -146,7 +139,6 @@ default_branch() {
 # ── Session Management ─────────────────────────────────────────────────
 
 _SESSION_CACHE=""
-_SESSION_CACHE_OK=false
 _SESSION_CACHE_AGE=0
 
 _SESSION_PARSER=$(cat <<'PYEOF'
@@ -179,11 +171,9 @@ PYEOF
 build_session_cache() {
   local now=$(date +%s)
   [[ $((now - _SESSION_CACHE_AGE)) -lt 5 ]] && return 0
-  _SESSION_CACHE_OK=false
   command -v claude &>/dev/null || { _SESSION_CACHE_AGE=$now; return 0; }
   _SESSION_CACHE=$(timeout -k 1 10 claude agents --json 2>/dev/null \
     | timeout -k 1 5 python3 -c "$_SESSION_PARSER" 2>/dev/null || true)
-  [[ -n "$_SESSION_CACHE" ]] && _SESSION_CACHE_OK=true
   _SESSION_CACHE_AGE=$now
 }
 
@@ -340,7 +330,7 @@ cmd_run() {
     : "${session_id:=unknown}"
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
     info "Launched $short -> $session_id"
-    local _rk=$(repo_short "$repo" | tr '/' '_')
+    local _rk=$(repo_key "$repo")
     echo "$session_id" > "$PLUGIN_DIR/test/.matrix-state/.session_id_$_rk" 2>/dev/null
     launched=$((launched + 1))
   done
@@ -391,7 +381,7 @@ cmd_clean() {
     repo=$(resolve_repo "$repo") || continue
     local existing=$(session_for_repo "$repo")
     [[ -n "$existing" ]] && { warn "Active session on $(repo_short "$repo") — skipping"; continue; }
-    cleaned_keys+=($(repo_short "$repo" | tr '/' '_'))
+    cleaned_keys+=($(repo_key "$repo"))
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
     remove_worktrees "$repo"
@@ -557,7 +547,7 @@ cmd_test() {
   # Track in running state
   local _state_dir="$PLUGIN_DIR/test/.matrix-state"
   local _repo_key
-  _repo_key=$(repo_short "$repo" | tr '/' '_')
+  _repo_key=$(repo_key "$repo")
   mkdir -p "$_state_dir/running" "$_state_dir/done"
   # Remove old done file so auto_record can re-record this test
   local _done_key=$(_done_key "${specs[*]}" "$_repo_key")
@@ -621,12 +611,12 @@ cmd_test_all() {
   # Count already-running repos toward the limit
   for repo in "${sorted_repos[@]}"; do
     [[ -d "$repo" ]] || continue
-    local _rk=$(repo_short "$repo" | tr '/' '_')
+    local _rk=$(repo_key "$repo")
     [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
   done
   for repo in "${sorted_repos[@]}"; do
     [[ -d "$repo" ]] || continue
-    local _rk=$(repo_short "$repo" | tr '/' '_')
+    local _rk=$(repo_key "$repo")
     if [[ -f "$state_dir/running/$_rk" ]]; then
       local _run_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
       if [[ -z "$_run_sid" ]]; then
@@ -673,7 +663,7 @@ cmd_test_all() {
       _session_alive "$_sid_check" || _any_done=true
     done
     if $_any_done; then
-      _SESSION_CACHE_BUILT=false
+      _SESSION_CACHE_AGE=0
       auto_record
       for _rf in "$state_dir/running"/*; do
         [[ -f "$_rf" ]] || continue
@@ -685,12 +675,12 @@ cmd_test_all() {
     active=0
     for repo in "${sorted_repos[@]}"; do
       [[ -d "$repo" ]] || continue
-      local _rk=$(repo_short "$repo" | tr '/' '_')
+      local _rk=$(repo_key "$repo")
       [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
     done
     for repo in "${sorted_repos[@]}"; do
       [[ -d "$repo" ]] || continue
-      local _rk=$(repo_short "$repo" | tr '/' '_')
+      local _rk=$(repo_key "$repo")
       [[ -f "$state_dir/running/$_rk" ]] && continue
       local _done_key=$(_done_key "$spec" "$_rk")
       [[ -f "$state_dir/done/$_done_key" ]] && continue
@@ -801,17 +791,7 @@ _do_record_one() {
   local done_key=$(_done_key "$spec" "$repo_key")
   mkdir -p "$state_dir/done"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
-  {
-    echo "$ts	$_rec_version	$spec	$short	$verdict	$detail"
-    if [[ -d "$gate_dir" && "$gtotal" -gt 0 ]]; then
-      echo "---GATE-REPORTS---"
-      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
-        [[ -f "$f" ]] || continue
-        echo "=== $(basename "${f%.report}" .json) ==="
-        cat "$f"; echo ""
-      done
-    fi
-  } > "$state_dir/done/$done_key"
+  touch "$state_dir/done/$done_key"
   rm -f "$state_dir/running/$repo_key"
   printf '%-20s %-42s %-8s %s' "$spec" "$short" "$verdict" "$detail"
 }
@@ -867,7 +847,7 @@ auto_record() {
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_run_version" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
       local _done_key=$(_done_key "$spec" "$repo_key")
       mkdir -p "$state_dir/done"
-      echo "$ts	$_run_version	$spec	$short	FAIL	$_fail_detail" > "$state_dir/done/$_done_key"
+      touch "$state_dir/done/$_done_key"
       rm -f "$running_file"
       recorded=$((recorded + 1))
       warn "Recorded FAIL for $short ($_fail_detail)"
@@ -1016,7 +996,7 @@ cmd_watch() {
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
     local short=$(repo_short "$repo")
-    local _rk=$(echo "$short" | tr '/' '_')
+    local _rk=$(repo_key "$repo")
     [[ -f "$state_dir/running/$_rk" ]] || continue
     active=$((active + 1))
     local _raw=$(cat "$state_dir/running/$_rk")
@@ -1141,7 +1121,7 @@ _results_one() {
         local _court_verdict="FAIL"
         cmd_court "$branch" "$kg" "$repo" && _court_verdict="PASS"
         mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
-        echo "$_court_verdict" > "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$(repo_short "$repo" | tr '/' '_')"
+        echo "$_court_verdict" > "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$(repo_key "$repo")"
       fi
     fi
   fi
@@ -1162,7 +1142,7 @@ _results_all() {
   local all_pass=true
   for repo in "${DEFAULT_REPOS[@]}"; do
     local short=$(repo_short "$repo")
-    local _rk=$(echo "$short" | tr '/' '_')
+    local _rk=$(repo_key "$repo")
     local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
     if [[ -n "$latest_line" ]]; then
       local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
@@ -1170,12 +1150,7 @@ _results_all() {
       local detail=$(echo "$latest_line" | cut -f6)
       local court_result="-"
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
-      if [[ -f "$_court_file" ]]; then
-        court_result=$(cat "$_court_file")
-      elif [[ "$detail" == *"court: PASS"* ]]; then court_result="PASS"
-      elif [[ "$detail" == *"court: FAIL"* ]]; then court_result="FAIL"
-      fi
-      detail=$(echo "$detail" | sed 's/ — court: [A-Z]*$//')
+      [[ -f "$_court_file" ]] && court_result=$(cat "$_court_file")
       if [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" != "PASS" ]]; then
         verdict="XFAIL"
       elif [[ "$verdict" != "PASS" ]]; then
