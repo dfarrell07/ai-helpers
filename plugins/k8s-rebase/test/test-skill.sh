@@ -1081,138 +1081,123 @@ cmd_results() {
     esac; shift
   done
 
-  # Auto-record completed runs first
   auto_record
+  if [[ -n "$repo" ]]; then _results_one "$repo" "$court"; else _results_all; fi
+}
 
-  if [[ -n "$repo" ]]; then
-    # Single-repo deep-dive
-    local repo_input="$repo"
-    repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
-    local short=$(repo_short "$repo")
-    cd "$repo" || die "Cannot cd to $repo"
-    _worktree_info "$repo" || true
-    local wt="$_WT_PATH"
-    local gate_dir="" wt_in_progress=false
-    if [[ -n "$wt" ]]; then
-      gate_dir="$wt/.rebase-tmp/gates"
-      [[ ! -d "$gate_dir" ]] && wt_in_progress=true
-    else
-      gate_dir="$repo/.rebase-tmp/gates"
-    fi
-
-    echo "── $short ──"
-    if $wt_in_progress; then
-      echo "Run in progress (worktree exists, gates not yet written)"
-    elif [[ -d "$gate_dir" ]]; then
-      local total=0 gfail=0 gskip=0
-      read -r total gfail gskip <<< "$(_tally_gates "$gate_dir")"
-      local _skip_note=""
-      [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
-      if [[ "$total" -ge "$EXPECTED_GATES" && "$gfail" -eq 0 ]]; then
-        echo "Gates: all $total pass${_skip_note}"
-      elif [[ "$gfail" -gt 0 ]]; then
-        echo "Gates: $gfail FAILED ($total/$EXPECTED_GATES complete${_skip_note})"
-      else
-        echo "Gates: $total/$EXPECTED_GATES complete (in progress${_skip_note})"
-      fi
-      # Show failed gates inline
-      for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
-        [[ -f "$f" ]] || continue
-        local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-        v="${v^^}"
-        [[ "$v" == *"FAIL"* ]] && {
-          echo ""
-          echo "FAILED: $(basename "${f%.report}" .json)"
-          cat "$f"
-        }
-      done
-    else
-      echo "Gates: none (no reports found)"
-    fi
-
-    # Known-good comparison
-    local kg=$(_config_val "$short" "known_good")
-    if [[ -n "$kg" ]]; then
-      local branch=$(find_newest_branch "$repo")
-      if [[ -n "$branch" && -n "$kg" ]]; then
-        local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-        echo ""
-        if [[ "$nv" -eq 0 ]]; then
-          echo "Diff vs known-good branch $kg: identical (non-vendor)"
-        else
-          echo "Diff vs known-good branch $kg: $nv code hunks differ"
-        fi
-        if $court; then
-          local _court_verdict="FAIL"
-          cmd_court "$branch" "$kg" "$repo" && _court_verdict="PASS"
-          local _crk=$(repo_short "$repo" | tr '/' '_')
-          mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
-          echo "$_court_verdict" > "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_${_crk}"
-        fi
-      fi
-    fi
-
-    # Recent results for this repo
-    echo ""
-    echo "Recent results:"
-    awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts ver spec r verdict detail; do
-      printf "  %-22s %-8s %-8s %s\n" "$ts" "$ver" "$verdict" "$detail"
-    done
-    return 0
-  fi
-
-  # Per-repo latest results
-  local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
-  if [[ -f "$tsv" ]]; then
-    printf "%-45s %-8s %-8s %-20s %s\n" "REPO" "VERDICT" "COURT" "LAST RUN" "DETAIL"
-    printf "%-45s %-8s %-8s %-20s %s\n" "----" "-------" "-----" "--------" "------"
-    local all_pass=true
-    for repo in "${DEFAULT_REPOS[@]}"; do
-      local short=$(repo_short "$repo")
-      local _rk=$(echo "$short" | tr '/' '_')
-      local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
-      if [[ -n "$latest_line" ]]; then
-        local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
-        local verdict=$(echo "$latest_line" | cut -f5)
-        local detail=$(echo "$latest_line" | cut -f6)
-        local court_result="-"
-        local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
-        if [[ -f "$_court_file" ]]; then
-          court_result=$(cat "$_court_file")
-        elif [[ "$detail" == *"court: PASS"* ]]; then court_result="PASS"
-        elif [[ "$detail" == *"court: FAIL"* ]]; then court_result="FAIL"
-        fi
-        detail=$(echo "$detail" | sed 's/ — court: [A-Z]*$//')
-        if [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" != "PASS" ]]; then
-          verdict="XFAIL"
-        elif [[ "$verdict" != "PASS" ]]; then
-          all_pass=false
-        fi
-        printf "%-45s %-8s %-8s %-20s %s\n" "$short" "$verdict" "$court_result" "$ts" "$detail"
-      else
-        [[ "$(_config_val "$short" "expected_fail")" != "true" ]] && all_pass=false
-        local _reason="not tested"
-        # Check if repo is already at target version
-        local _resolved=$(resolve_repo "$short" 2>/dev/null)
-        if [[ -n "$_resolved" ]]; then
-          local _ver=$(_repo_k8s_version "$_resolved")
-          if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ -z "$(_config_val "$short" "from_commit")" ]]; then
-            _reason="already at $_ver — set from-commit to test"
-          fi
-        fi
-        printf "%-45s %-8s %-8s %-20s %s\n" "$short" "-" "-" "" "$_reason"
-      fi
-    done
-
-    echo ""
-    if $all_pass; then
-      echo "OVERALL: PASS"
-    else
-      echo "OVERALL: FAIL"
-    fi
+_results_one() {
+  local repo="$1" court="${2:-false}"
+  local repo_input="$repo"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+  local short=$(repo_short "$repo")
+  cd "$repo" || die "Cannot cd to $repo"
+  _worktree_info "$repo" || true
+  local wt="$_WT_PATH"
+  local gate_dir="" wt_in_progress=false
+  if [[ -n "$wt" ]]; then
+    gate_dir="$wt/.rebase-tmp/gates"
+    [[ ! -d "$gate_dir" ]] && wt_in_progress=true
   else
-    echo "No results yet. Run: make test"
+    gate_dir="$repo/.rebase-tmp/gates"
   fi
+
+  echo "── $short ──"
+  if $wt_in_progress; then
+    echo "Run in progress (worktree exists, gates not yet written)"
+  elif [[ -d "$gate_dir" ]]; then
+    local total=0 gfail=0 gskip=0
+    read -r total gfail gskip <<< "$(_tally_gates "$gate_dir")"
+    local _skip_note=""
+    [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
+    if [[ "$total" -ge "$EXPECTED_GATES" && "$gfail" -eq 0 ]]; then
+      echo "Gates: all $total pass${_skip_note}"
+    elif [[ "$gfail" -gt 0 ]]; then
+      echo "Gates: $gfail FAILED ($total/$EXPECTED_GATES complete${_skip_note})"
+    else
+      echo "Gates: $total/$EXPECTED_GATES complete (in progress${_skip_note})"
+    fi
+    for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
+      [[ -f "$f" ]] || continue
+      local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+      v="${v^^}"
+      [[ "$v" == *"FAIL"* ]] && { echo ""; echo "FAILED: $(basename "${f%.report}" .json)"; cat "$f"; }
+    done
+  else
+    echo "Gates: none (no reports found)"
+  fi
+
+  local kg=$(_config_val "$short" "known_good")
+  if [[ -n "$kg" ]]; then
+    local branch=$(find_newest_branch "$repo")
+    if [[ -n "$branch" ]]; then
+      local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+      echo ""
+      if [[ "$nv" -eq 0 ]]; then
+        echo "Diff vs known-good branch $kg: identical (non-vendor)"
+      else
+        echo "Diff vs known-good branch $kg: $nv code hunks differ"
+      fi
+      if [[ "$court" == "true" ]]; then
+        local _court_verdict="FAIL"
+        cmd_court "$branch" "$kg" "$repo" && _court_verdict="PASS"
+        mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
+        echo "$_court_verdict" > "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$(repo_short "$repo" | tr '/' '_')"
+      fi
+    fi
+  fi
+
+  echo ""
+  echo "Recent results:"
+  awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts ver spec r verdict detail; do
+    printf "  %-22s %-8s %-8s %s\n" "$ts" "$ver" "$verdict" "$detail"
+  done
+}
+
+_results_all() {
+  local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
+  if [[ ! -f "$tsv" ]]; then echo "No results yet. Run: make test"; return 0; fi
+
+  printf "%-45s %-8s %-8s %-20s %s\n" "REPO" "VERDICT" "COURT" "LAST RUN" "DETAIL"
+  printf "%-45s %-8s %-8s %-20s %s\n" "----" "-------" "-----" "--------" "------"
+  local all_pass=true
+  for repo in "${DEFAULT_REPOS[@]}"; do
+    local short=$(repo_short "$repo")
+    local _rk=$(echo "$short" | tr '/' '_')
+    local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
+    if [[ -n "$latest_line" ]]; then
+      local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
+      local verdict=$(echo "$latest_line" | cut -f5)
+      local detail=$(echo "$latest_line" | cut -f6)
+      local court_result="-"
+      local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+      if [[ -f "$_court_file" ]]; then
+        court_result=$(cat "$_court_file")
+      elif [[ "$detail" == *"court: PASS"* ]]; then court_result="PASS"
+      elif [[ "$detail" == *"court: FAIL"* ]]; then court_result="FAIL"
+      fi
+      detail=$(echo "$detail" | sed 's/ — court: [A-Z]*$//')
+      if [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" != "PASS" ]]; then
+        verdict="XFAIL"
+      elif [[ "$verdict" != "PASS" ]]; then
+        all_pass=false
+      fi
+      printf "%-45s %-8s %-8s %-20s %s\n" "$short" "$verdict" "$court_result" "$ts" "$detail"
+    else
+      [[ "$(_config_val "$short" "expected_fail")" != "true" ]] && all_pass=false
+      local _reason="not tested"
+      local _resolved=$(resolve_repo "$short" 2>/dev/null)
+      if [[ -n "$_resolved" ]]; then
+        local _ver=$(_repo_k8s_version "$_resolved")
+        if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ -z "$(_config_val "$short" "from_commit")" ]]; then
+          _reason="already at $_ver — set from-commit to test"
+        fi
+      fi
+      printf "%-45s %-8s %-8s %-20s %s\n" "$short" "-" "-" "" "$_reason"
+    fi
+  done
+
+  echo ""
+  if $all_pass; then echo "OVERALL: PASS"; else echo "OVERALL: FAIL"; fi
 }
 
 # ── Configuration ──────────────────────────────────────────────────────
