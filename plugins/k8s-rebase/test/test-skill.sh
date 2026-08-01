@@ -925,25 +925,6 @@ A difference is a REGRESSION only if it would cause a build failure,
 test failure, or runtime behavioral change (wrong types, broken wire
 format, dropped functionality). Pre-existing issues on the base
 branch are EQUIVALENT, not regressions."
-  if [[ "$hunks" -lt 5 ]]; then
-    info "Small diff — single classifier"
-    local out
-    out=$(cat <<EOF_CLASSIFY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null
-$direction
-$preexisting
-$diff_stat
-
-$diff_nv
-
-Classify each difference. End with VERDICT: PASS or FAIL
-EOF_CLASSIFY
-    ) || true
-    local v=$(echo "$out" | grep -oE 'VERDICT: (PASS|FAIL)' | tail -1)
-    echo "$out" | tail -10 >&2
-    case "$v" in "VERDICT: PASS") info "PASS";; "VERDICT: FAIL") error "FAIL"; return 1;; *) error "INCONCLUSIVE"; return 1;; esac
-    return 0
-  fi
-
   local logs=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
 $preexisting
