@@ -361,7 +361,7 @@ cmd_run() {
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
     info "Launched $short -> $session_id"
     local _rk=$(repo_short "$repo" | tr '/' '_')
-    echo "$session_id" > "$RESULTS_DIR/.session_id_$_rk" 2>/dev/null
+    echo "$session_id" > "$PLUGIN_DIR/test/.matrix-state/.session_id_$_rk" 2>/dev/null
     launched=$((launched + 1))
   done
   [[ "$launched" -gt 0 ]] || { warn "No sessions launched"; return 1; }
@@ -434,11 +434,11 @@ cmd_clean() {
   if [[ -d "$RESULTS_DIR" ]]; then
     local old_mutated=$(find "$RESULTS_DIR" -maxdepth 1 -name 'mutated-*' -type d 2>/dev/null | wc -l)
     [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
-    [[ -d "$RESULTS_DIR/court" ]] && { rm -rf "$RESULTS_DIR/court" 2>/dev/null; info "Cleaned court artifacts"; }
   fi
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
-  [[ -d "$state_dir/court" ]] && { rm -rf "$state_dir/court"/* 2>/dev/null; info "Cleared court verdicts"; }
+  [[ -d "$state_dir/court" ]] && { rm -rf "$state_dir/court"/* 2>/dev/null; info "Cleared court state"; }
+  rm -f "$state_dir"/.session_id_* 2>/dev/null
   for _ck in "${cleaned_keys[@]}"; do
     rm -f "$state_dir/running/$_ck" 2>/dev/null
   done
@@ -597,9 +597,9 @@ cmd_test() {
     error "Launch failed for $(repo_short "$repo")"; return 1
   fi
   # Append session ID to running file for reliable stop
-  local _sid=$(cat "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null)
+  local _sid=$(cat "$PLUGIN_DIR/test/.matrix-state/.session_id_$_repo_key" 2>/dev/null)
   [[ -n "$_sid" ]] && printf '%s\t%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" "$version" > "$_state_dir/running/$_repo_key"
-  rm -f "$RESULTS_DIR/.session_id_$_repo_key" 2>/dev/null
+  rm -f "$PLUGIN_DIR/test/.matrix-state/.session_id_$_repo_key" 2>/dev/null
   # Wait for completion when called standalone (not from cmd_test_all)
   if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
     info "Waiting for $(repo_short "$repo") to complete..."
@@ -947,8 +947,9 @@ $diff_nv
 COMMITS: $logs
 FILES: $diff_stat"
 
-  mkdir -p "$RESULTS_DIR/court" 2>/dev/null
-  local cdir="$RESULTS_DIR/court/$(date +%s)"
+  local _court_dir="$PLUGIN_DIR/test/.matrix-state/court"
+  mkdir -p "$_court_dir" 2>/dev/null
+  local cdir="$_court_dir/$(date +%s)"
   mkdir -p "$cdir"
 
   info "Phase A: Prosecution + Defense..."
