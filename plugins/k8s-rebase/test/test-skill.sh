@@ -53,6 +53,8 @@ EXPECTED_GATES=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
 [[ "$EXPECTED_GATES" -lt 1 ]] && EXPECTED_GATES=33
 
 # Load config from YAML
+_config_val() { yq ".repos.\"$1\".${2} // \"\"" "$CONFIG_FILE"; }
+
 _load_config() {
   command -v yq &>/dev/null || die "yq required — install from https://github.com/mikefarah/yq"
   [[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
@@ -64,18 +66,9 @@ _load_config() {
   while IFS= read -r repo_short; do
     [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$HOME/ovnk/$repo_short")
   done < <(yq '.repos | keys | .[]' "$CONFIG_FILE")
-  # Write per-repo configs to .matrix-state (for functions that read files)
-  local state_dir="$PLUGIN_DIR/test/.matrix-state"
-  mkdir -p "$state_dir"
+  # Validate from_commit SHAs exist in repos
   for _repo_name in $(yq '.repos | keys | .[]' "$CONFIG_FILE"); do
-    local _rk=$(echo "$_repo_name" | tr '/' '_')
-    local kg=$(yq ".repos.\"$_repo_name\".known_good // \"\"" "$CONFIG_FILE")
-    local fc=$(yq ".repos.\"$_repo_name\".from_commit // \"\"" "$CONFIG_FILE")
-    local xf=$(yq ".repos.\"$_repo_name\".expected_fail // \"\"" "$CONFIG_FILE")
-    [[ -n "$kg" ]] && echo "$kg" > "$state_dir/known_good_$_rk"
-    [[ -n "$fc" ]] && echo "$fc" > "$state_dir/from_commit_$_rk"
-    [[ "$xf" == "true" ]] && echo "1" > "$state_dir/expected_fail_$_rk" || rm -f "$state_dir/expected_fail_$_rk"
-    # Validate from_commit SHA exists in the repo
+    local fc=$(_config_val "$_repo_name" "from_commit")
     if [[ -n "$fc" && -d "$HOME/ovnk/$_repo_name" ]]; then
       if ! git -C "$HOME/ovnk/$_repo_name" rev-parse --verify "$fc^{commit}" &>/dev/null; then
         local _actual=$(git -C "$HOME/ovnk/$_repo_name" rev-parse "${fc:0:12}" 2>/dev/null)
@@ -548,9 +541,7 @@ cmd_test() {
 
   # Read from_commit from config if not passed via CLI
   if [[ -z "$from_commit" ]]; then
-    local _rk=$(repo_short "$repo" | tr '/' '_')
-    local _fc_file="$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk"
-    [[ -f "$_fc_file" ]] && from_commit=$(cat "$_fc_file")
+    from_commit=$(_config_val "$(repo_short "$repo")" "from_commit")
   fi
 
   info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
@@ -664,9 +655,9 @@ cmd_test_all() {
     fi
     local _done_key=$(_done_key "$spec" "$_rk")
     [[ -f "$state_dir/done/$_done_key" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
-    local _fc_file="$state_dir/from_commit_$_rk"
+    local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
     local _fc_args=()
-    [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
+    [[ -n "$_fc" ]] && _fc_args=(--from-commit "$_fc")
     # Skip repos already at target version with no from-commit set
     if [[ ${#_fc_args[@]} -eq 0 ]]; then
       local _cur_ver=$(_repo_k8s_version "$repo")
@@ -716,9 +707,9 @@ cmd_test_all() {
       [[ -f "$state_dir/running/$_rk" ]] && continue
       local _done_key=$(_done_key "$spec" "$_rk")
       [[ -f "$state_dir/done/$_done_key" ]] && continue
-      local _fc_file="$state_dir/from_commit_$_rk"
+      local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
       local _fc_args=()
-      [[ -f "$_fc_file" ]] && _fc_args=(--from-commit "$(cat "$_fc_file")")
+      [[ -n "$_fc" ]] && _fc_args=(--from-commit "$_fc")
       if [[ ${#_fc_args[@]} -eq 0 ]]; then
         local _cur_ver=$(_repo_k8s_version "$repo")
         [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]] && continue
@@ -785,9 +776,8 @@ _do_record_one() {
 
   # Known-good diff (informational — does not affect verdict)
   local kg_hunks="" kg_vendor="" kg_branch=""
-  local kg_file="$state_dir/known_good_$repo_key"
-  if [[ -f "$kg_file" ]]; then
-    kg_branch=$(cat "$kg_file")
+  kg_branch=$(_config_val "$short" "known_good")
+  if [[ -n "$kg_branch" ]]; then
     if git -C "$repo" rev-parse --verify "$kg_branch" &>/dev/null; then
       local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
       local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
@@ -1069,12 +1059,11 @@ else: print('gone')
         read -r gc gf gs <<< "$(_tally_gates "$wt/.rebase-tmp/gates")"
       fi
     fi
-    local kg_file="$state_dir/known_good_$_rk"
-    if [[ -f "$kg_file" && -n "$wt" ]]; then
-      local kg=$(cat "$kg_file")
+    local kg=$(_config_val "$short" "known_good")
+    if [[ -n "$kg" && -n "$wt" ]]; then
       if [[ -n "$_branch" ]] && git -C "$repo" rev-parse --verify "$kg" &>/dev/null; then
-        local nv=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-        local nv_all=$(git -C "$repo" diff "$branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+        local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+        local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
         diff_info="${nv} code"
         [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
       fi
@@ -1158,10 +1147,8 @@ cmd_results() {
     fi
 
     # Known-good comparison
-    local repo_key=$(echo "$short" | tr '/' '_')
-    local kg_file="$PLUGIN_DIR/test/.matrix-state/known_good_$repo_key"
-    if [[ -f "$kg_file" ]]; then
-      local kg=$(cat "$kg_file")
+    local kg=$(_config_val "$short" "known_good")
+    if [[ -n "$kg" ]]; then
       local branch=$(find_newest_branch "$repo")
       if [[ -n "$branch" && -n "$kg" ]]; then
         local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
@@ -1212,23 +1199,20 @@ cmd_results() {
         elif [[ "$detail" == *"court: FAIL"* ]]; then court_result="FAIL"
         fi
         detail=$(echo "$detail" | sed 's/ — court: [A-Z]*$//')
-        local _xf_file="$PLUGIN_DIR/test/.matrix-state/expected_fail_$_rk"
-        if [[ -f "$_xf_file" && "$verdict" != "PASS" ]]; then
+        if [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" != "PASS" ]]; then
           verdict="XFAIL"
         elif [[ "$verdict" != "PASS" ]]; then
           all_pass=false
         fi
         printf "%-45s %-8s %-8s %-20s %s\n" "$short" "$verdict" "$court_result" "$ts" "$detail"
       else
-        local _xf_file="$PLUGIN_DIR/test/.matrix-state/expected_fail_$_rk"
-        [[ ! -f "$_xf_file" ]] && all_pass=false
-        local _rk=$(echo "$short" | tr '/' '_')
+        [[ "$(_config_val "$short" "expected_fail")" != "true" ]] && all_pass=false
         local _reason="not tested"
         # Check if repo is already at target version
         local _resolved=$(resolve_repo "$short" 2>/dev/null)
         if [[ -n "$_resolved" ]]; then
           local _ver=$(_repo_k8s_version "$_resolved")
-          if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ ! -f "$PLUGIN_DIR/test/.matrix-state/from_commit_$_rk" ]]; then
+          if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ -z "$(_config_val "$short" "from_commit")" ]]; then
             _reason="already at $_ver — set from-commit to test"
           fi
         fi
@@ -1258,9 +1242,6 @@ cmd_set_known_good() {
   git rev-parse --verify "$branch" &>/dev/null || die "Branch not found: $branch"
   local short=$(repo_short "$repo")
   yq -i ".repos.\"$short\".known_good = \"$branch\"" "$CONFIG_FILE"
-  local repo_key=$(echo "$short" | tr '/' '_')
-  mkdir -p "$PLUGIN_DIR/test/.matrix-state"
-  echo "$branch" > "$PLUGIN_DIR/test/.matrix-state/known_good_$repo_key"
   info "Set known-good for $short: $branch"
 }
 
@@ -1274,9 +1255,6 @@ cmd_set_from_commit() {
   full_sha=$(git rev-parse --verify "$commit" 2>/dev/null) || die "Commit not found: $commit"
   local short=$(repo_short "$repo")
   yq -i ".repos.\"$short\".from_commit = \"$full_sha\"" "$CONFIG_FILE"
-  local repo_key=$(echo "$short" | tr '/' '_')
-  mkdir -p "$PLUGIN_DIR/test/.matrix-state"
-  echo "$full_sha" > "$PLUGIN_DIR/test/.matrix-state/from_commit_$repo_key"
   info "Set from-commit for $short: ${full_sha:0:12}"
 }
 
