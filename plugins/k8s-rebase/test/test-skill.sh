@@ -56,6 +56,34 @@ EXPECTED_GATES=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
 # Load config from YAML
 _config_val() { yq ".repos.\"$1\".${2} // \"\"" "$CONFIG_FILE"; }
 
+_resolve_known_good() {
+  local name="$1" repo_dir="$2"
+  local _rk=$(echo "$name" | tr '/' '_')
+  local _cache="$PLUGIN_DIR/test/.matrix-state/known_good_resolved_$_rk"
+  if [[ -f "$_cache" ]]; then
+    local _cached=$(cat "$_cache")
+    git -C "$repo_dir" rev-parse --verify "$_cached" &>/dev/null && echo "$_cached" && return 0
+  fi
+  local kg=$(yq ".repos.\"$name\".known_good // \"\"" "$CONFIG_FILE")
+  [[ -z "$kg" || "$kg" == "null" ]] && return 1
+  local resolved=""
+  if ! yq -e ".repos.\"$name\".known_good.url" "$CONFIG_FILE" &>/dev/null; then
+    git -C "$repo_dir" rev-parse --verify "$kg" &>/dev/null || return 1
+    resolved="$kg"
+  else
+    local url ref
+    url=$(yq ".repos.\"$name\".known_good.url" "$CONFIG_FILE")
+    ref=$(yq ".repos.\"$name\".known_good.ref" "$CONFIG_FILE")
+    [[ -z "$url" || "$url" == "null" || -z "$ref" || "$ref" == "null" ]] && return 1
+    git -C "$repo_dir" fetch "$url" "$ref" &>/dev/null \
+      || { warn "Could not fetch known-good $ref from $url"; return 1; }
+    resolved=$(git -C "$repo_dir" rev-parse FETCH_HEAD)
+  fi
+  mkdir -p "$(dirname "$_cache")"
+  echo "$resolved" > "$_cache"
+  echo "$resolved"
+}
+
 _load_config() {
   command -v yq &>/dev/null || die "yq required — install from https://github.com/mikefarah/yq"
   [[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
@@ -746,14 +774,12 @@ _do_record_one() {
 
   # Known-good diff (informational — does not affect verdict)
   local kg_hunks="" kg_vendor="" kg_branch=""
-  kg_branch=$(_config_val "$short" "known_good")
+  kg_branch=$(_resolve_known_good "$short" "$repo")
   if [[ -n "$kg_branch" ]]; then
-    if git -C "$repo" rev-parse --verify "$kg_branch" &>/dev/null; then
-      local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
-      local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-      kg_hunks="$kg_diff_nv"
-      [[ "$kg_diff_all" -gt "$kg_diff_nv" ]] && kg_vendor="$((kg_diff_all - kg_diff_nv))"
-    fi
+    local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+    local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+    kg_hunks="$kg_diff_nv"
+    [[ "$kg_diff_all" -gt "$kg_diff_nv" ]] && kg_vendor="$((kg_diff_all - kg_diff_nv))"
   fi
 
   # Build human-readable detail
@@ -1016,14 +1042,12 @@ cmd_watch() {
         read -r gc gf gs <<< "$(_tally_gates "$wt/.rebase-tmp/gates")"
       fi
     fi
-    local kg=$(_config_val "$short" "known_good")
-    if [[ -n "$kg" && -n "$wt" ]]; then
-      if [[ -n "$_branch" ]] && git -C "$repo" rev-parse --verify "$kg" &>/dev/null; then
-        local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-        local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
-        diff_info="${nv} code"
-        [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
-      fi
+    local kg=$(_resolve_known_good "$short" "$repo")
+    if [[ -n "$kg" && -n "$wt" && -n "$_branch" ]]; then
+      local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+      local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+      diff_info="${nv} code"
+      [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
     fi
     # Show "court" when session is done but gates complete and no done file
     if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
@@ -1099,16 +1123,16 @@ _results_one() {
     echo "Gates: none (no reports found)"
   fi
 
-  local kg=$(_config_val "$short" "known_good")
+  local kg=$(_resolve_known_good "$short" "$repo")
   if [[ -n "$kg" ]]; then
     local branch=$(find_newest_branch "$repo")
     if [[ -n "$branch" ]]; then
       local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
       echo ""
       if [[ "$nv" -eq 0 ]]; then
-        echo "Diff vs known-good branch $kg: identical (non-vendor)"
+        echo "Diff vs known-good ${kg:0:12}: identical (non-vendor)"
       else
-        echo "Diff vs known-good branch $kg: $nv code hunks differ"
+        echo "Diff vs known-good ${kg:0:12}: $nv code hunks differ"
       fi
       if [[ "$court" == "true" ]]; then
         local _court_verdict="FAIL"
