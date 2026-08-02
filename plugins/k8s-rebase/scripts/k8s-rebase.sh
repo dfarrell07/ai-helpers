@@ -1070,6 +1070,4 @@ if [[ -n "$(git status --porcelain)" ]]; then
 fi
 echo ""
 echo "RESULT: EXIT 2 — mechanical rebase done, proceed to validation"
-echo "EXIT 2" > "$REBASE_TMP/step1-result.txt"
-echo "$API_VERSION" > "$REBASE_TMP/target-k8s-api-version.txt"
 exit 2
