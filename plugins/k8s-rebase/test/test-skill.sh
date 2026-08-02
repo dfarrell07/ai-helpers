@@ -1078,11 +1078,11 @@ cmd_watch() {
       diff_info="${nv} code"
       [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
     fi
-    # Show "court" when session is done but gates complete and no done file
+    # Show "needs-court" when session is done, gates complete, no done file yet
     if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
       local _done_key=$(_done_key "$(echo "$_raw" | cut -f4)" "${_raw%%	*}" "$_rk")
       if [[ "$gc" -ge "$EXPECTED_GATES" && ! -f "$state_dir/done/$_done_key" ]]; then
-        session_state="court"
+        session_state="needs-court"
       fi
     fi
     local gate_str="${gc}/${EXPECTED_GATES}"
