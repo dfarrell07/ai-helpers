@@ -36,10 +36,14 @@ _ensure_repo() {
     warn "Removing broken clone: $dest"
     rm -rf "$dest"
   fi
-  info "Cloning $name..."
+  info "Cloning $name (this may take a few minutes)..."
   mkdir -p "$(dirname "$dest")"
-  git clone --single-branch --no-tags "https://github.com/${name}.git" "$dest" &>/dev/null \
-    || { error "Clone failed: $name"; return 1; }
+  if ! git clone --single-branch --no-tags "https://github.com/${name}.git" "$dest" 2>&1 | tail -1 >&2; then
+    error "Clone failed: $name"
+    rm -rf "$dest"
+    return 1
+  fi
+  info "Cloned $name"
 }
 
 _done_key() { local s="${2//[:\/\ ]/_}"; echo "${1}_${s}_$3"; }
