@@ -51,8 +51,9 @@ REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not i
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
 mkdir -p "$REBASE_TMP"
 GIT_DIR_RESOLVED="$(git rev-parse --git-dir 2>/dev/null)"
-mkdir -p "$GIT_DIR_RESOLVED/info"
-grep -qF '.rebase-tmp' "$GIT_DIR_RESOLVED/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$GIT_DIR_RESOLVED/info/exclude"
+GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null || echo "$GIT_DIR_RESOLVED")"
+mkdir -p "$GIT_COMMON_DIR/info"
+grep -qF '.rebase-tmp' "$GIT_COMMON_DIR/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$GIT_COMMON_DIR/info/exclude"
 
 # Guard: refuse to run on master/main — validate must run on the rebase branch.
 _current_branch=$(git branch --show-current 2>/dev/null || true)

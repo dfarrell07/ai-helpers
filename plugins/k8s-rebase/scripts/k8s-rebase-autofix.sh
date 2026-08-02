@@ -63,10 +63,11 @@ export GOWORK=off
 REBASE_TMP="$REPO_ROOT/.rebase-tmp"
 mkdir -p "$REBASE_TMP"
 GIT_DIR=$(git -C "$REPO_ROOT" rev-parse --git-dir 2>/dev/null)
-mkdir -p "$GIT_DIR/info" 2>/dev/null || true
-if [[ -d "$GIT_DIR/info" ]]; then
-  grep -qF '.rebase-tmp' "$GIT_DIR/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$GIT_DIR/info/exclude"
-  grep -qF '.gitconfig' "$GIT_DIR/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$GIT_DIR/info/exclude"
+GIT_COMMON_DIR=$(git -C "$REPO_ROOT" rev-parse --git-common-dir 2>/dev/null || echo "$GIT_DIR")
+mkdir -p "$GIT_COMMON_DIR/info" 2>/dev/null || true
+if [[ -d "$GIT_COMMON_DIR/info" ]]; then
+  grep -qF '.rebase-tmp' "$GIT_COMMON_DIR/info/exclude" 2>/dev/null || echo '.rebase-tmp/' >> "$GIT_COMMON_DIR/info/exclude"
+  grep -qF '.gitconfig' "$GIT_COMMON_DIR/info/exclude" 2>/dev/null || echo '.gitconfig' >> "$GIT_COMMON_DIR/info/exclude"
 fi
 
 # Find primary go.mod with k8s.io deps
