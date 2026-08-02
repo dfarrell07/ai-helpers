@@ -219,8 +219,8 @@ build_session_cache() {
   local now=$(date +%s)
   [[ $((now - _SESSION_CACHE_AGE)) -lt 5 ]] && return 0
   command -v claude &>/dev/null || { _SESSION_CACHE_AGE=$now; return 0; }
-  _SESSION_CACHE=$(timeout -k 5 30 claude agents --json 2>/dev/null \
-    | timeout -k 1 10 python3 -c "$_SESSION_PARSER" 2>/dev/null || true)
+  _SESSION_CACHE=$(claude agents --json 2>/dev/null \
+    | python3 -c "$_SESSION_PARSER" 2>/dev/null || true)
   _SESSION_CACHE_AGE=$now
 }
 
