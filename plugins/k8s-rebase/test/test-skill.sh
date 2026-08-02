@@ -27,6 +27,8 @@ error() { echo "ERROR: $*" >&2; }
 die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$REPOS_DIR\//}"; }
 repo_key() { repo_short "$1" | tr '/' '_'; }
+running_key() { echo "${1:?version}_$(repo_key "${2:?repo}")"; }
+repo_key_from_running() { echo "${2#${1:?version}_}"; }
 
 _ensure_repo() {
   local name="$1"
@@ -237,8 +239,9 @@ session_for_repo() {
   while IFS=$'\t' read -r cwd state elapsed pid _rest; do
     [[ -z "$cwd" ]] && continue
     [[ "$cwd" == *"/${short}/"* || "$cwd" == *"/${short}" ]] || continue
-    [[ "$state" == "done" ]] && continue
+    [[ "$state" == "done" || "$state" == "blocked" || "$state" == "?" ]] && continue
     [[ -z "$pid" || "$pid" == "0" ]] && continue
+    kill -0 "$pid" 2>/dev/null || continue
     if [[ "$cwd" == *"/.claude/worktrees/"* && ! -d "$cwd" ]]; then
       continue
     fi
@@ -382,7 +385,7 @@ cmd_run() {
     : "${session_id:=unknown}"
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
     info "Launched $short -> $session_id"
-    local _rk=$(repo_key "$repo")
+    local _rk=$(running_key "$version" "$repo")
     echo "$session_id" > "$PLUGIN_DIR/test/.matrix-state/.session_id_$_rk" 2>/dev/null
     launched=$((launched + 1))
   done
@@ -405,6 +408,8 @@ cmd_stop() {
     local raw=$(cat "$running_file")
     local sid=$(echo "$raw" | cut -f3)
     [[ -z "$sid" ]] && continue
+    local _fv=$(echo "$raw" | cut -f4)
+    repo_key=$(repo_key_from_running "$_fv" "$repo_key")
     local short=$(echo "$repo_key" | tr '_' '/')
     local should_stop=false
     if $stop_all; then
@@ -462,7 +467,7 @@ cmd_clean() {
   [[ -d "$state_dir/court" ]] && { rm -rf "$state_dir/court"/* 2>/dev/null; info "Cleared court state"; }
   rm -f "$state_dir"/.session_id_* "$state_dir"/from_commit_* "$state_dir"/known_good_* "$state_dir"/expected_fail_* 2>/dev/null
   for _ck in "${cleaned_keys[@]}"; do
-    rm -f "$state_dir/running/$_ck" 2>/dev/null
+    rm -f "$state_dir/running/"*"_${_ck}" 2>/dev/null
   done
   return 0
 }
@@ -596,6 +601,7 @@ cmd_test() {
   local _state_dir="$PLUGIN_DIR/test/.matrix-state"
   local _repo_key
   _repo_key=$(repo_key "$repo")
+  local _running_key=$(running_key "$version" "$repo")
   mkdir -p "$_state_dir/running" "$_state_dir/done"
   # Remove old done file so auto_record can re-record this test
   local _done_key=$(_done_key "$version" "${specs[*]}" "$_repo_key")
@@ -614,22 +620,22 @@ cmd_test() {
     error "Launch failed for $(repo_short "$repo")"; return 1
   fi
   # Append session ID to running file for reliable stop
-  local _sid=$(cat "$mutated/test/.matrix-state/.session_id_$_repo_key" 2>/dev/null)
-  [[ -n "$_sid" ]] && printf '%s\t%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" "$version" > "$_state_dir/running/$_repo_key"
-  rm -f "$mutated/test/.matrix-state/.session_id_$_repo_key" 2>/dev/null
+  local _sid=$(cat "$mutated/test/.matrix-state/.session_id_$_running_key" 2>/dev/null)
+  [[ -n "$_sid" ]] && printf '%s\t%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" "$version" > "$_state_dir/running/$_running_key"
+  rm -f "$mutated/test/.matrix-state/.session_id_$_running_key" 2>/dev/null
   # Wait for completion when called standalone (not from cmd_test_all)
   if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
     info "Waiting for $(repo_short "$repo") to complete..."
     trap 'info "Interrupted — session still running in background"; exit 130' INT TERM
-    while [[ -f "$_state_dir/running/$_repo_key" ]]; do
+    while [[ -f "$_state_dir/running/$_running_key" ]]; do
       sleep 60
-      local _sid=$(cut -f3 "$_state_dir/running/$_repo_key" 2>/dev/null)
+      local _sid=$(cut -f3 "$_state_dir/running/$_running_key" 2>/dev/null)
       if ! _session_alive "$_sid"; then
         _SESSION_CACHE_AGE=0
         auto_record
-        [[ -f "$_state_dir/running/$_repo_key" ]] && {
+        [[ -f "$_state_dir/running/$_running_key" ]] && {
           warn "Session ended — recording result"
-          rm -f "$_state_dir/running/$_repo_key"
+          rm -f "$_state_dir/running/$_running_key"
           break
         }
       fi
@@ -660,13 +666,13 @@ cmd_test_all() {
   # Count already-running repos toward the limit
   for repo in "${sorted_repos[@]}"; do
     [[ -d "$repo" ]] || continue
-    local _rk=$(repo_key "$repo")
+    local _rk=$(running_key "$version" "$repo")
     [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
   done
   for repo in "${sorted_repos[@]}"; do
     _ensure_repo "$(repo_short "$repo")"
     [[ -d "$repo" ]] || continue
-    local _rk=$(repo_key "$repo")
+    local _rk=$(running_key "$version" "$repo")
     if [[ -f "$state_dir/running/$_rk" ]]; then
       local _run_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
       if [[ -z "$_run_sid" ]]; then
@@ -725,12 +731,12 @@ cmd_test_all() {
     active=0
     for repo in "${sorted_repos[@]}"; do
       [[ -d "$repo" ]] || continue
-      local _rk=$(repo_key "$repo")
+      local _rk=$(running_key "$version" "$repo")
       [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
     done
     for repo in "${sorted_repos[@]}"; do
       [[ -d "$repo" ]] || continue
-      local _rk=$(repo_key "$repo")
+      local _rk=$(running_key "$version" "$repo")
       [[ -f "$state_dir/running/$_rk" ]] && continue
       local _done_key=$(_done_key "$version" "$spec" "$_rk")
       [[ -f "$state_dir/done/$_done_key" ]] && continue
@@ -840,7 +846,7 @@ _do_record_one() {
   mkdir -p "$state_dir/done"
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
   touch "$state_dir/done/$done_key"
-  rm -f "$state_dir/running/$repo_key"
+  rm -f "$state_dir/running/${_rec_version}_${repo_key}"
   printf '%-20s %-42s %-8s %s' "$spec" "$short" "$verdict" "$detail"
 }
 
@@ -860,6 +866,7 @@ auto_record() {
     [[ "$launch_epoch" =~ ^[0-9]+$ ]] || launch_epoch=0
     local _run_version=$(echo "$_raw" | cut -f4)
     : "${_run_version:=$VERSION}"
+    repo_key=$(repo_key_from_running "$_run_version" "$repo_key")
     [[ -z "$spec" ]] && { rm -f "$running_file"; continue; }
 
     local repo
@@ -1044,7 +1051,7 @@ cmd_watch() {
   for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
     local short=$(repo_short "$repo")
-    local _rk=$(repo_key "$repo")
+    local _rk=$(running_key "$VERSION" "$repo")
     [[ -f "$state_dir/running/$_rk" ]] || continue
     active=$((active + 1))
     local _raw=$(cat "$state_dir/running/$_rk")
