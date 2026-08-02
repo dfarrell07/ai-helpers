@@ -1196,7 +1196,11 @@ _results_all() {
       local detail=$(echo "$latest_line" | cut -f6)
       local court_result="-"
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
-      [[ -f "$_court_file" ]] && court_result=$(cat "$_court_file")
+      if [[ -f "$_court_file" ]]; then
+        court_result=$(cat "$_court_file")
+      elif [[ "$verdict" == "PASS" ]]; then
+        court_result="pending"
+      fi
       if [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" != "PASS" ]]; then
         verdict="XFAIL"
       elif [[ "$verdict" != "PASS" ]]; then
