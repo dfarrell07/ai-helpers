@@ -686,7 +686,7 @@ cmd_test_all() {
         active=$((active - 1))
       fi
     fi
-    local _done_key=$(_done_key "$version" "$spec" "$_rk")
+    local _done_key=$(_done_key "$version" "$spec" "$(repo_key "$repo")")
     [[ -f "$state_dir/done/$_done_key" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
     local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
     local _fc_args=()
@@ -738,7 +738,7 @@ cmd_test_all() {
       [[ -d "$repo" ]] || continue
       local _rk=$(running_key "$version" "$repo")
       [[ -f "$state_dir/running/$_rk" ]] && continue
-      local _done_key=$(_done_key "$version" "$spec" "$_rk")
+      local _done_key=$(_done_key "$version" "$spec" "$(repo_key "$repo")")
       [[ -f "$state_dir/done/$_done_key" ]] && continue
       local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
       local _fc_args=()
