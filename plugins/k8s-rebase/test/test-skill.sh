@@ -1048,13 +1048,16 @@ cmd_watch() {
   printf "%-42s %-10s %-8s %-32s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
   printf "%-42s %-10s %-8s %-32s %s\n" "----" "-------" "-----" "-------------" "-------------"
   local active=0
-  for repo in "${DEFAULT_REPOS[@]}"; do
-    [[ -d "$repo" ]] || continue
-    local short=$(repo_short "$repo")
-    local _rk=$(running_key "$VERSION" "$repo")
-    [[ -f "$state_dir/running/$_rk" ]] || continue
+  for running_file in "$state_dir/running"/*; do
+    [[ -f "$running_file" ]] || continue
     active=$((active + 1))
-    local _raw=$(cat "$state_dir/running/$_rk")
+    local _rk=$(basename "$running_file")
+    local _raw=$(cat "$running_file")
+    local _file_version=$(echo "$_raw" | cut -f4)
+    local _bare_rk=$(repo_key_from_running "$_file_version" "$_rk")
+    local short=$(echo "$_bare_rk" | tr '_' '/')
+    local repo="$REPOS_DIR/$short"
+    [[ -d "$repo" ]] || continue
     local _sid=$(echo "$_raw" | cut -f3)
     local session_state="gone"
     if [[ -n "$_sid" ]]; then
@@ -1087,7 +1090,7 @@ cmd_watch() {
     fi
     # Show "needs-court" when session is done, gates complete, no done file yet
     if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
-      local _done_key=$(_done_key "$(echo "$_raw" | cut -f4)" "${_raw%%	*}" "$_rk")
+      local _done_key=$(_done_key "$(echo "$_raw" | cut -f4)" "${_raw%%	*}" "$_bare_rk")
       if [[ "$gc" -ge "$EXPECTED_GATES" && ! -f "$state_dir/done/$_done_key" ]]; then
         session_state="needs-court"
       fi
