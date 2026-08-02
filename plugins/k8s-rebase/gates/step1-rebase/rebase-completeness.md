@@ -13,18 +13,32 @@ Report a count for each check:
    branch. Count MISSING expected commits:
    - "Rebase" commits (at least 1 per go.mod with k8s.io deps,
      excluding vendor/)
-   - Codegen commit (expected if hack/update-codegen.sh,
-     Makefile generate/manifests/codegen targets, or
-     `//go:generate` directives exist in .go files)
+   - Codegen commit (expected if hack/update-codegen.sh or
+     Makefile generate/manifests/codegen targets exist —
+     search all directories containing go.mod files).
+     EXCEPTION: if `.rebase-tmp/codegen.log` exists (codegen
+     ran) AND `.rebase-tmp/summary.txt` does NOT contain
+     "## CODEGEN FAILURE" (it succeeded) AND there is no
+     codegen commit in git log — then codegen produced no
+     diff and a codegen commit is NOT expected (count 0).
    - Version refs commit
 4. Dependency versions: check all go.mod files (excluding
    vendor/) for k8s.io/* deps. All should be at the same
    minor version. Count any at an older minor version.
-   EXCEPTION: if a version mismatch comes from a `replace`
-   directive that also exists on the base branch (`git show
-   $(git merge-base HEAD master 2>/dev/null || git merge-base
-   HEAD main):go.mod | grep replace`), it is pre-existing —
-   do NOT count it.
+   EXCEPTION — do NOT count a version mismatch if EITHER:
+   (a) the module has a `replace` directive in this go.mod,
+       and that same replace (same module, same target) also
+       exists on the base branch; OR
+   (b) the module is an `// indirect` require, and it
+       appears at the same version in this go.mod on the
+       base branch.
+   To check the base-branch version of any go.mod:
+   `git show $(git merge-base HEAD master 2>/dev/null ||
+   git merge-base HEAD main):<path>` — substitute the
+   relative path of the go.mod being checked (e.g. go.mod,
+   go-controller/go.mod).
+   Direct (non-indirect) requires without a `replace` are
+   never excepted — the rebase script must bump those.
 
 5. Conflict markers: scan all non-vendor source files:
    `grep -rn '<<<<<<<\|>>>>>>>' --include='*.go' --include='*.yaml' --include='*.json' . | grep -v vendor/`
@@ -34,15 +48,27 @@ Report a count for each check:
 Report all 5 counts. Count 0 means that check passed.
 
 Fix hints for non-zero counts:
-- Check 1 (result file): re-run the rebase script
+- Check 1 (result file): if Checks 2-5 all pass, the script
+  likely crashed after completing — proceed. Otherwise, check
+  `.rebase-tmp/step1.log` for the error and address it.
 - Check 2 (uncommitted): `git add` and commit, or investigate
   why the script's commit step failed
 - Check 3 (missing commits): re-run the rebase for the missing
   module, or check if that module has no k8s.io deps
-- Check 4 (version mismatch): run `go get k8s.io/<mod>@v0.<target>.0`
-  for each mismatched module
+- Check 4 (version mismatch): report this fix for the main
+  agent to apply: `go get k8s.io/<mod>@v0.<target>.0`
 
-VERDICT: FAIL if any count is non-zero. PASS if all counts are 0.
+VERDICT:
+- If all counts are 0: PASS.
+- If Check 1 is 1 but Checks 2-5 are ALL 0: PASS. The result
+  file is missing but all work was completed. Note it in summary.
+- Otherwise: FAIL.
+
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
+command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+`go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
+`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`. Fix-hint commands in report text are fine.
 
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole

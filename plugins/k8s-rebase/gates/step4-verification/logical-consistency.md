@@ -35,6 +35,12 @@ If the same issue exists on the base branch, it is pre-existing —
 report as INFO but do NOT count toward FAIL. Only issues
 introduced by the rebase trigger FAIL.
 
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
+command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+`go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
+`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`. Fix-hint commands in report text are fine.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. For each issue, state the specific

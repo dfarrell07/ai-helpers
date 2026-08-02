@@ -163,8 +163,12 @@ version in `.ci-operator.yaml` and Dockerfiles.
 
 **Gate:** Find the gate prompt directory, read each file listed
 below with `cat`, and launch one subagent per file with the
-file's contents as the prompt. Prepend the repo path to each
-prompt so the subagent knows where to look.
+file's contents as the prompt. Prepend the repo path and the
+module safety rule: "You must NEVER run go mod tidy, go get,
+go mod vendor, go mod edit, go generate, or go run. Only
+go build, go vet, go test are permitted (with -mod=vendor if
+vendor/ exists). Also allowed: go mod verify, go doc,
+go install <tool>@<version>, go clean -cache."
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step1-rebase" -type d 2>/dev/null | head -1)
@@ -177,10 +181,14 @@ Gate files:
 1. **Fix**: For each failing check (missing codegen, uncommitted
    changes, stale replace directives, wrong dep versions),
    fix the issue and commit.
-2. **Re-run**: Delete old report (`rm .rebase-tmp/gates/step1-rebase-completeness.report`),
-   re-launch the gate subagent. The old FAIL persists in
-   auto-record if you don't re-run.
-Repeat until the gate passes.
+2. **Re-run** (mandatory — never skip): Delete the old gate report
+   (`rm .rebase-tmp/gates/step1-rebase-completeness.report`),
+   then re-launch the gate subagent with a fresh prompt. Stale
+   FAIL reports cause auto-record to mark the run as failed even
+   if the fix worked.
+Repeat up to 3 times. If it still fails, stop and report the
+remaining issues — step 1 failures are structural and proceeding
+would cause cascading problems in later steps.
 
 Also check `.rebase-tmp/summary.txt` for `## CODEGEN FAILURE`.
 If present, fix the codegen script (e.g., remove dropped flags),
@@ -203,6 +211,12 @@ complete until all subagents report zero issues.
 - Gate subagents are read-only — they must NOT edit repo files.
   Their sole permitted write is their gate report file under
   `.rebase-tmp/gates/`. The main agent applies fixes.
+- **Module safety:** Gate subagents must NEVER run `go mod tidy`,
+  `go get`, `go mod vendor`, `go mod edit`, `go generate`, or
+  `go run`. Allowed go commands: `go build`, `go vet`, `go test`
+  (with `-mod=vendor` when vendor/ exists), `go mod verify`,
+  `go doc`, `go install <tool>@<version>`, `go clean -cache`.
+  Include this rule when constructing each gate subagent prompt.
 - If ANY judgment agent flags a concern, the main agent MUST
   investigate and either fix it or explain why it's not an
   issue before proceeding. Do not dismiss judgment concerns.
@@ -339,8 +353,8 @@ missing from the conversion."
 **Gate:** Find the gate prompt directory, read each file listed
 below with `cat`, and launch one subagent per file with the
 file's contents as the prompt. Launch all in a single parallel
-wave. Prepend the repo path to each prompt so the subagent
-knows where to look.
+wave. Prepend the repo path and the module safety rule (see
+Step 1 gate launch for the full text) to each prompt.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step2-compilation" -type d 2>/dev/null | head -1)
@@ -361,10 +375,12 @@ Count gates must report 0. Judge gates must cite evidence.
    `git show $(git merge-base HEAD master 2>/dev/null ||
    git merge-base HEAD main):<file>` — skip pre-existing issues.
 2. **Fix**: Fix the cited issue at the cited location. Commit.
-3. **Re-run**: Delete old report (`rm .rebase-tmp/gates/<gate>.report`),
-   re-launch the gate subagent. Stale FAIL reports cause
+3. **Re-run** (mandatory — never skip): Delete the old gate report
+   (`rm .rebase-tmp/gates/<gate>.report`), then re-launch the
+   gate subagent with a fresh prompt. Stale FAIL reports cause
    auto-record to mark the run as failed even if the fix worked.
-Repeat up to 3 times per gate.
+Repeat up to 3 times per gate. If it still fails, report
+remaining issues and proceed.
 
 **You MUST run all 6 step2 gates even if there were zero
 compilation errors.** Gates check more than compilation — they
@@ -425,7 +441,8 @@ PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.m
 
 **Gate:** Find the gate prompt directory, `cat` each file below,
 and launch one subagent per file with its contents as the prompt.
-All in one parallel wave. Prepend the repo path to each prompt.
+All in one parallel wave. Prepend the repo path and the module
+safety rule (see Step 1 gate launch) to each prompt.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step3-autofix" -type d 2>/dev/null | head -1)
@@ -642,7 +659,8 @@ The following gate agents are read-only (no compilation) and
 can run alongside test agents without adding memory pressure.
 Find the gate prompt directory, `cat` each file below, and
 launch one subagent per file with its contents as the prompt.
-Prepend the repo path to each prompt.
+Prepend the repo path and the module safety rule (see Step 1
+gate launch) to each prompt.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step4-verification" -type d 2>/dev/null | head -1)
@@ -674,10 +692,14 @@ All count-checks must be 0. Investigate judgment concerns.
    If the file was NOT modified by this branch (`git diff
    $BASE..HEAD -- <file>` is empty), it's pre-existing.
 2. **Fix**: Fix each NEW finding at the cited location. Commit.
-3. **Re-run** (mandatory): `rm .rebase-tmp/gates/<gate>.report`
-   then re-launch the gate subagent. Stale FAIL reports cause
-   auto-record to mark the run as failed.
-Repeat up to 3 times per gate. Then proceed.
+3. **Re-run** (mandatory — never skip): Delete the old gate report
+   (`rm .rebase-tmp/gates/<gate>.report`), then re-launch the
+   gate subagent with a fresh prompt. The old report MUST be
+   deleted before re-running — if you fix code but skip
+   re-running, stale FAIL reports persist and auto-record will
+   report FAIL even though the issue was fixed.
+Repeat up to 3 times per gate. If it still fails, report
+remaining issues and proceed.
 
 If any test agent reports failures or timeouts:
 - **Timeout** likely means a feature gate issue (informer hang).

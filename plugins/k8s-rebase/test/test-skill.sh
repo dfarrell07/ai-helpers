@@ -82,7 +82,8 @@ _config_val() { yq ".repos.\"$1\".${2} // \"\"" "$CONFIG_FILE"; }
 _resolve_known_good() {
   local name="$1" repo_dir="$2"
   local _rk=$(echo "$name" | tr '/' '_')
-  local _cache="$PLUGIN_DIR/test/.matrix-state/known_good_resolved_$_rk"
+  local _ver=$(echo "$VERSION" | tr '.' '_')
+  local _cache="$PLUGIN_DIR/test/.matrix-state/known_good_resolved_${_rk}_${_ver}"
   if [[ -f "$_cache" ]]; then
     local _cached=$(cat "$_cache")
     git -C "$repo_dir" rev-parse --verify "$_cached" &>/dev/null && echo "$_cached" && return 0

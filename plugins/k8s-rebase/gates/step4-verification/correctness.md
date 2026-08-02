@@ -37,6 +37,12 @@ VERDICT: FAIL if any NEW remaining bug is found in fix commits
 (wrong logic, data loss, missing error handling). PASS if all
 fix commits are correct or all findings are pre-existing.
 
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
+command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+`go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
+`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`. Fix-hint commands in report text are fine.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

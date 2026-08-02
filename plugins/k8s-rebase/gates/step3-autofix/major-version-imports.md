@@ -40,6 +40,12 @@ Only imports introduced by the rebase trigger FAIL.
 FAIL if any NEW stale imports remain. PASS if clean or
 only pre-existing. If no major-version deps, PASS.
 
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
+command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+`go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
+`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`. Fix-hint commands in report text are fine.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

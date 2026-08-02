@@ -20,13 +20,35 @@ fixes — it catches issues introduced since Step 1. Use
 local Go version is too old. Report total error count from
 non-skipped modules only.
 
+MANDATORY pre-existing check — run for EVERY build/vet error:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each file with a build/vet error:
+modified=$(git diff --name-only "$BASE"..HEAD -- '<file>')
+if [ -z "$modified" ]; then
+  echo "PRE-EXISTING: <file> not modified by rebase"
+fi
+```
+
+If the erroring file was NOT modified by the rebase, the error
+is pre-existing. Report pre-existing errors as INFO but do NOT
+count them toward FAIL.
+
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
+command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+`go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
+`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`. Fix-hint commands in report text are fine.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line for any issues.
 
-VERDICT: FAIL if any build or vet error exists in non-skipped
-modules. PASS if all modules build and pass vet cleanly.
+VERDICT: FAIL if any NEW (non-pre-existing) build or vet error
+exists in non-skipped modules. PASS if all modules build and
+pass vet cleanly or if all errors are pre-existing.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:

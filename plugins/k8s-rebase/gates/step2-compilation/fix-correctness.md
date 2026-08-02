@@ -11,6 +11,12 @@ VERDICT criteria: FAIL if any fix compiles but would behave
 incorrectly at runtime (wrong type conversion, silent data loss,
 inverted logic). PASS if all fixes are semantically correct.
 
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
+command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+`go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
+`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`. Fix-hint commands in report text are fine.
+
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line

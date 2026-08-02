@@ -57,6 +57,12 @@ as "INFO (pre-existing)" but do NOT include in the ISSUES count.
 Only issues introduced or exposed by rebase changes are NEW.
 If ALL findings are pre-existing, verdict MUST be PASS.
 
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
+command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+`go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
+`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`. Fix-hint commands in report text are fine.
+
 Rules: report specific findings, not "looks good." You are
 read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

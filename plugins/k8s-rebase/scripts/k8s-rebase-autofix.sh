@@ -451,6 +451,8 @@ fix_go_version() {
   old_go=$(grep -oE 'golang[:-][0-9]+\.[0-9]+' .github/workflows/docker.yml 2>/dev/null | head -1 | sed 's/golang[:-]//')
   [[ -z "$old_go" ]] && old_go=$(grep -roE 'GO_VERSION \?= [0-9]+\.[0-9]+' --include="Makefile*" . 2>/dev/null | head -1 | sed 's/.*GO_VERSION ?= //')
   [[ -z "$old_go" ]] && old_go=$(grep -roE 'GO_VERSION: "[0-9]+\.[0-9]+"' --include="*.yml" --include="*.yaml" . 2>/dev/null | grep -v vendor | head -1 | sed 's/.*GO_VERSION: "//;s/"//')
+  [[ -z "$old_go" ]] && old_go=$(grep -oE 'golang-[0-9]+\.[0-9]+' .ci-operator.yaml 2>/dev/null | head -1 | sed 's/golang-//')
+  [[ -z "$old_go" ]] && old_go=$(grep -roE 'golang[:-][0-9]+\.[0-9]+' --include="Dockerfile*" . 2>/dev/null | grep -v vendor | grep -v '/\.git/' | head -1 | sed 's/.*golang[:-]//')
   [[ -z "$old_go" ]] && return 0
   [[ "$old_go" == "$new_go" ]] && return 0
   echo ":: Fixing Go version refs: $old_go → $new_go"

@@ -932,6 +932,11 @@ EOF
   fi
 fi
 
+# Write result file early — all essential phases (deps, codegen, version refs) are done.
+# Optional --bump-tools and feature gate detection follow but are not essential.
+echo "EXIT 2" > "$REBASE_TMP/step1-result.txt"
+echo "$API_VERSION" > "$REBASE_TMP/target-k8s-api-version.txt"
+
 # ── Opportunistic tooling bumps (--bump-tools only) ─────────────────
 # These are not part of the k8s rebase itself but some repos (e.g.,
 # ovn-kubernetes-mcp) bundle test-infra version bumps with rebases.
@@ -1066,4 +1071,5 @@ fi
 echo ""
 echo "RESULT: EXIT 2 — mechanical rebase done, proceed to validation"
 echo "EXIT 2" > "$REBASE_TMP/step1-result.txt"
+echo "$API_VERSION" > "$REBASE_TMP/target-k8s-api-version.txt"
 exit 2
