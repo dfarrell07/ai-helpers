@@ -921,16 +921,18 @@ cmd_court() {
   git rev-parse --verify "$result_branch" &>/dev/null || { error "Branch not found: $result_branch"; return 1; }
   git rev-parse --verify "$known_good" &>/dev/null || { error "Branch not found: $known_good"; return 1; }
 
-  local diff_nv=$(git diff "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
+  local diff_nv=$(git diff "$known_good" "$result_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
   [[ -z "$diff_nv" ]] && { info "PASS: identical (non-vendor)"; return 0; }
 
   local hunks=$(echo "$diff_nv" | grep -c '^@@' || true)
-  local diff_stat=$(git diff --stat "$result_branch" "$known_good" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
+  local diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
   info "Diff: $hunks non-vendor hunks"
 
-  local direction="DIFF DIRECTION: 'git diff $result_branch $known_good'.
-'-' lines are in RESULT but not known-good. '+' lines are in known-good but not result.
-'deleted file' = exists in result, not known-good."
+  local direction="DIFF DIRECTION: 'git diff known_good result'.
+'-' lines are in KNOWN-GOOD but not result (things the result may be MISSING).
+'+' lines are in RESULT but not known-good (things the result ADDED or CHANGED).
+Example: if the result bumped k8s to 1.35 and the known-good has 1.34,
+you will see '-1.34' '+1.35' — the '+' shows what the result produced."
   local preexisting="
 PASS/FAIL CRITERIA: PASS means the result is a valid, correct k8s rebase.
 FAIL means it has a data-correctness regression that would break compilation,
@@ -984,6 +986,9 @@ EOF_DEF
   info "Phase B: Judge..."
   local judge
   judge=$(cat <<EOF_JUDGE | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null
+$direction
+$preexisting
+
 PROSECUTION:
 $pros
 
@@ -1001,6 +1006,9 @@ EOF_JUDGE
   info "Phase C: Jury (3 votes, parallel)..."
   for j in 1 2 3; do
     cat <<EOF_JURY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>/dev/null &
+$direction
+$preexisting
+
 DIFF:
 $diff_nv
 
@@ -1028,11 +1036,11 @@ EOF_JURY
   info "Jury: $pass PASS, $fail FAIL"
   local total=$((pass + fail))
   if [[ "$total" -lt 2 ]]; then
-    if [[ "$fail" -eq 0 ]]; then
+    if [[ "$pass" -gt 0 && "$fail" -eq 0 ]]; then
       info "PASS (no regression found — $pass pass, $fail fail, $((3-total)) abstain)"
       return 0
     else
-      error "INCONCLUSIVE (no quorum)"; return 1
+      error "INCONCLUSIVE (no quorum — $pass pass, $fail fail, $((3-total)) abstain)"; return 1
     fi
   fi
   [[ "$pass" -gt "$fail" ]] && { info "VERDICT: PASS ($pass-$fail)"; return 0; }
