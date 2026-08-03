@@ -988,7 +988,10 @@ EOF_DEF
   local p2=$!
   wait "$p1" "$p2" 2>/dev/null || true
   local pros=$(cat "$cdir/pros.txt") def=$(cat "$cdir/def.txt")
-  [[ -z "$pros" || -z "$def" ]] && { error "Prosecution/defense empty"; return 1; }
+  if [[ ${#pros} -lt 200 || ${#def} -lt 200 ]]; then
+    error "Prosecution/defense too short (${#pros}/${#def} bytes — retry needed)"
+    return 1
+  fi
 
   info "Phase B: Judge..."
   local judge
