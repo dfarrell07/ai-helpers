@@ -9,9 +9,7 @@ max_concurrent: 3
 repos:
   ovn-org/ovn-kubernetes:
     from_commit: 83cca4aed410d01fabc78cf3751c34d01b7c1656
-    known_good:
-      url: https://github.com/dfarrell07/ovn-kubernetes.git
-      ref: bump1.36
+    known_good: af1d95ca97f9237e27d4c78fb8691946fa5cab73
   ovn-kubernetes/ovn-kubernetes-mcp:
     from_commit: 6c4c629e0d2df23f8a3a57b54a74d7a56c6672d9
     known_good:
