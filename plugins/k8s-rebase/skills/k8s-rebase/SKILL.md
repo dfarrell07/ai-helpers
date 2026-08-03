@@ -625,7 +625,7 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 nohup bash "$SCRIPT" --test-only ./pkg/ovn > "$REPO_ROOT/.rebase-tmp/test-ovn.log" 2>&1 &
 echo $! > "$REPO_ROOT/.rebase-tmp/test-ovn.pid"
 ```
-Check with: `kill -0 $(cat .rebase-tmp/test-ovn.pid) 2>/dev/null && echo running || echo done`
+Check ONCE (do not poll in a loop): `kill -0 $(cat .rebase-tmp/test-ovn.pid) 2>/dev/null && echo running || echo done`
 The nohup log (`test-ovn.log`) has the PASS/FAIL verdict.
 Detailed test output is in `.rebase-tmp/test-only-*.log`.
 
