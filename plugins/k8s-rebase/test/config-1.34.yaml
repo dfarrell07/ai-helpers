@@ -7,7 +7,7 @@ repos:
     from_commit: a32f638885c5ad1241b4c28c1c91d8a1f2bbc5a6
   openshift/multus-cni:
     known_good: 82f486cd936f4956e52ea040dab5ba1f13e3f335
-    from_commit: 2ecd4f4b47b7821c7a65fac940dc5327bb4c5be8
+    from_commit: cf0f68ec2b5fe9bc72d0da325e02cf63968747fe
   openshift/cloud-network-config-controller:
     known_good: 8039d969a77fc41685b9b94b1fa984d5ca4dd305
     from_commit: 83847568457908f24554c15d5bb5cc4c70dbcdb5

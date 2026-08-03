@@ -8,7 +8,7 @@ max_concurrent: 3
 
 repos:
   ovn-org/ovn-kubernetes:
-    from_commit: a6f47caebe2015e178d7434db4c8fa0845c15de6
+    from_commit: 83cca4aed410d01fabc78cf3751c34d01b7c1656
     known_good:
       url: https://github.com/dfarrell07/ovn-kubernetes.git
       ref: bump1.36
