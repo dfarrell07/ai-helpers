@@ -787,6 +787,15 @@ If `--bump-tools` was not passed, skip this step.
 **Proceed to Step 5 immediately.** Do NOT stop — the rebase is
 incomplete without the PR command from Step 5.
 
+**MANDATORY CHECKPOINT before Step 5:** Count gate report files:
+```bash
+ls .rebase-tmp/gates/*.report 2>/dev/null | wc -l
+```
+If the count is less than 30, you have NOT completed all gates.
+Go back and launch the missing step 4 verification gates NOW.
+Do NOT proceed to Step 5 with fewer than 30 gate reports — the
+test harness will record the run as FAIL. This is not optional.
+
 ### Step 5: PR and cleanup
 
 **CRITICAL: NEVER run `git push` or `gh pr create` yourself. Only
