@@ -18,7 +18,7 @@ repos:
       url: https://github.com/dfarrell07/ovn-kubernetes-mcp.git
       ref: bump1.36-20260717052952
   openshift/multus-cni:
-    from_commit: 705a59eaf96c86e1e977a2fe7b4f5cb19c96c4e6
+    from_commit: b4ec7d8239ce4bd3ed949bce9816a013377b44c7
     known_good:
       url: https://github.com/dfarrell07/multus-cni.git
       ref: bump1.36
