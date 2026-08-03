@@ -932,7 +932,9 @@ cmd_court() {
 '-' lines are in KNOWN-GOOD but not result (things the result may be MISSING).
 '+' lines are in RESULT but not known-good (things the result ADDED or CHANGED).
 Example: if the result bumped k8s to 1.35 and the known-good has 1.34,
-you will see '-1.34' '+1.35' — the '+' shows what the result produced."
+you will see '-1.34' '+1.35' — the '+' shows what the result produced.
+'deleted file' = exists in known-good but not result (result REMOVED it).
+'new file' = exists in result but not known-good (result ADDED it)."
   local preexisting="
 PASS/FAIL CRITERIA: PASS means the result is a valid, correct k8s rebase.
 FAIL means it has a data-correctness regression that would break compilation,
