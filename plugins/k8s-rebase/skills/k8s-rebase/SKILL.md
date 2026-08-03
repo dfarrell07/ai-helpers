@@ -787,14 +787,25 @@ If `--bump-tools` was not passed, skip this step.
 **Proceed to Step 5 immediately.** Do NOT stop — the rebase is
 incomplete without the PR command from Step 5.
 
-**MANDATORY CHECKPOINT before Step 5:** Count gate report files:
+---
+
+**MANDATORY CHECKPOINT — run this before Step 5 regardless of
+--bump-tools:**
+
 ```bash
-ls .rebase-tmp/gates/*.report 2>/dev/null | wc -l
+GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
+  -path "*/k8s-rebase/gates" -type d 2>/dev/null | head -1)
+EXPECTED=$(find "$GATE_DIR" -name '*.md' 2>/dev/null | wc -l)
+ACTUAL=$(ls .rebase-tmp/gates/*.report 2>/dev/null | wc -l)
+echo "Gate reports: $ACTUAL / $EXPECTED"
 ```
-If the count is less than 30, you have NOT completed all gates.
-Go back and launch the missing step 4 verification gates NOW.
-Do NOT proceed to Step 5 with fewer than 30 gate reports — the
-test harness will record the run as FAIL. This is not optional.
+
+If ACTUAL < EXPECTED, go back and launch the missing gates. To
+find which are missing, check each gate .md file against the
+reports in `.rebase-tmp/gates/`. Do NOT proceed to Step 5 until
+ACTUAL >= EXPECTED — the test harness will record FAIL.
+
+---
 
 ### Step 5: PR and cleanup
 
