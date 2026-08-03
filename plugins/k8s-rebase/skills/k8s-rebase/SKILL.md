@@ -301,6 +301,14 @@ code), a direct dependency is incompatible with the bumped k8s
 packages. Extract the module path (between `/go/pkg/mod/` and
 `@`) and fix with `go get <module>@latest && go mod tidy`.
 
+**For OpenShift deps** (`openshift/api`, `openshift/client-go`,
+`openshift/library-go`): use the correct release branch per the
+OCP mapping in Step 5d (k8s 1.N → OCP 4.(N-13), or 5.(N-36)
+for k8s ≥1.36). Do NOT escalate to a newer release branch to
+fix dependency conflicts — find newer commits on the correct
+branch instead. Wrong branch = MVS pulls k8s deps to the wrong
+version, which the version-consistency gate will catch.
+
 **Do NOT bump non-k8s dependencies** in other modules (e.g.,
 `test/conformance/`) unless the build actually fails. The
 conformance module may intentionally use a different version of
