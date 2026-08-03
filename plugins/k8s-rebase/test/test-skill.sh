@@ -354,6 +354,9 @@ cmd_run() {
       git clean -fd &>/dev/null || true
       git fetch origin --no-tags &>/dev/null || true
       git branch -D "_test-from-${from_commit:0:8}" &>/dev/null || true
+      # If repo is checked out on a stale _test-from-* branch, switch away first
+      local _cur_branch=$(git branch --show-current 2>/dev/null)
+      [[ "$_cur_branch" == _test-from-* ]] && git checkout -f "$_db" &>/dev/null || true
       git switch -c "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
         || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
         || {
