@@ -28,7 +28,7 @@ die()   { error "$@"; exit 1; }
 repo_short() { local p="${1%/}"; echo "${p/#$REPOS_DIR\//}"; }
 repo_key() { repo_short "$1" | tr '/' '_'; }
 running_key() { echo "${1:?version}_$(repo_key "${2:?repo}")"; }
-repo_key_from_running() { echo "${2#${1:?version}_}"; }
+repo_key_from_running() { echo "${2#"${1:?version}"_}"; }
 
 _ensure_repo() {
   local name="$1"
@@ -68,8 +68,10 @@ _tally_gates() {
     _gv="${_gv^^}"
     if [[ "$_gv" == *FAIL* && " $INFO_GATES " != *" ${_gn#step?-} "* ]]; then
       _gf=$((_gf + 1))
-    elif [[ "$_gv" != *PASS* ]]; then
+    elif [[ "$_gv" == *SKIP* || " $INFO_GATES " == *" ${_gn#step?-} "* ]]; then
       _gs=$((_gs + 1))
+    elif [[ "$_gv" != *PASS* ]]; then
+      _gf=$((_gf + 1))
     fi
   done
   echo "$_gt $_gf $_gs"
