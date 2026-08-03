@@ -123,7 +123,12 @@ echo $! > "$REPO_ROOT/.rebase-tmp/step1.pid"
 echo "Launched PID $(cat "$REPO_ROOT/.rebase-tmp/step1.pid")"
 ```
 
-**Check** (run every 3-5 minutes until done):
+**Check** (use `run_in_background: true` on Bash, NOT sleep loops):
+Do NOT use `sleep` commands to poll for completion. Each sleep +
+check cycle wastes context budget. Instead, run the check command
+with `run_in_background: true` and `timeout: 300000` — the system
+notifies you when it finishes. If you must check manually, run
+the check ONCE, not in a loop.
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 if kill -0 $(cat "$REPO_ROOT/.rebase-tmp/step1.pid" 2>/dev/null) 2>/dev/null; then
@@ -217,6 +222,12 @@ complete until all subagents report zero issues.
   (with `-mod=vendor` when vendor/ exists), `go mod verify`,
   `go doc`, `go install <tool>@<version>`, `go clean -cache`.
   Include this rule when constructing each gate subagent prompt.
+- **Context budget:** Never burn main-agent context on build
+  monitoring. Use `run_in_background: true` for long commands,
+  or launch builds in subagents. NEVER use `sleep` commands to
+  poll — each sleep+check cycle wastes ~1K tokens of context
+  that you need for gates. One wasted polling loop of 20 checks
+  costs more than launching all 33 gate subagents combined.
 - If ANY judgment agent flags a concern, the main agent MUST
   investigate and either fix it or explain why it's not an
   issue before proceeding. Do not dismiss judgment concerns.
