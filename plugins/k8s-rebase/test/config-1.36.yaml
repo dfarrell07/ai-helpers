@@ -22,9 +22,7 @@ repos:
       ref: bump1.36
   openshift/ingress-node-firewall:
     from_commit: f1e4ccd4d9e9b51c74c8e2aa35137ce9744cd581
-    known_good:
-      url: https://github.com/dfarrell07/ingress-node-firewall.git
-      ref: bump1.36
+    known_good: 577523c2bfd6ccb52f9fa7fa87bbb9034035c631
   openshift/cloud-network-config-controller:
     from_commit: 2d69ad953cfaa419e9b6221da9edb152ded91e0b
     known_good:
