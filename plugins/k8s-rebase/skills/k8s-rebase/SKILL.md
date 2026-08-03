@@ -841,9 +841,10 @@ BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 ```
 
 **OCP version for downstream repos:** The k8s-to-OCP mapping is:
-k8s 1.N → OCP 4.(N-13) (e.g., 1.34→4.21, 1.35→4.22). Note:
-OCP 4.23 was rebranded as OCP 5.0 — for k8s 1.36+, use
-`release-5.0` branches and `openshift-5.0` in CI image refs.
+k8s 1.N → OCP 4.(N-13) for k8s ≤1.35 (e.g., 1.34→4.21, 1.35→4.22).
+OCP 4.23 was rebranded as 5.0, so for k8s 1.36+:
+k8s 1.N → OCP 5.(N-36) (e.g., 1.36→5.0, 1.37→5.1, 1.38→5.2).
+Use `release-5.X` branches and `openshift-5.X` in CI image refs.
 Use this to determine the correct release branch for
 `openshift/api`, `openshift/client-go`, and `openshift/library-go`.
 Do NOT escalate to a newer release branch to fix dependency
