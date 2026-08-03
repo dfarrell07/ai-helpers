@@ -990,7 +990,7 @@ EOF_DEF
   local pros=$(cat "$cdir/pros.txt") def=$(cat "$cdir/def.txt")
   if [[ ${#pros} -lt 200 || ${#def} -lt 200 ]]; then
     error "Prosecution/defense too short (${#pros}/${#def} bytes — retry needed)"
-    return 1
+    return 2
   fi
 
   info "Phase B: Judge..."
@@ -1192,10 +1192,18 @@ _results_one() {
         echo "Diff vs known-good ${kg:0:12}: $nv code hunks differ"
       fi
       if [[ "$court" == "true" ]]; then
-        local _court_verdict="FAIL"
-        cmd_court "$branch" "$kg" "$repo" && _court_verdict="PASS"
-        mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
-        echo "$_court_verdict" > "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$(repo_key "$repo")"
+        local _court_verdict=""
+        if cmd_court "$branch" "$kg" "$repo"; then
+          _court_verdict="PASS"
+        else
+          local _exit=$?
+          # exit 1 = FAIL verdict; exit 2+ = infrastructure error (don't record)
+          [[ $_exit -eq 1 ]] && _court_verdict="FAIL"
+        fi
+        if [[ -n "$_court_verdict" ]]; then
+          mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
+          echo "$_court_verdict" > "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$(repo_key "$repo")"
+        fi
       fi
     fi
   fi
