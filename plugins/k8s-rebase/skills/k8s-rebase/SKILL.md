@@ -443,6 +443,9 @@ PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.m
 and launch one subagent per file with its contents as the prompt.
 All in one parallel wave. Prepend the repo path and the module
 safety rule (see Step 1 gate launch) to each prompt.
+Do not skip, batch, or defer any gate — launch all 11 in a
+single message. Gate subagents run independently and do not
+consume your context window.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step3-autofix" -type d 2>/dev/null | head -1)
@@ -823,10 +826,14 @@ IS_DOWNSTREAM=$(git remote -v 2>/dev/null | grep -q 'openshift/' && echo true ||
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 ```
 
-**OCP version for downstream repos:** Read the OCP version from
-existing `.ci-operator.yaml` or Dockerfiles (`grep -rn 'openshift-[0-9]' .`
-or `grep -rn 'ocp/[0-9]' .`). Never guess or increment the OCP major
-version — use the version already in the repo's CI configs.
+**OCP version for downstream repos:** The k8s-to-OCP mapping is:
+k8s 1.N → OCP 4.(N-13) (e.g., 1.34→4.21, 1.35→4.22, 1.36→4.23).
+Use this to determine the correct `release-4.XX` branch for
+`openshift/api`, `openshift/client-go`, and `openshift/library-go`.
+Do NOT escalate to a newer release branch to fix dependency
+conflicts — find newer commits on the CORRECT branch instead.
+Also read the OCP version from existing `.ci-operator.yaml` or
+Dockerfiles to confirm (`grep -rn 'openshift-[0-9]' .`).
 
 If `IS_DOWNSTREAM` is true, the PR title needs a Jira ticket key
 (OpenShift merge bots require `jira/valid-reference`). If the user
