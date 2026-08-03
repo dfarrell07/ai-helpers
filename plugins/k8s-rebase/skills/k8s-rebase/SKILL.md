@@ -355,6 +355,9 @@ below with `cat`, and launch one subagent per file with the
 file's contents as the prompt. Launch all in a single parallel
 wave. Prepend the repo path and the module safety rule (see
 Step 1 gate launch for the full text) to each prompt.
+Do not skip, batch, or defer any gate — launch all 6 in a
+single message. Gate subagents run independently and do not
+consume your context window.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step2-compilation" -type d 2>/dev/null | head -1)
