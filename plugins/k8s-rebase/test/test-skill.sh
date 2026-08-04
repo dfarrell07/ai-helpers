@@ -955,10 +955,13 @@ FAIL means it has a data-correctness regression that would break compilation,
 tests, or runtime behavior.
 Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
 - Style choices (import ordering, variable naming, comment wording)
-- Dependency version drift (newer or older x/ deps, different go.sum
-  hashes, indirect deps at different versions). If a dep is purely
-  indirect (zero direct imports), version differences cannot break
-  compilation — do NOT vote FAIL for indirect dep versions.
+- Dependency version drift in non-k8s dependencies (newer or older
+  versions of ANY non-k8s dep, whether direct or indirect). The rebase
+  bumps k8s.io/* deps and runs go mod tidy/vendor; resulting versions
+  of non-k8s deps are whatever the resolver selects. A version
+  difference is NOT a regression unless the diff shows code calling an
+  API that provably does not exist at the resolved version — and that
+  proof must come from the diff itself, not speculation.
 - K8S_VERSION or KIND version patch-level differences between go.mod
   and CI/test tooling (e.g., v1.33.1 in kind-common vs v1.34.1 in
   go.mod) — CI workflows typically override these defaults.
@@ -968,7 +971,8 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
 - Different but equally valid API migration paths (e.g., AddToScheme
   vs Install — both work if the vendored package exports both)
 - OWNERS/reviewers file differences
-- go.mod replace directives for forks vs upstream
+- go.mod module path differences between forks and upstream (in
+  require or replace blocks, e.g. ovn-org/X vs ovn-kubernetes/X)
 A difference is a REGRESSION only if it would cause a build failure,
 test failure, or runtime behavioral change (wrong types, broken wire
 format, dropped functionality). Pre-existing issues on the base
