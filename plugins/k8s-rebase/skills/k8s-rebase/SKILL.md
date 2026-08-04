@@ -588,7 +588,7 @@ lint. Repeat until `--no-test` exits 0.
 
 **4b. Verification wave:** Once 4a passes,
 launch ALL of the following subagents in one parallel wave.
-Do not skip, batch, or defer any gate — launch all 16 in a
+Do not skip, batch, or defer any gate — launch all 15 in a
 single message. Subagents run independently and do not consume
 your context. No modifications happen after this point.
 
@@ -697,7 +697,6 @@ Gate files:
 - `maintainer-review.md` (judge)
 - `ci-prediction.md` (judge)
 - `build-vet-recheck.md` (count)
-- `lint-recheck.md` (count)
 - `skill-improvement.md` (judge)
 - `logical-consistency.md` (judge)
 - `ci-readiness.md` (judge)
@@ -718,7 +717,11 @@ All count-checks must be 0. Investigate judgment concerns.
    If the file was NOT modified by this branch (`git diff
    $BASE..HEAD -- <file>` is empty), it's pre-existing.
 2. **Fix**: Fix each NEW finding at the cited location. Commit.
-3. **Re-run** (mandatory — never skip): Delete the old gate report
+3. **Re-validate**: After any code-changing fix, re-run
+   `validate.sh --no-test` to confirm build+vet+lint still pass.
+   Fix commits can introduce new build/lint regressions — catch
+   them here before re-running the gate.
+4. **Re-run** (mandatory — never skip): Delete the old gate report
    (`rm .rebase-tmp/gates/<gate>.report`), then re-launch the
    gate subagent with a fresh prompt. The old report MUST be
    deleted before re-running — if you fix code but skip
