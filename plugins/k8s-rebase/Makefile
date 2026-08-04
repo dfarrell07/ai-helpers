@@ -44,10 +44,11 @@ help: ## Show available targets
 	@echo "    watch -n 10 make watch          Auto-refresh every 10s"
 	@echo ""
 	@echo "  Review (run after gates pass — compares output to known-good rebase)"
-	@echo "    make court repo=<repo>          AI review: finds regressions, checks justifications, votes"
+	@echo "    make court                      Run court for all pending repos (all versions)"
+	@echo "    make court repo=<repo>          AI review one repo (add version=X.Y for specific version)"
 	@echo ""
 	@echo "  Results"
-	@echo "    make results                    Show verdict, court result, last run per repo"
+	@echo "    make results                    Show all versions (or one with version=X)"
 	@echo "    make results repo=<repo>        Show gate reports, diff vs known-good, history"
 	@echo ""
 	@echo "  Manage"
@@ -72,11 +73,20 @@ watch: ## Show active test status
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) watch
 
 results: ## Show results
-	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO)
+	@if [ -z "$(VER)" ] && [ -z "$(REPO)" ]; then \
+		$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results --all-versions; \
+	else \
+		$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO); \
+	fi
 
 court: ## Adversarial court review
-	@test -n "$(REPO)" || (echo "ERROR: repo required. Usage: make court repo=openshift/multus-cni" && exit 1)
-	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO) --court
+	@if [ -n "$(REPO)" ]; then \
+		$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO) --court; \
+	elif [ -z "$(VER)" ]; then \
+		$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) court-all --all-versions; \
+	else \
+		$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) court-all; \
+	fi
 
 set-known-good: ## Set known-good reference
 	@test -n "$(REPO)" || (echo "ERROR: repo required" && exit 1)

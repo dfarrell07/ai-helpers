@@ -255,16 +255,22 @@ session_for_repo() {
 # ── Session Commands ───────────────────────────────────────────────────
 
 find_newest_branch() {
-  local repo="$1"
+  local repo="$1" version="${2:-}"
   (cd "$repo" 2>/dev/null || return 1
   local wt_line
-  wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
+  if [[ -n "$version" ]]; then
+    wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | grep "bump${version%.*}" | tail -1)
+  else
+    wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
+  fi
   if [[ -n "$wt_line" ]]; then
     local wt_branch
     wt_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
     [[ -n "$wt_branch" ]] && { echo "$wt_branch"; return 0; }
   fi
-  LC_ALL=C git branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1 || true)
+  local pattern='bump'
+  [[ -n "$version" ]] && pattern="bump${version%.*}"
+  LC_ALL=C git branch --no-color | grep "$pattern" | sed 's/^[* +]*//' | sort -V | tail -1 || true)
 }
 
 reset_to_default() {
@@ -770,8 +776,11 @@ _do_record_one() {
   _worktree_info "$repo" || true
   result_branch="$_WT_BRANCH" wt_path="$_WT_PATH"
   [[ -n "$wt_path" && ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; wt_path=""; }
-  [[ -z "$result_branch" ]] && \
-    result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep 'bump' | sed 's/^[* +]*//' | sort -V | tail -1)
+  if [[ -z "$result_branch" ]]; then
+    local _bp='bump'
+    [[ -n "$_rec_version" ]] && _bp="bump${_rec_version%.*}"
+    result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep "$_bp" | sed 's/^[* +]*//' | sort -V | tail -1)
+  fi
   [[ -z "$result_branch" ]] && { echo "no branch found"; return 1; }
 
   local default_br
@@ -1057,6 +1066,82 @@ EOF_JURY
   error "VERDICT: FAIL ($fail-$pass)"; return 1
 }
 
+cmd_court_all() {
+  local all_versions=false
+  while [[ $# -gt 0 ]]; do
+    case "$1" in --all-versions) all_versions=true ;; esac; shift
+  done
+
+  auto_record
+
+  local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
+  [[ ! -f "$tsv" ]] && { echo "No results yet. Run: make test"; return 0; }
+
+  local saved_config="$CONFIG_FILE"
+  local configs=()
+  if $all_versions; then
+    for cfg in "$PLUGIN_DIR/test"/config-[0-9]*.yaml; do
+      [[ -f "$cfg" ]] && configs+=("$cfg")
+    done
+  else
+    configs+=("$CONFIG_FILE")
+  fi
+
+  local run=0 passed=0 failed=0 errors=0 skipped=0
+  for cfg in "${configs[@]}"; do
+    CONFIG_FILE="$cfg"; _load_config
+    for repo in "${DEFAULT_REPOS[@]}"; do
+      local short=$(repo_short "$repo")
+      local _rk=$(repo_key "$repo")
+      local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+      [[ -f "$_court_file" ]] && continue
+      local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
+      [[ -z "$latest_line" ]] && continue
+      local verdict=$(echo "$latest_line" | cut -f5)
+      [[ "$verdict" != "PASS" ]] && continue
+
+      repo=$(resolve_repo "$short" 2>/dev/null) || { warn "$short ($VERSION): cannot resolve"; skipped=$((skipped + 1)); continue; }
+      cd "$repo" || { warn "$short ($VERSION): cannot cd"; skipped=$((skipped + 1)); continue; }
+      local kg=$(_resolve_known_good "$short" "$repo")
+      [[ -z "$kg" ]] && { warn "$short ($VERSION): no known-good configured"; skipped=$((skipped + 1)); continue; }
+      local branch=$(find_newest_branch "$repo" "$VERSION")
+      [[ -z "$branch" ]] && { warn "$short ($VERSION): no result branch found"; skipped=$((skipped + 1)); continue; }
+
+      run=$((run + 1))
+      info "Court $run: $short ($VERSION)"
+
+      local _court_verdict=""
+      if cmd_court "$branch" "$kg" "$repo"; then
+        _court_verdict="PASS"
+        passed=$((passed + 1))
+      else
+        local _exit=$?
+        if [[ $_exit -eq 1 ]]; then
+          _court_verdict="FAIL"
+          failed=$((failed + 1))
+        else
+          errors=$((errors + 1))
+        fi
+      fi
+      if [[ -n "$_court_verdict" ]]; then
+        mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
+        echo "$_court_verdict" > "$_court_file"
+        info "$short ($VERSION): $_court_verdict"
+      fi
+    done
+  done
+
+  CONFIG_FILE="$saved_config"
+  _load_config
+
+  echo ""
+  if [[ "$run" -eq 0 && "$skipped" -eq 0 ]]; then
+    echo "No pending court reviews."
+  else
+    echo "Court complete: $passed passed, $failed failed, $errors errors, $skipped skipped (of $((run + skipped)) pending)"
+  fi
+}
+
 # ── Watch ──────────────────────────────────────────────────────────────
 
 cmd_watch() {
@@ -1127,16 +1212,23 @@ cmd_watch() {
 # ── Results Display ────────────────────────────────────────────────────
 
 cmd_results() {
-  local repo="" court=false
+  local repo="" court=false all_versions=false
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --court) court=true ;;
+      --all-versions) all_versions=true ;;
       *) repo="$1" ;;
     esac; shift
   done
 
   auto_record
-  if [[ -n "$repo" ]]; then _results_one "$repo" "$court"; else _results_all; fi
+  if [[ -n "$repo" ]]; then
+    _results_one "$repo" "$court"
+  elif $all_versions; then
+    _results_all_versions
+  else
+    _results_for_version
+  fi
 }
 
 _results_one() {
@@ -1182,7 +1274,7 @@ _results_one() {
 
   local kg=$(_resolve_known_good "$short" "$repo")
   if [[ -n "$kg" ]]; then
-    local branch=$(find_newest_branch "$repo")
+    local branch=$(find_newest_branch "$repo" "$VERSION")
     if [[ -n "$branch" ]]; then
       local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
       echo ""
@@ -1215,7 +1307,7 @@ _results_one() {
   done
 }
 
-_results_all() {
+_results_for_version() {
   local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
   if [[ ! -f "$tsv" ]]; then echo "No results yet. Run: make test"; return 0; fi
 
@@ -1258,7 +1350,39 @@ _results_all() {
   done
 
   echo ""
-  if $all_pass; then echo "OVERALL: PASS"; else echo "OVERALL: FAIL"; fi
+  if $all_pass; then echo "OVERALL: PASS"; return 0; else echo "OVERALL: FAIL"; return 1; fi
+}
+
+_results_all_versions() {
+  local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
+  [[ ! -f "$tsv" ]] && { echo "No results yet. Run: make test"; return 0; }
+
+  local saved_config="$CONFIG_FILE"
+  local versions_pass=0 versions_total=0 first=true
+
+  for cfg in "$PLUGIN_DIR/test"/config-[0-9]*.yaml; do
+    [[ -f "$cfg" ]] || continue
+    CONFIG_FILE="$cfg"
+    _load_config
+
+    $first || echo ""
+    first=false
+    echo "── $VERSION ──"
+    if _results_for_version; then
+      versions_pass=$((versions_pass + 1))
+    fi
+    versions_total=$((versions_total + 1))
+  done
+
+  CONFIG_FILE="$saved_config"
+  _load_config
+
+  echo ""
+  if [[ "$versions_total" -eq 0 ]]; then
+    echo "No config files found in test/"
+  else
+    echo "SUMMARY: $versions_pass of $versions_total versions PASS"
+  fi
 }
 
 # ── Configuration ──────────────────────────────────────────────────────
@@ -1311,8 +1435,9 @@ Usage: $(basename "$0") <command> [args...]
 
 Commands:
   test-all [--version X.Y.Z]        Run core suite (all 6 repos, batches of $MAX_CONCURRENT)
+  court-all [--all-versions]        Run adversarial court on all pending repos
   test <spec> <repo> [--version]    Run specific test case
-  results [repo] [--court]          Show results matrix or deep-dive one repo
+  results [repo] [--court] [--all-versions]  Show results (all versions by default via make)
   set-known-good <repo> <ref> [--url <url>]  Set known-good reference
   set-from-commit <repo> <commit>   Set pre-merge commit for historical testing
   stop [repo...|--all]              Stop running test sessions
@@ -1339,6 +1464,7 @@ EOF
 COMMAND="$1"; shift
 case "$COMMAND" in
   test-all)       cmd_test_all "$@" ;;
+  court-all)      cmd_court_all "$@" ;;
   test)           cmd_test "$@" ;;
   watch)          cmd_watch "$@" ;;
   results)        cmd_results "$@" ;;
