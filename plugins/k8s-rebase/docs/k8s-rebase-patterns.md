@@ -57,6 +57,7 @@ and then apply to all subsequent repos automatically.
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go to latest; if still missing, use replace directive pointing to a fork (see Cross-repo dependency ordering below) |
 | Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Check `.snyk` strategy: `vendor/**` glob is safe; per-file exclusions need updating |
+| sudo PATH not preserved (often pre-existing) | `go: command not found` under sudo in CI scripts | In bash: `sudo env "PATH=$PATH" <cmd>` to preserve Go toolchain PATH |
 | OTE module | downstream `openshift/` module needs separate bump | Run skill on downstream fork, OTE go.mod bumped alongside |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |

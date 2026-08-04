@@ -966,7 +966,11 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
 A difference is a REGRESSION only if it would cause a build failure,
 test failure, or runtime behavioral change (wrong types, broken wire
 format, dropped functionality). Pre-existing issues on the base
-branch are EQUIVALENT, not regressions."
+branch are EQUIVALENT, not regressions.
+
+EVIDENCE CONSTRAINT: Do not fabricate file contents or claim code
+exists that is not shown in the provided DIFF. If referencing files
+outside the DIFF, state it as a concern to verify, not as established fact."
   local logs=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
 $preexisting
@@ -1024,7 +1028,7 @@ EOF_JUDGE
 
   info "Phase C: Jury (3 votes, parallel)..."
   for j in 1 2 3; do
-    cat <<EOF_JURY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>/dev/null &
+    cat <<EOF_JURY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
 $direction
 $preexisting
 
@@ -1045,6 +1049,14 @@ EOF_JURY
   done
   wait 2>/dev/null || true
 
+  local empty_jurors=0
+  for j in 1 2 3; do
+    if [[ ! -s "$cdir/juror-$j.txt" ]]; then
+      warn "Juror $j produced no output ($(cat "$cdir/juror-$j.err" 2>/dev/null | tail -1))"
+      empty_jurors=$((empty_jurors + 1))
+    fi
+  done
+
   local pass=0 fail=0
   for j in 1 2 3; do
     local jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null | grep -ioE 'PASS|FAIL' | tail -1)
@@ -1053,13 +1065,19 @@ EOF_JURY
   done
 
   info "Jury: $pass PASS, $fail FAIL"
+  if [[ "$empty_jurors" -gt 1 ]]; then
+    error "INCONCLUSIVE (majority juror failure: $empty_jurors empty)"; return 2
+  fi
+  if [[ "$pass" -eq "$fail" && "$empty_jurors" -gt 0 ]]; then
+    error "INCONCLUSIVE (tied $pass-$fail with $empty_jurors empty juror(s))"; return 2
+  fi
   local total=$((pass + fail))
   if [[ "$total" -lt 2 ]]; then
     if [[ "$pass" -gt 0 && "$fail" -eq 0 ]]; then
       info "PASS (no regression found — $pass pass, $fail fail, $((3-total)) abstain)"
       return 0
     else
-      error "INCONCLUSIVE (no quorum — $pass pass, $fail fail, $((3-total)) abstain)"; return 1
+      error "INCONCLUSIVE (no quorum — $pass pass, $fail fail, $((3-total)) abstain)"; return 2
     fi
   fi
   [[ "$pass" -gt "$fail" ]] && { info "VERDICT: PASS ($pass-$fail)"; return 0; }

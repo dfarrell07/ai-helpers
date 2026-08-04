@@ -22,9 +22,18 @@ the repo and check for implications.
    Just note the Go version bump and its implications for
    stdlib additions.
 
+MANDATORY pre-existing check: For each Makefile/Dockerfile finding,
+check the base branch before counting:
+  BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+  modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
+  base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<version-string>')
+  If modified==0 OR base_has>0: PRE-EXISTING — do NOT count.
+  If ALL findings are pre-existing, verdict MUST be PASS with 0 issues.
+
 VERDICT criteria: FAIL if go.mod files have inconsistent Go
 versions, or Makefiles/Dockerfiles use a Go version that
-doesn't match go.mod. Migration opportunities (x/ packages,
+doesn't match go.mod AND the mismatch is NEW (not present on
+the base branch). Migration opportunities (x/ packages,
 CI workflow improvements) are informational — report them
 in DETAILS but do not FAIL for them alone.
 

@@ -470,6 +470,18 @@ fix_go_version() {
   done < <(grep -rlnE "golang[:-]${old_go}|GO_VERSION.{0,5}${old_go}|GOLANG_VERSION.{0,5}${old_go}|go-version:.{0,3}${old_go}" \
     --include="*.yml" --include="*.yaml" --include="Makefile*" --include="Dockerfile*" . \
     | grep -v vendor | grep -v '/\.git/' | grep -v go.mod || true)
+
+  # Second pass: catch workflow files with any stale go-version (pre-existing mismatches)
+  if [[ -n "$new_go" ]]; then
+    while IFS= read -r _gvf; do
+      sed -i -E \
+        -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${new_go}|g" \
+        -e "s|go-version: [0-9]+\.[0-9]+|go-version: ${new_go}|g" \
+        "$_gvf"
+    done < <(grep -rlE "go-version: *\[?[0-9]+\.[0-9]+" \
+      --include="*.yml" --include="*.yaml" .github/workflows/ 2>/dev/null \
+      | grep -v vendor | grep -v "/\.git/" || true)
+  fi
 }
 
 fix_lint_version() {

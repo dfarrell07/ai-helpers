@@ -755,6 +755,18 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     --include="Dockerfile*" . \
     | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
 
+  # Second pass: catch workflow files with any stale go-version (handles pre-existing mismatches)
+  if [[ -n "$NEW_GO_SHORT" ]]; then
+    while IFS= read -r _gvf; do
+      sed -i -E \
+        -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${NEW_GO_SHORT}|g" \
+        -e "s|go-version: [0-9]+\.[0-9]+|go-version: ${NEW_GO_SHORT}|g" \
+        "$_gvf"
+    done < <(grep -rlE "go-version: *\[?[0-9]+\.[0-9]+" \
+      --include="*.yml" --include="*.yaml" .github/workflows/ 2>/dev/null \
+      | grep -v vendor | grep -v "/\.git/" || true)
+  fi
+
   # Bump golangci-lint version in lint scripts when Go version changes.
   # Skip when Go >= 1.26 and project uses v1: the autofix script handles
   # the full v1→v2 transition (lint.sh + Makefile + import paths).
