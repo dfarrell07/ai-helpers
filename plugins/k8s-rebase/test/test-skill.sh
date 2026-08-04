@@ -955,7 +955,13 @@ FAIL means it has a data-correctness regression that would break compilation,
 tests, or runtime behavior.
 Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
 - Style choices (import ordering, variable naming, comment wording)
-- Dependency version drift (newer x/ deps, different go.sum hashes)
+- Dependency version drift (newer or older x/ deps, different go.sum
+  hashes, indirect deps at different versions). If a dep is purely
+  indirect (zero direct imports), version differences cannot break
+  compilation — do NOT vote FAIL for indirect dep versions.
+- K8S_VERSION or KIND version patch-level differences between go.mod
+  and CI/test tooling (e.g., v1.33.1 in kind-common vs v1.34.1 in
+  go.mod) — CI workflows typically override these defaults.
 - Extra fixes the result made that the known-good didn't
 - Fixes in known-good that the result lacks, IF the result still
   compiles and passes vet without them (scope differences, not bugs)
