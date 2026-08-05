@@ -180,6 +180,11 @@ run_checks() {
   local _active_gates="" _all_gate_names=""
   for _p in "${!GATE_DEPS[@]}"; do
     if grep -rq "\"$_p\"" "$MODULE_ROOT/vendor/k8s.io/" 2>/dev/null; then
+      # Skip GA+LockToDefault gates (cannot be disabled, would cause SetFromMap error)
+      if awk -v g="${_p}:" '$0 ~ g {found=1; next} found && /LockToDefault: true/ {print "locked"; exit} found && /^[[:space:]]*[A-Z]/ {exit} found && /^[[:space:]]*\}/ {exit}' \
+         "$MODULE_ROOT/vendor/k8s.io/client-go/features/known_features.go" 2>/dev/null | grep -q "locked"; then
+        continue
+      fi
       _active_gates="$_active_gates $_p"
       _all_gate_names="$_all_gate_names $_p"
       for _d in ${GATE_DEPS[$_p]}; do
@@ -373,7 +378,7 @@ fix_reflect_ptr() {
 
 fix_fieldsv1() {
   # GetRawBytes/NewFieldsV1 only exist in apimachinery v0.36+ (k8s 1.36+)
-  [[ "$K8S_MINOR" -lt 36 ]] && return 0
+  [[ "${K8S_MINOR:-0}" -lt 36 ]] && return 0
   local files
   files=$(grep -rln 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor)
   [[ -z "$files" ]] && return 0
@@ -1140,8 +1145,8 @@ fix_feature_gates() {
   local parents=() all_deps=()
   for gate in "${!GATE_DEPS[@]}"; do
     grep -rq "\"$gate\"" "$MODULE_ROOT/vendor/k8s.io/" 2>/dev/null || continue
-    if grep -A5 "${gate}:" "$MODULE_ROOT/vendor/k8s.io/client-go/features/known_features.go" 2>/dev/null \
-       | grep -q "LockToDefault: true"; then
+    if awk -v g="${gate}:" '$0 ~ g {found=1; next} found && /LockToDefault: true/ {print "locked"; exit} found && /^[[:space:]]*[A-Z]/ {exit} found && /^[[:space:]]*\}/ {exit}' \
+       "$MODULE_ROOT/vendor/k8s.io/client-go/features/known_features.go" 2>/dev/null | grep -q "locked"; then
       echo ":: Skipping locked gate $gate (GA, cannot be disabled)"
       continue
     fi
