@@ -457,6 +457,7 @@ fix_go_version() {
   [[ -z "$old_go" ]] && old_go=$(grep -roE 'GO_VERSION: "[0-9]+\.[0-9]+"' --include="*.yml" --include="*.yaml" . 2>/dev/null | grep -v vendor | head -1 | sed 's/.*GO_VERSION: "//;s/"//')
   [[ -z "$old_go" ]] && old_go=$(grep -oE 'golang-[0-9]+\.[0-9]+' .ci-operator.yaml 2>/dev/null | head -1 | sed 's/golang-//')
   [[ -z "$old_go" ]] && old_go=$(grep -roE 'golang[:-][0-9]+\.[0-9]+' --include="Dockerfile*" . 2>/dev/null | grep -v vendor | grep -v '/\.git/' | head -1 | sed 's/.*golang[:-]//')
+  [[ -z "$old_go" ]] && old_go=$(grep -roE 'GOVERSION="?[0-9]+\.[0-9]+' --include="Dockerfile*" . 2>/dev/null | grep -v vendor | grep -v '/\.git/' | head -1 | sed 's/.*GOVERSION="*//')
   [[ -z "$old_go" ]] && return 0
   [[ "$old_go" == "$new_go" ]] && return 0
   echo ":: Fixing Go version refs: $old_go → $new_go"
@@ -470,8 +471,10 @@ fix_go_version() {
       -e "s|go-version: \[${old_go}|go-version: [${new_go}|g" \
       -e "s|go-version: ${old_go}|go-version: ${new_go}|g" \
       -e "s|GO_VERSION: \"${old_go}\"|GO_VERSION: \"${new_go}\"|g" \
+      -e "s|GOVERSION=\"${old_go}|GOVERSION=\"${new_go}|g" \
+      -e "s|GOVERSION=${old_go}|GOVERSION=${new_go}|g" \
       "$f"
-  done < <(grep -rlnE "golang[:-]${old_go}|GO_VERSION.{0,5}${old_go}|GOLANG_VERSION.{0,5}${old_go}|go-version:.{0,3}${old_go}" \
+  done < <(grep -rlnE "golang[:-]${old_go}|GO_VERSION.{0,5}${old_go}|GOLANG_VERSION.{0,5}${old_go}|GOVERSION.{0,5}${old_go}|go-version:.{0,3}${old_go}" \
     --include="*.yml" --include="*.yaml" --include="Makefile*" --include="Dockerfile*" . \
     | grep -v vendor | grep -v '/\.git/' | grep -v go.mod || true)
 

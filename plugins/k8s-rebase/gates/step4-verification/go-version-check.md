@@ -10,8 +10,9 @@ the repo and check for implications.
 3. Makefiles: do all GO_VERSION / GOLANG_VERSION vars match?
    grep -rn 'GO_VERSION.*=\|GOLANG_VERSION.*=' --include='Makefile*' . | grep -v vendor
 
-4. Dockerfiles: do all golang: image tags match?
+4. Dockerfiles: do all golang: image tags and Go version ARGs match?
    grep -rn 'golang:' --include='Dockerfile*' . | grep -v vendor
+   grep -rn 'GOVERSION\|GO_VERSION' --include='Dockerfile*' . | grep -v vendor
 
 5. CI workflows: do they use go-version-file (dynamic) or
    hardcoded versions?
