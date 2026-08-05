@@ -222,6 +222,12 @@ complete until all subagents report zero issues.
   (with `-mod=vendor` when vendor/ exists), `go mod verify`,
   `go doc`, `go install <tool>@<version>`, `go clean -cache`.
   Include this rule when constructing each gate subagent prompt.
+- **Gate-fix sequencing:** In the gate-fix loop, commit ALL
+  fixes before re-launching ANY gates. Gates read the branch
+  tip at launch — if you launch a gate while a fix is still
+  uncommitted, it sees stale code and reports a false FAIL.
+  Pattern: read all FAIL reports, fix all issues, commit all
+  fixes, then re-run all failed gates in one parallel wave.
 - **Context budget:** Never burn main-agent context on build
   monitoring. Use `run_in_background: true` for long commands,
   or launch builds in subagents. NEVER use `sleep` commands to

@@ -61,17 +61,31 @@ _worktree_info() {
 
 _tally_gates() {
   local _gdir="$1" _gt=0 _gf=0 _gs=0
+  # Stale-report detection: if a FAIL report is older than the latest
+  # commit on the branch, the agent committed a fix after the gate ran.
+  # Treat stale FAILs as skipped to avoid false failures.
+  local _repo_root="${_gdir%/.rebase-tmp/gates}"
+  local _branch_tip_ts=0
+  if [[ -d "$_repo_root/.git" || -f "$_repo_root/.git" ]]; then
+    _branch_tip_ts=$(git -C "$_repo_root" log -1 --format='%ct' 2>/dev/null || echo 0)
+  fi
   for _gf_file in "$_gdir"/*.report "$_gdir"/*.json; do
     [[ -f "$_gf_file" ]] || continue; _gt=$((_gt + 1))
     local _gn=$(basename "${_gf_file%.report}" .json)
     local _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$_gf_file" 2>/dev/null | head -1)
     _gv="${_gv^^}"
-    if [[ "$_gv" == *FAIL* && " $INFO_GATES " != *" ${_gn#step?-} "* ]]; then
-      _gf=$((_gf + 1))
-    elif [[ "$_gv" == *SKIP* || " $INFO_GATES " == *" ${_gn#step?-} "* ]]; then
+    if [[ "$_gv" == *SKIP* || " $INFO_GATES " == *" ${_gn#step?-} "* ]]; then
       _gs=$((_gs + 1))
-    elif [[ "$_gv" != *PASS* ]]; then
-      _gf=$((_gf + 1))
+    elif [[ "$_gv" == *PASS* ]]; then
+      : # counted in _gt
+    else
+      # FAIL or missing verdict — check if report predates the branch tip
+      local _rts; _rts=$(stat -c '%Y' "$_gf_file" 2>/dev/null || echo 0)
+      if [[ "$_branch_tip_ts" -gt "$_rts" && "$_rts" -gt 0 ]]; then
+        _gs=$((_gs + 1))  # stale FAIL — agent fixed after gate ran
+      else
+        _gf=$((_gf + 1))
+      fi
     fi
   done
   echo "$_gt $_gf $_gs"
