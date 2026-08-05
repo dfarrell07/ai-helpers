@@ -374,24 +374,31 @@ derive_go_gets() {
 
   # Rule 3: everything else in k8s ecosystem
   # Filter out go.mod keywords (module, replace, require, exclude) and
-  # the module's own name to avoid self-referencing go gets
+  # the module's own name to avoid self-referencing go gets.
+  # k8s.io staging modules (v0.X.Y where X>0) get pinned to API_VERSION;
+  # everything else gets bare go get (lets MVS resolve).
   local own_module
   own_module=$(grep "^module " "$gomod" | awk '{print $2}')
-  while IFS= read -r pkg; do
-    # Skip go.mod keywords, controller-runtime (Rule 2), and self-references
+  while IFS= read -r line; do
+    local pkg ver
+    pkg=$(echo "$line" | awk '{print $1}')
+    ver=$(echo "$line" | awk '{print $2}')
     case "$pkg" in
       module|replace|require|exclude|"$own_module") continue ;;
     esac
     echo "$pkg" | grep -q "controller-runtime" && continue
-    # Skip network-policy-api — it has its own versioning independent
-    # of k8s releases. Bumping it can break conformance tests by
-    # pulling in API renames the controller doesn't support yet.
     echo "$pkg" | grep -q "network-policy-api" && continue
-    cmds+=("go get ${pkg}")
+    if echo "$pkg" | grep -qE '^k8s\.io/' && \
+       ! echo "$pkg" | grep -qE 'kube-openapi|k8s\.io/utils|k8s\.io/klog|k8s\.io/gengo' && \
+       echo "$ver" | grep -qE '^v0\.[1-9][0-9]*\.[0-9]+$'; then
+      cmds+=("go get ${pkg}@${API_VERSION}")
+    else
+      cmds+=("go get ${pkg}")
+    fi
   done < <(grep -E "k8s\.io/|sigs\.k8s\.io/|github\.com/openshift/(api|client-go|library-go|build-machinery-go) " "$gomod" | \
            grep -v "=>" | \
            grep -vE "v[0-9]+\.${OLD_MINOR}\." | \
-           awk '{print $1}' | sort -u)
+           awk '{print $1, $2}' | sort -u)
 
   printf '%s\n' "${cmds[@]}"
 }
@@ -433,6 +440,22 @@ rebase_module() {
   done <<< "$commands"
   echo ""
 
+  # Drop stale k8s.io self-referencing replace directives.
+  # Some repos have temporary pins like "k8s.io/apimachinery =>
+  # k8s.io/apimachinery v0.33.3" that override the require version.
+  # These must be removed during the rebase — the go gets above
+  # already set the correct require versions.
+  local _self_replaces
+  _self_replaces=$(awk '/^[[:space:]]+k8s\.io\/[^ ]+ => k8s\.io\//{print $1}' go.mod || true)
+  if [[ -n "$_self_replaces" ]]; then
+    info "Dropping stale k8s.io self-referencing replace directives..."
+    while IFS= read -r _rpkg; do
+      [[ -z "$_rpkg" ]] && continue
+      info "  -dropreplace ${_rpkg}"
+      go mod edit -dropreplace="${_rpkg}" 2>/dev/null || true
+    done <<< "$_self_replaces"
+  fi
+
   info "Running go mod tidy..."
   # k8s.io/kubernetes uses local replace directives for staging repos.
   # When bumped, go mod tidy may fail with "unknown revision v0.0.0"
@@ -450,16 +473,18 @@ rebase_module() {
     tidy_attempts=$((tidy_attempts + 1))
   done
 
-  # Align staging modules that tidy pulled in at a stale patch.
-  # MVS resolves new transitive deps to minimum version (e.g.,
-  # v0.36.0) rather than target patch (v0.36.2).
+  # Align k8s.io staging modules at wrong version. Catches both
+  # wrong-patch (v0.36.0 instead of v0.36.2) and wrong-minor
+  # (v0.22.8 stuck from a prior rebase).
   local _skewed
   _skewed=$(grep -E '^\s+k8s\.io/' go.mod | grep -v "=>" | \
-            grep "v0\.${K8S_MINOR}\." | grep -v "${API_VERSION}" | \
+            grep -E 'v0\.[0-9]+\.[0-9]+' | grep -v "${API_VERSION}" | \
+            grep -v 'v0\.0\.0' | \
             grep -v 'kube-openapi' | grep -v 'k8s\.io/utils' | \
+            grep -v 'k8s\.io/klog' | grep -v 'k8s\.io/gengo' | \
             awk '{print $1}' || true)
   if [[ -n "$_skewed" ]]; then
-    info "Aligning staging modules to ${API_VERSION}..."
+    info "Aligning k8s.io staging modules to ${API_VERSION}..."
     while IFS= read -r _mod; do
       [[ -z "$_mod" ]] && continue
       if go get "${_mod}@${API_VERSION}" >> "$REBASE_TMP/go-get.log" 2>&1; then
@@ -473,12 +498,31 @@ rebase_module() {
 
   # k8s.io/kubernetes uses v1.x.x (not v0.x.x like staging modules).
   # The staging alignment above misses it. Re-pin if tidy reverted it.
+  # Uses go mod edit (text-only) instead of go get because go get
+  # fails on k8s.io/kubernetes's unresolvable staging replace directives.
   local _k8s_ver
   _k8s_ver=$(grep -E '^\s+k8s\.io/kubernetes\s' go.mod | grep -v "=>" | awk '{print $2}' || true)
   if [[ -n "$_k8s_ver" ]] && [[ "$_k8s_ver" != "v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}" ]]; then
     info "Re-pinning k8s.io/kubernetes: ${_k8s_ver} → v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}"
-    go get "k8s.io/kubernetes@v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}" >> "$REBASE_TMP/go-get.log" 2>&1 || true
-    go mod tidy 2>/dev/null || true
+    go mod edit -require "k8s.io/kubernetes@v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}"
+    local repin_attempts=0
+    while ! go mod tidy 2>"${REBASE_TMP}/tidy-repin.log"; do
+      local missing_mod
+      missing_mod=$(grep "unknown revision v0.0.0" "${REBASE_TMP}/tidy-repin.log" | grep -oE 'k8s\.io/[a-z][-a-z]*' | head -1 || true)
+      if [[ -z "$missing_mod" ]] || [[ $repin_attempts -ge 10 ]]; then
+        info "  WARNING: go mod tidy failed after k8s.io/kubernetes re-pin"
+        cat "${REBASE_TMP}/tidy-repin.log" >> "$REBASE_TMP/go-get.log"
+        break
+      fi
+      info "  Resolving staging dep: ${missing_mod}@${API_VERSION}"
+      go get "${missing_mod}@${API_VERSION}" 2>/dev/null || true
+      repin_attempts=$((repin_attempts + 1))
+    done
+    local _k8s_after
+    _k8s_after=$(grep -E '^\s+k8s\.io/kubernetes\s' go.mod | grep -v "=>" | awk '{print $2}' || true)
+    if [[ -n "$_k8s_after" ]] && [[ "$_k8s_after" != "v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}" ]]; then
+      die "k8s.io/kubernetes stuck at ${_k8s_after} after re-pin (expected v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH})"
+    fi
   fi
 
   if [[ -d "vendor" ]]; then

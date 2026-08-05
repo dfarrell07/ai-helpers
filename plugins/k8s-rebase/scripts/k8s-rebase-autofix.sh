@@ -234,7 +234,11 @@ run_checks() {
   fi
   r "x/exp imports" "$(grep -rn 'golang.org/x/exp' --include='*.go' . | grep -v vendor | wc -l)"
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
-  r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
+  if [[ "${K8S_MINOR:-0}" -ge 36 ]] 2>/dev/null; then
+    r "FieldsV1.Raw" "$(grep -rn 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor | wc -l)"
+  else
+    r "FieldsV1.Raw" "0"
+  fi
   # Generic major-version import check: find bare imports where /vN exists in go.mod
   local _mv_stale=0
   for _mod in $(grep -oP 'k8s\.io/[a-zA-Z0-9_-]+/v\d+' "$PRIMARY_GOMOD" 2>/dev/null | sed 's|/v[0-9]*$||' | sort -u); do
@@ -1129,9 +1133,15 @@ fix_banp_egresspeer() {
 fix_feature_gates() {
   # Iterate GATE_DEPS directly — no external file needed.
   # Only process gates that exist in the vendored k8s code.
+  # Skip gates that are GA+LockToDefault (cannot be disabled via SetFromMap).
   local parents=() all_deps=()
   for gate in "${!GATE_DEPS[@]}"; do
     grep -rq "\"$gate\"" "$MODULE_ROOT/vendor/k8s.io/" 2>/dev/null || continue
+    if grep -A5 "${gate}:" "$MODULE_ROOT/vendor/k8s.io/client-go/features/known_features.go" 2>/dev/null \
+       | grep -q "LockToDefault: true"; then
+      echo ":: Skipping locked gate $gate (GA, cannot be disabled)"
+      continue
+    fi
     parents+=("$gate")
     for dep in ${GATE_DEPS[$gate]}; do
       grep -rq "\"$dep\"" "$MODULE_ROOT/vendor/k8s.io/" 2>/dev/null && all_deps+=("$dep")

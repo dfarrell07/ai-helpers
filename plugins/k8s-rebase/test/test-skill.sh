@@ -997,13 +997,13 @@ FILES: $diff_stat"
   mkdir -p "$cdir"
 
   info "Phase A: Prosecution + Defense..."
-  cat <<EOF_PROS | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>/dev/null &
+  cat <<EOF_PROS | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
 $context
 
 You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.
 EOF_PROS
   local p1=$!
-  cat <<EOF_DEF | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>/dev/null &
+  cat <<EOF_DEF | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
 $context
 
 You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.
@@ -1012,13 +1012,13 @@ EOF_DEF
   wait "$p1" "$p2" 2>/dev/null || true
   local pros=$(cat "$cdir/pros.txt") def=$(cat "$cdir/def.txt")
   if [[ ${#pros} -lt 200 || ${#def} -lt 200 ]]; then
-    error "Prosecution/defense too short (${#pros}/${#def} bytes — retry needed)"
+    error "Prosecution/defense too short (${#pros}/${#def} bytes — $(tail -1 "$cdir/pros.err" 2>/dev/null) / $(tail -1 "$cdir/def.err" 2>/dev/null))"
     return 2
   fi
 
   info "Phase B: Judge..."
   local judge
-  judge=$(cat <<EOF_JUDGE | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>/dev/null
+  judge=$(cat <<EOF_JUDGE | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err"
 $direction
 $preexisting
 
