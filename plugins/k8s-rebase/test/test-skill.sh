@@ -1035,7 +1035,7 @@ FILES: $diff_stat"
 
   local _court_dir="$PLUGIN_DIR/test/.matrix-state/court"
   mkdir -p "$_court_dir" 2>/dev/null
-  local cdir="$_court_dir/$(date +%s)"
+  local cdir="$_court_dir/$(date +%s)_$(repo_key "$repo")"
   mkdir -p "$cdir"
 
   info "Phase A: Prosecution + Defense..."
@@ -1160,6 +1160,7 @@ cmd_court_all() {
   local run=0 passed=0 failed=0 errors=0 skipped=0
   for cfg in "${configs[@]}"; do
     CONFIG_FILE="$cfg"; _load_config
+    local _court_pids=() _court_files=() _court_shorts=()
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
       local _rk=$(repo_key "$repo")
@@ -1169,6 +1170,7 @@ cmd_court_all() {
       [[ -z "$latest_line" ]] && continue
       local verdict=$(echo "$latest_line" | cut -f5)
       [[ "$verdict" != "PASS" ]] && continue
+      [[ -f "$PLUGIN_DIR/test/.matrix-state/running/${VERSION}_$_rk" ]] && { skipped=$((skipped + 1)); continue; }
 
       repo=$(resolve_repo "$short" 2>/dev/null) || { warn "$short ($VERSION): cannot resolve"; skipped=$((skipped + 1)); continue; }
       cd "$repo" || { warn "$short ($VERSION): cannot cd"; skipped=$((skipped + 1)); continue; }
@@ -1179,26 +1181,41 @@ cmd_court_all() {
 
       run=$((run + 1))
       info "Court $run: $short ($VERSION)"
-
-      local _court_verdict=""
-      if cmd_court "$branch" "$kg" "$repo"; then
-        _court_verdict="PASS"
-        passed=$((passed + 1))
-      else
-        local _exit=$?
-        if [[ $_exit -eq 1 ]]; then
-          _court_verdict="FAIL"
-          failed=$((failed + 1))
+      (
+        local _verdict=""
+        if cmd_court "$branch" "$kg" "$repo"; then
+          _verdict="PASS"
         else
-          errors=$((errors + 1))
+          local _rc=$?
+          case $_rc in
+            1) _verdict="FAIL" ;;
+            *) _verdict="INCONCLUSIVE" ;;
+          esac
         fi
-      fi
-      if [[ -n "$_court_verdict" ]]; then
-        mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
-        echo "$_court_verdict" > "$_court_file"
-        info "$short ($VERSION): $_court_verdict"
-      fi
+        mkdir -p "$(dirname "$_court_file")"
+        echo "$_verdict" > "$_court_file"
+      ) &
+      _court_pids+=($!)
+      _court_files+=("$_court_file")
+      _court_shorts+=("$short")
     done
+
+    if [[ ${#_court_pids[@]} -gt 0 ]]; then
+      wait "${_court_pids[@]}" 2>/dev/null || true
+      for _ci in "${!_court_files[@]}"; do
+        local _cf="${_court_files[$_ci]}" _cs="${_court_shorts[$_ci]}"
+        if [[ -f "$_cf" ]]; then
+          local _v=$(cat "$_cf")
+          case "$_v" in
+            PASS) passed=$((passed + 1)); info "$_cs ($VERSION): PASS" ;;
+            FAIL) failed=$((failed + 1)); warn "$_cs ($VERSION): FAIL" ;;
+            *) errors=$((errors + 1)); warn "$_cs ($VERSION): INCONCLUSIVE" ;;
+          esac
+        else
+          errors=$((errors + 1)); warn "$_cs ($VERSION): ERROR (no verdict)"
+        fi
+      done
+    fi
   done
 
   CONFIG_FILE="$saved_config"
@@ -1495,6 +1512,137 @@ cmd_set_known_good() {
   fi
 }
 
+# ── Matrix ────────────────────────────────────────────────────────────
+
+cmd_matrix() {
+  local spec="${1:-none}"; shift || true
+  local max_retries=2
+
+  # Discover all versioned configs
+  local configs=()
+  for cfg in "$PLUGIN_DIR/test"/config-[0-9]*.yaml; do
+    [[ -f "$cfg" ]] && configs+=("$cfg")
+  done
+  [[ ${#configs[@]} -eq 0 ]] && die "No config-*.yaml files found in $PLUGIN_DIR/test/"
+
+  local saved_config="$CONFIG_FILE"
+  local versions_pass=0 versions_fail=0 versions_total=0
+  local matrix_start=$(date +%s)
+
+  info "Matrix: ${#configs[@]} versions, spec=$spec, max_retries=$max_retries"
+  for cfg in "${configs[@]}"; do
+    info ""; info ""
+  done
+
+  for cfg in "${configs[@]}"; do
+    CONFIG_FILE="$cfg"
+    _load_config
+    versions_total=$((versions_total + 1))
+
+    local version_start=$(date +%s)
+    info "================================================================"
+    info "MATRIX [$versions_total/${#configs[@]}]: $VERSION (spec=$spec)"
+    info "================================================================"
+
+    # Phase 1: Run all repos for this version
+    info "Phase 1: test-all (spec=$spec)..."
+    cmd_test_all "$spec"
+
+    # Phase 2: Court all repos that passed gates
+    info "Phase 2: court-all..."
+    cmd_court_all
+
+    # Phase 3: Identify failures and retry
+    local retry=0
+    while [[ "$retry" -lt "$max_retries" ]]; do
+      # Find repos that FAILED in this version (latest result only)
+      local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
+      local failed_repos=()
+      for repo in "${DEFAULT_REPOS[@]}"; do
+        local short=$(repo_short "$repo")
+        local _rk=$(repo_key "$repo")
+
+        # Skip repos marked expected_fail
+        [[ "$(_config_val "$short" "expected_fail")" == "true" ]] && continue
+
+        # Get latest result for this repo+version
+        local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" \
+          '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
+        [[ -z "$latest_line" ]] && continue
+
+        local verdict=$(echo "$latest_line" | cut -f5)
+        if [[ "$verdict" == "FAIL" ]]; then
+          failed_repos+=("$repo")
+          continue
+        fi
+
+        # Also check court verdict -- gate-PASS but court-FAIL should retry
+        local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+        if [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file")" == "FAIL" ]]; then
+          failed_repos+=("$repo")
+        fi
+      done
+
+      [[ ${#failed_repos[@]} -eq 0 ]] && break
+
+      retry=$((retry + 1))
+      info ""
+      info "Phase 3: Retry $retry/$max_retries — ${#failed_repos[@]} failed repos"
+      for repo in "${failed_repos[@]}"; do
+        local short=$(repo_short "$repo")
+        local _rk=$(repo_key "$repo")
+        info "  Retrying: $short"
+
+        # Clear done key so test-all will re-launch
+        local _done_key=$(_done_key "$VERSION" "$spec" "$_rk")
+        rm -f "$PLUGIN_DIR/test/.matrix-state/done/$_done_key"
+
+        # Clear court verdict so court-all will re-run
+        rm -f "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+
+        # Clean worktrees from previous attempt
+        cmd_clean "$repo" 2>/dev/null || true
+      done
+
+      # Re-run test-all (it skips repos that still have a done key)
+      info "Retry $retry: test-all..."
+      cmd_test_all "$spec"
+
+      info "Retry $retry: court-all..."
+      cmd_court_all
+    done
+
+    # Version summary
+    local version_elapsed=$(( $(date +%s) - version_start ))
+    local version_min=$((version_elapsed / 60))
+    info ""
+    info "── $VERSION complete (${version_min}m) ──"
+    if _results_for_version; then
+      versions_pass=$((versions_pass + 1))
+    else
+      versions_fail=$((versions_fail + 1))
+    fi
+  done
+
+  # Restore original config
+  CONFIG_FILE="$saved_config"
+  _load_config
+
+  # Final summary across all versions
+  local matrix_elapsed=$(( $(date +%s) - matrix_start ))
+  local matrix_hours=$((matrix_elapsed / 3600))
+  local matrix_min=$(( (matrix_elapsed % 3600) / 60 ))
+  info ""
+  info "================================================================"
+  info "MATRIX COMPLETE"
+  info "================================================================"
+  cmd_results --all-versions
+  echo ""
+  echo "Time: ${matrix_hours}h ${matrix_min}m"
+  echo "Versions: $versions_pass of $versions_total PASS"
+  [[ "$versions_fail" -eq 0 ]]
+}
+
 cmd_set_from_commit() {
   [[ $# -lt 2 ]] && die "Usage: set-from-commit <repo> <commit>"
   local repo="$1" commit="$2"
@@ -1515,6 +1663,7 @@ usage() {
 Usage: $(basename "$0") <command> [args...]
 
 Commands:
+  matrix [spec]                     Full pipeline: all versions x all repos with retries
   test-all [--version X.Y.Z]        Run core suite (all 6 repos, batches of $MAX_CONCURRENT)
   court-all [--all-versions]        Run adversarial court on all pending repos
   test <spec> <repo> [--version]    Run specific test case
@@ -1544,6 +1693,7 @@ EOF
 
 COMMAND="$1"; shift
 case "$COMMAND" in
+  matrix)         cmd_matrix "$@" ;;
   test-all)       cmd_test_all "$@" ;;
   court-all)      cmd_court_all "$@" ;;
   test)           cmd_test "$@" ;;

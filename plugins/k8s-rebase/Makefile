@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help test watch results court set-known-good set-from-commit stop clean
+.PHONY: help matrix test watch results court set-known-good set-from-commit stop clean
 
 SCRIPT := test/test-skill.sh
 SPEC ?= $(if $(spec),$(spec),none)
@@ -27,6 +27,9 @@ help: ## Show available targets
 	@echo "    make watch                      # monitor progress"
 	@echo "    make court repo=ovn-kubernetes/ovn-kubernetes-mcp"
 	@echo "    make results repo=ovn-kubernetes/ovn-kubernetes-mcp"
+	@echo ""
+	@echo "  Full pipeline (all versions, all repos, court, retries):"
+	@echo "    make matrix                     # 4-8 hours unattended"
 	@echo ""
 	@echo "  Workflow: test → watch → court → results"
 	@echo ""
@@ -61,6 +64,9 @@ help: ## Show available targets
 	@echo "    make set-from-commit repo=<repo> commit=<sha>        Set pre-rebase starting commit"
 	@echo "    repos_dir=/path make test       Override repo checkout location (default: test/.repos/)"
 	@echo ""
+
+matrix: ## Full pipeline: all versions x all repos, court, retries (4-8 hours)
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) matrix $(SPEC)
 
 test: ## Run tests
 	@if [ -n "$(REPO)" ]; then \
