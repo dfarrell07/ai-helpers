@@ -80,15 +80,21 @@ _tally_gates() {
       : # counted in _gt
     else
       # FAIL or missing verdict — check if report predates the branch tip
-      local _rts; _rts=$(stat -c '%Y' "$_gf_file" 2>/dev/null || echo 0)
-      if [[ "$_branch_tip_ts" -gt "$_rts" && "$_rts" -gt 0 ]]; then
-        _gs=$((_gs + 1))  # stale FAIL — agent fixed after gate ran
+      if _is_stale_fail "$_gf_file" "$_branch_tip_ts"; then
+        _gs=$((_gs + 1))
       else
         _gf=$((_gf + 1))
       fi
     fi
   done
   echo "$_gt $_gf $_gs"
+}
+
+_is_stale_fail() {
+  local _file="$1" _tip_ts="$2"
+  [[ "$_tip_ts" -le 0 ]] && return 1
+  local _rts; _rts=$(stat -c '%Y' "$_file" 2>/dev/null || echo 0)
+  [[ "$_rts" -gt 0 && "$_tip_ts" -gt "$_rts" ]]
 }
 
 EXPECTED_GATES=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
@@ -343,7 +349,13 @@ cmd_run() {
     if [[ -d "$_running_dir" ]]; then
       local _active_count=0
       for _rf in "$_running_dir"/*; do
-        [[ -f "$_rf" ]] && _active_count=$((_active_count + 1))
+        [[ -f "$_rf" ]] || continue
+        local _run_sid=$(cut -f3 "$_rf" 2>/dev/null)
+        if [[ -z "$_run_sid" ]] || ! _session_alive "$_run_sid"; then
+          rm -f "$_rf"
+        else
+          _active_count=$((_active_count + 1))
+        fi
       done
       if [[ $((_active_count + ${#repos[@]})) -gt "$MAX_CONCURRENT" ]]; then
         local _avail=$((MAX_CONCURRENT - _active_count))
@@ -648,25 +660,8 @@ cmd_test() {
   local _sid=$(cat "$mutated/test/.matrix-state/.session_id_$_running_key" 2>/dev/null)
   [[ -n "$_sid" ]] && printf '%s\t%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" "$version" > "$_state_dir/running/$_running_key"
   rm -f "$mutated/test/.matrix-state/.session_id_$_running_key" 2>/dev/null
-  # Wait for completion when called standalone (not from cmd_test_all)
   if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
-    info "Waiting for $(repo_short "$repo") to complete..."
-    trap 'info "Interrupted — session still running in background"; exit 130' INT TERM
-    while [[ -f "$_state_dir/running/$_running_key" ]]; do
-      sleep 60
-      local _sid=$(cut -f3 "$_state_dir/running/$_running_key" 2>/dev/null)
-      if ! _session_alive "$_sid"; then
-        _SESSION_CACHE_AGE=0
-        auto_record
-        [[ -f "$_state_dir/running/$_running_key" ]] && {
-          warn "Session ended — recording result"
-          rm -f "$_state_dir/running/$_running_key"
-          break
-        }
-      fi
-    done
-    trap - INT TERM
-    cmd_results "$(repo_short "$repo")"
+    info "$(repo_short "$repo") running — 'make watch' to monitor, 'make results' when done"
   fi
 }
 
@@ -1304,11 +1299,22 @@ _results_one() {
     else
       echo "Gates: $total/$EXPECTED_GATES complete (in progress${_skip_note})"
     fi
+    local _repo_root="${gate_dir%/.rebase-tmp/gates}"
+    local _branch_tip_ts=0
+    if [[ -d "$_repo_root/.git" || -f "$_repo_root/.git" ]]; then
+      _branch_tip_ts=$(git -C "$_repo_root" log -1 --format='%ct' 2>/dev/null || echo 0)
+    fi
     for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
       [[ -f "$f" ]] || continue
       local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       v="${v^^}"
-      [[ "$v" == *"FAIL"* ]] && { echo ""; echo "FAILED: $(basename "${f%.report}" .json)"; cat "$f"; }
+      [[ "$v" != *"FAIL"* ]] && continue
+      local _gn=$(basename "${f%.report}" .json)
+      [[ " $INFO_GATES " == *" ${_gn#step?-} "* ]] && continue
+      _is_stale_fail "$f" "$_branch_tip_ts" && continue
+      echo ""
+      echo "FAILED: $_gn"
+      awk '/^DETAILS:/{d=1; print; next} d{print "  "$0; next} {print}' "$f"
     done
   else
     echo "Gates: none (no reports found)"
