@@ -189,7 +189,7 @@ _session_alive() {
   [[ -z "$sid" ]] && return 1
   build_session_cache
   echo "$_SESSION_CACHE" | while IFS=$'\t' read -r _cwd _st _el _pid _sid _rest; do
-    [[ "$_sid" == "$sid"* ]] && [[ "$_st" != "done" && "$_st" != "blocked" && "$_st" != "?" ]] && echo "yes" && break
+    [[ "$_sid" == "$sid"* ]] && [[ "$_st" == "working" ]] && echo "yes" && break
   done | grep -q yes
 }
 
@@ -261,7 +261,7 @@ session_for_repo() {
   while IFS=$'\t' read -r cwd state elapsed pid _rest; do
     [[ -z "$cwd" ]] && continue
     [[ "$cwd" == *"/${short}/"* || "$cwd" == *"/${short}" ]] || continue
-    [[ "$state" == "done" || "$state" == "blocked" || "$state" == "?" ]] && continue
+    [[ "$state" != "working" ]] && continue
     [[ -z "$pid" || "$pid" == "0" ]] && continue
     kill -0 "$pid" 2>/dev/null || continue
     if [[ "$cwd" == *"/.claude/worktrees/"* && ! -d "$cwd" ]]; then
@@ -352,6 +352,7 @@ cmd_run() {
         [[ -f "$_rf" ]] || continue
         local _run_sid=$(cut -f3 "$_rf" 2>/dev/null)
         if [[ -z "$_run_sid" ]] || ! _session_alive "$_run_sid"; then
+          [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
           rm -f "$_rf"
         else
           _active_count=$((_active_count + 1))
@@ -463,19 +464,49 @@ cmd_stop() {
       killed=$((killed + 1))
     fi
   done
+  # Phase 2: fallback to session cache for zombie sessions with no running file
+  if [[ "$killed" -eq 0 ]] || $stop_all; then
+    build_session_cache
+    while IFS=$'\t' read -r _cwd _state _elapsed _pid _sid _rest; do
+      [[ -z "$_cwd" ]] && continue
+      [[ "$_cwd" == *"$REPOS_DIR"* ]] || continue
+      local _repo="${_cwd#*$REPOS_DIR/}"; _repo="${_repo%%/.claude/*}"; _repo="${_repo%%/}"
+      local _should_stop=false
+      if $stop_all; then _should_stop=true
+      else for t in "${targets[@]}"; do [[ "$_repo" == *"$t"* || "$_sid" == "$t"* ]] && { _should_stop=true; break; }; done; fi
+      if $_should_stop; then
+        claude stop "$_sid" 2>/dev/null || true
+        info "Stopped $_repo ($_sid) [from session cache]"
+        killed=$((killed + 1))
+      fi
+    done <<< "$_SESSION_CACHE"
+  fi
   [[ "$killed" -eq 0 ]] && info "No active sessions"
 }
 
 cmd_clean() {
   local repos=("$@")
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
-  build_session_cache
+  local state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local running_dir="$state_dir/running"
   local cleaned_keys=()
   for repo in "${repos[@]}"; do
     repo=$(resolve_repo "$repo") || continue
-    local existing=$(session_for_repo "$repo")
-    [[ -n "$existing" ]] && { warn "Active session on $(repo_short "$repo") — skipping"; continue; }
-    cleaned_keys+=($(repo_key "$repo"))
+    local _ck=$(repo_key "$repo")
+    local short=$(repo_short "$repo")
+    # Stop any active sessions for this repo before cleaning
+    if [[ -d "$running_dir" ]]; then
+      for rf in "$running_dir"/*"_${_ck}"; do
+        [[ -f "$rf" ]] || continue
+        local _sid=$(cut -f3 "$rf" 2>/dev/null)
+        if [[ -n "$_sid" ]]; then
+          claude stop "$_sid" 2>/dev/null || true
+          info "Stopped session on $short"
+        fi
+        rm -f "$rf"
+      done
+    fi
+    cleaned_keys+=("$_ck")
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
     remove_worktrees "$repo"
@@ -499,7 +530,6 @@ cmd_clean() {
     local old_mutated=$(find "$RESULTS_DIR" -maxdepth 1 -name 'mutated-*' -type d 2>/dev/null | wc -l)
     [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
   fi
-  local state_dir="$PLUGIN_DIR/test/.matrix-state"
   [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
   [[ -d "$state_dir/court" ]] && { rm -rf "$state_dir/court"/* 2>/dev/null; info "Cleared court state"; }
   rm -f "$state_dir"/.session_id_* "$state_dir"/from_commit_* "$state_dir"/known_good_* "$state_dir"/expected_fail_* 2>/dev/null
@@ -702,6 +732,7 @@ cmd_test_all() {
         info "SKIP $(repo_short "$repo") (already running)"
         continue
       else
+        claude stop "$_run_sid" 2>/dev/null || true
         rm -f "$state_dir/running/$_rk"
         active=$((active - 1))
       fi
@@ -744,7 +775,7 @@ cmd_test_all() {
       for _rf in "$state_dir/running"/*; do
         [[ -f "$_rf" ]] || continue
         local _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
-        _session_alive "$_sid_check" || rm -f "$_rf"
+        _session_alive "$_sid_check" || { [[ -n "$_sid_check" ]] && claude stop "$_sid_check" 2>/dev/null || true; rm -f "$_rf"; }
       done
     fi
     # Re-count active and launch newly-eligible repos into freed slots
@@ -887,19 +918,19 @@ auto_record() {
     local spec=$(echo "$_raw" | cut -f1)
     local launch_epoch=$(echo "$_raw" | cut -f2)
     [[ "$launch_epoch" =~ ^[0-9]+$ ]] || launch_epoch=0
+    local _run_sid=$(echo "$_raw" | cut -f3)
     local _run_version=$(echo "$_raw" | cut -f4)
     : "${_run_version:=$VERSION}"
     repo_key=$(repo_key_from_running "$_run_version" "$repo_key")
-    [[ -z "$spec" ]] && { rm -f "$running_file"; continue; }
+    [[ -z "$spec" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
 
     local repo
     repo=$(_repo_from_key "$repo_key") || true
     [[ -z "$repo" || ! -d "$repo" ]] && continue
     local short=$(repo_short "$repo")
     local done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
-    [[ -f "$state_dir/done/$done_key" ]] && { rm -f "$running_file"; continue; }
+    [[ -f "$state_dir/done/$done_key" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
 
-    local _run_sid=$(echo "$_raw" | cut -f3)
     local _session_dead=false
     if _session_alive "$_run_sid"; then
       # Session still running — check if gates are complete
@@ -917,6 +948,7 @@ auto_record() {
 
     local result
     if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch" "$_run_version"); then
+      [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
       recorded=$((recorded + 1))
       info "Recorded: $result"
     elif $_session_dead; then
@@ -926,6 +958,7 @@ auto_record() {
       local _done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
       mkdir -p "$state_dir/done"
       touch "$state_dir/done/$_done_key"
+      [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
       rm -f "$running_file"
       recorded=$((recorded + 1))
       warn "Recorded FAIL for $short ($_fail_detail)"
