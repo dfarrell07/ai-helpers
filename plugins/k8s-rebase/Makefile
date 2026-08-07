@@ -66,7 +66,7 @@ help: ## Show available targets
 	@echo ""
 
 matrix: ## Full pipeline: all versions x all repos, court, retries (4-8 hours)
-	@$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) $(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) matrix $(SPEC)
+	@$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) $(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) matrix $(if $(spec),$(SPEC),all)
 
 test: ## Run tests
 	@if [ -n "$(REPO)" ]; then \

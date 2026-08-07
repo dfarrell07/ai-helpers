@@ -16,6 +16,7 @@ REPOS_DIR="$_repos_parent/$(basename "$REPOS_DIR")"
 REPOS_DIR="${REPOS_DIR%/}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"
+_MAX_CONCURRENT_FROM_ENV="${MAX_CONCURRENT:-}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
 INFO_GATES="dep-cve-check skill-improvement commit-messages maintainer-review"
 
@@ -138,7 +139,9 @@ _load_config() {
   VERSION=$(yq '.version' "$CONFIG_FILE")
   [[ -z "$VERSION" || "$VERSION" == "null" ]] && die "version not set in $CONFIG_FILE"
   local _mc=$(yq '.max_concurrent // ""' "$CONFIG_FILE")
-  [[ -n "$_mc" && "$_mc" != "null" ]] && MAX_CONCURRENT="$_mc"
+  if [[ -n "$_mc" && "$_mc" != "null" ]]; then
+    MAX_CONCURRENT="${_MAX_CONCURRENT_FROM_ENV:-$_mc}"
+  fi
   DEFAULT_REPOS=()
   while IFS= read -r repo_short; do
     [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$REPOS_DIR/$repo_short")
@@ -532,7 +535,7 @@ cmd_clean() {
   fi
   for _ck in "${cleaned_keys[@]}"; do
     rm -f "$state_dir/done/"*"_${_ck}" 2>/dev/null
-    rm -f "$state_dir/court/"*"_${_ck}" 2>/dev/null
+    rm -rf "$state_dir/court/"*"_${_ck}" 2>/dev/null
     rm -f "$state_dir/running/"*"_${_ck}" 2>/dev/null
   done
   [[ ${#cleaned_keys[@]} -gt 0 ]] && info "Cleared done/court/running state for ${#cleaned_keys[@]} repos"
