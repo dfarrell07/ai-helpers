@@ -15,6 +15,12 @@ handles that). Focus on these unique checks:
    an int). Run: `git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^\+.*fmt\.\|^\+.*Sprintf\|^\+.*Fprintf\|^\+.*Errorf' | head -30`
 3. Eventf calls: Check for bare .Error() args without format
    directives. Run: `grep -rn '\.Eventf\|\.Event(' --include='*.go' . | grep -v vendor/ | grep '\.Error()' | head -20`
+4. Test assertion weakening: Check if `assert.Equal` was changed
+   to `assert.EqualValues` in the diff. Prefer updating expected
+   value literals to match new types over weakening the assertion.
+   Run: `git diff $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)..HEAD -- '*_test.go' | grep -E '^\-.*assert\.Equal\b|^\+.*assert\.EqualValues' | head -20`
+   Flag new EqualValues introductions for review. Pre-existing
+   EqualValues usage (on the base branch) is excluded.
 
 Report per-commit findings and current-code scan results.
 

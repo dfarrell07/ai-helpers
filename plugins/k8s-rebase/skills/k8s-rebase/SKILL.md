@@ -278,11 +278,25 @@ Use `--quick` (~1 min, build + vet only) during fix iterations.
 issues (e.g., Eventf arg count mismatches) that standalone
 `go vet` misses — without running any tests.
 
+**Migration direction rule:** When fixing compilation errors, always
+use the NEWEST available API. Never introduce usage of a deprecated
+package to fix a compilation error. Check `// Deprecated:` comments
+in vendored source (`grep -r 'Deprecated:' vendor/<pkg>/`) to find
+the replacement. Common anti-patterns to avoid:
+- `golang.org/x/net/context` instead of stdlib `context`
+- `k8s.io/utils/strings/slices` instead of stdlib `slices`
+- `k8s.io/utils/pointer` instead of `k8s.io/utils/ptr`
+- `admission.CustomValidator` instead of `admission.Validator[T]`
+
 **Common API migrations** (use when the compiler flags a removed API):
 - `pointer.Int32(v)` → `ptr.To[int32](v)` (k8s.io/utils/ptr)
 - `sets.NewString(...)` → `sets.New[string](...)`
 - `context.Context` added as first parameter: pass `ctx` from
   the caller, not `context.TODO()`.
+- `context.WithTimeout`/`WithCancel`: always capture the cancel
+  function (`ctx, cancel := ...`) and `defer cancel()`.
+  `ctx, _ := ...` leaks the context and fails `go vet`'s
+  `lostcancel` analyzer.
 - `ioutil.ReadFile`/`ReadDir` → `os.ReadFile`/`os.ReadDir`
 - `k8s.io/klog` → `k8s.io/klog/v2` (klog v1 removed in k8s
   1.35+; also remove `k8s.io/klog` from go.mod if present)
@@ -403,7 +417,11 @@ Count gates must report 0. Judge gates must cite evidence.
    `git show $(git merge-base HEAD master 2>/dev/null ||
    git merge-base HEAD main):<file>` — skip pre-existing issues.
 2. **Fix**: Fix the cited issue at the cited location. Commit.
-3. **Re-run** (mandatory — never skip): Delete the old gate report
+3. **Re-validate**: After any code-changing fix, re-run
+   `validate.sh --quick` to confirm build+vet still pass. Fix
+   commits can introduce new regressions — catch them here before
+   re-running the gate.
+4. **Re-run** (mandatory — never skip): Delete the old gate report
    (`rm .rebase-tmp/gates/<gate>.report`), then re-launch the
    gate subagent with a fresh prompt. Stale FAIL reports cause
    auto-record to mark the run as failed even if the fix worked.

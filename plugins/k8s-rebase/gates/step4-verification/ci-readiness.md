@@ -5,7 +5,7 @@ focus on CI-specific gaps that only matter at ship time:
 1. Does any e2e test or CI config reference a hardcoded k8s
    version, KIND image tag, or container image that needs updating?
    Search the full repo (excluding vendor):
-   `grep -rn 'kind.sigs.k8s.io/dl/v\|KIND_VERSION=v\|kindest/node:v' . --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile" 2>/dev/null | grep -v vendor/`
+   `grep -rn 'kind.sigs.k8s.io/dl/v\|KIND_VERSION=v\|kindest/node:v' . --include="*.yml" --include="*.yaml" --include="*.sh" --include="Makefile" --include="kind-common" 2>/dev/null | grep -v vendor/`
 2. Are there version-conditional test skips that should be added
    or removed for this k8s version? Search for them:
    `grep -rn 'Skip\|Skipf\|MinimumKubernetes\|MaximumKubernetes' --include='*.go' . | grep -v vendor/`

@@ -642,7 +642,7 @@ fix_kind_image() {
       for f in $(grep -rln "K8S_VERSION" \
         --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
         | grep -v vendor | grep -v go.mod); do
-        sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
+        sed -i -E "/K8S_VERSION/s#v?1\.${OLD}(\.[0-9]+)?#${kind_tag}#g; /K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
         _changed=1
       done
     fi
@@ -684,7 +684,7 @@ fix_kind_version() {
 
 fix_metallb_version() {
   local kind_common
-  kind_common=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
+  kind_common=$(find . \( -name "kind-common" -o -name "kind-common.sh" \) -not -path "*/vendor/*" | head -1)
   [[ -z "$kind_common" ]] && return 0
   local current_metallb
   current_metallb=$(grep -oE 'metallb_version=v[0-9.]+' "$kind_common" | head -1 | sed 's/metallb_version=//')
@@ -727,7 +727,7 @@ fix_metallb_version() {
 
 fix_kubevirt_version() {
   local kind_common
-  kind_common=$(find . -name "kind-common.sh" -not -path "*/vendor/*" | head -1)
+  kind_common=$(find . \( -name "kind-common" -o -name "kind-common.sh" \) -not -path "*/vendor/*" | head -1)
   [[ -z "$kind_common" ]] && return 0
   grep -q 'KUBEVIRT_VERSION:-"v[0-9]' "$kind_common" || return 0
   local current current_minor latest_patch

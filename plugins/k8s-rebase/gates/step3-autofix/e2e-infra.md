@@ -1,4 +1,4 @@
-If e2e infrastructure was modified (kind-common.sh, kind.yaml.j2,
+If e2e infrastructure was modified (kind-common or kind-common.sh, kind.yaml.j2,
 e2e-kind.sh, install-kind.sh, CI workflows), verify the changes
 are consistent with the target k8s version.
 
@@ -28,7 +28,7 @@ List each item checked and whether it passes. Report issues.
 Run this check FIRST — if nothing matches, SKIP immediately:
 ```bash
 REPO="<the repo path from the first line of your prompt>"
-E2E_FILES=$(grep -rln 'kindest/node\|K8S_VERSION\|KIND_VERSION\|kind-common\|e2e-kind\|install-kind' "$REPO" --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.j2' 2>/dev/null | grep -v vendor/ | head -20)
+E2E_FILES=$(grep -rln 'kindest/node\|K8S_VERSION\|KIND_VERSION\|kind-common\|e2e-kind\|install-kind' "$REPO" --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.j2' --include='kind-common' 2>/dev/null | grep -v vendor/ | head -20)
 if [ -z "$E2E_FILES" ]; then
   echo "No e2e infrastructure files found — SKIP"
 fi

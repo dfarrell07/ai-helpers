@@ -2,7 +2,7 @@ Final verification that no deprecated imports remain. This runs
 AFTER step3 gates AND fix commits, so focus on what survived
 the entire fix pipeline.
 
-Promoted x/ packages (primary check for this gate):
+Promoted x/ packages:
   `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
 Known promotions (check these first):
@@ -10,6 +10,12 @@ Known promotions (check these first):
 - `golang.org/x/exp/maps` -> `maps` (Go 1.21+)
 - `golang.org/x/net/context` -> `context` (Go 1.7+)
 - `golang.org/x/sync/errgroup` -> still x/ (NOT promoted)
+
+k8s ecosystem deprecated packages (also check):
+  `grep -rn '"k8s.io/utils/strings/slices\|"k8s.io/utils/pointer"' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+
+- `k8s.io/utils/strings/slices` -> stdlib `slices` (Go 1.21+)
+- `k8s.io/utils/pointer` -> `k8s.io/utils/ptr`
 
 For each hit, derive the stdlib name and verify with:
   `go doc <stdlib-name> 2>/dev/null`
