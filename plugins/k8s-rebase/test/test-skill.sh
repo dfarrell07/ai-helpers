@@ -530,12 +530,13 @@ cmd_clean() {
     local old_mutated=$(find "$RESULTS_DIR" -maxdepth 1 -name 'mutated-*' -type d 2>/dev/null | wc -l)
     [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
   fi
-  [[ -d "$state_dir/done" ]] && { rm -rf "$state_dir/done"/* 2>/dev/null; info "Cleared done files"; }
-  [[ -d "$state_dir/court" ]] && { rm -rf "$state_dir/court"/* 2>/dev/null; info "Cleared court state"; }
-  rm -f "$state_dir"/.session_id_* "$state_dir"/from_commit_* "$state_dir"/known_good_* "$state_dir"/expected_fail_* 2>/dev/null
   for _ck in "${cleaned_keys[@]}"; do
+    rm -f "$state_dir/done/"*"_${_ck}" 2>/dev/null
+    rm -f "$state_dir/court/"*"_${_ck}" 2>/dev/null
     rm -f "$state_dir/running/"*"_${_ck}" 2>/dev/null
   done
+  [[ ${#cleaned_keys[@]} -gt 0 ]] && info "Cleared done/court/running state for ${#cleaned_keys[@]} repos"
+  rm -f "$state_dir"/.session_id_* "$state_dir"/from_commit_* "$state_dir"/known_good_* "$state_dir"/expected_fail_* 2>/dev/null
   return 0
 }
 
@@ -1165,7 +1166,7 @@ cmd_court_all() {
       local short=$(repo_short "$repo")
       local _rk=$(repo_key "$repo")
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
-      [[ -f "$_court_file" ]] && continue
+      [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file" 2>/dev/null)" != "INCONCLUSIVE" ]] && continue
       local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
       [[ -z "$latest_line" ]] && continue
       local verdict=$(echo "$latest_line" | cut -f5)
@@ -1530,9 +1531,6 @@ cmd_matrix() {
   local matrix_start=$(date +%s)
 
   info "Matrix: ${#configs[@]} versions, spec=$spec, max_retries=$max_retries"
-  for cfg in "${configs[@]}"; do
-    info ""; info ""
-  done
 
   for cfg in "${configs[@]}"; do
     CONFIG_FILE="$cfg"
@@ -1578,7 +1576,7 @@ cmd_matrix() {
 
         # Also check court verdict -- gate-PASS but court-FAIL should retry
         local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
-        if [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file")" == "FAIL" ]]; then
+        if [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file")" != "PASS" ]]; then
           failed_repos+=("$repo")
         fi
       done
