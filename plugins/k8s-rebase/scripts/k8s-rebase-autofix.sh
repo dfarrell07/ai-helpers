@@ -611,7 +611,7 @@ fix_kind_image() {
   # kubectl download or envtest. The signal: does any non-vendor file
   # contain BOTH K8S_VERSION and kindest/node?
   local uses_k8s_version_for_kind=""
-  if grep -rl "K8S_VERSION" --include="*.sh" --include="*.yml" --include="*.yaml" --include="Makefile*" . 2>/dev/null | grep -v vendor | xargs grep -l "kindest/node" 2>/dev/null | grep -q .; then
+  if grep -rl "K8S_VERSION" --include="*.sh" --include="*.yml" --include="*.yaml" --include="Makefile*" --include="kind-common" . 2>/dev/null | grep -v vendor | xargs grep -l "kindest/node" 2>/dev/null | grep -q .; then
     uses_k8s_version_for_kind=1
   fi
   local OLD=$((NEW-1))
@@ -619,13 +619,13 @@ fix_kind_image() {
     local revert_tag="v1.${OLD}.1"
     echo ":: kindest/node:v1.${NEW}.* not available — reverting KIND refs to ${revert_tag}"
     for f in $(grep -rln "kindest/node" \
-      --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
+      --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
       | grep -v vendor); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
     done
     if [[ -n "$uses_k8s_version_for_kind" ]]; then
       for f in $(grep -rln "K8S_VERSION" \
-        --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
+        --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
         | grep -v vendor); do
         sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${revert_tag}#g" "$f"
       done
@@ -633,14 +633,14 @@ fix_kind_image() {
   else
     local _changed=0
     for f in $(grep -rln "kindest/node" \
-      --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
+      --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
       | grep -v vendor | grep -v go.mod); do
       sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
       _changed=1
     done
     if [[ -n "$uses_k8s_version_for_kind" ]]; then
       for f in $(grep -rln "K8S_VERSION" \
-        --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" . \
+        --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
         | grep -v vendor | grep -v go.mod); do
         sed -i -E "/K8S_VERSION/s#v?1\.${OLD}(\.[0-9]+)?#${kind_tag}#g; /K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
         _changed=1

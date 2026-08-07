@@ -1014,7 +1014,8 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
   API that provably does not exist at the resolved version — and that
   proof must come from the diff itself, not speculation.
 - K8S_VERSION or KIND version patch-level differences between go.mod
-  and CI/test tooling — CI workflows typically override these defaults.
+  and CI/test tooling (e.g., v1.34.0 vs v1.34.1) — CI workflows
+  typically override these defaults.
 - Extra fixes the result made that the known-good didn't
 - Fixes in known-good that the result lacks, IF the result still
   compiles and passes vet without them (scope differences, not bugs)

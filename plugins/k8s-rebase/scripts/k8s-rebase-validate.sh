@@ -178,7 +178,7 @@ categorize_errors() {
   local build_errors lint_errors vet_errors test_failures
   build_errors=$(grep -E ":[0-9]+:[0-9]+: .*(undefined|cannot use|cannot convert|too many arguments|too few arguments|not enough arguments|unknown field|has no field or method|imported and not used|declared (and|but) not used|multiple-value .* in single-value context)" "$logfile" 2>/dev/null || true)
   lint_errors=$(grep -E "\.go:[0-9]+:[0-9]+:.*(SA[0-9]+|staticcheck|lostcancel|gci|inline:|nilness:|govet|errcheck|gosimple|ineffassign|typecheck|unused)" "$logfile" 2>/dev/null | grep -v "^#" || true)
-  vet_errors=$(grep -E ":[0-9]+:[0-9]+:.*(non-constant format string|format %|has arguments but no formatting directives|deprecated|call needs [0-9]+ args but has|the cancel function returned by|should be called, not discarded)" "$logfile" 2>/dev/null | grep -v "^#" || true)
+  vet_errors=$(grep -E ":[0-9]+:[0-9]+:.*(non-constant format string|format %|has arguments but no formatting directives|deprecated|call needs [0-9]+ args but has|the cancel function returned by)" "$logfile" 2>/dev/null | grep -v "^#" || true)
   test_failures=$(grep -E "^--- FAIL:|^FAIL\t" "$logfile" 2>/dev/null || true)
 
   if [[ -n "$build_errors" ]]; then
