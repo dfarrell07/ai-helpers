@@ -984,9 +984,14 @@ cmd_court() {
   local diff_nv=$(git diff "$known_good" "$result_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
   [[ -z "$diff_nv" ]] && { info "PASS: identical (non-vendor)"; return 0; }
 
+  local diff_bytes=${#diff_nv}
+  if [[ "$diff_bytes" -gt 600000 ]]; then
+    error "INCONCLUSIVE: diff too large (${diff_bytes} bytes — max 600000)"
+    return 2
+  fi
   local hunks=$(echo "$diff_nv" | grep -c '^@@' || true)
   local diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
-  info "Diff: $hunks non-vendor hunks"
+  info "Diff: $hunks non-vendor hunks (${diff_bytes} bytes)"
 
   local direction="DIFF DIRECTION: 'git diff known_good result'.
 '-' lines are in KNOWN-GOOD but not result (things the result may be MISSING).
@@ -1043,13 +1048,13 @@ FILES: $diff_stat"
   mkdir -p "$cdir"
 
   info "Phase A: Prosecution + Defense..."
-  cat <<EOF_PROS | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
+  cat <<EOF_PROS | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
 $context
 
 You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.
 EOF_PROS
   local p1=$!
-  cat <<EOF_DEF | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
+  cat <<EOF_DEF | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
 $context
 
 You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.
@@ -1064,7 +1069,7 @@ EOF_DEF
 
   info "Phase B: Judge..."
   local judge
-  judge=$(cat <<EOF_JUDGE | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err"
+  judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err"
 $direction
 $preexisting
 
@@ -1082,9 +1087,9 @@ EOF_JUDGE
   ) || true
   echo "$judge" > "$cdir/judge.txt"
 
-  info "Phase C: Jury (3 votes, parallel)..."
+  info "Phase C: Jury (parallel)..."
   for j in 1 2 3; do
-    cat <<EOF_JURY | timeout 300 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
+    cat <<EOF_JURY | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
 $direction
 $preexisting
 
@@ -1107,7 +1112,7 @@ EOF_JURY
 
   local empty_jurors=0
   for j in 1 2 3; do
-    if [[ ! -s "$cdir/juror-$j.txt" ]]; then
+    if [[ ! -s "$cdir/juror-$j.txt" ]] || grep -qx 'Execution error' "$cdir/juror-$j.txt" 2>/dev/null; then
       warn "Juror $j produced no output ($(cat "$cdir/juror-$j.err" 2>/dev/null | tail -1))"
       empty_jurors=$((empty_jurors + 1))
     fi
@@ -1137,6 +1142,9 @@ EOF_JURY
     fi
   fi
   [[ "$pass" -gt "$fail" ]] && { info "VERDICT: PASS ($pass-$fail)"; return 0; }
+  if [[ "$pass" -eq "$fail" ]]; then
+    error "INCONCLUSIVE (tied $pass-$fail)"; return 2
+  fi
   error "VERDICT: FAIL ($fail-$pass)"; return 1
 }
 
@@ -1165,6 +1173,7 @@ cmd_court_all() {
   for cfg in "${configs[@]}"; do
     CONFIG_FILE="$cfg"; _load_config
     local _court_pids=() _court_files=() _court_shorts=()
+    local max_court_concurrent=${MAX_COURT_CONCURRENT:-2}
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
       local _rk=$(repo_key "$repo")
@@ -1182,6 +1191,16 @@ cmd_court_all() {
       [[ -z "$kg" ]] && { warn "$short ($VERSION): no known-good configured"; skipped=$((skipped + 1)); continue; }
       local branch=$(find_newest_branch "$repo" "$VERSION")
       [[ -z "$branch" ]] && { warn "$short ($VERSION): no result branch found"; skipped=$((skipped + 1)); continue; }
+
+      # Throttle: wait for a slot if at concurrency limit
+      while [[ ${#_court_pids[@]} -ge $max_court_concurrent ]]; do
+        local _new_pids=()
+        for _pid in "${_court_pids[@]}"; do
+          kill -0 "$_pid" 2>/dev/null && _new_pids+=("$_pid")
+        done
+        _court_pids=("${_new_pids[@]}")
+        [[ ${#_court_pids[@]} -ge $max_court_concurrent ]] && sleep 5
+      done
 
       run=$((run + 1))
       info "Court $run: $short ($VERSION)"
@@ -1556,17 +1575,14 @@ cmd_matrix() {
     # Phase 3: Identify failures and retry
     local retry=0
     while [[ "$retry" -lt "$max_retries" ]]; do
-      # Find repos that FAILED in this version (latest result only)
       local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
-      local failed_repos=()
+      local failed_repos=() court_only_repos=()
       for repo in "${DEFAULT_REPOS[@]}"; do
         local short=$(repo_short "$repo")
         local _rk=$(repo_key "$repo")
 
-        # Skip repos marked expected_fail
         [[ "$(_config_val "$short" "expected_fail")" == "true" ]] && continue
 
-        # Get latest result for this repo+version
         local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" \
           '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
         [[ -z "$latest_line" ]] && continue
@@ -1577,40 +1593,55 @@ cmd_matrix() {
           continue
         fi
 
-        # Also check court verdict -- gate-PASS but court-FAIL should retry
+        # Gate-PASS but court-INCONCLUSIVE: court-only retry (no full re-test)
         local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
-        if [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file")" != "PASS" ]]; then
-          failed_repos+=("$repo")
+        if [[ -f "$_court_file" ]]; then
+          local _cv=$(cat "$_court_file")
+          if [[ "$_cv" == "INCONCLUSIVE" ]]; then
+            court_only_repos+=("$repo")
+          elif [[ "$_cv" == "FAIL" ]]; then
+            failed_repos+=("$repo")
+          fi
         fi
       done
 
-      [[ ${#failed_repos[@]} -eq 0 ]] && break
+      [[ ${#failed_repos[@]} -eq 0 && ${#court_only_repos[@]} -eq 0 ]] && break
 
       retry=$((retry + 1))
       info ""
-      info "Phase 3: Retry $retry/$max_retries — ${#failed_repos[@]} failed repos"
-      for repo in "${failed_repos[@]}"; do
-        local short=$(repo_short "$repo")
-        local _rk=$(repo_key "$repo")
-        info "  Retrying: $short"
 
-        # Clear done key so test-all will re-launch
-        local _done_key=$(_done_key "$VERSION" "$spec" "$_rk")
-        rm -f "$PLUGIN_DIR/test/.matrix-state/done/$_done_key"
+      # Court-only retries (fast: ~5 min per repo)
+      if [[ ${#court_only_repos[@]} -gt 0 ]]; then
+        info "Phase 3: Retry $retry/$max_retries — ${#court_only_repos[@]} court-only repos"
+        for repo in "${court_only_repos[@]}"; do
+          local _rk=$(repo_key "$repo")
+          info "  Court retry: $(repo_short "$repo")"
+          rm -f "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+        done
+        info "Retry $retry: court-all (court-only)..."
+        cmd_court_all
+      fi
 
-        # Clear court verdict so court-all will re-run
-        rm -f "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+      # Full retries (slow: 30-90 min per repo)
+      if [[ ${#failed_repos[@]} -gt 0 ]]; then
+        info "Phase 3: Retry $retry/$max_retries — ${#failed_repos[@]} gate-failed repos"
+        for repo in "${failed_repos[@]}"; do
+          local short=$(repo_short "$repo")
+          local _rk=$(repo_key "$repo")
+          info "  Retrying: $short"
 
-        # Clean worktrees from previous attempt
-        cmd_clean "$repo" 2>/dev/null || true
-      done
+          local _done_key=$(_done_key "$VERSION" "$spec" "$_rk")
+          rm -f "$PLUGIN_DIR/test/.matrix-state/done/$_done_key"
+          rm -f "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+          cmd_clean "$repo" 2>/dev/null || true
+        done
 
-      # Re-run test-all (it skips repos that still have a done key)
-      info "Retry $retry: test-all..."
-      cmd_test_all "$spec"
+        info "Retry $retry: test-all..."
+        cmd_test_all "$spec"
 
-      info "Retry $retry: court-all..."
-      cmd_court_all
+        info "Retry $retry: court-all..."
+        cmd_court_all
+      fi
     done
 
     # Version summary
