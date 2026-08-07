@@ -1014,8 +1014,7 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
   API that provably does not exist at the resolved version — and that
   proof must come from the diff itself, not speculation.
 - K8S_VERSION or KIND version patch-level differences between go.mod
-  and CI/test tooling (e.g., v1.33.1 in kind-common vs v1.34.1 in
-  go.mod) — CI workflows typically override these defaults.
+  and CI/test tooling — CI workflows typically override these defaults.
 - Extra fixes the result made that the known-good didn't
 - Fixes in known-good that the result lacks, IF the result still
   compiles and passes vet without them (scope differences, not bugs)
@@ -1024,10 +1023,14 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
 - OWNERS/reviewers file differences
 - go.mod module path differences between forks and upstream (in
   require or replace blocks, e.g. ovn-org/X vs ovn-kubernetes/X)
-A difference is a REGRESSION only if it would cause a build failure,
+A difference is a REGRESSION only if the rebase INTRODUCES a problem
+that did NOT exist on the base branch — specifically a build failure,
 test failure, or runtime behavioral change (wrong types, broken wire
-format, dropped functionality). Pre-existing issues on the base
-branch are EQUIVALENT, not regressions.
+format, dropped functionality). If the same issue exists on the base
+branch before the rebase, it is PRE-EXISTING and EQUIVALENT — vote
+PASS, not FAIL, regardless of severity. Functionality present in the
+known-good but absent from both the result AND the base branch is a
+scope difference, not dropped functionality.
 
 EVIDENCE CONSTRAINT: Do not fabricate file contents or claim code
 exists that is not shown in the provided DIFF. If referencing files
@@ -1089,9 +1092,19 @@ EOF_JUDGE
 
   info "Phase C: Jury (parallel)..."
   for j in 1 2 3; do
-    cat <<EOF_JURY | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
+    cat <<EOF_JURY | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text \
+      --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
+      > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
+REPO: $repo
+BASE_REF: $(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo "$known_good")
+RESULT_REF: $result_branch
+
 $direction
 $preexisting
+
+TOOLS: You may run git show <ref>:<path> and git diff <ref1> <ref2> -- <path> to verify claims.
+Do NOT run git checkout, git reset, git push, git commit, or any write operation.
+Where prosecution and defense disagree, use git show to check the actual file at BASE_REF.
 
 DIFF:
 $diff_nv
@@ -1105,7 +1118,9 @@ $def
 JUDGE:
 $judge
 
-Vote: VERDICT: PASS or FAIL. One sentence.
+Output format:
+VERIFIED: <file>@<ref> — <finding>  (zero or more lines, only for things you checked with tools)
+VERDICT: PASS or FAIL. One sentence.
 EOF_JURY
   done
   wait 2>/dev/null || true
