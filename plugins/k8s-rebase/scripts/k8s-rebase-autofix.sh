@@ -614,8 +614,8 @@ fix_kind_image() {
   if grep -rl "K8S_VERSION" --include="*.sh" --include="*.yml" --include="*.yaml" --include="Makefile*" . 2>/dev/null | grep -v vendor | xargs grep -l "kindest/node" 2>/dev/null | grep -q .; then
     uses_k8s_version_for_kind=1
   fi
+  local OLD=$((NEW-1))
   if [[ -z "$kind_tag" ]]; then
-    local OLD=$((NEW-1))
     local revert_tag="v1.${OLD}.1"
     echo ":: kindest/node:v1.${NEW}.* not available — reverting KIND refs to ${revert_tag}"
     for f in $(grep -rln "kindest/node" \

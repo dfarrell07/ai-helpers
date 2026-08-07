@@ -12,7 +12,7 @@ Known promotions (check these first):
 - `golang.org/x/sync/errgroup` -> still x/ (NOT promoted)
 
 k8s ecosystem deprecated packages (also check):
-  `grep -rn '"k8s.io/utils/strings/slices\|"k8s.io/utils/pointer"' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+  `grep -rn '"k8s.io/utils/strings/slices"\|"k8s.io/utils/pointer"' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
 - `k8s.io/utils/strings/slices` -> stdlib `slices` (Go 1.21+)
 - `k8s.io/utils/pointer` -> `k8s.io/utils/ptr`
