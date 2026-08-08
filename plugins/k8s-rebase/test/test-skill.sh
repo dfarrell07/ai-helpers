@@ -1464,7 +1464,12 @@ _results_for_version() {
       if [[ -f "$_court_file" ]]; then
         court_result=$(cat "$_court_file")
       elif [[ "$verdict" == "PASS" ]]; then
-        court_result="pending"
+        local _kg=$(yq ".repos.\"$short\".known_good // \"\"" "$CONFIG_FILE" 2>/dev/null)
+        if [[ -z "$_kg" || "$_kg" == "null" ]]; then
+          court_result="N/A"
+        else
+          court_result="pending"
+        fi
       fi
       if [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" != "PASS" ]]; then
         verdict="XFAIL"
