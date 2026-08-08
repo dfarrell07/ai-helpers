@@ -3,6 +3,7 @@ max_concurrent: 3
 
 repos:
   ovn-org/ovn-kubernetes:
+    model: opus
     known_good: 74e5e6f47aa7af9f797e3cc9579f2ac298c292ff
     from_commit: a32f638885c5ad1241b4c28c1c91d8a1f2bbc5a6
   openshift/multus-cni:

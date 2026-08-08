@@ -18,78 +18,69 @@ are preparation. Step 5 is the deliverable.
 
 **Arguments:** $ARGUMENTS
 
-**Use subagents freely.** Every step has a Gate that launches
-subagents to verify work. Beyond the gates, spawn additional
-subagents whenever useful — to investigate errors, review
-diffs, run tests, or get a second opinion. Subagents are cheap
-and catch mistakes the main agent misses because they see the
-code fresh without prior assumptions.
-
-**Container commands:** When running containers, prefer
-`podman` with `--userns=keep-id`. The scripts fall back to
-`docker` when podman is absent, but docker creates root-owned
-files in bind mounts that may need manual cleanup.
-`--security-opt label=disable` is required for SELinux hosts
-(container writes to bind-mounted repo dirs fail without it).
-```
-podman run --rm --security-opt label=disable --userns=keep-id -v "$(pwd):$(pwd)" -w "$(pwd)" docker.io/library/golang:VERSION ...
-```
-
-**Feature gates:** SetFromMap validates parent-dep consistency —
-disabling a parent without its deps causes a validation error.
-ALL gates (parents + deps) must go in SetFromMap AND in env vars
-(`os.Setenv`/`t.Setenv`/`export KUBE_FEATURE_*`). The autofix
-script handles this; do not remove gates from its SetFromMap
-calls.
-
-**Rebase report:** After completing each numbered step, append
-a checkpoint to `.rebase-tmp/rebase-report.md`. Include the
-step number, what broke, what you tried, what worked, iteration
-counts, and anything surprising. Keep each checkpoint under 15
-lines. Before recording an issue, verify it's real:
-`git show $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main):<file>`
-— if the same issue exists on the base branch, note it as
-pre-existing, not a regression. The final synthesis step (5d)
-reads these checkpoints.
-
-**Never add test skips to make CI green.** If a test fails,
-investigate and fix the root cause. Adding skip regexes or
-`t.Skip()` to suppress failures hides real issues and erodes
-maintainer trust. If the failure is pre-existing (same test
-fails on the base branch), note it in the commit message but
-do not skip it.
-
 **Scope and semantic preservation:** Every change must be
 directly required by the k8s version bump — does build, vet, or
 lint fail without it? Do not refactor, add features, or touch
-files that compile cleanly. Do not add struct tags (like
-omitempty), merge functions, rename interfaces, or restructure
-packages. If a deprecated API has a 1:1 replacement and the
-compiler/linter flags it, use the replacement; if it requires
-architectural changes, note it as out-of-scope and move on.
-Fix ONLY the cited issue at the cited location. When fixing
-compilation errors from API changes:
-- Preserve behavior: never replace label selectors with
-  `reflect.DeepEqual`, never change security flag defaults
-  (`secureMetrics`, `SecureServing`), never swap `errors.Is` for
-  `==`.
-- Preserve nil semantics: `*int32` nil means "server default",
-  `int32` zero means "set to 0" — use `ptr.To[int32](val)`.
-  Same for nil map vs empty map.
-- Adapt type signatures without altering surrounding logic.
-- Verify against base: `git show $(git merge-base HEAD master
-  2>/dev/null || git merge-base HEAD main):<file>`.
+files that compile cleanly. Fix ONLY the cited issue at the
+cited location. Preserve behavior, nil semantics, type
+signatures. Verify against base branch before flagging issues.
+
+**Never push or create PRs:** NEVER run `git push` or `gh pr
+create` yourself. Only print commands for the user to copy-paste.
+
+**Module safety rule (all subagents):** NEVER run `go mod tidy`,
+`go get`, `go mod vendor`, `go mod edit`, `go generate`, or
+`go run`. Allowed: `go build`, `go vet`, `go test` (`-mod=vendor`
+if vendor/ exists), `go mod verify`, `go doc`,
+`go install <tool>@<version>`, `go clean -cache`. Prepend this
+rule to every gate subagent prompt.
+
+**Gate-fix loop (mandatory for every gate):** When a gate
+reports FAIL: (1) triage — verify real, not pre-existing on
+base branch; (2) fix and commit; (3) delete old report
+(`rm .rebase-tmp/gates/<report>`); (4) re-run gate with fresh
+prompt. Commit ALL fixes before re-launching ANY gates. Repeat
+up to 3 iterations. Never skip the re-run — a gate is not
+passed until a fresh run reports PASS.
+
+**Use subagents freely.** Beyond the mandatory gates, spawn
+additional subagents whenever useful — to investigate errors,
+review diffs, run tests, or get a second opinion. Subagents are
+cheap and catch mistakes the main agent misses.
+
+**Never add test skips to make CI green.** If a test fails,
+fix the root cause. Adding `t.Skip()` hides real issues. If
+pre-existing, note in the commit message but do not skip it.
 
 **Commits and git:** Body lines ≤72 chars. Each commit gets
 exactly one `Signed-off-by` and one `Assisted-by: Claude Code
 <noreply@anthropic.com>` trailer (scripts add automatically).
-Do not amend — create new commits on top. Use `git add -A` (no
-negated pathspecs). No `org/repo#N` in commit messages (causes notification
-spam — put PR/issue links in the PR body instead). No inline
-comments in config files. If adding a `replace` directive, add
-`// TODO: remove replace when upstream merges — track via Jira`.
+Do not amend — create new commits on top. No `org/repo#N` in
+commit messages. If adding a `replace` directive, add a TODO.
+
+**Container commands:** When running containers, prefer
+`podman` with `--userns=keep-id --security-opt label=disable`.
+
+**Feature gates:** SetFromMap validates parent-dep consistency.
+ALL gates must go in SetFromMap AND env vars. The autofix
+script handles this; do not remove gates from its SetFromMap.
+
+**Rebase report:** After each numbered step, append a checkpoint
+to `.rebase-tmp/rebase-report.md` (step number, what broke,
+what worked, under 15 lines). Step 5d reads these.
 
 ---
+
+**Scope details (reference):** Do not add struct tags (like
+omitempty), merge functions, rename interfaces, or restructure
+packages. When fixing compilation errors from API changes:
+- Preserve behavior: never replace label selectors with
+  `reflect.DeepEqual`, never change security flag defaults.
+- Preserve nil semantics: `*int32` nil means "server default",
+  `int32` zero means "set to 0" — use `ptr.To[int32](val)`.
+- Adapt type signatures without altering surrounding logic.
+- Verify against base: `git show $(git merge-base HEAD master
+  2>/dev/null || git merge-base HEAD main):<file>`.
 
 ## Step 1: Deterministic Rebase
 
@@ -166,18 +157,15 @@ repo's CI config in `openshift/release` or compare with an
 existing manual rebase PR for the correct `openshift-X.Y`
 version in `.ci-operator.yaml` and Dockerfiles.
 
-**Gate:** Find the gate prompt directory, read each file listed
-below with `cat`, and launch one subagent per file with the
-file's contents as the prompt. Prepend the repo path and the
-module safety rule: "You must NEVER run go mod tidy, go get,
-go mod vendor, go mod edit, go generate, or go run. Only
-go build, go vet, go test are permitted (with -mod=vendor if
-vendor/ exists). Also allowed: go mod verify, go doc,
-go install <tool>@<version>, go clean -cache."
+**Gate:** Find the gate prompt directory, then launch one
+subagent per gate file listed below. Each subagent prompt:
+repo path + module safety rule (from preamble) + "Read
+`<GATE_DIR>/<filename>` and follow its instructions." Do NOT
+cat the gate files yourself — let the subagent read them.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step1-rebase" -type d 2>/dev/null | head -1)
-cat "$GATE_DIR/rebase-completeness.md"  # read this, use as subagent prompt
+echo "$GATE_DIR"  # use this path in subagent prompts
 ```
 Gate files:
 - `rebase-completeness.md` (count)
@@ -389,18 +377,18 @@ definition in vendor and list ALL fields. Compare against the
 conversion code. Report any fields present in the struct but
 missing from the conversion."
 
-**Gate:** Find the gate prompt directory, read each file listed
-below with `cat`, and launch one subagent per file with the
-file's contents as the prompt. Launch all in a single parallel
-wave. Prepend the repo path and the module safety rule (see
-Step 1 gate launch for the full text) to each prompt.
+**Gate:** Find the gate prompt directory, then launch one
+subagent per gate file listed below. All in a single parallel
+wave. Each subagent prompt: repo path + module safety rule
+(from preamble) + "Read `<GATE_DIR>/<filename>` and follow
+its instructions." Do NOT cat the gate files yourself.
 Do not skip, batch, or defer any gate — launch all 6 in a
 single message. Gate subagents run independently and do not
 consume your context window.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step2-compilation" -type d 2>/dev/null | head -1)
-cat "$GATE_DIR/build-vet.md"  # read this, use as subagent prompt
+echo "$GATE_DIR"  # use this path in subagent prompts
 ```
 Gate files:
 - `build-vet.md` (count)
@@ -485,16 +473,18 @@ PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.m
 [ -n "$PATTERNS" ] && cat "$PATTERNS"
 ```
 
-**Gate:** Find the gate prompt directory, `cat` each file below,
-and launch one subagent per file with its contents as the prompt.
-All in one parallel wave. Prepend the repo path and the module
-safety rule (see Step 1 gate launch) to each prompt.
+**Gate:** Find the gate prompt directory, then launch one
+subagent per gate file listed below. All in one parallel wave.
+Each subagent prompt: repo path + module safety rule (from
+preamble) + "Read `<GATE_DIR>/<filename>` and follow its
+instructions." Do NOT cat the gate files yourself.
 Do not skip, batch, or defer any gate — launch all 11 in a
 single message. Gate subagents run independently and do not
 consume your context window.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step3-autofix" -type d 2>/dev/null | head -1)
+echo "$GATE_DIR"  # use this path in subagent prompts
 ```
 Gate files:
 - `autofix-result.md` (count)
@@ -706,13 +696,15 @@ file on the mounted volume, so results are always readable.
 
 The following gate agents are read-only (no compilation) and
 can run alongside test agents without adding memory pressure.
-Find the gate prompt directory, `cat` each file below, and
-launch one subagent per file with its contents as the prompt.
-Prepend the repo path and the module safety rule (see Step 1
-gate launch) to each prompt.
+Find the gate prompt directory, then launch one subagent per
+gate file listed below. Each subagent prompt: repo path +
+module safety rule (from preamble) + "Read `<GATE_DIR>/
+<filename>` and follow its instructions." Do NOT cat the gate
+files yourself.
 ```bash
 GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates/step4-verification" -type d 2>/dev/null | head -1)
+echo "$GATE_DIR"  # use this path in subagent prompts
 ```
 Gate files:
 - `cleanliness.md` (count)
@@ -850,13 +842,24 @@ GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
   -path "*/k8s-rebase/gates" -type d 2>/dev/null | head -1)
 EXPECTED=$(find "$GATE_DIR" -name '*.md' 2>/dev/null | wc -l)
 ACTUAL=$(ls .rebase-tmp/gates/*.report 2>/dev/null | wc -l)
-echo "Gate reports: $ACTUAL / $EXPECTED"
+COMMIT_TS=$(git log -1 --format=%ct 2>/dev/null || echo 0)
+FRESH_FAILS=0
+for r in .rebase-tmp/gates/*.report; do
+  [ -f "$r" ] || continue
+  if grep -q '^VERDICT: FAIL' "$r" && [ "$(stat -c %Y "$r")" -ge "$COMMIT_TS" ]; then
+    FRESH_FAILS=$((FRESH_FAILS + 1)); echo "FRESH FAIL: $r"
+  fi
+done
+echo "Gate reports: $ACTUAL / $EXPECTED | Fresh FAILs: $FRESH_FAILS"
 ```
 
-If ACTUAL < EXPECTED, go back and launch the missing gates. To
-find which are missing, check each gate .md file against the
-reports in `.rebase-tmp/gates/`. Do NOT proceed to Step 5 until
-ACTUAL >= EXPECTED — the test harness will record FAIL.
+If ACTUAL < EXPECTED, go back and launch the missing gates.
+If FRESH_FAILS > 0, fix the failures (these occurred after the
+latest commit, so they reflect current code). FAIL reports older
+than the latest commit are stale and ignored. If a FRESH_FAIL
+persists after 2 fix attempts, log it as a known issue in the
+PR description and proceed. Do NOT proceed to Step 5 until
+ACTUAL >= EXPECTED AND FRESH_FAILS == 0 (or exhausted retries).
 
 ---
 

@@ -8,6 +8,7 @@ max_concurrent: 3
 
 repos:
   ovn-org/ovn-kubernetes:
+    model: opus
     known_good: aa0858b167f0e8a414763795f57c7162cb2ad55d
     from_commit: 1df941622c274340098682cd412f98d9140f33ae
   ovn-kubernetes/ovn-kubernetes-mcp:

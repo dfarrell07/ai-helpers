@@ -416,7 +416,11 @@ cmd_run() {
       _prompt="IMPORTANT: Do NOT switch to master/main. You are on a test branch at a historical commit. Work from HEAD as-is. The worktree.baseRef is set to 'head' so your worktree will branch from the current commit.
 /k8s-rebase:k8s-rebase $version"
     fi
+    local _model=$(_config_val "$short" "model")
+    local _model_args=()
+    [[ -n "$_model" && "$_model" != "null" ]] && _model_args=(--model "$_model")
     session_output=$(claude --bg \
+      "${_model_args[@]}" \
       --plugin-dir "$PLUGIN_DIR" \
       --permission-mode "$PERMISSION_MODE" \
       "$_prompt" \

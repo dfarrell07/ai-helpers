@@ -621,7 +621,7 @@ fix_kind_image() {
     for f in $(grep -rln "kindest/node" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
       | grep -v vendor); do
-      sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${revert_tag}|g" "$f"
+      perl -i -pe 'BEGIN{$n='$NEW'; $t="'"$revert_tag"'"} s{kindest/node:v1\.(\d+)\.\d+}{$1 < $n ? "kindest/node:$t" : $&}ge' "$f"
     done
     if [[ -n "$uses_k8s_version_for_kind" ]]; then
       for f in $(grep -rln "K8S_VERSION" \
@@ -635,7 +635,7 @@ fix_kind_image() {
     for f in $(grep -rln "kindest/node" \
       --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
       | grep -v vendor | grep -v go.mod); do
-      sed -i -E "s|kindest/node:v1\.${NEW}\.[0-9]+|kindest/node:${kind_tag}|g" "$f"
+      perl -i -pe 'BEGIN{$n='$NEW'; $t="'"$kind_tag"'"} s{kindest/node:v1\.(\d+)\.\d+}{$1 < $n ? "kindest/node:$t" : $&}ge' "$f"
       _changed=1
     done
     if [[ -n "$uses_k8s_version_for_kind" ]]; then
