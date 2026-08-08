@@ -39,8 +39,8 @@ help: ## Show available targets
 	@echo "    make test spec=all              Blind test — no patterns doc or autofix"
 	@echo "    make test version=1.35          Backtest against an older k8s version"
 	@echo "    spec: none (default), all (blind), fn:<tag>, pattern:<key>"
-	@echo "    repos: $(shell yq '.repos | keys | .[]' test/config.yaml 2>/dev/null | tr '\n' ' ')"
 	@echo "    versions: $(shell ls test/config-*.yaml 2>/dev/null | sed 's|test/config-||;s|\.yaml||' | tr '\n' ' ')"
+	@echo "    repos:"; yq '.repos | keys | .[]' test/config.yaml 2>/dev/null | while read -r r; do echo "      $$r"; done
 	@echo ""
 	@echo "  Monitor (check progress while tests run)"
 	@echo "    make watch                      Show session state, gate count, diff vs known-good"
