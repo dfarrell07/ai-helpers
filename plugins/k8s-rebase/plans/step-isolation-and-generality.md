@@ -16,7 +16,7 @@ Separately, 44 "gate(s) failed" failures (49%) need different treatment.
 |------|------|--------|---------|
 | 0 | Branch fix (current-branch semantics) | Minutes | Test measurement bug (42% false positives) |
 | 1 | Stop hook + preamble reframe + signal cleanup | Hours | N=26 cluster (11 failures, step-boundary skipping) |
-| 1b | Gate companion scripts (parallel with 1) | Hours | 46 "gate failed" failures (49%, flaky AI judgment) |
+| 1b | Gate companion scripts (parallel with 1) | Hours | 44 "gate failed" failures (49%, flaky AI judgment) |
 | 2 | Agent-based step delegation | Days | N=15 cluster (7 failures, effort avoidance) + scale |
 | 3 | Discovery procedures + recipe cleanup | Days | Version-specific recipe rot (~18-36% stale) |
 
@@ -77,7 +77,7 @@ land on exact step boundaries — behavioral, not random.
   add them to identify chronic offenders. Step 1b addresses this
   with companion scripts for 4 high-value gates.
 - **spec=none vs spec=all: no real difference.** Raw rates (33% vs
-  46%) are not statistically significant (p=0.43, n=12 vs n=50).
+  46%) are not statistically significant (p=0.53, n=12 vs n=50).
   However, across ALL repos combined, spec=all significantly
   outperforms spec=none (70% vs 46%, p=0.002). ovnk is the only
   repo where spec mode doesn't matter. Recompute after Step 0.
@@ -245,8 +245,10 @@ pattern in `plugins/agentic-docs/hooks/stop-hook.sh`. Key design:
   contain a verdict line (PASS or FAIL), minimum 50 bytes, AND
   evidence that prescribed commands ran (exit codes, output line
   counts, or file:line citations). Fabricating realistic tool output
-  is harder than running the tool. This prevents Goodhart satisficing
-  without requiring companion scripts upfront.
+  is harder than running the tool. For AI-judgment gates (no companion
+  script), file:line citations in the report satisfy the evidence
+  criterion. The stop hook regex must be permissive enough for both
+  scripted evidence (exit codes) and AI evidence (citations).
 - **Dynamic gate count:** Derived from `gates/` directory, not hardcoded
   33. Survives future gate additions/removals.
 - **Multi-hook safety:** Check `stop_hook_active` (stdin JSON boolean)
@@ -295,7 +297,7 @@ concern, independent success criteria).
 
 ### Step 1b: Gate companion scripts (parallel with Step 1)
 
-Addresses the "gate(s) failed" majority (46/89 = 49%) that the Stop
+Addresses the "gate(s) failed" majority (44/89 = 49%) that the Stop
 hook cannot fix. Also mitigates Goodhart's Law — companion scripts
 make satisficing harder than doing real work. Independent of Step 1
 (orthogonal failure categories), so implement in parallel.
@@ -335,7 +337,7 @@ unwilling. Agent delegation gives each step a fresh 1M context.
 - Each step agent gets fresh 1M context
 - Gate counting in SKILL.md (deterministic) after each agent returns
 - Depth-2 nesting (main→step→gate) is within Claude Code's default
-  spawn depth limit of 3 (verified, shipped v2.1.172)
+  spawn depth limit of 3 (shipped v2.1.172, test empirically on CNCC)
 - 2-hour spike on CNCC validates depth-2 gate nesting first
 - Test harness note: `mutate_plugin` will need updating — its `sed`
   patterns target SKILL.md `find` calls, which move to step files
@@ -443,7 +445,29 @@ aren't logged, no timing/model/diff data. Two additions:
 - 112 "no-token" sessions: 76% are test harness artifacts, true
   infrastructure failure rate is ~7%.
 
-## 10. Not In Scope
+## 10. Universal Design Improvements (future)
+
+These ideas apply across the entire skill, not just to specific steps:
+
+- **Gate metadata frontmatter:** Add 3-line YAML to each gate .md:
+  `type: blocking|informational`, `script: <companion>.sh` (optional),
+  `report-name: step3-crd-validation`. Eliminates prose-embedded
+  structural decisions. The orchestrator can parse metadata mechanically.
+- **Module safety hook:** PreToolUse on Bash blocking `go mod tidy`,
+  `go get`, `go mod vendor`, `go mod edit`, `go generate`, `go run`.
+  #1 most-violated prohibition, most destructive consequence (MVS
+  corrupts k8s version pins). Single .md hook file alongside block-push.
+- **Vendor modification hook:** PreToolUse on Edit/Write blocking
+  paths containing `/vendor/`. #2 most-violated, wastes hours.
+- **gate-script-lib.sh:** Extract common companion script boilerplate
+  (BASE merge-base computation, cd to repo, exit-on-empty) so scaling
+  from 2 to 18+ companion scripts is copy-paste.
+- **Telemetry function `_telem()`:** Single 3-line bash function
+  emitting JSONL events at ~20 instrumentation points across scripts.
+  Deterministic (timestamps, exit codes, counts), aggregatable via
+  `make telemetry`.
+
+## 11. Not In Scope
 
 - Multi-repo coordinator (library-go → ovnk → CNO sequencing)
 - 2-of-3 voting for AI-judgment gates (rejected: up to 9 invocations
