@@ -1,5 +1,9 @@
 # k8s-rebase: Step Isolation and Version-Agnostic Generality
 
+LLMs skip steps because they are satisficers, not optimizers. This
+plan replaces a 981-line prompt with a state machine that gives each
+step a fresh context and gates advancement on deterministic evidence.
+
 ## 1. Problem
 
 The k8s-rebase skill works for 5 smaller repos (90%+) but fails on
@@ -129,35 +133,31 @@ Unified bash script. Single source of truth for step ordering, gate
 counting, and companion script execution. Replaces the 33-gate
 checkpoint, the standalone Stop hook logic, and the gate runner.
 
-**`init <repo> <version>`** — create `.rebase-tmp/state.json` (step
-number + timestamps), create gates directory, clear stale reports,
-write `.session-active` sentinel.
+**`init <repo> <version>`** — if no state.json exists: fresh start
+(create `.rebase-tmp/state.json`, gates directory, `.session-active`
+sentinel, clear any stale reports). If state.json exists and is valid:
+resume at the recorded step without clearing reports. Logs which path.
 
 **`gates <step>`** — iterate gate .md files for this step's directory.
 For gates WITH companion `.sh`: run the script. If PASS
 (`NEW_ISSUES=0`), call `write-gate-report.sh` directly — no subagent.
-Output: RESOLVED list (fast-path PASS) and PENDING list (need
-subagents). Expected **65-75% subagent reduction** (~13 fewer per run,
-~26 min saved, ~650K tokens saved).
+Output: RESOLVED list (fast-path PASS, zero-flake deterministic
+verdict) and PENDING list (need subagents for AI judgment).
 
-**`advance`** — check all gate reports for current step. Must exist
-and contain PASS or FAIL verdict. Stale detection: modify `write-gate-report.sh` to store HEAD SHA in
-each report (currently not written — this is a new feature). If
-report SHA ≠ current HEAD, the report is stale. Contract: agent must commit all fixes THEN
-run gates THEN advance (never gates-then-fix). If all present and
-fresh: bump step, update timestamps. If not: exit 1 with specific
-missing/failing gate names + file paths. After 3 failed advances:
-force-advance with warning.
+**`advance`** — check all gate reports for current step:
+- Every report must exist and contain PASS or FAIL verdict
+- Stale detection: modify `write-gate-report.sh` to store HEAD SHA
+  (currently not written). Report SHA ≠ current HEAD = stale
+- Contract: commit all fixes THEN gates THEN advance (never reverse)
+- All present + fresh → bump step, update timestamps
+- Missing/stale/failing → exit 1 with specific gate names + paths
+- After 3 failed advances → force-advance with warning
 
 **`status`** — compact table: per-step gates expected/actual/PASS/FAIL,
 elapsed time. Consumed by Stop hook, test harness, and `cmd_watch`.
 Must work WITHOUT state.json (reconstruct by scanning .report files
 and finding the first step with incomplete gates). state.json is a
 cache for timestamps, not the source of truth.
-
-**`init`** auto-detects resume: if state.json exists and is valid,
-resume at the recorded step without clearing reports. If absent or
-corrupt, fresh start. Logs which path it took.
 
 **Exit code contract:** 0=success, 1=blocked (normal — gates not met),
 2=usage error, 3+=internal error. The boot loader should stop on ≥2
@@ -202,8 +202,8 @@ complete" (step 1), "40%" (step 2), "60%" (step 3), "80%" (step 4),
   can retry. Orchestrator's `advance` shows the step as incomplete.
 - Parameters pass via prompt text (repo path, version, PLUGIN_ROOT).
   `${CLAUDE_PLUGIN_ROOT}` resolves at skill load time (text-sub).
-- Token budget is shared across all subagents — companion scripts'
-  65-75% subagent reduction directly reduces budget consumption.
+- Token budget is shared across all subagents — companion scripts
+  reduce budget consumption by resolving gates deterministically.
 
 ### 4.3 Step files (steps/*.md, ~150-200 lines each)
 
@@ -350,20 +350,10 @@ new autofix functions. No LLM in the improvement loop.
 4. **Step files** (rules.md + 5 step files) — depends on 3
 5. **Stop hook** (stop-hook.sh + hooks.json) — depends on 3
 6. **SKILL.md boot loader** — **THE SWITCHOVER**, depends on 3-5
-7. **Observability** (results.tsv, events.jsonl) — independent of 6
+7. **Observability + court fix** (results.tsv, events.jsonl, force
+   juror tool use) — independent of 6
 
-## 6. Risks
-
-| Risk | Severity | Mitigation |
-|------|----------|------------|
-| Model-version coupling | Critical | Log model ID per run. Continuous regression testing. |
-| Goodhart's Law | High | Orchestrator runs companion scripts with deterministic evidence. Provenance validation: reports must contain exit codes or file:line citations. |
-| Unbounded runtime | Medium | Set `--max-turns` and/or `--max-budget-usd`. CLI 8-block Stop hook cap. |
-| Depth-2 nesting untested | High | Test on CNCC before ovnk. Within documented spawn depth 3. |
-| PLUGIN_ROOT not shell env var | High | Gates keep `find`. Steps get literal paths via SKILL.md text-sub. |
-| Discovery procedures unreliable | Medium | Autofix stays default. Discovery is additive (Step 3). |
-
-## 7. Success Criteria
+## 6. Success Criteria
 
 **End state:** ovnk spec=all pass rate 60-80%+ (from 26% baseline).
 Per-version floor 55%. Non-ovnk repos: no drop >15pp. Zero
@@ -382,19 +372,28 @@ tools, rubber-stamping without verification).
 | After companion scripts | 55% | 75% |
 | Ceiling (all layers addressed) | 84%+ | 94%+ |
 
-## 8. Caveats
+## 7. Risks and Caveats
 
+| Risk | Severity | Mitigation |
+|------|----------|------------|
+| Model-version coupling | Critical | Log model ID per run. Continuous regression testing. |
+| Goodhart's Law | High | Companion scripts with deterministic evidence. Provenance validation. |
+| Unbounded runtime | Medium | `--max-turns` / `--max-budget-usd`. CLI 8-block cap. |
+| Depth-2 nesting untested | High | Test on CNCC first. Keep inline rule copies. |
+| PLUGIN_ROOT not shell env | High | Gates keep `find`. Steps get literal paths via text-sub. |
+
+**Data caveats:**
 - Baseline includes 42% false-positive passes. True rate: 26% (16/62).
 - Per-version: 1.34.1=37%, **1.35.3=12%** (blocker), 1.36.2=35%.
-- "missing → pass" is the weakest assumption. Forced continuation may
-  produce gate failures, not passes (balloon squeeze).
-- 112 "no-token" sessions: 76% test harness artifacts, ~7% real.
-- SKILL.md is static (loaded in full). True context isolation requires
-  Agent delegation, not conditional display.
-- spec=all vs spec=none: p=0.002 across all repos BUT massive temporal
-  confound (96% of spec=none before Aug 1). Time-controlled: p=0.087.
+- "missing → pass" is the weakest assumption (balloon squeeze).
+- spec=all vs spec=none: p=0.087 when time-controlled (temporal confound).
 
-## 9. Not In Scope
+**Architectural assumptions:**
+- SKILL.md is static (loaded in full) — true isolation needs Agent delegation.
+- Depth-2 hook firing unverified — keep inline rule copies.
+- 112 "no-token" sessions: 76% harness artifacts, ~7% real infra failures.
+
+## 8. Not In Scope
 
 - Discovery procedures replacing version-specific recipes (future)
 - Multi-repo coordinator (library-go → ovnk → CNO sequencing)
