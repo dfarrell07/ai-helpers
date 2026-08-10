@@ -24,6 +24,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
 
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
+    [[ "$line" == "# "* ]] && continue
     echo "  BUILD: $line"
     details+=("BUILD $mod_dir: $line")
     ((NEW_ISSUES++)) || true
