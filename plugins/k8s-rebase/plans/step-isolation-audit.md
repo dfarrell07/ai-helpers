@@ -1,369 +1,228 @@
 # Audit: Step Isolation and Generality Plan
 
-Design review by 19 Opus exploration agents, each examining a
-different dimension of quality, robustness, and generality. Focused
-on ideas that matter, not numbers.
+Design review by 20 Opus exploration agents + 20 Opus adversarial
+agents. The adversarial pass corrected 6 findings and sharpened 4
+others. Focused on ideas that impact quality, robustness, and
+generality.
 
 ---
 
 ## The Core Insight: LLMs Are Satisficers
 
-All findings converge on one model: **LLMs find the effort level
-that seems reasonable and stop.** Step-skipping is not a bug — it is
-the dominant behavioral strategy of a satisficing agent facing a long
-procedure. 60% of skips land on exact step boundaries where the agent
-re-evaluates cost vs. benefit. The transcript evidence ("let me
-proceed directly to Step 5") is post-hoc rationalization of an
-attentional pull toward the deliverable, not economic reasoning.
+Step-skipping is the dominant behavioral strategy of a satisficing
+agent facing a long procedure. 60% of skips land on exact step
+boundaries. The transcript evidence is post-hoc rationalization of
+an attentional pull, not economic reasoning.
 
-The architectural implication: **give the AI less scope per decision,
-more structure between decisions.** Each step's instructions should
-be short and focused. The system architecture should provide
-comprehensive guardrails. The agent needs very little knowledge but
-very much scaffolding.
-
-The plan understands this and proposes the right fix: boot loader +
-step isolation via Agent delegation. The architecture is sound.
+Architectural implication: **give the AI less scope per decision,
+more structure between decisions.** The plan's boot loader + step
+isolation via Agent delegation is the right fix.
 
 ---
 
-## 1. The Architecture Fits the Agent Problem, Not the Domain Problem
+## 1. The Pipeline Is Both Domain Model and Behavioral Fix
 
-The most fundamental question: is a 5-step pipeline the right shape
-for an iterative repair problem?
+A k8s rebase genuinely has phases: compilation (go build), codegen
+(make generate), and verification (go test) require different tools,
+different error patterns, and different retry strategies. A flat
+`while not green` loop would need to handle multi-module ordering,
+codegen dependencies, and oscillation detection — at which point it
+is a pipeline in disguise.
 
-A k8s rebase is: bump deps → fix what breaks → verify. The natural
-shape is a loop: `while not green: build, fix, test`. But the plan
-builds a pipeline (step 1 → 2 → 3 → 4 → 5) with an orchestrator
-state machine, 33 quality gates, a stop hook, and enforcement hooks.
+The pipeline also solves step-skipping. These two functions reinforce
+rather than conflict: the agent skips at phase boundaries because
+the phases are genuinely different cognitive tasks. Step isolation
+gives each task a fresh context and focused scope.
 
-**This architecture exists because the AI skips steps, not because
-the repair process has 5 phases.** The orchestrator prevents step-
-skipping. The gates verify each phase. The stop hook blocks early
-exit. Every component addresses a behavioral pathology rather than
-modeling the domain.
-
-When the architecture is shaped by the tool's limitations rather than
-the problem's structure, it risks becoming dead weight when the tool
-improves. If model updates reduce step-skipping (as they have —
-the rate varies 0-18% across time periods), the entire scaffolding
-becomes overhead.
-
-**The counterpoint (also from the agents):** The pipeline IS
-the right shape because each step requires different TOOLS. Step 1
-runs scripts, Step 2 needs compilation, Step 3 needs autofix, Step 4
-needs lint/test. The pipeline separates concerns. And the
-orchestrator provides value beyond anti-skipping: it gives
-observability, resume capability, and a clear contract between
-deterministic and agentic work.
-
-**Verdict:** The architecture is right for NOW. The satisficing
-problem is real and measured. But the plan should acknowledge that
-the orchestrator's primary value is behavioral enforcement, not
-domain modeling. As models improve, the system should be designed
-to shed complexity, not accumulate it.
+**The orchestrator's value is permanent.** Deterministic enforcement
+of step ordering is permanently valuable for the same reason TCP
+checksums persist — the failure modes change shape but never fully
+disappear. The system should migrate complexity from probabilistic
+components (AI judgment) to deterministic ones (scripts, hooks,
+orchestrator), not plan to shed deterministic infrastructure.
 
 ---
 
-## 2. The Autofix May Be Actively Harmful
+## 2. Investigate the Autofix Before Building on It
 
-The data that reframes everything: **spec=all (no autofix) beats
-spec=none (with autofix) across all repos: 70% vs 46% (p=0.002).**
-For ovnk specifically, the difference is not significant (p=0.53),
-but the direction is the same.
+spec=all (no autofix) shows 70% vs spec=none's 46% across all repos
+(p=0.002). For ovnk specifically, no significant difference (p=0.53).
 
-Three possible explanations:
-1. **Temporal confound**: spec=none runs mostly ended before spec=all
-   runs began. Later runs benefit from accumulated improvements.
-   Controlling for time narrows but doesn't eliminate the gap.
-2. **Recipe interference**: The 26 autofix functions may trigger
-   false positives on some repos — self-gating guards that match
-   incorrectly, producing changes that fail gates.
-3. **Behavioral momentum**: In spec=all, the agent solves problems
-   independently, creating sunk-cost commitment to completing. In
-   spec=none, the autofix does work FOR the agent, reducing the
-   agent's investment and making skipping feel cheaper.
+**This does NOT prove the autofix is harmful.** The temporal confound
+is massive — 96% of spec=none runs ended by July 31, while spec=all
+continued through August 10. The skill improved during this period.
+CNCC shows 83% spec=none vs 70% spec=all (reversed). The data is
+suggestive, not conclusive.
 
-The plan should **investigate before adding more recipes.** If the
-autofix is net-negative, the plan's Step 3 (discovery procedures
-to replace version-specific recipes) should be reframed as
-"systematically reduce recipe surface area" rather than "replace
-hardcoded recipes with discovered ones."
+**But it demands investigation before expanding.** A proper A/B test
+(same time period, same skill version, randomized assignment) would
+settle it. Until then, the plan should not add more recipes. The
+autofix's value may be reproducibility and review consistency (same
+fix pattern every time) rather than pass rate.
 
 ---
 
-## 3. Build/Vet/Test Exit Codes Are the Best Quality Signal
+## 3. Quality Signals: Gates for Prevention, Court for Review, CI for Truth
 
-The plan's 33 AI-judged gates are 94% flaky. Build/vet/test exit
-codes are deterministic, binary, and zero-flake. A system whose
-quality signal is `go build ./... && go vet ./... && go test ./...`
-has no false positives and no flakiness.
+Neither the 33 gates nor the court should be elevated as "the real
+quality gate." Each has structural limitations:
 
-The plan moves in this direction with companion scripts (19 of 33
-gates can fast-path via bash predicates). But it preserves 14
-AI-judgment gates as first-class quality mechanisms. Are those 14
-gates catching things that build/vet/test miss?
+**Gates** catch issues when fixes are still possible (prevention).
+But 94% of gate failures are flaky (same check passes on retry).
+Companion scripts fix this for deterministic gates. The 14 judgment
+gates remain inherently non-deterministic.
 
-**Probably yes, but the value is hard to measure.** Gates like
-`logical-consistency` (trace data flow in modified functions) and
-`ci-prediction` (will this break CI?) catch semantic issues that
-compilation misses. But 94% of their failures are flaky — the same
-check passes on retry. If a quality check is wrong 94% of the time,
-is it a quality check or a noise source?
+**The court** provides adversarial review on the diff. But it
+requires a known-good reference (not universal), goes INCONCLUSIVE
+on large diffs (ovnk), and passes 97% of runs in a system with 26%
+true quality. Jurors never use their tool access (zero VERIFIED lines
+in 15 outputs). Forcing tool use would significantly strengthen it.
 
-**The court is a better final quality gate than the 33 gates.**
-The court operates on the diff (an immutable artifact) rather than
-gate reports (agent-generated, gameable artifacts). It uses
-adversarial structure (prosecution/defense/judge) to separate
-finding problems from verifying them. Goodhart resistance increases
-with the distance between the agent that produces a claim and the
-system that verifies it.
+**CI** (go build + go vet + go test + Prow) is the only zero-flake
+quality signal. It is currently Not In Scope. Adding draft PR
+creation earlier (with CI feedback) would close this gap.
 
-**Proposed reframe:** The 33 gates should be treated as **early
-feedback for the agent's fix loop** (helping it find issues while
-fixes are still possible), not as **final quality verification**
-(which should be the court + CI). Gates that fail should trigger
-fixes. Gates that pass should not be treated as proof of quality.
-The final quality signal should be: does it build, does it pass vet,
-does the court approve the diff, does CI pass.
+**The right architecture:** gates for iterative feedback (fix while
+you can), companion scripts for deterministic evidence (zero-flake),
+court as optional second opinion (when known-good exists), CI as
+ground truth (when available).
 
 ---
 
 ## 4. Three-Tier Gate Architecture
 
-The gates aren't binary (deterministic vs. judgment). There are
-three tiers:
+| Tier | Count | Pattern |
+|------|-------|---------|
+| Fully deterministic | ~19 | Companion script produces verdict |
+| Evidence + interpretation | ~8 | Script gathers, AI judges flagged items |
+| Fully agentic | ~6 | AI reads code, traces data flow |
 
-| Tier | Count | Pattern | Value |
-|------|-------|---------|-------|
-| Fully deterministic | ~19 | Script produces verdict | Zero-flake evidence |
-| Evidence + interpretation | ~8 | Script gathers facts, AI judges | Reduced flakiness |
-| Fully agentic | ~6 | AI reads code, traces data flow | Genuine insight (when correct) |
-
-The middle tier is the highest-value engineering opportunity.
-Gates like `deprecated-calls` have a deterministic evidence phase
-(run staticcheck, filter pre-existing findings) and an agentic
-interpretation phase. A companion script handles evidence gathering;
-the AI only interprets pre-filtered, structured findings. This
-reduces both cost and flakiness while preserving the AI's judgment
-where it matters.
-
-The gate-fix loop could also benefit from a deterministic middle
-tier: when build-vet fails with `undefined: pointer.Int32`, the fix
-is a known transformation (`ptr.To[int32]`) that the autofix already
-has. A known-pattern lookup in the gate-fix loop would eliminate
-many agentic fix cycles.
+The middle tier is the highest-value engineering opportunity. Gates
+like `deprecated-calls` have a deterministic evidence phase (run
+staticcheck, filter pre-existing) and an agentic interpretation
+phase. Companion scripts should handle the evidence tier, reducing
+cost and flakiness while preserving judgment where it matters.
 
 ---
 
-## 5. Two Levels of Indirection, Not Three
+## 5. Defense-in-Depth: Add Layers, Don't Remove Them
 
-The plan proposes: SKILL.md → read step file into parent context →
-Agent(step instructions). The parent reads ~200 lines of step content
-that serve no purpose — it's a router, not an executor.
+The module safety rule currently exists in 33 gate files + SKILL.md.
+The plan proposes adding rules.md + hook.
 
-**Cleaner:** SKILL.md → Agent("Read steps/step3.md and execute it").
-The parent never loads step-specific content. The subagent reads it
-in its own fresh context. The parent remains a pure Conductor with
-~5 pieces of state (repo path, version, PLUGIN_ROOT, step number,
-flags).
+**Keep all three.** Gate subagents are at depth 2. Whether hooks
+fire at depth 2 is unverified (the plan says so). If hooks don't
+fire AND inline copies are removed, gates have NO enforcement at the
+exact layer where it matters most. Inline copies provide direct
+delivery to depth-2 subagents. rules.md provides comprehension. The
+hook provides mechanical prevention. Three independent mechanisms
+that fail independently — genuine defense-in-depth via mechanistic
+diversity.
 
-This preserves attentional isolation in the parent: it can't be
-pulled toward any step's specific concerns because it never sees
-step-specific instructions.
+After depth-2 hook behavior is empirically verified, revisit whether
+inline copies can be retired.
 
----
-
-## 6. Defense-in-Depth via Mechanistic Diversity
-
-The module safety rule appears in 33 gate files + SKILL.md preamble
-+ proposed hook = 35 copies. This is textual duplication, not defense
-in depth. Defense-in-depth requires **mechanistic diversity**: the
-same rule enforced by different mechanisms at different layers.
-
-The target architecture should have:
-- **rules.md**: one copy explaining WHY (comprehension)
-- **Hook**: one enforcement mechanism blocking HOW (prevention)
-- **Zero inline copies** in gate files
-
-When the rule needs to change, update 2 files, not 35. The hook
-provides deterministic enforcement. The rules.md explains the
-rationale so agents understand the constraint. The combination is
-more robust than 35 copies that degrade over time.
-
-**Decision framework for enforcement layer:**
-- Can it be a for-loop? → Script
-- Does it say NEVER in prose? → Hook
-- Does it say MUST? → Gate with companion script
-- Does it require reading code? → AI prompt
-
-**Missing dimension: SCOPE.** Hooks are global, rules are skill-
-specific, gates are step-specific. The plan's taxonomy (scripts/
-hooks/gates/prompts) assigns roles by TYPE but not by SCOPE. Adding
-a scope dimension would resolve the tension between "hooks are global
-but the module safety rule is subagent-specific."
+**The enforcement taxonomy needs a SCOPE dimension.** Hooks are
+global, rules are skill-specific, gates are step-specific. The
+plan's `.session-active` sentinel is a pragmatic workaround. A
+principled framework: scope matches mechanism.
 
 ---
 
-## 7. The Court Is the Real Quality Gate
+## 6. Signal Cleanup: Good Hygiene, Not a Design Principle
 
-The adversarial court (prosecution/defense/judge/jury) has a
-structural property the gate system lacks: **separation of incentives.**
-
-| Role | Incentive |
-|------|-----------|
-| Prosecution | Find ALL possible issues (optimize recall) |
-| Defense | Refute false positives (optimize precision) |
-| Judge | Strike unsupported claims (enforce evidence) |
-| Jury | Render verdict with verification tools |
-
-A single agent evaluating its own output will satisfice — "this
-looks good enough." Multiple agents with opposing incentives
-converge on genuine quality. The court produces a structured audit
-trail (briefs, fact-check, verdicts) that is far more useful for
-post-mortem analysis than a gate's PASS/FAIL.
-
-**Finding from the court analysis:** Jurors have tool access (git
-show, Read) but **never use it** — zero VERIFIED lines across 15
-juror outputs in 5 sessions. The court's most distinguishing feature
-is not being exercised. The jurors collapse to a voting system on
-pre-digested arguments. Forcing tool use (require VERIFIED lines
-with file:line evidence) would significantly strengthen the court.
-
-The key architectural principle: **Goodhart resistance increases
-with distance between producer and verifier.** Same-agent
-verification (gates) → zero resistance. Cross-agent adversarial
-verification (court) → moderate resistance. External execution
-(CI build/test) → maximum resistance.
+Renaming `RESULT: FAIL` to `RESULT: ITEMS_REMAINING` is good code
+hygiene. The plan already proposes this (lines 227-228). The data
+shows the FAIL signal is NOT the cause of step-skipping — the N=26
+cluster occurs in spec=all where the autofix never runs. Renaming
+the signal is a cleanup item, not an architectural fix.
 
 ---
 
-## 8. Signal Design: Self-Describing, Three-Valued
+## 7. What's Genuinely Missing
 
-The autofix outputs `RESULT: FAIL` when items remain. The SKILL.md
-needs a meta-instruction: "FAIL is normal when patterns remain."
-**If you need a sentence explaining that a signal doesn't mean what
-it says, the signal is wrong.**
+The adversarial review eliminated three previously-proposed ideas:
 
-Signals should be self-describing: `RESULT: ITEMS_REMAINING -- fix
-remaining items then proceed to gates` needs no meta-instruction.
-Three states minimum at every boundary: success / partial / error.
-Binary PASS/FAIL always conflates two of these.
+- ~~Historical priors (priors.json)~~ — this IS the autofix in JSON
+  form. If encoding patterns as bash functions is potentially
+  harmful (Section 2), encoding them as JSON won't be better. The
+  agent already has `git log` for history.
+- ~~Partial success scoring~~ — contradicts the Goodhart analysis.
+  Binary PASS/FAIL is ungameable. The existing gate-count breakdown
+  per step already captures trajectory. A composite score would
+  create a satisficing target for humans.
+- ~~Fix rollback (git revert HEAD)~~ — creates vendor inconsistency,
+  wastes one of 3 allowed iterations, and restarts the oscillation
+  cycle. The plan's oscillation detection (stop on regression) is
+  already the correct response.
 
-Decouple machine signals from AI signals:
-- **Exit codes** (for orchestrator): 0 = script completed, 1 = error
-- **Labeled text** (for agent): descriptive action directive
+What IS genuinely missing:
 
-The signal hierarchy (script → RESULT line → gate verdict →
-orchestrator advance → stop hook) composes cleanly upward except at
-the autofix boundary, where `exit 1` conflates "items remain" with
-"infrastructure broke."
+**Decision provenance** (MEDIUM): Record WHY each fix was chosen,
+not just WHAT changed. A `decisions` array in the rebase report
+helps both the court and human reviewers.
 
----
+**Blocked dependency detection** (MEDIUM): Check if upstream
+dependencies (library-go, openshift/api) have been rebased before
+starting. A failed upstream produces unsolvable compilation errors
+that waste an entire run.
 
-## 9. Robustness: Three Laws
-
-From the robustness analysis, three principles for AI systems:
-
-**1. Minimize the probabilistic surface area.** Every instruction
-that can be expressed as deterministic code should be. The LLM
-should be reserved for tasks that genuinely require judgment. The
-plan moves from 981 lines of prose to ~42 lines of boot loader +
-deterministic orchestration. This is its strongest feature.
-
-**2. Make the invisible visible.** The most dangerous failures look
-like successes. Step-skipping produces a PR. The "default branch"
-bug produces passing gates. Every layer needs explicit assertions:
-"this run should have 33 gate reports," "this branch should not be
-master." These are the type-checks of prompt engineering.
-
-**3. Treat every prompt edit as a deployment.** Two words caused a
-42% false-positive rate. In AI systems, the prompt IS the code. It
-deserves canary runs and regression testing. The test harness exists
-to support this — the missing piece is the process.
+**Forced juror tool use** (MEDIUM): Add "REQUIRE: cite at least one
+file:line from `git show` or `Read`" to the juror prompt. This is
+~5 lines of prompt change that strengthens the court's most
+underutilized feature.
 
 ---
 
-## 10. What's Genuinely Missing
+## 8. Architecture Is Sound, Framing Needs Revision
 
-**Historical priors** (HIGH value, absent): The system has 249 runs
-of data but doesn't use it at runtime. A `priors.json` per repo-
-version with statistical tendencies ("ovnk 1.36: feature-gates gate
-fails 70% of the time, typical fix is add gate to SetFromMap") would
-direct the agent's effort toward the most likely problems first,
-reducing gate-fix loop iterations.
+The plan's components (orchestrator, boot loader, step files,
+companion scripts, enforcement hooks) are all feasible and well-
+motivated. The design principles are correct. The directory layout
+is clear.
 
-**Partial success scoring** (MEDIUM-HIGH, absent): A run that
-completes 30/33 gates with 5 code hunks from known-good gets the
-same FAIL as one with 0/33 gates. A composite quality score would
-capture the trajectory of improvement better than binary pass rate.
-
-**Decision provenance** (MEDIUM, absent): When the agent chooses
-between two valid fixes, there's no record of WHY. Adding a
-`decisions` array to the rebase report would help both the court and
-human reviewers focus on low-confidence choices.
-
-**Fix rollback** (MEDIUM, trivial): If a gate-fix-loop fix causes a
-previously-passed gate to regress, `git revert HEAD` before the
-next iteration. Currently the loop stops on oscillation but doesn't
-undo the damage.
-
----
-
-## 11. The Companion Script Pattern Is the Crown Jewel
-
-Across all four design principles, companion scripts score highest.
-They perfectly embody "deterministic scaffolding, agentic judgment":
-
-- `NEW_ISSUES=0` → fast-path PASS (deterministic, no AI)
-- `NEW_ISSUES>0` → AI evaluates only flagged items (focused judgment)
-
-This is the reusable pattern other teams should adopt first. It is
-also the highest-leverage change in the plan: it addresses gate
-flakiness (49% of failures) with the smallest blast radius (add .sh
-files alongside existing .md files, no architecture change needed).
-
-**Ship companion scripts independently of the orchestrator.** They
-work within the current architecture and are independently
-measurable. This is the #1 action item.
-
----
-
-## 12. The Plan Is Good Architecture, Needs Honest Framing
-
-The plan's architecture (orchestrator, boot loader, step files,
-companion scripts, enforcement hooks) is sound. Every major
-component was verified as feasible and well-motivated. The design
-principles are correct and the proposed directory layout is
-clear.
-
-What needs revision is the framing:
+What needs revision:
 
 - **"Structurally impossible"** → "defense in depth that eliminates
-  the dominant failure mode." The agent still has filesystem access;
-  the improvement is attentional isolation, not information-theoretic
-  isolation.
-- **"65-75% subagent reduction"** → reframe around reliability
-  improvement. The net gate subagent count doesn't change (fixing
-  step-skipping adds back the gates companion scripts eliminate).
-  The real value is determinism and zero-flake evidence.
-- **The autofix should be investigated, not expanded.** spec=all
-  outperforming spec=none is a signal that deserves attention before
-  building more recipes.
-- **The court is undervalued.** The plan treats gates as the primary
-  quality mechanism and the court as secondary. The data suggests
-  the reverse: gates are flaky early feedback, the court is the
-  reliable final judgment.
+  the dominant failure mode." The improvement is attentional
+  isolation, not information-theoretic isolation.
+- **"65-75% subagent reduction"** → reframe around reliability.
+  The net gate subagent count doesn't change (fixing step-skipping
+  adds back the gates companion scripts eliminate). The real value
+  is zero-flake deterministic evidence.
+- **The autofix should be investigated, not expanded.** The p=0.002
+  signal needs a controlled experiment before building on it.
 
 ---
 
-## Summary: What to Ship, and Why
+## Summary: What to Do
 
-| Priority | Component | Why it matters |
-|----------|-----------|----------------|
-| 1 | Companion scripts (4 .sh files) | Addresses 49% of failures. Works now. No architecture change. Independently measurable. |
-| 2 | SKILL.md boot loader + step files | Addresses 39% of failures. Eliminates the attentional gradient that causes step-skipping. |
-| 3 | Orchestrator | Adds observability, resume, deterministic advancement. Justified after 1+2 are validated. |
-| 4 | Stop hook + enforcement hooks | Mechanical enforcement. Belt to the orchestrator's suspenders. |
-| 5 | Investigate autofix harm | spec=all > spec=none needs explanation before adding recipes. |
-| 6 | Strengthen the court | Force juror tool use. Make court PASS the final quality bar, not gate PASS. |
+| Priority | Action | Rationale |
+|----------|--------|-----------|
+| 1 | Investigate autofix impact | p=0.002 signal. Zero code — just a controlled A/B test. Determines whether Step 3 should exist in current form. |
+| 2 | Companion scripts (4 .sh files) | Addresses gate flakiness for deterministic gates. Works within current architecture. No dependencies. |
+| 3 | Boot loader + step files | Addresses step-skipping via attentional isolation. Fresh context per step. |
+| 4 | Orchestrator | Foundation for deterministic advancement, resume, observability. Validates the architecture. |
+| 5 | Stop hook + enforcement hooks | Mechanical enforcement. Belt to the orchestrator's suspenders. |
+| 6 | Strengthen the court | Force juror tool use. ~5 lines of prompt change. Independent of everything else. |
+
+This order respects dependencies: investigate before building on
+assumptions, ship independent components before dependent ones,
+measure after each phase.
+
+### Corrections from adversarial review
+
+The 20 adversarial agents corrected 6 findings from the exploration
+pass:
+- **Section 1**: Pipeline IS domain modeling, not just behavioral
+  enforcement. "Shed complexity" → "migrate to deterministic"
+- **Section 5**: Inline copies provide depth-2 enforcement that
+  hooks may not. Keep them, add rules.md + hook on top
+- **Section 7 (dropped)**: Neither gates nor court should be
+  elevated as "the real quality gate." Revised to Section 3.
+- **Section 10**: priors.json, partial scoring, and fix rollback
+  all dropped — each contradicts the audit's own analysis
+- **Section 8/9 (merged)**: Signal rename and three laws demoted
+  to cleanup items and heuristics respectively
+- **Summary**: Autofix investigation promoted from #5 to #1.
+  Dependencies respected in ordering.
