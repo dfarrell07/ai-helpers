@@ -6,23 +6,31 @@ The k8s-rebase skill automates Kubernetes dependency rebases for Go projects.
 It works reliably for 5 smaller repos (90%+ pass rate) but fails on the
 largest target, ovn-kubernetes (1,358 Go files, 482K LOC, 3 go.mod files).
 After correcting for a test measurement bug, the true ovnk pass rate is
-~27% (13/49 genuine passes). A critical correlation: every "missing 26 of
-33 gates" failure is a `spec=all` run — when autofix is disabled, it reports
-`RESULT: FAIL` with `exit 1`, and the agent misinterprets this as terminal,
-skipping Steps 3-5 entirely.
+~27% (13/49 genuine passes). Two interacting causes produce 35 "missing
+gates" failures:
 
-The root cause is specific: the autofix script prints `RESULT: FAIL` with
-`exit 1`, and the agent rationally interprets these as "stop" signals,
-ignoring prose instructions to continue. The fix is a **graduated ladder**:
+- **Autofix FAIL trigger** (mechanism): The autofix script prints
+  `RESULT: FAIL` with `exit 1`. The agent treats this as terminal and
+  skips Steps 3-5. Every N≥26 failure is spec=all (autofix neutered →
+  always reports FAIL). 11 of 35 failures.
 
-1. **Level 2 fix (2-4 hours, try first):** Change autofix to `exit 0` +
-   rename output from FAIL to ITEMS_REMAINING + restructure SKILL.md to
-   put "proceed" instruction before (not after) the autofix bash block +
-   add PostToolUse and Stop hooks. Estimated fix rate: 75-85%.
+- **Context pressure** (trigger): Under high context usage, the agent
+  stops at step boundaries even without the FAIL signal. N=15 failures
+  appear in both spec=all and spec=none. 7 of 35 failures.
 
-2. **Level 3 (3-5 days, only if Level 2 insufficient):** Deterministic
-   Workflow script orchestrating step subagents. The AI can't skip steps
-   because a JavaScript for-loop runs each step regardless.
+21 of 35 missing-gate failures (60%) land exactly on step boundaries
+(N=26, N=15, N=32). This is behavioral — the agent finishes a step and
+stops — not random context exhaustion.
+
+The fix is a **graduated ladder** where both levels address distinct
+failure populations:
+
+1. **Autofix + hooks fix (hours):** Fix the FAIL signal + add Stop hook.
+   Targets the N=26 cluster (11 failures). Estimated fix rate: 75-85%.
+
+2. **Workflow orchestration (days, if needed):** Deterministic step
+   sequencing + fresh context per step. Targets the N=15 cluster and
+   scattered failures. Needed at scale for 100s of repos.
 
 ## Key Concepts
 
@@ -42,39 +50,57 @@ ignoring prose instructions to continue. The fix is a **graduated ladder**:
 
 ## Problem Statement
 
-### Problem 1: Agent Skips Steps 3-5 (NOT Context Exhaustion)
+### Problem 1: Agent Skips Steps (Two Interacting Causes)
 
-**Root cause (verified from session transcripts):** The agent misinterprets
-the autofix FAIL result as terminal and jumps directly to Step 5, skipping
-Steps 3-4 entirely. The context window is intact — the agent CHOOSES to
-stop, ignoring three explicit anti-skip instructions in SKILL.md.
+The "missing N of 33 gates" failures have TWO causes that interact:
 
-Evidence: Session `fdf1e3a9` (Aug 8, "missing 26 of 33 gates") shows
-the agent completing Step 2 gates, receiving autofix FAIL ("9 categories
-it couldn't auto-fix"), then immediately generating the PR command without
-running Steps 3-4. Zero compaction events were found in 1,455 rebase
-sessions across all repos.
+**Cause A — Autofix FAIL trigger (N=26 cluster, 11 of 35 failures):**
+The autofix script prints `RESULT: FAIL` with `exit 1`. The agent
+rationally interprets these as "stop" signals, ignoring three explicit
+anti-skip instructions in SKILL.md. Session `fdf1e3a9` confirms: the
+agent completes Step 2 gates, receives autofix FAIL, then jumps to
+Step 5 without running Steps 3-4. Every N≥26 failure is spec=all
+(autofix neutered → always reports FAIL).
 
-**Why spec=all is worse:** In spec=all, autofix functions are neutered and
-always report FAIL. The agent treats this FAIL as "nothing more to do."
-In spec=none, autofix actually fixes things and reports meaningful results,
-so the agent continues.
+**Cause B — Context pressure (N=15 cluster, 7 of 35 failures):**
+Under high context usage, the agent stops at step boundaries even
+without the FAIL signal. N=15 failures appear in both spec=all and
+spec=none. OVNK is 6x more susceptible (37% skip rate vs 6% for
+other repos) — larger repo = more context consumed = agent more
+likely to stop after a hard step. A phase transition around Aug 3
+shifted failures from N=15 to N=26 after commits consumed more
+context budget.
 
-**Why non-ovnk repos also fail:** CNO, CNCC, and INF show "missing 26/32
-gates" on Aug 8-9. These repos would never exhaust 1M context. Same
-mechanism: the agent stops early regardless of repo size.
+**Key evidence:**
+- 21 of 35 missing-gate failures (60%) land exactly on step
+  boundaries (N=26, N=15, N=32). This is behavioral, not random.
+- The remaining 40% have scattered N values (mid-step stops),
+  consistent with context pressure or infrastructure issues.
+- N=32 pair on Aug 8 (CNO + CNCC within 7 minutes) suggests
+  an environment issue, not agent behavior.
+- Zero compaction events found in 1,455 sessions — but the agent
+  can stop under context pressure without hitting actual compaction.
+  (Note: absence of logged events doesn't prove absence of compaction —
+  compaction by design removes evidence of itself from the transcript.)
+- "missing 15" occurs with spec=NONE on ovnk (3 runs, July 30-31).
+  Autofix is NOT neutered in spec=none, so the FAIL trigger cannot
+  explain these. Context pressure alone causes N=15 skips for large
+  repos — confirming Cause B is real and independent of Cause A.
+- The "Robustness" commit (Aug 8, 9e52ec68) caused a 7x rate increase
+  in missing-26+ failures (2.5% → 17.8%). Changes to gate context
+  reduction and SKILL.md top-loading may have altered what the agent
+  retains under pressure.
 
-**Earlier hypothesis was wrong:** ~180 agents converged on "context
-exhaustion causes missing gates" based on circumstantial evidence (failure
-patterns matching the compaction boundary). Actual transcript inspection
-disproved this — the real cause is behavioral (agent skips steps), not
-resource-based (context runs out).
+**Earlier hypothesis was partially wrong:** ~180 agents attributed
+ALL failures to context exhaustion/compaction. Transcript inspection
+showed the N=26 cluster is behavioral (autofix FAIL trigger). But
+the N=15 cluster and OVNK's elevated rate confirm context pressure
+IS a real factor — just not through the compaction mechanism.
 
-**Why step delegation still helps:** A Workflow script deterministically
-sequences steps. The AI can't "choose" to skip Steps 3-5 because the
-JavaScript for-loop runs each step regardless of the previous step's
-verdict. Gate counting happens in deterministic code. This is structural
-enforcement of the workflow, not a compaction workaround.
+**Why both fixes are needed at scale (100s of repos):**
+- The autofix + hooks fix targets Cause A (the FAIL signal)
+- Workflow orchestration targets Cause B (fresh context per step +
+  deterministic sequencing eliminates both causes structurally)
 
 ### Problem 2: Test Measurement Bug (`--from-commit` mode only)
 
@@ -337,20 +363,27 @@ Don't remove working self-gating functions to optimize for a test mode.
 This plan was produced and reviewed by ~180 AI agents. Known biases:
 
 - **Convergence bias (proven):** ~180 agents decided "context exhaustion
-  is the root cause." The diagnosis agent examined actual session
-  transcripts and found zero compaction events — the agent was CHOOSING
-  to skip steps, not running out of context. The entire compaction model
-  (5K cap, 83.5% trigger, token budgets) was wrong. This is the strongest
-  evidence that AI-reviewing-AI work has systematic blind spots.
-- **The architecture is right for the WRONG reason.** Step delegation was
-  designed to prevent compaction. It actually prevents step-skipping —
-  a Workflow for-loop runs each step regardless of the AI's decision to
-  stop. The fix works; the justification was backwards.
-- **Contaminated data:** The 66% and 27% figures are computed from data
-  that includes 42% false positives. After the branch fix, recompute.
-- **Simpler alternatives exist:** Before the full Workflow, a bash-enforced
-  gate count check after Step 2 might be sufficient to prevent premature
-  step-skipping. This is a 10-line fix vs a multi-day restructure.
+  is the root cause." Transcript inspection showed the agent explicitly
+  choosing to skip: *"Given the significant amount of work remaining...
+  let me proceed directly to Step 5."* Even tiny repos (INF) skip —
+  context exhaustion is physically impossible there. Zero compaction
+  events in automated test sessions (4 found, ALL in dev sessions).
+- **The root cause is dual, not singular.** The N=26 cluster (11
+  failures) is triggered by autofix `RESULT: FAIL` + `exit 1`. The
+  N=15 cluster (7 failures) occurs even with spec=none (autofix
+  succeeds), driven by context pressure on large repos. Both are
+  behavioral — the agent stops at step boundaries — but with
+  different triggers.
+- **Contaminated data:** The 66% and 27% figures include 42% false
+  positives from the branch bug. Recompute after the branch fix.
+- **The Robustness commit (Aug 8) caused a 7x rate increase** in
+  missing-26+ failures (2.5% → 17.8%). Gate context reduction and
+  SKILL.md restructuring may have inadvertently altered what the
+  agent retains under pressure.
+- **Workflow availability is uncertain.** The Workflow tool may not be
+  present in all Claude Code environments. The Stop hook (~55 lines)
+  is universally available and addresses both hypotheses. Use Stop
+  hook as primary fix, Workflow as escalation if available.
 
 ## Not In Scope
 
