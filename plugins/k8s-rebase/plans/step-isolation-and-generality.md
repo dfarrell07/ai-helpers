@@ -445,27 +445,68 @@ aren't logged, no timing/model/diff data. Two additions:
 - 112 "no-token" sessions: 76% are test harness artifacts, true
   infrastructure failure rate is ~7%.
 
-## 10. Universal Design Improvements (future)
+## 10. Architecture Vision (future)
 
-These ideas apply across the entire skill, not just to specific steps:
+These ideas take the "deterministic scaffolding, agentic judgment"
+principle to its logical conclusion. Each is independently implementable.
 
-- **Gate metadata frontmatter:** Add 3-line YAML to each gate .md:
-  `type: blocking|informational`, `script: <companion>.sh` (optional),
-  `report-name: step3-crd-validation`. Eliminates prose-embedded
-  structural decisions. The orchestrator can parse metadata mechanically.
+### State machine orchestration
+
+Replace 981-line prose SKILL.md with a `state-machine.sh` that enforces
+step transitions deterministically. The agent runs `state-machine.sh
+advance` after completing work — the script reads `.report` files and
+only advances if all gates for the current step pass. "Skip to Step 5"
+becomes structurally impossible. State tracked in `.rebase-tmp/state.json`.
+SKILL.md becomes a ~150-line dispatcher that reads current state and
+shows only that state's instructions.
+
+### Gate runner (`gate-runner.sh`)
+
+Bash script that iterates gate files, runs companion `.sh` scripts
+first. If predicate passes (exit 0 + `NEW_ISSUES=0`), writes the
+report directly — no subagent launched. Only gates that fail their
+predicate or have no script get subagents. Expected **65-75% reduction
+in subagent launches** (~13 fewer per run, ~26 min saved, ~650K tokens
+saved). 18 of 33 gates have machine-checkable predicates; 12 require
+genuine AI judgment.
+
+### Failure taxonomy (7 codes, 3 layers)
+
+Classify every failure into independently-addressable layers:
+- **Infra layer** (9%): INFRA-STALE, INFRA-CRASH, INFRA-NOGATE → retry
+- **Agent layer** (39%): SKIP-BOUNDARY, SKIP-EFFORT, SKIP-PARTIAL → Stop hook
+- **Quality layer** (49%): GATE-FLAKE, COURT-FAIL → companion scripts
+
+The "onion peeled": 64% raw → 66% (infra works) → 78% (agent doesn't
+skip) → 94% (gates don't flake) → 99% (only real quality issues).
+Add `fail_code` column to results.tsv for per-layer trend tracking.
+
+### Self-improving skill loop
+
+Each run's skill-improvement gate produces structured suggestions.
+Harvest into `suggestions.jsonl` during `auto_record()` (~5 lines).
+`make suggestions` aggregates via jq — patterns with count≥3 are
+flagged as automation candidates. `make improve` templates new autofix
+functions from structured data. No LLM in the improvement loop.
+
+### Observable pipeline
+
+8 event types in `.rebase-tmp/events.jsonl` (step-enter, gate-verdict,
+fix-commit, script-done, etc.). Enhanced `cmd_watch` shows current
+activity ("fixing deprecated-calls, attempt 2/3") not just "working."
+Post-mortem: `jq 'select(.verdict=="FAIL")' events.jsonl`.
+
+### Additional enforcement hooks
+
 - **Module safety hook:** PreToolUse on Bash blocking `go mod tidy`,
   `go get`, `go mod vendor`, `go mod edit`, `go generate`, `go run`.
-  #1 most-violated prohibition, most destructive consequence (MVS
-  corrupts k8s version pins). Single .md hook file alongside block-push.
+  #1 most-violated, most destructive (MVS corrupts version pins).
 - **Vendor modification hook:** PreToolUse on Edit/Write blocking
-  paths containing `/vendor/`. #2 most-violated, wastes hours.
-- **gate-script-lib.sh:** Extract common companion script boilerplate
-  (BASE merge-base computation, cd to repo, exit-on-empty) so scaling
-  from 2 to 18+ companion scripts is copy-paste.
-- **Telemetry function `_telem()`:** Single 3-line bash function
-  emitting JSONL events at ~20 instrumentation points across scripts.
-  Deterministic (timestamps, exit codes, counts), aggregatable via
-  `make telemetry`.
+  paths containing `/vendor/`. #2 most-violated.
+- **Gate metadata frontmatter:** 3-line YAML per gate .md for
+  machine-readable type/script/report-name.
+- **gate-script-lib.sh:** Common companion script boilerplate for
+  scaling from 2 to 18+ scripts.
 
 ## 11. Not In Scope
 
