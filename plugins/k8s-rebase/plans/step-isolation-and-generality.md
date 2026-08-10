@@ -325,26 +325,25 @@ squeeze before investing). The graduated approach says measure first;
 the Goodhart risk says don't ship the Stop hook without deterministic
 evidence in high-value gates. User decision.
 
-### Step 2: Agent-based step delegation (days)
+### Step 2: Orchestrator + Agent delegation (days)
 
-Needed if agents hit the Stop hook's max-block escape (3 blocks →
-INCOMPLETE) rather than continuing. This means the agent is
-genuinely unable to complete within a single context, not just
-unwilling. Agent delegation gives each step a fresh 1M context.
+Implement the unified orchestrator (Section 10) and rewrite SKILL.md
+as a ~42-line boot loader. The orchestrator enforces step ordering
+deterministically; Agent delegation provides context isolation.
 
+- Create `scripts/k8s-rebase-orchestrator.sh` (~250-350 lines) with
+  init, gates, advance, status subcommands
 - Create `steps/`: rules.md + 5 step files extracted from SKILL.md
-- Rewrite SKILL.md to ~100-line entry point
-- Each step agent gets fresh 1M context
-- Gate counting in SKILL.md (deterministic) after each agent returns
-- Depth-2 nesting (main→step→gate) is within Claude Code's default
-  spawn depth limit of 3 (shipped v2.1.172, test empirically on CNCC)
-- 2-hour spike on CNCC validates depth-2 gate nesting first
-- Test harness note: `mutate_plugin` will need updating — its `sed`
-  patterns target SKILL.md `find` calls, which move to step files
-- Subagent prompt template: include repo path, k8s version, plugin
-  root, gate directory, critical rules (module safety, commit
-  discipline, scope preservation, nesting cap), and structured
-  return format (STEP_VERDICT, GATES_PASSED, COMMITS, ISSUES)
+- Rewrite SKILL.md to boot loader: run orchestrator status, read
+  matching step file via Read tool, work, advance, repeat
+- For true context isolation: SKILL.md spawns step-specific subagent
+  with only that step file + rules.md in its prompt
+- Orchestrator's `gates` subcommand runs companion scripts first,
+  outputs PENDING list — agent launches subagents only for those
+- Depth-2 nesting (main→step→gate) within Claude Code's default
+  spawn depth limit of 3 (shipped v2.1.172, test on CNCC first)
+- Stop hook simplifies to ~5 lines: orchestrator status ≠ done → BLOCK
+- Test harness: `mutate_plugin` needs updating for step files
 
 ### Step 3: Discovery procedures + cleanup (days, independent)
 
@@ -445,68 +444,102 @@ aren't logged, no timing/model/diff data. Two additions:
 - 112 "no-token" sessions: 76% are test harness artifacts, true
   infrastructure failure rate is ~7%.
 
-## 10. Architecture Vision (future)
+## 10. Architecture Vision: Unified Orchestrator
 
-These ideas take the "deterministic scaffolding, agentic judgment"
-principle to its logical conclusion. Each is independently implementable.
+The "deterministic scaffolding, agentic judgment" principle taken to
+its logical conclusion. One script replaces the checkpoint, Stop hook
+gate counting, gate runner, and state tracking.
 
-### State machine orchestration
+### `k8s-rebase-orchestrator.sh` (~250-350 lines)
 
-Replace 981-line prose SKILL.md with a `state-machine.sh` that enforces
-step transitions deterministically. The agent runs `state-machine.sh
-advance` after completing work — the script reads `.report` files and
-only advances if all gates for the current step pass. "Skip to Step 5"
-becomes structurally impossible. State tracked in `.rebase-tmp/state.json`.
-SKILL.md becomes a ~150-line dispatcher that reads current state and
-shows only that state's instructions.
+Unified bash script with 4 subcommands:
 
-### Gate runner (`gate-runner.sh`)
+**`init <repo> <version>`** — create `.rebase-tmp/state.json` (current
+step, timestamps), create gates directory, clear stale reports.
 
-Bash script that iterates gate files, runs companion `.sh` scripts
-first. If predicate passes (exit 0 + `NEW_ISSUES=0`), writes the
-report directly — no subagent launched. Only gates that fail their
-predicate or have no script get subagents. Expected **65-75% reduction
-in subagent launches** (~13 fewer per run, ~26 min saved, ~650K tokens
-saved). 18 of 33 gates have machine-checkable predicates; 12 require
-genuine AI judgment.
+**`gates <step>`** — iterate gate .md files for this step. For gates
+WITH companion `.sh` scripts: run the script. If PASS (`NEW_ISSUES=0`),
+call `write-gate-report.sh` directly — no subagent needed. Output two
+lists: RESOLVED (fast-path PASS) and PENDING (need subagents). The
+agent launches subagents ONLY for PENDING gates. Expected **65-75%
+subagent reduction** (~13 fewer per run, ~26 min saved, ~650K tokens).
+
+**`advance`** — check all gate reports for current step. Every report
+must exist, contain PASS verdict, and be newer than the latest commit
+(stale-report detection). If satisfied: bump step, update timestamps.
+If not: exit 1 with specific missing/failing gate names. After 3
+failed advances: force-advance with warning. This replaces the
+checkpoint, makes skip-to-Step-5 structurally impossible.
+
+**`status`** — compact per-step table (gates expected/actual, PASS/
+FAIL/SKIP breakdown, elapsed time per step). Consumed by: the Stop
+hook (actionable block messages), the test harness (WHERE failures
+occur), and `cmd_watch` (real-time display).
+
+### SKILL.md as boot loader (~42 lines)
+
+SKILL.md is loaded statically (full text at invocation — no conditional
+rendering). It becomes a boot loader: run `orchestrator.sh status`,
+read the returned state, use the Read tool to load the matching step
+file (`steps/step2-compilation.md`). Other step files never enter
+context. After completing a step: `orchestrator.sh advance`, then read
+the next step file.
+
+For TRUE context isolation (agent literally can't see other steps),
+combine with Agent delegation: SKILL.md spawns a subagent with only
+the current step file. The orchestrator decides WHICH step agent to
+spawn. State machine and Agent delegation compose — they enforce
+different invariants (ordering vs isolation).
+
+### Stop hook simplification
+
+With the orchestrator, the Stop hook becomes 5 lines: read `cwd` from
+stdin, run `orchestrator.sh status`, if state ≠ done → BLOCK with the
+status output as the reason message. All the current Stop hook
+complexity (gate counting, content validation, iteration counter)
+moves into the orchestrator.
 
 ### Failure taxonomy (7 codes, 3 layers)
 
-Classify every failure into independently-addressable layers:
-- **Infra layer** (9%): INFRA-STALE, INFRA-CRASH, INFRA-NOGATE → retry
-- **Agent layer** (39%): SKIP-BOUNDARY, SKIP-EFFORT, SKIP-PARTIAL → Stop hook
-- **Quality layer** (49%): GATE-FLAKE, COURT-FAIL → companion scripts
+Classify every failure by independently-addressable layer:
+- **Infra** (9%): INFRA-STALE, INFRA-CRASH, INFRA-NOGATE → retry
+- **Agent** (39%): SKIP-BOUNDARY, SKIP-EFFORT, SKIP-PARTIAL → orchestrator
+- **Quality** (49%): GATE-FLAKE, COURT-FAIL → companion scripts
 
-The "onion peeled": 64% raw → 66% (infra works) → 78% (agent doesn't
-skip) → 94% (gates don't flake) → 99% (only real quality issues).
-Add `fail_code` column to results.tsv for per-layer trend tracking.
+The "onion": 64% → 66% (infra) → 78% (no skip) → 94% (no flake) →
+99% (only real quality issues). Add `fail_code` to results.tsv.
+
+### Gate classification (19 + 12 + 8 = 33)
+
+- **19 deterministic** — machine-checkable predicates (build exit
+  code, grep patterns, version comparison). Orchestrator fast-paths.
+- **12 judgment** — require AI (semantic review, data flow tracing,
+  release note analysis). Always launch subagents.
+- **8 informational** — always PASS by design. Orchestrator writes
+  PASS directly, zero subagent cost. (4 currently, 4 more candidates.)
 
 ### Self-improving skill loop
 
 Each run's skill-improvement gate produces structured suggestions.
 Harvest into `suggestions.jsonl` during `auto_record()` (~5 lines).
-`make suggestions` aggregates via jq — patterns with count≥3 are
-flagged as automation candidates. `make improve` templates new autofix
-functions from structured data. No LLM in the improvement loop.
+`make suggestions` aggregates — count≥3 flagged as automation
+candidates. `make improve` templates autofix functions. No LLM in
+the improvement loop.
 
 ### Observable pipeline
 
-8 event types in `.rebase-tmp/events.jsonl` (step-enter, gate-verdict,
-fix-commit, script-done, etc.). Enhanced `cmd_watch` shows current
-activity ("fixing deprecated-calls, attempt 2/3") not just "working."
-Post-mortem: `jq 'select(.verdict=="FAIL")' events.jsonl`.
+8 event types in `events.jsonl` (step-enter, gate-verdict, fix-commit,
+script-done). Enhanced `cmd_watch` shows current activity. Post-mortem:
+`jq 'select(.verdict=="FAIL")' events.jsonl`.
 
-### Additional enforcement hooks
+### Additional hooks and conventions
 
-- **Module safety hook:** PreToolUse on Bash blocking `go mod tidy`,
-  `go get`, `go mod vendor`, `go mod edit`, `go generate`, `go run`.
-  #1 most-violated, most destructive (MVS corrupts version pins).
-- **Vendor modification hook:** PreToolUse on Edit/Write blocking
-  paths containing `/vendor/`. #2 most-violated.
-- **Gate metadata frontmatter:** 3-line YAML per gate .md for
-  machine-readable type/script/report-name.
-- **gate-script-lib.sh:** Common companion script boilerplate for
-  scaling from 2 to 18+ scripts.
+- **Module safety hook:** PreToolUse blocking `go mod tidy/get/vendor/
+  edit/generate/run`. #1 most-violated, most destructive.
+- **Vendor hook:** PreToolUse on Edit/Write blocking `/vendor/` paths.
+- **Gate YAML frontmatter:** `type: blocking|informational`,
+  `script: <companion>.sh`, `report-name: step3-crd-validation`.
+- **gate-script-lib.sh:** Shared boilerplate for companion scripts.
 
 ## 11. Not In Scope
 
