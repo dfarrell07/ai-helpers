@@ -1,3 +1,21 @@
+MANDATORY FIRST STEP — run the companion gate script:
+
+```bash
+GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/step2-compilation" -type d 2>/dev/null | head -1)
+bash "$GATE_DIR/version-consistency.sh" "$(pwd)"
+```
+
+Read the output carefully. Apply these rules in order:
+
+RULE 1 — FAST-PATH: If NEW_ISSUES=0, set verdict=PASS immediately.
+Write the PASS report and stop. Do NOT run the checks below.
+
+RULE 2 — PER-ISSUE FILTER (when NEW_ISSUES>0): Only analyze issues
+the script flagged as "MISMATCH" or "VENDOR-DRIFT". Determine if
+each is a real problem requiring investigation.
+
+If the companion script is not found, fall back to manual checks:
+
 Count go.mod files where k8s.io/* dependency versions are
 inconsistent (different minor versions across k8s.io packages
 within the same go.mod). For each module with a vendor/ directory, verify

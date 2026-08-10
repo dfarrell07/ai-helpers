@@ -1,3 +1,22 @@
+MANDATORY FIRST STEP — run the companion gate script:
+
+```bash
+GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/step2-compilation" -type d 2>/dev/null | head -1)
+bash "$GATE_DIR/build-vet.sh" "$(pwd)"
+```
+
+Read the output carefully. Apply these rules in order:
+
+RULE 1 — FAST-PATH: If NEW_ISSUES=0, set verdict=PASS immediately.
+Write the PASS report and stop. Do NOT run the checks below.
+
+RULE 2 — PER-ISSUE FILTER (when NEW_ISSUES>0): Only analyze issues
+the script marked as "NEW". Ignore "PRE-EXISTING" lines. For each
+NEW issue, determine if it is a real problem or a false positive.
+
+If the companion script is not found, fall back to running the
+checks manually:
+
 Run `go build ./...` and `go vet ./...` in each module.
 Use this exact loop to find modules and skip gitignored vendors:
 
