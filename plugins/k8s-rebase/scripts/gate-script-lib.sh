@@ -33,7 +33,9 @@ init_gate() {
   GATE_NAME=$(basename "${BASH_SOURCE[1]}" .sh)
   local step_dir
   step_dir=$(basename "$(dirname "${BASH_SOURCE[1]}")")
-  GATE_NAME="${step_dir%-*}-${GATE_NAME}"
+  local step_prefix
+  step_prefix=$(echo "$step_dir" | grep -oE '^step[0-9]+')
+  GATE_NAME="${step_prefix}-${GATE_NAME}"
 
   BASE=$(git merge-base HEAD main 2>/dev/null \
       || git merge-base HEAD master 2>/dev/null \
@@ -45,14 +47,10 @@ init_gate() {
   NEW_ISSUES=0
 }
 
-base_has() {
-  local pattern="$1" file="${2:-}"
+base_file_has() {
+  local file="$1" pattern="$2"
   [[ -z "$BASE" ]] && return 1
-  if [[ -n "$file" ]]; then
-    git show "$BASE:$file" 2>/dev/null | grep -qF "$pattern" 2>/dev/null
-  else
-    return 1
-  fi
+  git show "$BASE:$file" 2>/dev/null | grep -qF "$pattern" 2>/dev/null
 }
 
 finish_gate() {

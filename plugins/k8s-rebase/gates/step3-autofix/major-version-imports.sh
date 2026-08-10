@@ -22,7 +22,7 @@ check_import() {
   while IFS= read -r match; do
     [[ -z "$match" ]] && continue
     file=$(echo "$match" | cut -d: -f1)
-    if [[ -n "$BASE" ]] && base_has "\"$bare\"" "$file"; then
+    if [[ -n "$BASE" ]] && base_file_has "\"$bare\"" "$file"; then
       echo "  PRE-EXISTING: $match"
     else
       echo "  NEW: $match"
@@ -48,7 +48,7 @@ for vmod in $versioned_mods; do
   if [[ -n "$hits" ]]; then
     while IFS= read -r match; do
       file=$(echo "$match" | cut -d: -f1)
-      if [[ -n "$BASE" ]] && base_has "\"$bare\"" "$file"; then
+      if [[ -n "$BASE" ]] && base_file_has "\"$bare\"" "$file"; then
         echo "  PRE-EXISTING: $match"
       else
         echo "  NEW: $match"
