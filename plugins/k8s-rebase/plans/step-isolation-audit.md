@@ -1,31 +1,28 @@
 # Audit: Step Isolation and Generality Plan
 
-Independent audit of `step-isolation-and-generality.md`. Conducted by a
-fresh session with zero prior context, using 18 parallel agents for
-exploration and 10 for adversarial verification. Every quantitative
-claim was checked against raw data in `results.tsv` (249 entries).
+Adversarial fact-check of `step-isolation-and-generality.md`. Phase 1
+used 8 agents to explore the full codebase before reading any plan
+docs. Phase 2 read all 3 plan documents. Phase 3 launched 10 agents
+to verify every major claim. Phase 4 launched 20 devil's-advocate
+agents to challenge the audit's own findings, producing 7 corrections
+(retracted 1d, downgraded 4 severity ratings, corrected the 73%
+ceiling, and qualified the methodology claim).
 
-## Methodology
+All quantitative claims were checked against raw data in `results.tsv`
+(249 entries). Every number was cross-verified by an independent
+agent (zero discrepancies found).
 
-Phase 1 (exploration): 8 agents read the full codebase — skill
-structure, all 33 gates, test results, upstream/downstream ovnk,
-rebasebot, other test repos, and git history. No plan docs read.
-
-Phase 2 (independent analysis): formed hypotheses about root causes
-and fixes before reading the plan.
-
-Phase 3 (verification): read all 3 plan docs, then launched 10 agents
-to stress-test every major claim — step-skip counts, regression
-attribution, spec=none vs spec=all statistics, stop hook feasibility,
-step delegation architecture, gate flakiness, false positive rate,
-PLUGIN_ROOT semantics, success criteria realism, Workflow viability,
-and 10 gap categories.
+**Caveat:** Phase 1 agents read git commit messages that summarize the
+plan's conclusions (e.g., "root cause is step-skipping, not
+compaction"). The numerical verification in Phases 3-4 is objective
+and unaffected, but the root-cause analysis was anchored by these
+signals.
 
 ---
 
-## 1. CRITICAL: Factual Corrections
+## 1. Factual Corrections
 
-### 1a. "7x increase" is overstated (audit finding 2.2 superseded)
+### 1a. CRITICAL: "7x increase" is overstated
 
 The plan's previous audit claimed commit `9e52ec68` caused a 7x
 increase in "missing 26+" failures. Verified against results.tsv:
@@ -41,20 +38,19 @@ More importantly, the N=26 pattern **predates the commit by 5 days**.
 First occurrence: Aug 3 08:11 UTC (row 116). Two N=26 failures
 occurred on Aug 8 itself, 3.5h and 1.3h before the commit. The
 commit may have worsened an existing trend but did not introduce it.
-The previous audit's causal framing is misleading.
 
-**Recommended action:** Remove the "7x" claim. Reframe as "the N=26
-pattern emerged Aug 3 and intensified Aug 8-9, partially correlated
-with commit 9e52ec68 but not caused by it."
+**Recommended action:** Reframe as "the N=26 pattern emerged Aug 3
+and intensified Aug 8-9, partially correlated with commit 9e52ec68
+but not caused by it."
 
-### 1b. p-value is wrong
+### 1b. HIGH: p-value is wrong
 
 The plan says "p=0.43" for spec=none vs spec=all (ovnk). Fisher's
 exact test on the actual contingency table (4/8 vs 23/27) gives
 **p=0.53**. Same conclusion (not significant) but the number is
-inaccurate. Fix the number.
+inaccurate.
 
-### 1c. "No real difference" is ovnk-specific, not general
+### 1c. CRITICAL: "No real difference" is ovnk-specific, not general
 
 The plan says "spec=none vs spec=all: no real difference" as a
 general finding (Section 2). This is **only true for ovnk**. Across
@@ -65,86 +61,39 @@ all repos combined:
 | none | 45.6% | 57 |
 | all | 69.8% | 192 |
 
-Fisher's exact p=0.0015 — highly significant. Even time-controlled
-(only runs through Aug 4, when both modes were active): 45.6% vs
-65.8%, p=0.032.
+Fisher's exact p=0.0015. Even time-controlled (only runs through
+Aug 4, when both modes were active): 45.6% vs 65.8%, p=0.032.
+Controlling for skill version (original skill only): 45.6% vs
+72.0%, p<0.01. The advantage is real, not a temporal artifact —
+but the exact magnitude (15-30pp) has wide uncertainty due to
+uneven sample sizes and repo distribution.
 
 Per-repo: CNO goes from 40% (none) to 90% (all). MCP: 40% to 91%.
-ovnk is a massive outlier — the only repo where spec mode doesn't
-dramatically improve pass rates. The plan incorrectly generalizes
-from ovnk.
-
-**Caveat:** Temporal confound — spec=none runs all end by Aug 4,
-spec=all continues through Aug 10. Later runs benefit from
-accumulated skill improvements.
+ovnk is the only repo where spec mode doesn't dramatically improve
+pass rates.
 
 **Recommended action:** Qualify as "For ovnk specifically, spec mode
-shows no significant difference. For other repos, spec=all has a
-24pp higher pass rate (p=0.0015)."
+shows no significant difference (p=0.53). For other repos, spec=all
+has a significant advantage (p=0.0015)."
 
-### 1d. CLAUDE_PLUGIN_ROOT IS a shell environment variable
+### 1d. LOW: "46 gate(s) failed" is actually 44
 
-The plan says "PLUGIN_ROOT not a shell env var" (risk table, line
-359) and a previous audit said "CLAUDE_PLUGIN_ROOT is NOT a shell
-environment variable (it is text-substitution in plugin-registered
-files only)." **This is wrong.**
-
-The official plugin-dev documentation explicitly states three scopes:
-- In manifest JSON (hooks.json, MCP configs): text-substituted
-- In component .md files (commands, agents, skills): text-substituted
-- **In executed scripts (.sh files): available as environment variable**
-
-Empirical proof: the metrics plugin's `start-collector.sh` uses
-`CLAUDE_PLUGIN_ROOT` as a real shell env var, including
-`if [[ -z "${CLAUDE_PLUGIN_ROOT}" ]]`.
-
-All 50 runtime `find` calls are in .md files (38 in gates, 12 in
-skills). Zero are in .sh scripts. Every one can be replaced with
-`${CLAUDE_PLUGIN_ROOT}` via text-substitution.
-
-**Recommended action:** Remove the risk from the risk table. Replace
-all 50 `find "$HOME" -maxdepth 7` calls with `${CLAUDE_PLUGIN_ROOT}`
-paths. This is a straightforward improvement independent of the
-graduated ladder.
-
-### 1e. "46 gate(s) failed" is actually 44
-
-The plan says 46 "gate(s) failed" entries (52% of 89). Actual count
-is 44. The plan counts 2 "court: FAIL" entries as gate failures,
-which inflates the number. The total of 89 is correct (44 gate-failed
-+ 35 missing + 6 stale-branch + 2 court-fail + 1 session-ended +
-1 no-gates-ran = 89). Minor, but the "52%" figure should be "49%."
+The plan counts 2 "court: FAIL" entries as gate failures. Actual
+gate-failure entries: 44. The total of 89 is correct (44 + 35 + 6 +
+2 + 1 + 1). Minor; the "52%" figure should be "49%."
 
 ---
 
-## 2. CRITICAL: Measurement Prerequisites
+## 2. Measurement Prerequisites
 
-### 2a. Gate-name logging must precede Step 1b
+### 2a. CRITICAL: Step 0 (branch fix) unblocks all measurement
 
-The plan puts gate-name logging in "Not In Scope" (Section 9) and
-describes it as a "3-line harness change." This should be a
-prerequisite for Step 1b (companion scripts), not deferred.
-
-Without gate-name logging:
-- Cannot identify which specific gates are failing
-- Cannot verify the 4 companion script targets are the right ones
-- Cannot measure companion script effectiveness after deployment
-- The "94% flaky" statistic is meaningful at the combo level but
-  says nothing about individual gate flakiness
-
-The 94% claim holds (verified: 15/16 version+repo combos with gate
-failures also have at least one PASS), but it could reflect either:
-(A) gates are genuinely non-deterministic, or (B) gates fail
-consistently but the agent sometimes doesn't reach them.
-
-**Recommended action:** Move gate-name logging from "Not In Scope"
-to Step 0 (minutes of work, high diagnostic value).
-
-### 2b. Step 0 (branch fix) unblocks all other measurement
-
-The false positive rate is confirmed at 40.7%. The bimodal
-distribution is unmistakable — genuine passes have <1,000 code hunks,
-false positives have >6,600, with a 7.7x gap and zero overlap.
+The false positive rate for ovn-org/ovn-kubernetes is confirmed at
+40.7% (11/27 passes). The bimodal distribution is unmistakable —
+genuine passes have <1,000 code hunks, false positives have >6,600,
+with a 7.7x gap and zero overlap. The high-hunk values match the
+master-to-known-good divergence to within 5%, confirming the agent
+switched starting points.
 
 Per-version false positive rates:
 - 1.34.1: 40% (4/10 passes are false)
@@ -152,15 +101,44 @@ Per-version false positive rates:
 - 1.36.2: 0% (from_commit close to current main)
 
 Corrected ovnk pass rates: 1.34.1=33%, 1.35.3=12.5%, 1.36.2=35%.
-True overall: ~26% (16/62), not the raw 40%.
+True overall: ~26% (16/62).
+
+**Framing note:** The 40.7% figure is ovnk-specific. Cross-repo
+false positive rate is 7.0% (11/157). Every suspect result comes
+from one repo. The high-hunk results passed all 33 gates — calling
+them "false positives" assumes gate insufficiency for detecting
+wrong starting points.
 
 The plan correctly identifies this and the fix ("default branch" →
-"current branch") is sound. This must land first — every subsequent
-measurement depends on accurate pass/fail classification.
+"current branch") is sound. This must land first.
+
+**Step 0 should have been implemented already.** It takes minutes,
+unblocks all measurement, and days of planning have occurred
+without it.
+
+### 2b. HIGH: Steps 1 and 1b should co-deploy
+
+The plan labels Step 1 (stop hook) and Step 1b (companion scripts)
+as "parallel" but describes a sequential validation ("measure the
+balloon squeeze before investing"). These should ship as a single
+unit for two reasons:
+
+**Goodhart risk:** The stop hook forces continuation but
+`write-gate-report.sh` validates almost nothing (verdict is
+PASS/FAIL/SKIP, no content check). The agent can satisfy the hook
+by writing plausible PASS reports without doing real work. Only 7/33
+gates would have companion scripts with deterministic evidence.
+Satisficing (run easy greps, skip deep analysis, write plausible
+reports) is the dominant rational strategy for a forced agent.
+
+**1.35.3 needs 1b more than 1:** 1.35.3 has a corrected pass rate
+of 12.5% and is gate-flake-dominated (7 of 14 failures). The stop
+hook addresses at most 4 of 14 failures. The plan's "per-version
+floor 55%" is mathematically unreachable for 1.35.3 without Step 1b.
 
 ---
 
-## 3. HIGH: Verified Claims
+## 3. Verified Claims
 
 ### 3a. Step-skip root cause — fully verified
 
@@ -171,9 +149,16 @@ Every quantitative claim in Section 2 checks out exactly:
 - Residual 17 break into 11 near-complete + 3 mid-range + 3 startup
   crashes — correct, counts match exactly
 
-Additional finding: the N=26 pattern affects 3 non-ovnk repos (CNO,
-INFW, Multus), confirming the fix must be repo-agnostic. The plan's
-Stop hook is repo-agnostic, so this is addressed.
+Additional findings:
+- The N=26 pattern affects 3 non-ovnk repos, confirming the fix
+  must be repo-agnostic. The Stop hook is repo-agnostic.
+- The N=26 correlation with spec=all is real but confounded.
+  spec=all simultaneously disables the autofix (FAIL signal) AND
+  removes productive tools (neutered functions + empty patterns doc).
+  In spec=none, autofix can also output FAIL but max missing is
+  only 15. The discriminating factor is **absence of tools**, not
+  the FAIL keyword. The plan correctly ranks signal cleanup as
+  "cosmetic, lowest impact."
 
 ### 3b. Stop hook design — technically sound
 
@@ -185,180 +170,174 @@ All technical claims verified:
 - hooks.json is auto-discovered (no plugin.json change needed)
 - Anti-skip prose at lines 420/537/832 confirmed present and ignored
 
-The "addresses 32 of 35 (91%)" arithmetic is correct, but
-"addresses" means the hook fires, not that runs pass.
+### 3c. Completion-to-pass rate — complex picture
 
-### 3c. Completion-to-pass conversion rate
+Of 37 ovnk runs where all 33 gates executed, 27 passed and 10 failed
+— a raw 73% completion-to-pass rate. However, this metric has two
+confounds that pull in opposite directions:
 
-Of 37 ovnk runs where all 33 gates executed, **27 passed and 10
-failed** — a 73% completion-to-pass rate. This means:
+**False-positive correction (pulls DOWN):** 11 of the 27 "passes"
+are false positives (>6,600 code hunks). After correction: 16/26 =
+**62%** true C2P rate. This is the rate the plan should use for
+pessimistic projections.
 
-- The Stop hook alone caps ovnk pass rate at ~73%
-- The plan's "84%+ ceiling" **requires both Step 1 and Step 1b**
-- The plan acknowledges this but the table structure makes it easy
-  to miss
+**Temporal improvement (pulls UP):** The C2P rate nearly doubled from
+early to late runs (50% first third → 75% middle → 92% last third).
+At recent rates, the post-hook ceiling could be 76-80%.
 
-### 3d. Per-version failure structure
+**Arithmetic note:** Even at 73% C2P, the overall pass rate is only
+69.4% (not 73%) because infrastructure and gate-fail runs are
+unchanged by the hook.
 
-Versions have structurally different failures:
-- **1.36.2**: 9 of 13 failures are step-skipping (N>=15). The Stop
-  hook has maximum upside here.
-- **1.35.3**: 7 of 14 failures are gate-flake (no missing gates).
-  The Stop hook has minimal upside here. This is why 1.35.3 is "the
-  blocker" — its problems are orthogonal to step-skipping.
-- **1.34.1**: Mixed (4 step-skip, 2 gate-flake, 2 other).
+**Bottom line:** The true ceiling is somewhere between 62% (false-
+positive-corrected) and 92% (recent-period), depending on which
+effects dominate post-Step-0. The plan's "84%+ ceiling" requires
+companion scripts (Step 1b) regardless of which C2P estimate is
+used.
 
-The plan's "per-version floor 55%" criterion will be hardest to meet
-for 1.35.3 because its failures are hook-unaddressable.
+### 3d. Per-version failure structure — verified with nuance
+
+- **1.36.2**: 9/13 failures are step-skipping. Stop hook has maximum
+  upside. 35% true pass rate, zero false positives.
+- **1.35.3**: 7/14 failures are gate-flake. Stop hook has minimal
+  upside. 12.5% true pass rate. **This is the blocker.**
+- **1.34.1**: Mixed. 33% true pass rate.
+
+The plan correctly identifies 1.35.3 as the blocker. The plan's
+"per-version floor 55%" will be hardest for 1.35.3 because its
+failures are hook-unaddressable.
 
 ---
 
-## 4. HIGH: Plan Gaps
+## 4. Plan Gaps
 
-### 4a. Multi-module repo handling unspecified
-
-The plan has one line about multi-module repos (line 231: "use find
-for go.mod"). ovnk has 3 modules with inter-module dependencies
-(test/e2e depends on go-controller). The plan's step delegation
-never specifies:
-- Whether each step agent handles all 3 modules or one
-- Module compilation ordering (go-controller before test/e2e)
-- How gate agents handle per-module checks
-
-The SKILL.md handles this (lines 295-300), but when refactored to
-step files, this module-order awareness could be lost.
-
-### 4b. GOMODCACHE / ENOSPC not addressed
-
-Zero mentions of GOMODCACHE, ENOSPC, or disk space in the plan,
-despite commit 0886cfd7 fixing a production ENOSPC failure. Step
-delegation could multiply disk pressure (5 step agents each
-downloading modules). Should be in the risk table.
-
-### 4c. Recovery from partial step failures
-
-The plan specifies gate counting after each step returns (line 333)
-but doesn't address:
-- What happens if a step agent crashes with uncommitted changes
-- Whether step agents are idempotent (can Step 2 rerun safely?)
-- How the INCOMPLETE marker is consumed on restart
-- Resume logic for the ~100-line orchestrating SKILL.md
-
-### 4d. Test harness mutate_plugin breaks with step files
+### 4a. HIGH: Test harness mutate_plugin breaks with step files
 
 The plan acknowledges this (line 337) but underestimates scope.
-`mutate_plugin` uses `sed` patterns targeting SKILL.md `find` calls,
-which move to step files. Additionally, the `all-patterns` spec
-modifies `docs/k8s-rebase-patterns.md`, and step files using literal
-paths would need injection per-file, not just in SKILL.md.
+`mutate_plugin`'s sed patterns target SKILL.md find calls, which
+move to step files. The `all-patterns` spec modifies the patterns
+doc, and step files using literal paths would need injection per-
+file, not just in SKILL.md.
 
-### 4e. Model coupling mitigation is observation-only
+### 4b. HIGH: Goodhart mitigation insufficient
 
-Rated Critical in the risk table but mitigated only by "Log exact
-model ID per run" and "Continuous regression testing." Missing:
-- No fast smoke test for detecting model changes
-- No tested fallback model
-- No model-version locking (Claude Code model aliases resolve to
-  latest; no way to pin a checkpoint)
-- No acknowledgment that Step 1 validation is model-version-specific
+The plan correctly identifies the risk but 4 companion scripts cover
+only 7/33 gates (21%). The highest-consequence correctness gate
+(`logical-consistency`) is unscripted and trivially satisfiable with
+plausible prose. `deprecated-calls` (runs staticcheck) and
+`correctness` (format string grep) are already described as shell
+commands in their gate .md files and should be scripted too.
 
-**Recommended additions:** (a) model ID column in results.tsv,
-(b) `make smoke` target running 3 small repos for cheap regression
-detection, (c) documentation that validation results are
-model-version-specific.
+### 4c. MEDIUM: PLUGIN_ROOT and find calls
 
----
+`CLAUDE_PLUGIN_ROOT` is text-substituted in plugin-loaded .md files
+(SKILL.md, commands) but is **NOT available as a shell environment
+variable in Bash tool calls** (empirically verified: returns
+NOT_SET). Gate .md files are read by subagents via the Read tool,
+not plugin-loaded, so their bash code blocks cannot use PLUGIN_ROOT.
 
-## 5. MEDIUM: Statistical and Methodological Issues
+The plan's "Gates keep find, Steps get literal paths" is correct.
+The 12 SKILL.md find calls can use `${CLAUDE_PLUGIN_ROOT}` via
+text-substitution. The 38 gate find calls must keep the dual-path
+find pattern (which currently works at marketplace install depth
+due to the `"$HOME/.claude" "$HOME"` search).
 
-### 5a. 20-run validation is wildly underpowered
+### 4d. MEDIUM: Recovery from partial step failures
 
-With a baseline pass rate of ~26-35%, the plan's 20-run validation
-can only reliably detect a +42pp improvement (to ~68-77%). It cannot
-distinguish a 15pp improvement from noise at p<0.05.
+Zero mid-step crashes in 249 runs. The INCOMPLETE marker (written
+after 3 stop-hook blocks) provides sufficient data for manual
+resume. Automated resume logic is premature — it adds complexity
+for a scenario with no observed occurrences. The SKILL.md's
+existing recovery instruction (lines 90-93) is adequate.
 
-The plan's "zero missing 15+ failures" criterion IS testable with
-small samples (observing 0 in 15 runs where null rate is ~37% gives
-p=0.0003). Rate-based criteria require 60+ runs per group.
+### 4e. MEDIUM: Model coupling
 
-**Recommended action:** Reframe success criteria as binary (zero
-step-skipping failures in N runs) rather than rate-based, or
-increase to 60+ runs for rate claims.
-
-### 5b. Depth-3 nesting claim unverified
-
-The plan says "Depth-2 nesting (main→step→gate) is within Claude
-Code's default spawn depth limit of 3 (verified, shipped v2.1.172)"
-(line 334). No documentation confirming this was found in any config,
-help output, or settings file. The plan's "2-hour spike on CNCC"
-would empirically test this, which is prudent, but the claim should
-not be stated as "verified" without a citation.
-
-### 5c. Structured returns have no schema enforcement
-
-The Agent tool returns free-form text. The plan proposes step agents
-return structured data (STEP_VERDICT, GATES_PASSED, etc.) but there
-is no schema validation. The filesystem (gate report files) is the
-reliable source of truth. The plan should explicitly prefer
-filesystem-based gate counting over parsing agent text.
+No evidence of model-related step-function degradation in the data.
+Daily pass rates improved over time. The N=26 pattern is
+intermittent (retries succeed hours later). Claude Code supports
+model pinning via full version names. The matrix testing already
+serves as the regression detector. Recommend: add model ID column
+to results.tsv for forensics.
 
 ---
 
-## 6. MEDIUM: Additional Findings
+## 5. Statistical Issues
 
-### 6a. maintainer-review.md has contradictory verdict instructions
+### 5a. MEDIUM: Validation sample size
 
-Line 27 says "FAIL if scope creep or inaccurate commit messages" but
-line 55 says "always use PASS." This ambiguity could itself be a
-gate flakiness source. Fix the contradiction.
+The audit's original "wildly underpowered" assessment was too harsh
+and used the wrong test. The correct test is one-sample binomial
+against the known baseline (~26%), giving a minimum detectable
+effect of +31pp at n=20 (not +42pp as originally claimed).
 
-### 6b. Temporal clustering could invalidate validation runs
+More importantly, the plan's binary criterion ("zero missing 15+
+failures") is extremely well-powered at n=15 (p=0.001 under null).
+The rate-based criteria ("per-version floor 55%," "gate-failed
+drops >=15pp") cannot be validated at n=20.
 
-The plan lists "Test harness infrastructure reliability" as Not In
-Scope (line 423), but the harness has no failure-rate backoff or
-temporal clustering detection. If the API has a bad day during a
-validation run, all results are recorded as genuine FAILs. A
-`make matrix` run takes 4-8 hours — long enough for transient API
-issues to contaminate results.
+**Recommended action:** Restructure Section 7 into two tiers:
+(A) binary criteria (hard pass/fail, testable at n=15-20) and
+(B) directional rate indicators (informative but not rigorous).
+Add sequential monitoring: run 15, if zero missing-15+ then accept,
+if >=5 investigate, if 1-4 run 15 more. 60+ runs is impractical
+($1,000-3,600 and 8 calendar days).
 
-### 6c. Inter-step state is almost entirely filesystem-based
+### 5b. MEDIUM: Depth-3 nesting unverified
 
-Verified: steps communicate through the branch (git), `.rebase-tmp/`
-files, and arguments (version, repo path, flags). No in-memory state
-flows between steps. This makes agent delegation architecturally
-clean — the orchestrator only forwards ~5 pieces of information.
+No documentation found. The "2-hour spike on CNCC" (line 335)
+would test this empirically.
 
-### 6d. Workflow is correctly rejected
+### 5c. LOW: Structured returns have no schema
 
-The plan evolved from Workflow (commit 2bda263e) to Agent delegation
-(commit 5b294f56). Verified: zero plugins in the repository use
-Workflow in skills, availability in `--bg` sessions is uncertain,
-and Agent delegation achieves the same benefits (fresh context,
-deterministic gate counting) within the plugin paradigm.
+The filesystem (gate report files) is the reliable source of truth.
+The plan should prefer filesystem-based gate counting.
 
 ---
 
-## 7. LOW: Minor Items
+## 6. Additional Findings
 
-### 7a. find timing
+### 6a. MEDIUM: maintainer-review.md has contradictory instructions
 
-The previous audit said "4.1 seconds per call, ~200 seconds total."
-Measured on this system: cold=2.6s, warm=0.87s, 50 calls warm=~44s.
-This matches the original plan's "44 seconds." The previous audit's
-figure was too high, but this is moot if PLUGIN_ROOT replaces all
-find calls (see 1d).
+Line 27 says "FAIL if scope creep" but line 55 says "always use
+PASS." Could itself be a gate flakiness source.
 
-### 7b. Autofix disposition
+### 6b. Confirmed: Inter-step state is filesystem-based
+
+Steps communicate through git commits, `.rebase-tmp/` files, and
+arguments. No in-memory state. Agent delegation is architecturally
+clean.
+
+### 6c. Confirmed: Workflow correctly rejected
+
+Zero plugins use Workflow in skills, availability in `--bg` sessions
+is uncertain. Agent delegation achieves the same benefits within
+the plugin paradigm.
+
+### 6d. Confirmed: Autofix disposition is sound
 
 All 26 functions correctly categorized. ~9 are ovnk-specific, ~17
-are ecosystem-generic. Every function is self-gating. The "keep all"
-recommendation is sound.
+are ecosystem-generic. Every function is self-gating.
 
-### 7c. "Skipped" gates
+---
 
-"Skipped" is well-defined in the harness: SKIP verdict (gate not
-applicable to this repo), INFO_GATES (informational, always PASS),
-or stale FAIL (report predates latest commit). Not a gap.
+## 7. Audit Blind Spots (self-identified in Phase 4)
+
+The 20 adversarial agents found these gaps in the audit itself:
+
+- **Design Principles (Section 3) not evaluated.** The plan defines
+  four principles that are supposed to govern implementation. This
+  audit never tests whether the proposed steps embody them.
+- **Estimated rates table (Section 7) not arithmetically verified.**
+  The plan's baseline is 31% (16/51) vs the audit's 26% (16/62).
+  These disagree and the audit didn't flag it. The "90% efficiency"
+  optimistic bound is overstated given the C2P data.
+- **"Not In Scope" items mostly unevaluated.** 8 of 9 exclusion
+  decisions in Section 9 were not assessed (2-of-3 voting, multi-
+  repo coordinator, gate consolidation, CI integration, etc.).
+- **Multi-module and ENOSPC severity overstated** in the original
+  audit. Multi-module ordering lives in bash scripts (not being
+  refactored). ENOSPC was fixed in all 3 scripts with zero
+  recurrence. Both downgraded to LOW/informational.
 
 ---
 
@@ -366,24 +345,21 @@ or stale FAIL (report predates latest commit). Not a gap.
 
 | # | Finding | Severity | Action |
 |---|---------|----------|--------|
-| 1a | "7x increase" is 2-4.5x, pattern predates commit | CRITICAL | Fix attribution |
-| 1b | p-value is 0.53, not 0.43 | CRITICAL | Fix number |
+| 1a | "7x increase" is 2-4.5x, predates commit | CRITICAL | Fix attribution |
 | 1c | "No real difference" only holds for ovnk | CRITICAL | Qualify scope |
-| 1d | PLUGIN_ROOT IS a shell env var | CRITICAL | Remove risk; replace 50 find calls |
-| 1e | "46 gate(s) failed" is actually 44 | CRITICAL | Fix count |
-| 2a | Gate-name logging must precede Step 1b | CRITICAL | Move to Step 0 |
-| 2b | Step 0 unblocks all measurement | CRITICAL | Confirm priority |
-| 3a-d | Step-skip root cause, stop hook, conversion rate, per-version structure | HIGH | All verified |
-| 4a | Multi-module handling unspecified | HIGH | Add to Step 2 spec |
-| 4b | GOMODCACHE/ENOSPC not addressed | HIGH | Add to risk table |
-| 4c | No resume logic for delegated steps | HIGH | Add to Step 2 spec |
-| 4d | mutate_plugin breaks with step files | HIGH | Expand scope |
-| 4e | Model coupling mitigation insufficient | HIGH | Add smoke test, model ID logging |
-| 5a | 20-run validation underpowered | MEDIUM | Use binary criteria or 60+ runs |
-| 5b | Depth-3 nesting unverified | MEDIUM | Remove "verified" or cite source |
-| 5c | Structured returns have no schema | MEDIUM | Prefer filesystem gate counting |
+| 2a | Step 0 unblocks all measurement (not done yet) | CRITICAL | Implement immediately |
+| 2b | Steps 1 and 1b must co-deploy (Goodhart risk) | HIGH | Merge into single phase |
+| 1b | p-value is 0.53, not 0.43 | HIGH | Fix number |
+| 3a | Step-skip root cause fully verified | Verified | — |
+| 3b | Stop hook design technically sound | Verified | — |
+| 3c | C2P rate is 62-92% depending on correction | Verified | Use range, not point estimate |
+| 3d | Per-version failure structure verified | Verified | 1.35.3 is the blocker |
+| 4a | mutate_plugin breaks with step files | HIGH | Expand scope |
+| 4b | Goodhart mitigation needs more companion scripts | HIGH | Add deprecated-calls, correctness |
+| 4c | PLUGIN_ROOT: gates must keep find pattern | MEDIUM | Steps get literal paths |
+| 4d | Recovery: INCOMPLETE marker is sufficient | MEDIUM | No automated resume needed |
+| 4e | Model coupling: add model ID to results.tsv | MEDIUM | Observation is sufficient |
+| 5a | Validation: use binary criteria + sequential monitoring | MEDIUM | Restructure Section 7 |
+| 5b | Depth-3 nesting: test empirically (CNCC spike) | MEDIUM | Remove "verified" claim |
 | 6a | maintainer-review.md contradictory | MEDIUM | Fix the gate |
-| 6b | Temporal clustering risks | MEDIUM | Consider detection/backoff |
-| 6c | Inter-step state is filesystem-based | MEDIUM | Confirmed favorable for delegation |
-| 6d | Workflow correctly rejected | MEDIUM | No action |
-| 7a-c | find timing, autofix disposition, skipped gates | LOW | Informational |
+| 1d | "46 gate(s) failed" is actually 44 | LOW | Fix count |
