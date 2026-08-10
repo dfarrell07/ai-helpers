@@ -15,7 +15,10 @@ ovn-kubernetes (26% true pass rate, 16/62). Of 89 total failures:
 The "onion": 64% raw → 66% (infra fixed) → 78% (no skipping) →
 94% (no gate flake) → 99% (only real quality issues).
 
-**Step-skipping is behavioral, not resource exhaustion.** Two clusters:
+**LLMs are satisficers.** Step-skipping is the dominant strategy of a
+satisficing agent facing a long procedure — attentional pull toward
+"done," not economic reasoning. The fix: less scope per decision,
+more structure between decisions. Two clusters:
 N=26 (11 failures, 100% spec=all — agent skips at step 2→3 boundary)
 and N=15 (7 failures, both spec modes, 6/7 ovnk — agent skips before
 step 4). Sessions used 14-50% of 1M context. 60% of "missing" land on
@@ -81,9 +84,11 @@ claude --bg session
     └── repeat until done
 ```
 
-Skip-to-Step-5 is **structurally impossible** — the orchestrator only
-advances when all gates for the current step have PASS reports newer
-than the latest commit. The agent never sees other steps' instructions.
+Skip-to-Step-5 is eliminated by **defense in depth** — the orchestrator
+only advances when all gates for the current step have fresh PASS
+reports, and the agent never sees other steps' instructions. Not
+information-theoretic isolation (the agent could still skip within a
+step), but eliminates the dominant failure mode.
 
 ### Directory layout
 
@@ -243,7 +248,10 @@ with self-gating guards and keep/remove recommendations.
 
 ### 4.4 Companion scripts (4 priority + library)
 
-Address gate flakiness (44/89 failures, 49%). The orchestrator's
+**Primary value: reliability, not cost savings.** Replacing flaky AI
+judgment with zero-flake deterministic evidence. The net subagent
+count may not drop (forcing continuation adds back skipped gates),
+but each gate's verdict becomes reproducible. The orchestrator's
 `gates` subcommand runs these; no separate mechanism needed.
 
 **4 priority scripts** (following crd-validation.sh pattern):
@@ -273,12 +281,20 @@ evaluates items the script flagged as new/changed.
 `report-name: step3-crd-validation`. The orchestrator's `gates`
 subcommand reads this to know which scripts to run.
 
-**Gate classification** (33 total = 19 deterministic + 14 judgment):
-- 19 deterministic — fast-path PASS via bash predicate. Includes
-  8 informational gates (always PASS, zero subagent cost) + 11
-  blocking gates with machine-checkable predicates.
-- 14 judgment — require AI (always launch subagent).
-  Expand companion scripts post-validation based on diagnostic data.
+**Three-tier gate architecture** (33 total):
+- **Tier 1: Fully deterministic** (~19) — companion script produces
+  verdict. Includes 8 informational (always PASS) + 11 with machine-
+  checkable predicates. Zero flakiness.
+- **Tier 2: Evidence + interpretation** (~8) — script gathers
+  deterministic evidence (run staticcheck, diff vs base branch), AI
+  judges only flagged items. Highest-value engineering target for
+  expanding companion scripts after the initial 4.
+- **Tier 3: Fully agentic** (~6) — AI reads code, traces data flow,
+  makes semantic judgments. Always launch subagent. Inherently
+  non-deterministic.
+
+Gate files retain inline rule copies (module safety, etc.) as
+defense-in-depth until depth-2 hook firing is empirically verified.
 
 ### 4.5 Stop hook (~10 lines + hooks.json)
 
@@ -344,6 +360,9 @@ step-skipping failures. Companion-scripted gates flaky rate <10%.
 **Validation:** 15+ ovnk runs (5 per version), ~2 days compute,
 $250-900. Rollback if any per-version rate drops >10pp vs baseline.
 Gate PASS is minimum bar; court PASS is quality confirmation.
+Strengthen court: force juror tool use (~5 lines in test-skill.sh
+juror prompt — currently 0/15 jurors use their git show/diff/Read
+tools, rubber-stamping without verification).
 
 | Metric | Pessimistic | Optimistic |
 |--------|-------------|------------|
@@ -369,4 +388,9 @@ Gate PASS is minimum bar; court PASS is quality confirmation.
 - Gate consolidation (33 → ~28)
 - Fix maintainer-review.md contradiction (FAIL vs always PASS)
 - CI integration (draft PRs for Prow feedback)
+- Decision provenance: record WHY each fix was chosen in rebase report
+- Blocked dependency detection: check upstream deps before starting
+  (concrete first step toward multi-repo coordinator)
+- Autofix A/B test: controlled experiment to resolve the p=0.002
+  temporal confound (determines whether discovery procedures are needed)
 - Starter template for other teams
