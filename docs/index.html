@@ -1707,7 +1707,13 @@ footer a { color: var(--primary); }
         }
       ],
       "agents": [],
-      "hooks": [],
+      "hooks": [
+        {
+          "event_type": "Stop",
+          "matcher": ".*",
+          "hooks_json": "[\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh\",\n    \"type\": \"command\"\n  }\n]"
+        }
+      ],
       "mcp_servers": [],
       "rules": []
     },
