@@ -97,15 +97,25 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
       if [[ -n "$GIT_COMMON_DIR" ]] && [[ "$GIT_COMMON_DIR" != ".git" ]] && [[ "$GIT_COMMON_DIR" != "$REPO_ROOT/.git" ]]; then
         WORKTREE_MOUNT="-v $(dirname "$GIT_COMMON_DIR"):$(dirname "$GIT_COMMON_DIR")"
       fi
+      # Mount the host Go module cache to avoid ENOSPC in the container's
+      # overlay filesystem and to reuse already-downloaded modules.
+      HOST_GOMODCACHE="$(go env GOMODCACHE 2>/dev/null || echo "${GOPATH:-$HOME/go}/pkg/mod")"
+      GOMODCACHE_MOUNT=""
+      if [[ -n "$HOST_GOMODCACHE" ]]; then
+        mkdir -p "$HOST_GOMODCACHE"
+        GOMODCACHE_MOUNT="-v $HOST_GOMODCACHE:$HOST_GOMODCACHE"
+      fi
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         $PRIV_FLAG \
         $USERNS_FLAG \
         -v "$REPO_ROOT:$REPO_ROOT" \
         $WORKTREE_MOUNT \
+        $GOMODCACHE_MOUNT \
         -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
         -w "$REPO_ROOT" \
         -e K8S_REBASE_IN_CONTAINER=1 \
+        -e GOMODCACHE="$HOST_GOMODCACHE" \
         "$GO_IMAGE" \
         bash "$SCRIPT_PATH" $MODE_FLAG $EXTRA_ARGS
     fi

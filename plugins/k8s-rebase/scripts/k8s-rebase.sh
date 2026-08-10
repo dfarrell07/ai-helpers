@@ -270,11 +270,20 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
   if [[ -n "$GIT_COMMON_DIR" ]] && [[ "$GIT_COMMON_DIR" != ".git" ]] && [[ "$GIT_COMMON_DIR" != "$REPO_ROOT/.git" ]]; then
     WORKTREE_MOUNT="-v $(dirname "$GIT_COMMON_DIR"):$(dirname "$GIT_COMMON_DIR")"
   fi
+  # Mount the host Go module cache to avoid ENOSPC in the container's
+  # overlay filesystem and to reuse already-downloaded modules.
+  HOST_GOMODCACHE="$(go env GOMODCACHE 2>/dev/null || echo "${GOPATH:-$HOME/go}/pkg/mod")"
+  GOMODCACHE_MOUNT=""
+  if [[ -n "$HOST_GOMODCACHE" ]]; then
+    mkdir -p "$HOST_GOMODCACHE"
+    GOMODCACHE_MOUNT="-v $HOST_GOMODCACHE:$HOST_GOMODCACHE"
+  fi
   exec $CONTAINER_RT run --rm \
     --security-opt label=disable \
     $USERNS_FLAG \
     -v "$REPO_ROOT:$REPO_ROOT" \
     $WORKTREE_MOUNT \
+    $GOMODCACHE_MOUNT \
     -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
     -w "$REPO_ROOT" \
     -e GIT_AUTHOR_NAME="$(git config user.name)" \
@@ -282,6 +291,7 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
     -e GIT_COMMITTER_NAME="$(git config user.name)" \
     -e GIT_COMMITTER_EMAIL="$(git config user.email)" \
     -e K8S_REBASE_IN_CONTAINER=1 \
+    -e GOMODCACHE="$HOST_GOMODCACHE" \
     "$GO_IMAGE" \
     bash "$SCRIPT_PATH" $([[ "$BUMP_TOOLS" == true ]] && echo "--bump-tools") "$VERSION_INPUT"
 fi
