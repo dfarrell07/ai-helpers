@@ -60,6 +60,11 @@ bash "$ORCH" init "$REPO_ROOT" "$VERSION"
 
 5. Repeat until the orchestrator prints `DONE: all steps complete`.
 
+6. After DONE: read and execute
+   `${CLAUDE_PLUGIN_ROOT}/skills/k8s-rebase/steps/step5-pr.md`
+   (PR command generation + cleanup). Step 5 has no gates — it runs
+   after the orchestrator confirms all gated steps are complete.
+
 ## Recovery
 
 If resuming a crashed or interrupted session:

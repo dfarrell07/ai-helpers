@@ -322,7 +322,7 @@ cmd_advance() {
 
   echo ""
   echo "Run these gates:"
-  for g in "${missing[@]}" "${stale[@]}"; do
+  for g in "${missing[@]}" "${stale[@]}" "${failing[@]}"; do
     echo "  $GATES_ROOT/${g}.md"
   done
   return 1
@@ -386,11 +386,19 @@ reconstruct_step() {
   for i in $(seq 1 "$STEP_COUNT"); do
     local sd
     sd=$(step_dir_name "$i")
+    # Count PASS reports only — FAIL reports don't mean the step is done
+    local pass_count=0
+    while IFS= read -r gate_md; do
+      [[ -z "$gate_md" ]] && continue
+      local gn
+      gn=$(basename "$gate_md" .md)
+      local rpt
+      rpt=$(report_path "$repo" "$sd" "$gn")
+      [[ -f "$rpt" ]] && report_has_pass "$rpt" && ((pass_count++)) || true
+    done < <(list_gate_files "$sd")
     local expected
     expected=$(count_gate_mds "$sd")
-    local actual
-    actual=$(count_reports "$repo" "$sd")
-    if [[ "$actual" -lt "$expected" ]]; then
+    if [[ "$pass_count" -lt "$expected" ]]; then
       echo "$i"
       return
     fi
