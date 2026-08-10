@@ -128,22 +128,33 @@ Output: RESOLVED list (fast-path PASS) and PENDING list (need
 subagents). Expected **65-75% subagent reduction** (~13 fewer per run,
 ~26 min saved, ~650K tokens saved).
 
-**`advance`** — check all gate reports for current step. Must exist,
-contain PASS or FAIL verdict, and be newer than latest commit (stale
-detection). If all present: bump step, update timestamps. If not:
-exit 1 with specific missing/failing gate names + file paths. After 3
-failed advances: force-advance with warning.
+**`advance`** — check all gate reports for current step. Must exist
+and contain PASS or FAIL verdict. Stale detection: each report stores
+HEAD SHA (written by `write-gate-report.sh`); if report SHA ≠ current
+HEAD, the report is stale. Contract: agent must commit all fixes THEN
+run gates THEN advance (never gates-then-fix). If all present and
+fresh: bump step, update timestamps. If not: exit 1 with specific
+missing/failing gate names + file paths. After 3 failed advances:
+force-advance with warning.
 
 **`status`** — compact table: per-step gates expected/actual/PASS/FAIL,
 elapsed time. Consumed by Stop hook, test harness, and `cmd_watch`.
+Must work WITHOUT state.json (reconstruct by scanning .report files
+and finding the first step with incomplete gates). state.json is a
+cache for timestamps, not the source of truth.
+
+**`init`** auto-detects resume: if state.json exists and is valid,
+resume at the recorded step without clearing reports. If absent or
+corrupt, fresh start. Logs which path it took.
+
+**Exit code contract:** 0=success, 1=blocked (normal — gates not met),
+2=usage error, 3+=internal error. The boot loader should stop on ≥2
+and include the error in its response.
 
 **Worktree awareness (CRITICAL):** The orchestrator must accept the
 repo path as an argument (from the agent's `cwd`, which is the
 worktree). Gate counting uses PLUGIN_ROOT derived from `$0`. Sessions
 run in `.claude/worktrees/<branch>/`, not the repo root.
-
-state.json is minimal (step number + timestamps). Gate state lives in
-the existing `.report` files on the filesystem — no duplication.
 
 ### 4.2 SKILL.md rewrite (~42 lines)
 
@@ -162,6 +173,17 @@ remove master-checkout recovery, `${CLAUDE_PLUGIN_ROOT}` for paths.
 Preamble reframe: "Steps 3-4 are where you add unique value — the
 quality gates that prevent CI rejection."
 
+**Agent delegation details:**
+- Hooks fire for subagents at depth 1 (session-level registration).
+  Depth-2 behavior needs empirical verification — keep critical
+  rules in prompt text as defense-in-depth alongside command hooks.
+- Subagent crashes don't kill the session. Parent gets notified and
+  can retry. Orchestrator's `advance` shows the step as incomplete.
+- Parameters pass via prompt text (repo path, version, PLUGIN_ROOT).
+  `${CLAUDE_PLUGIN_ROOT}` resolves at skill load time (text-sub).
+- Token budget is shared across all subagents — companion scripts'
+  65-75% subagent reduction directly reduces budget consumption.
+
 ### 4.3 Step files (steps/*.md, ~150-200 lines each)
 
 Extract from current 981-line SKILL.md into 6 files:
@@ -175,6 +197,15 @@ Extract from current 981-line SKILL.md into 6 files:
 
 Each step file starts with "Read rules.md first." Each ends with
 "Run orchestrator.sh advance."
+
+**Extraction challenges:**
+- Lines 192-246 (steps 2-5 shared preamble with subagent rules,
+  container commands) → rules.md, not step-specific files
+- OCP version mapping (lines 882-890 in Step 5) needed by Step 2 →
+  hoist to rules.md or docs/ocp-mapping.md to avoid duplication
+- Gate-fix loop has per-step variations (Step 1 "stop", Steps 2-3
+  "proceed", Step 4 "re-validate --no-test") → canonical pattern in
+  rules.md with per-step override notes in each step file
 
 Autofix signal cleanup lives in step3:
 - autofix.sh: `RESULT: FAIL` → `RESULT: ITEMS_REMAINING`, `exit 1` → `exit 0`
@@ -207,7 +238,13 @@ Address gate flakiness (44/89 failures, 49%). The orchestrator's
 4. `major-version-imports.sh` — grep for bare `k8s.io/klog`.
 
 **gate-script-lib.sh** — shared boilerplate: BASE merge-base
-computation, cd to repo, exit-on-empty, NEW_ISSUES counter.
+computation (with master→main fallback), cd to repo, exit-on-empty,
+NEW_ISSUES counter, self-imposed timeout watchdog (`timeout 300`,
+configurable via `GATE_TIMEOUT`), trap that writes FAIL report on
+unexpected exit (crash/OOM still produces a report, not limbo).
+Always `set -euo pipefail`. Exit 0 for "nothing to check." Exit 1
+only for genuine infrastructure failures. Quote all variable
+expansions in loops (paths with spaces).
 
 **Gate classification** (33 total = 19 deterministic + 14 judgment):
 - 19 deterministic — fast-path PASS via bash predicate. Includes
