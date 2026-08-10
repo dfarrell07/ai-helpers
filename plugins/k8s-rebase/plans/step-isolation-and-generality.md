@@ -325,7 +325,7 @@ primarily an ovnk-specific accelerator with ~12 universal functions.
 | PLUGIN_ROOT not a shell env var | High | Gates keep `find` patterns (PR-B). Step files receive literal paths from orchestrator prompt. |
 | Orchestrator crosses 5K compaction cap | Medium | Lint rule: fail above 4,500 tokens. Add 5-line fallback in CLAUDE.md. |
 | Shared skill budget (25K across all plugins) | Low | Other skills rarely invoked in rebase sessions. |
-| Cost multiplication (~2-3x per run) | Medium | Expected: $30-60 → $60-150/run. Offset by fewer wasted runs. |
+| More subagent launches per run | Low | ~37 agents vs current ~34. Marginal increase. Offset by fewer wasted runs. |
 | Wall-clock regression (+10-25 min) | Low | 7-17% overhead. Net time per SUCCESS decreases (fewer wasted runs). |
 | Discovery procedures unreliable for novel changes | High | Autofix stays default for production. spec=all for testing only. |
 | This plan is over-engineered | Valid | PR-0 ships in minutes. PR-A is separable. Each PR is independently revertible. |
