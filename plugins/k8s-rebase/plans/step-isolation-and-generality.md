@@ -10,13 +10,13 @@ step-skipping produces "missing gates" failures (35 of 89 total) in
 two clusters: the agent makes a rational cost-benefit decision to skip
 Steps 3-4 at the step boundary (11 failures); and effort avoidance
 before Step 4 (the largest step) causes the agent to stop (7 failures).
-Separately, 46 "gate(s) failed" failures (52%) need different treatment.
+Separately, 44 "gate(s) failed" failures (49%) need different treatment.
 
 | Step | What | Effort | Targets |
 |------|------|--------|---------|
 | 0 | Branch fix (current-branch semantics) | Minutes | Test measurement bug (42% false positives) |
 | 1 | Stop hook + preamble reframe + signal cleanup | Hours | N=26 cluster (11 failures, step-boundary skipping) |
-| 1b | Gate companion scripts (parallel with 1) | Hours | 46 "gate failed" failures (52%, flaky AI judgment) |
+| 1b | Gate companion scripts (parallel with 1) | Hours | 46 "gate failed" failures (49%, flaky AI judgment) |
 | 2 | Agent-based step delegation | Days | N=15 cluster (7 failures, effort avoidance) + scale |
 | 3 | Discovery procedures + recipe cleanup | Days | Version-specific recipe rot (~18-36% stale) |
 
@@ -68,7 +68,7 @@ land on exact step boundaries — behavioral, not random.
 ### Other failure modes
 
 - **Gate failures are the majority but mostly flaky.** Of 89 total
-  failures: 46 "gate(s) failed" (52%), 35 "missing gates" (39%), 8
+  failures: 44 "gate(s) failed" (49%), 35 "missing gates" (39%), 8
   other. The Stop hook addresses "missing" but not "gate failed."
   However, 94% of gate failures are flaky — the same repo+version
   passes in other runs. 31 of 33 gates are pure AI judgment (no
@@ -78,9 +78,9 @@ land on exact step boundaries — behavioral, not random.
   with companion scripts for 4 high-value gates.
 - **spec=none vs spec=all: no real difference.** Raw rates (33% vs
   46%) are not statistically significant (p=0.43, n=12 vs n=50).
-  Both modes share identical failure patterns (~63% "missing gates").
-  Branch-bug false passes inflate spec=all more. Autofix does not
-  create new gate failures. Recompute after Step 0.
+  However, across ALL repos combined, spec=all significantly
+  outperforms spec=none (70% vs 46%, p=0.002). ovnk is the only
+  repo where spec mode doesn't matter. Recompute after Step 0.
 
 ### Measurement and technical debt
 
@@ -241,8 +241,12 @@ gates (`find gates/ -name '*.md' | wc -l`). Based on the production
 pattern in `plugins/agentic-docs/hooks/stop-hook.sh`. Key design:
 - **Activation guard:** Only enforce when `.rebase-tmp/` exists (skip
   for non-rebase sessions, early exits before Step 1).
-- **Content validation:** Each `.report` must contain a verdict line
-  (PASS or FAIL) and minimum 50 bytes — prevents empty-file gaming.
+- **Provenance validation (not just format):** Each `.report` must
+  contain a verdict line (PASS or FAIL), minimum 50 bytes, AND
+  evidence that prescribed commands ran (exit codes, output line
+  counts, or file:line citations). Fabricating realistic tool output
+  is harder than running the tool. This prevents Goodhart satisficing
+  without requiring companion scripts upfront.
 - **Dynamic gate count:** Derived from `gates/` directory, not hardcoded
   33. Survives future gate additions/removals.
 - **Multi-hook safety:** Check `stop_hook_active` (stdin JSON boolean)
@@ -291,7 +295,7 @@ concern, independent success criteria).
 
 ### Step 1b: Gate companion scripts (parallel with Step 1)
 
-Addresses the "gate(s) failed" majority (46/89 = 52%) that the Stop
+Addresses the "gate(s) failed" majority (46/89 = 49%) that the Stop
 hook cannot fix. Also mitigates Goodhart's Law — companion scripts
 make satisficing harder than doing real work. Independent of Step 1
 (orthogonal failure categories), so implement in parallel.
@@ -380,7 +384,7 @@ regardless of repo size.
 
 | Step | Rate (pessimistic) | Rate (optimistic) | Assumption |
 |------|--------------------|--------------------|------------|
-| True baseline (Step 0) | 31% | 31% | 16 passes / 51 corrected total |
+| True baseline (Step 0) | 26% | 26% | 16 genuine passes / 62 total runs |
 | After Step 1 alone | 45% (30% eff.) | 65% (90% eff.) | "missing" converts to pass, not "gate failed" |
 | After Step 1 + 1b | 51% | 73% | companion scripts fix 2-4 of 10 gate failures |
 | After Step 2 | 61% | 82% | fixes remaining missing + gate-fail compound |
@@ -399,7 +403,38 @@ Steps revertible in reverse order. `make lint` passes at every step.
 Gate PASS is the minimum bar; court PASS (adversarial trial against
 known-good reference, where available) is the quality confirmation.
 
-## 8. Caveats
+## 8. Observability (universal, all steps)
+
+Current visibility is minimal: results.tsv has 6 columns, gate names
+aren't logged, no timing/model/diff data. Two additions:
+
+**results.tsv: 4 new columns (positions 7-10):**
+- `model` (exact model ID), `gates_tally` (pass/fail counts),
+  `duration_s` (wall clock), `diff_hunks` (non-vendor code hunks).
+  All values already computed in `_do_record_one` but not persisted.
+  Backward-compatible (old `awk` on `$1-$6` unaffected).
+
+**telemetry.jsonl: deterministic event log:**
+- Single `_telem()` bash function (~3 lines) emits JSON events at
+  step-start, step-end, gate-verdict, autofix-result boundaries.
+- ~20 instrumentation points across scripts + SKILL.md bash blocks.
+- Deterministic (timestamps, exit codes, counts) — no AI judgment.
+- Aggregatable via `make telemetry` (`jq` over worktree files).
+
+**progress.json: machine-readable session state:**
+- Updated by orchestrator after each gate wave. Contains per-step
+  status, gate counts, timing, model ID, target version.
+- Three consumers: Stop hook (actionable block messages with step
+  context), test harness (WHERE failures occur), Step 5 rebase report.
+
+**Gate companion script scope (broader than Step 1b's 4):**
+- 18 of 33 gates (55%) could have deterministic fast-path scripts
+- 6 more are hybrid (script narrows scope, AI judges findings)
+- 9 are pure judgment (no script value)
+- Step 1b starts with 4 highest-value; expand based on post-Step-1
+  diagnostic data showing which gates fail most under forced continuation
+
+## 9. Caveats
 
 - Pass rates include 42% false positives. Recompute after Step 0.
 - Per-version corrected rates: 1.34.1=37%, 1.35.3=12%, 1.36.2=35%.
@@ -408,16 +443,16 @@ known-good reference, where available) is the quality confirmation.
 - 112 "no-token" sessions: 76% are test harness artifacts, true
   infrastructure failure rate is ~7%.
 
-## 9. Not In Scope
+## 10. Not In Scope
 
 - Multi-repo coordinator (library-go → ovnk → CNO sequencing)
 - 2-of-3 voting for AI-judgment gates (rejected: up to 9 invocations
   per flaky gate when combined with 3-retry fix loop; too expensive)
-- Additional gate companion scripts beyond the 4 in Step 1b
-  (version-completeness, deprecated-imports, gomod-diff-analysis)
-- Gate name logging: 3-line harness change in _tally_gates +
-  _do_record_one to log failing gate names to results.tsv detail
+- Additional gate companion scripts beyond the initial 4 (18 total
+  candidates identified; expand based on Step 1 diagnostic data)
 - Gate consolidation (33 → ~28)
+- Fix maintainer-review.md contradiction (line 27 "FAIL if scope
+  creep" vs line 55 "always use PASS" — potential gate flakiness source)
 - CI integration (draft PRs for Prow feedback)
 - Operator runbook / new maintainer guide
 - Test harness infrastructure reliability (crash recovery, rate limits)
