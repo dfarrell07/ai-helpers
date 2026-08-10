@@ -48,11 +48,13 @@ have companion scripts with deterministic checks.
 
 ## 2. Design Principles
 
-1. **Deterministic scaffolding, agentic judgment.** Can it be a
-   for-loop? Deterministic. Does it require reading code and making a
-   judgment? Agentic. Four roles: scripts = what always happens,
-   hooks = what must never happen, gates = what must be verified,
-   AI prompts = what requires thinking.
+1. **Migrate complexity from probabilistic to deterministic.** A
+   deterministic check is correct every time or wrong every time —
+   test once, trust forever. An AI judgment check is correct ~94% but
+   wrong unpredictably. Can it be a for-loop? Deterministic. Does it
+   require reading code and judgment? Agentic. Four roles: scripts =
+   what always happens, hooks = what must never happen, gates = what
+   must be verified, AI prompts = what requires thinking.
 
 2. **Clarity over cleverness.** Architecture readable from `tree`.
 
@@ -213,7 +215,9 @@ Extract from current 981-line SKILL.md into 6 files:
 - `step1-rebase.md` — run rebase script, 1 gate
 - `step2-compilation.md` — fix loop with validate.sh, 6 gates
 - `step3-autofix.md` — run autofix, discovery checklist, 11 gates
-- `step4-verification.md` — lint/test/review, 15 gates
+- `step4-verification.md` — lint/test/review, 15 gates (~240 lines
+  in current SKILL.md — extract `--bump-tools` to separate file and
+  move test-splitting RAM examples to docs to fit under 200 lines)
 - `step5-pr.md` — PR command generation, cleanup
 
 Each step file starts with "Read rules.md first." Each ends with
@@ -276,10 +280,10 @@ block that locates and runs the script. RULE 1: `NEW_ISSUES=0` →
 fast-path PASS (write report, no AI analysis). RULE 2: AI only
 evaluates items the script flagged as new/changed.
 
-**Gate YAML frontmatter** (add to each gate .md):
-`type: blocking|informational`, `script: <companion>.sh` (optional),
-`report-name: step3-crd-validation`. The orchestrator's `gates`
-subcommand reads this to know which scripts to run.
+**Gate script discovery:** Convention-based — companion `.sh` has same
+basename as the gate `.md` (e.g., `build-vet.md` → `build-vet.sh`).
+The orchestrator checks `[[ -x "${gate_md%.md}.sh" ]]`. Simpler than
+YAML frontmatter; add frontmatter later if metadata needs grow.
 
 **Three-tier gate architecture** (33 total):
 - **Tier 1: Fully deterministic** (~19) — companion script produces
@@ -315,6 +319,10 @@ Step 5 degrades to `--draft` PR with WARNING. Court skipped.
 - **block-module-ops.md** — PreToolUse on Bash. Block `go mod tidy`,
   `go get`, `go mod vendor`, `go mod edit`, `go generate`, `go run`.
   #1 most-violated prohibition, most destructive (MVS corrupts pins).
+  Safe: PreToolUse sees top-level command only, not subprocess execution
+  inside scripts — so `bash k8s-rebase.sh` (which runs go mod tidy
+  internally) is NOT blocked. Add `.session-active` check so hook
+  doesn't interfere with non-rebase sessions.
 - **block-vendor-edit.md** — PreToolUse on Edit/Write. Block paths
   containing `/vendor/`. #2 most-violated, wastes hours.
 
@@ -406,4 +414,8 @@ tools, rubber-stamping without verification).
   (concrete first step toward multi-repo coordinator)
 - Autofix A/B test: controlled experiment to resolve the p=0.002
   temporal confound (determines whether discovery procedures are needed)
+- Close the CI loop: create draft PR, monitor CI, investigate failures,
+  iterate (Step 5 could suggest `/loop 5m check CI, explore failures`)
+- Downstream handling: openshift/ovn-kubernetes Dockerfiles, OTE tests,
+  release branches — none of the 33 gates check downstream concerns
 - Starter template for other teams
