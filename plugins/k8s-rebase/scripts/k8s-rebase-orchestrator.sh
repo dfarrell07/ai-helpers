@@ -38,8 +38,14 @@ read_state() {
   fi
 }
 
+get_version() {
+  local sf
+  sf=$(state_file "$1")
+  [[ -f "$sf" ]] && grep -o '"version": *"[^"]*"' "$sf" | sed 's/.*"\([^"]*\)"/\1/' || echo ""
+}
+
 write_state() {
-  local repo="$1" step="$2" version="${3:-}"
+  local repo="$1" step="$2" version="${3:-$(get_version "$repo")}"
   local sf
   sf=$(state_file "$repo")
   mkdir -p "$(dirname "$sf")"
@@ -213,6 +219,8 @@ cmd_gates() {
   echo "---"
   echo "RESOLVED: $resolved"
   echo "PENDING: $pending"
+  [[ "$pending" -gt 0 ]] && return 1
+  return 0
 }
 
 cmd_advance() {
