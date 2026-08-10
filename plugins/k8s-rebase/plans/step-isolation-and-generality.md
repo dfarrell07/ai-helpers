@@ -41,8 +41,8 @@ This plan fixes four problems across four incremental PRs:
   `spec=none` runs the full skill as-is (production mode).
 - **Compaction:** At ~83.5% context usage, Claude Code summarizes the
   conversation and re-injects each skill with a hard 5,000-token cap. Content
-  beyond 5K tokens is lost. Steps 3-5 start at ~5,147 tokens in the current
-  SKILL.md — just past the cap.
+  beyond 5K tokens is lost. Steps 3-5 start at approximately the 5K
+  boundary in the current SKILL.md — right at the cap.
 - **`CLAUDE_PLUGIN_ROOT`:** A text-substitution token resolved by Claude Code
   in plugin-registered files (SKILL.md, commands, hooks). NOT available as a
   shell environment variable. Does NOT resolve in arbitrary files read via
@@ -55,7 +55,7 @@ This plan fixes four problems across four incremental PRs:
 The skill runs in a single session with a 1M-token context window. For
 ovn-kubernetes, Step 2's compilation fix loop consumes 250-350K tokens.
 When compaction triggers (~835K), SKILL.md is re-injected with a hard
-5,000-token cap. Steps 3-5 instructions (starting at ~5,147 tokens) are
+5,000-token cap. Steps 3-5 instructions (starting at ~5K tokens) are
 lost. The agent never launches Steps 3-4's 26 gates.
 
 Evidence: 66% of all ovnk failures (80% of recent failures) report "missing
@@ -114,7 +114,7 @@ claude --bg session (main agent, ~54K tokens, never compacts)
 ├── Step 2 subagent (fresh 1M) → reads steps/step2-compilation.md
 │   └── fix loop + 6 gate subagents (nesting: main→step→gate)
 ├── Step 3 subagent (fresh 1M) → reads steps/step3-autofix.md
-│   └── discovery checklist + 11 gate subagents
+│   └── autofix + discovery checklist + 11 gate subagents
 ├── Step 4 subagent (fresh 1M) → reads steps/step4-verification.md
 │   └── lint/test/review + 15 gate subagents
 ├── Mandatory checkpoint (inline, counts gate reports on disk)
@@ -217,6 +217,7 @@ for step in [2, 3, 4]:
             break
         if step == 2 and verdict == FAILED and HEAD unchanged:
             abort("Step 2 structural failure")
+        made_progress = |passed_after| > |passed_before| or HEAD moved
         if made_progress and attempt < MAX_ATTEMPTS:
             passed_before = passed_after; continue
         log_unresolved(step); break
@@ -269,12 +270,13 @@ Runs spread across 5+ calendar days.
 
 ### PR-B: PLUGIN_ROOT migration (0.5 day)
 
-- Replace 12 `find` calls in SKILL.md with `${CLAUDE_PLUGIN_ROOT}`
+- Replace remaining `find` calls in SKILL.md with `${CLAUDE_PLUGIN_ROOT}`
 - Step files use literal paths received from the orchestrator prompt
   (PLUGIN_ROOT resolves only in SKILL.md, not in files read via Read tool)
 - Gate `.md` files keep existing `find` patterns (PLUGIN_ROOT is NOT a
   shell env var — it does not resolve in gate bash blocks)
-- Port 2 `GOVERSION` sed patterns to k8s-rebase.sh Phase 3
+- Port 2 `GOVERSION` sed patterns and the corresponding grep alternation
+  to k8s-rebase.sh Phase 3 (without the grep update, the new seds never match)
 
 **Validation:** Within 5pp of PR-A rate. Verify PLUGIN_ROOT resolves
 in SKILL.md. Verify gates still find companion `.sh` scripts.
@@ -308,7 +310,7 @@ a commit helper):
 | **Permanent** | 4 | fix_reflect_ptr (AI has no signal), fix_crd_int64_validation, fix_crd_name_validation, fix_addtoscheme | Keep permanently |
 | **Accelerator** | 2 | fix_xexp, fix_fieldsv1 | Keep (self-gating) |
 | **Ovnk-specific** | 4 | fix_metallb_version, fix_kubevirt_version, fix_mocks, fix_docs_version | Keep (harmless no-op elsewhere) |
-| **One-time done** | 7 | fix_bounding_dirs, 4 NPA v0.2 fns, fix_kubeadm_v1beta4, fix_lint v1→v2 block | Remove when all repos past target |
+| **One-time done** | 7 | fix_bounding_dirs, 4 NPA v0.2 fns, fix_kubeadm_v1beta4, fix_lint_version v1→v2 block (same function as Evergreen row) | Remove when all repos past target |
 | **Redundant** | 2 | fix_version_refs, fix_go_version (after PR-B ports GOVERSION) | Remove |
 | **Compiler-driven** | 2 | fix_klog_v2, fix_eventf | Keep as accelerators |
 
