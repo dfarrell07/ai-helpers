@@ -2,7 +2,7 @@
 
 PROGRESS: 60% complete
 
-Read `${CLAUDE_PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
+Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 ## Run the autofix script
 
@@ -16,7 +16,7 @@ test changes). The agent handles those in Step 4.
 Regardless of output, proceed to gates.
 
 ```bash
-bash "${CLAUDE_PLUGIN_ROOT}/scripts/k8s-rebase-autofix.sh"
+bash "${PLUGIN_ROOT}/scripts/k8s-rebase-autofix.sh"
 ```
 
 Applies known fix patterns (code fixes, feature gates, lint
@@ -56,7 +56,7 @@ matches what the new MetalLB version ships. Read the patterns doc
 for unfamiliar patterns:
 
 ```bash
-cat "${CLAUDE_PLUGIN_ROOT}/docs/k8s-rebase-patterns.md"
+cat "${PLUGIN_ROOT}/docs/k8s-rebase-patterns.md"
 ```
 
 ## Gates
@@ -71,7 +71,7 @@ Do not skip, batch, or defer any gate -- launch all 11 in a
 single message. Gate subagents run independently and do not
 consume your context window.
 
-Gate directory: `${CLAUDE_PLUGIN_ROOT}/gates/step3-autofix`
+Gate directory: `${PLUGIN_ROOT}/gates/step3-autofix`
 
 Gate files:
 - `autofix-result.md` (count)
