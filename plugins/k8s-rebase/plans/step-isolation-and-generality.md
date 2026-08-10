@@ -156,7 +156,7 @@ via Read tool, instruction to run `orchestrator.sh advance` after
 completing work, recovery instructions (`orchestrator.sh status`
 shows where to resume).
 
-Absorbs all "Step 0" fixes: "current branch" (not "default branch"),
+Absorbs baseline fixes: "current branch" (not "default branch"),
 remove master-checkout recovery, `${CLAUDE_PLUGIN_ROOT}` for paths.
 
 Preamble reframe: "Steps 3-4 are where you add unique value — the
@@ -176,9 +176,23 @@ Extract from current 981-line SKILL.md into 6 files:
 Each step file starts with "Read rules.md first." Each ends with
 "Run orchestrator.sh advance."
 
-Autofix signal cleanup lives in step3: move "FAIL is normal" before
-the bash block, add "Regardless of output, proceed to gates."
-Fix line 520 contradiction ("cat" → "let subagent Read").
+Autofix signal cleanup lives in step3:
+- autofix.sh: `RESULT: FAIL` → `RESULT: ITEMS_REMAINING`, `exit 1` → `exit 0`
+- Move "FAIL is normal" before the bash block
+- Add "Regardless of output, proceed to gates"
+- Fix line 520 contradiction ("cat" → "let subagent Read")
+
+See `plans/autofix-disposition.md` for the full 26-function catalog
+with self-gating guards and keep/remove recommendations.
+
+**Robustness improvements** (in rules.md or step files):
+- Oscillation detection: stop gate-fix loop if a previously-passed
+  gate regresses after fixing a different gate
+- Dirty-tree check: `git status --porcelain` at start of each
+  gate-fix loop iteration
+- go.mod broadening: use `find` for go.mod (catches multi-module repos)
+- Checkpoint tightening: orchestrator's `advance` handles this
+  (detects "not PASS" instead of just "is FAIL")
 
 ### 4.4 Companion scripts (4 priority + library)
 
@@ -195,10 +209,12 @@ Address gate flakiness (44/89 failures, 49%). The orchestrator's
 **gate-script-lib.sh** — shared boilerplate: BASE merge-base
 computation, cd to repo, exit-on-empty, NEW_ISSUES counter.
 
-**Gate classification** (19 deterministic / 12 judgment / 8 informational):
-- 19 can fast-path PASS via bash predicate (expand post-validation)
-- 12 require AI judgment (always launch subagent)
-- 8 are informational (always PASS, orchestrator writes directly)
+**Gate classification** (33 total = 19 deterministic + 14 judgment):
+- 19 deterministic — fast-path PASS via bash predicate. Includes
+  8 informational gates (always PASS, zero subagent cost) + 11
+  blocking gates with machine-checkable predicates.
+- 14 judgment — require AI (always launch subagent).
+  Expand companion scripts post-validation based on diagnostic data.
 
 ### 4.5 Stop hook (~10 lines + hooks.json)
 
