@@ -61,7 +61,7 @@ _worktree_info() {
 }
 
 _tally_gates() {
-  local _gdir="$1" _gt=0 _gf=0 _gs=0
+  local _gdir="$1" _gt=0 _gf=0 _gs=0 _gfail_names=""
   # Stale-report detection: if a FAIL report is older than the latest
   # commit on the branch, the agent committed a fix after the gate ran.
   # Treat stale FAILs as skipped to avoid false failures.
@@ -85,10 +85,11 @@ _tally_gates() {
         _gs=$((_gs + 1))
       else
         _gf=$((_gf + 1))
+        _gfail_names="${_gfail_names:+$_gfail_names,}${_gn}"
       fi
     fi
   done
-  echo "$_gt $_gf $_gs"
+  echo "$_gt $_gf $_gs $_gfail_names"
 }
 
 _is_stale_fail() {
@@ -858,7 +859,7 @@ _do_record_one() {
     gate_dir="$repo/.rebase-tmp/gates"
   fi
   if [[ -d "$gate_dir" ]]; then
-    read -r gtotal gfail gskip <<< "$(_tally_gates "$gate_dir")"
+    read -r gtotal gfail gskip gfail_names <<< "$(_tally_gates "$gate_dir")"
     # Reduce expected count for missing informational gates
     local _missing_info=0
     for _ig in $INFO_GATES; do
@@ -890,7 +891,7 @@ _do_record_one() {
     [[ "$gfail" -gt 0 ]] && detail="$detail, $gfail failed"
     [[ "$gskip" -gt 0 ]] && detail="$detail$_gate_suffix"
   elif [[ "$gfail" -gt 0 ]]; then
-    detail="$gfail gate(s) failed${_gate_suffix}"
+    detail="$gfail gate(s) failed [${gfail_names//,/, }]${_gate_suffix}"
   elif [[ -n "$kg_hunks" ]]; then
     if [[ "$kg_hunks" -eq 0 && -z "$kg_vendor" ]]; then
       detail="identical to known-good"
@@ -1123,8 +1124,14 @@ $def
 JUDGE:
 $judge
 
+REQUIREMENT: Before rendering your verdict, you MUST use at least one
+tool (git show, git diff, or Read) to independently verify one claim
+from the prosecution or defense. Include a VERIFIED: line citing the
+file:line and what you found. Verdicts without a VERIFIED line are
+invalid.
+
 Output format:
-VERIFIED: <file>@<ref> — <finding>  (zero or more lines, only for things you checked with tools)
+VERIFIED: <file>@<ref> — <finding>  (one or more lines — REQUIRED)
 VERDICT: PASS or FAIL. One sentence.
 EOF_JURY
   done
