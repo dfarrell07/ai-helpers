@@ -1,230 +1,263 @@
-# Audit: Step Isolation and Generality Plan
+# Audit: Making k8s-rebase Outstanding
 
-Design review by 20 Opus exploration agents + 20 Opus adversarial
-agents. The adversarial pass corrected 6 findings and sharpened 4
-others. Final review confirmed the updated plan integrates the
-audit's strongest findings. Focused on ideas that impact quality,
-robustness, and generality.
+What to build, in what order, and why. Every section drives action.
 
 ---
 
-## The Core Insight: LLMs Are Satisficers
+## 1. Ship Companion Scripts Now
 
-Step-skipping is the dominant behavioral strategy of a satisficing
-agent facing a long procedure. 60% of skips land on exact step
-boundaries. The transcript evidence is post-hoc rationalization of
-an attentional pull, not economic reasoning.
+The highest-leverage change. Add 4 `.sh` files alongside existing
+gate `.md` files. No architecture change. Works today.
 
-Architectural implication: **give the AI less scope per decision,
-more structure between decisions.** The plan's boot loader + step
-isolation via Agent delegation is the right fix.
+**build-vet.sh** (shared by step2 + step4 recheck):
+```bash
+source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
+init_gate "$@"
+NEW_ISSUES=0
+for mod_dir in $(find "$REPO" -name go.mod -not -path '*/vendor/*' \
+    -exec dirname {} \;); do
+  [[ -d "$mod_dir/vendor" && ! -e "$mod_dir/vendor/.gitignore" ]] || continue
+  cd "$mod_dir"
+  go build ./... 2>&1 | while read -r line; do
+    base_has "$line" || ((NEW_ISSUES++))
+  done
+  go vet ./... 2>&1 | while read -r line; do
+    base_has "$line" || ((NEW_ISSUES++))
+  done
+done
+finish_gate "$NEW_ISSUES"
+```
+
+**version-consistency.sh**:
+```bash
+source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
+init_gate "$@"
+TARGET=$(cat "$REPO/.rebase-tmp/target-k8s-api-version.txt" 2>/dev/null)
+NEW_ISSUES=0
+for gomod in $(find "$REPO" -name go.mod -not -path '*/vendor/*'); do
+  grep 'k8s.io/' "$gomod" | grep -v '^//' | while read -r mod ver; do
+    [[ "$ver" == *"$TARGET"* ]] || ((NEW_ISSUES++))
+  done
+done
+finish_gate "$NEW_ISSUES"
+```
+
+**go-version-check.sh**: Compare `go` directive across go.mod,
+Dockerfiles (`FROM golang:`), Makefiles (`GO_VERSION`). Pure grep.
+
+**major-version-imports.sh**: `grep -rn '"k8s.io/klog"' --include='*.go'`
+excluding vendor. If bare import found AND go.mod has `klog/v2`,
+count as issue.
+
+**gate-script-lib.sh** (~40 lines): `init_gate` parses repo arg,
+computes BASE via `git merge-base HEAD main || git merge-base HEAD
+master`, sets up NEW_ISSUES counter. `base_has` checks if a finding
+exists on the base branch. `finish_gate` calls `write-gate-report.sh`
+with PASS (if 0) or outputs findings for the AI gate to evaluate.
+Trap handler writes FAIL report on crash (no limbo). `set -euo
+pipefail`. Timeout watchdog via `timeout ${GATE_TIMEOUT:-300}`.
+
+**After shipping these 4:** Measure. If gate flakiness drops for
+the scripted gates, expand to the evidence tier: `deprecated-calls.sh`
+(run staticcheck, filter pre-existing), `deprecated-imports.sh`
+(grep for promoted x/ packages), `version-completeness.sh` (grep
+for stale version strings in CI files).
 
 ---
 
-## 1. The Pipeline Is Both Domain Model and Behavioral Fix
+## 2. Split SKILL.md into Step Files + Boot Loader
 
-A k8s rebase genuinely has phases: compilation (go build), codegen
-(make generate), and verification (go test) require different tools,
-different error patterns, and different retry strategies. A flat
-`while not green` loop would need to handle multi-module ordering,
-codegen dependencies, and oscillation detection — at which point it
-is a pipeline in disguise.
+The 981-line SKILL.md exceeds the 5,000-word skill limit (it's
+6,619 words). The boot loader pattern gives each step fresh context
+and eliminates the attentional pull toward Step 5.
 
-The pipeline also solves step-skipping. These two functions reinforce
-rather than conflict: the agent skips at phase boundaries because
-the phases are genuinely different cognitive tasks. Step isolation
-gives each task a fresh context and focused scope.
+**What the boot loader does** (~55 lines):
+- Run `orchestrator.sh status` to find current step
+- Read the step file into context (enables injecting priors,
+  previous step results, orchestrator state into the Agent prompt)
+- Launch `Agent()` with step instructions + rules.md + repo context
+- Run `orchestrator.sh advance` — proceed or retry
+- Repeat until done
 
-**The orchestrator's value is permanent.** Deterministic enforcement
-of step ordering is permanently valuable for the same reason TCP
-checksums persist — the failure modes change shape but never fully
-disappear. The system should migrate complexity from probabilistic
-components (AI judgment) to deterministic ones (scripts, hooks,
-orchestrator), not plan to shed deterministic infrastructure.
+**Step file extraction** (line-by-line map verified):
+- rules.md: ~108 lines (module safety, commit discipline, scope,
+  OCP version mapping hoisted from Step 5)
+- step1-rebase.md: ~100 lines
+- step2-compilation.md: ~170 lines
+- step3-autofix.md: ~110 lines
+- step4-verification.md: ~240 lines — extract 4d (--bump-tools)
+  to separate file + move test-splitting RAM examples to docs to
+  fit under 200 lines
+- step5-pr.md: ~110 lines
 
----
-
-## 2. Investigate the Autofix Before Building on It
-
-spec=all (no autofix) shows 70% vs spec=none's 46% across all repos
-(p=0.002). For ovnk specifically, no significant difference (p=0.53).
-Time-controlled: p=0.087 (the plan now notes this).
-
-**This does NOT prove the autofix is harmful.** The temporal confound
-is massive — 96% of spec=none runs ended by July 31, while spec=all
-continued through August 10. The skill improved during this period.
-CNCC shows 83% spec=none vs 70% spec=all (reversed). The data is
-suggestive, not conclusive.
-
-**But it demands investigation before expanding.** The plan now lists
-an autofix A/B test in Not In Scope (line 407). Consider promoting
-it to a pre-commit-1 action: companion scripts (commit 1) interact
-with autofix output, so understanding autofix impact first would
-inform whether companion script fast-paths need autofix-awareness.
-That said, companion scripts work regardless of autofix disposition
-— they evaluate the CODE state, not the autofix output. Shipping
-commit 1 without the A/B test is acceptable if acknowledged as a
-known risk.
+**Key constraint:** Step files loaded via Read do NOT get
+`${CLAUDE_PLUGIN_ROOT}` text-substitution. The boot loader must
+pass the resolved path in the Agent prompt. Step files reference
+it from the prompt, not with `${CLAUDE_PLUGIN_ROOT}` syntax.
 
 ---
 
-## 3. Quality Signals: Gates for Prevention, Court for Review, CI for Truth
+## 3. Build the Orchestrator
 
-Neither the 33 gates nor the court should be elevated as "the real
-quality gate." Each has structural limitations:
+The state machine that makes step ordering deterministic. ~300 lines
+of bash with 4 subcommands.
 
-**Gates** catch issues when fixes are still possible (prevention).
-But 94% of gate failures are flaky (same check passes on retry).
-Companion scripts fix this for deterministic gates. The 14 judgment
-gates remain inherently non-deterministic.
+**init**: Create state.json + `.session-active` sentinel. Auto-detect
+resume (valid state.json → resume; absent/corrupt → fresh start with
+report clearing).
 
-**The court** provides adversarial review on the diff. But it
-requires a known-good reference (not universal), goes INCONCLUSIVE
-on large diffs (ovnk), and passes 97% of runs in a system with 26%
-true quality. Jurors never use their tool access (zero VERIFIED lines
-in 15 outputs). The plan now acknowledges this (Section 6, lines
-365-367) and proposes forcing tool use — a ~5-line prompt change.
+**gates**: Iterate gate .md files. Run companion `.sh` if it exists
+alongside the `.md` (convention: same basename). If `NEW_ISSUES=0`,
+call `write-gate-report.sh` directly — no subagent. Output
+RESOLVED/PENDING lists.
 
-**CI** (go build + go vet + go test + Prow) is the only zero-flake
-quality signal. It is currently Not In Scope.
+**advance**: Check all reports exist with PASS/FAIL verdicts.
+SHA-based stale detection (add `HEAD: $(git rev-parse HEAD)` to
+`write-gate-report.sh` — 1-line change). All fresh + all PASS →
+bump step. Otherwise exit 1 with specific missing/failing gate names.
+Force-advance after 3 blocks with `force_reason: stale|FAIL` in
+INCOMPLETE marker.
 
-**The right architecture:** gates for iterative feedback (fix while
-you can), companion scripts for deterministic evidence (zero-flake),
-court as optional second opinion (when known-good exists), CI as
-ground truth (when available).
+**status**: Compact table reconstructable from `.report` files alone
+(state.json is a cache, not source of truth).
+
+**block-module-ops.md is safe** — PreToolUse hooks see the Bash
+tool's `tool_input` (what the AI typed: `bash /path/to/script.sh`),
+not commands nested inside the script (`go mod tidy`). All legitimate
+module operations flow through scripts. Add `.session-active` check
+so the hook doesn't interfere with non-rebase sessions.
 
 ---
 
 ## 4. Three-Tier Gate Architecture
 
-| Tier | Count | Pattern |
-|------|-------|---------|
-| Fully deterministic | ~19 | Companion script produces verdict |
-| Evidence + interpretation | ~8 | Script gathers, AI judges flagged items |
-| Fully agentic | ~6 | AI reads code, traces data flow |
+Every gate falls into one of three tiers. The tier determines the
+engineering approach:
 
-The plan now integrates this (Section 4.4, lines 284-294).
+**Tier 1 — Fully deterministic** (~19 gates): Companion script
+produces the verdict. Zero flakiness. The 4 priority scripts above
+plus the 2 existing ones (crd-validation.sh, patterns-completeness.sh)
+cover 6. The remaining ~13 are straightforward to script:
 
-**Terminology note:** The plan says "8 informational gates" (line
-286) but only 4 are explicitly always-PASS in the gate files. The
-other 4 are fast-path SKIP gates (zero subagent cost when their
-domain is empty). Clearer: "8 zero-cost gates (4 always-PASS + 4
-fast-path SKIP)."
+| Gate | What the script does |
+|------|---------------------|
+| rebase-completeness | File checks, git log, go.mod version grep |
+| test-compilation | `go test -run='^$' -count=0 ./...` |
+| autofix-result | git log + go build exit code |
+| feature-gates | grep KUBE_FEATURE_ vs vendor |
+| cleanliness | git status + find + git ls-files |
+| deprecated-imports | grep for promoted x/ packages |
+| version-completeness | grep for stale version strings |
+| commit-messages | Line length, prefix regex |
+| dep-cve-check | curl osv.dev API, filter severity |
 
-The middle tier (evidence + interpretation) is the highest-value
-target for expanding companion scripts after the initial 4. Gates
-like `deprecated-calls` (run staticcheck, filter pre-existing) and
-`correctness` (format string grep) have deterministic evidence
-phases that could be scripted.
+4 always-PASS informational gates (commit-messages, dep-cve-check,
+maintainer-review, skill-improvement) can auto-PASS without even
+running a script.
 
----
+**Tier 2 — Evidence + interpretation** (~8 gates): Script gathers
+deterministic evidence, AI judges only flagged items. This is the
+highest-value expansion target after the initial 4 scripts:
 
-## 5. Defense-in-Depth: Add Layers, Don't Remove Them
+| Gate | Evidence (script) | Judgment (AI) |
+|------|------------------|---------------|
+| deprecated-calls | Run staticcheck SA1019 | Interpret edge cases |
+| deprecated-api-remnants | grep + go build | Web search for replacements |
+| e2e-infra | grep kindest/node, K8S_VERSION | Verify compatibility |
+| ci-readiness | grep version strings in CI | Interpret skip conditions |
+| correctness | Format string grep, Eventf scan | Classify change necessity |
+| gomod-diff-analysis | Parse go.mod diff | Judge pseudo-version pins |
+| diff-scope | File extension allowlist | Classify commits |
+| logical-completeness | List modified functions from diff | Trace data flow |
 
-The plan correctly keeps inline rule copies in gate files (line
-296-297) as defense-in-depth until depth-2 hook behavior is
-empirically verified. This addresses the audit's strongest
-adversarial finding: if hooks don't fire at depth 2 AND inline
-copies are removed, gates have NO enforcement at the exact layer
-where it matters most.
+**Tier 3 — Fully agentic** (~6 gates): AI reads code, traces data
+flow. Always launch subagent. No shortcut possible:
 
-**block-module-ops.md is safe** because PreToolUse hooks see the
-Bash tool's `tool_input` string (what the AI typed), not commands
-inside subprocess scripts. All legitimate `go mod tidy` operations
-flow through scripts invoked as `bash /path/to/script.sh`. The plan
-should document this mechanism: "Safe because hooks see the
-tool_input, not commands nested inside called scripts."
-
-Enforcement hooks should check `.session-active` sentinel to avoid
-interfering with non-rebase sessions (the plan specifies this for
-the stop hook but not for block-module-ops and block-vendor-edit).
-
----
-
-## 6. Signal Cleanup: Good Hygiene, Not Architecture
-
-Renaming `RESULT: FAIL` to `RESULT: ITEMS_REMAINING` is good code
-hygiene. The plan already proposes this (lines 231-234). The data
-shows the FAIL signal is NOT the cause of step-skipping — the N=26
-cluster occurs in spec=all where the autofix never runs.
+fix-correctness, type-conversions, autofix-diff-review,
+dep-release-notes, ci-prediction, logical-consistency, k8s-changelog
 
 ---
 
-## 7. What's Genuinely Missing
+## 5. Strengthen the Court
 
-Three previously-proposed ideas were eliminated by adversarial
-review (each contradicted the audit's own analysis):
+Jurors have tool access (git show, Read) but never use it — zero
+VERIFIED lines across 15 juror outputs in 5 court sessions. Fix:
 
-- ~~Historical priors~~ — the autofix in JSON form; same dynamics
-- ~~Partial success scoring~~ — creates a Goodhart/satisficing target
-- ~~Fix rollback~~ — oscillation detection is already correct
+Add to the juror prompt in `test-skill.sh` `cmd_court` (~5 lines):
+```
+REQUIREMENT: Before rendering your verdict, you MUST use at least
+one tool (git show, git diff, or Read) to independently verify
+one claim from the prosecution or defense. Include a VERIFIED:
+line citing the file:line and what you found.
+```
 
-The plan now lists two of the surviving ideas in Not In Scope
-(lines 404-406): decision provenance and blocked dependency
-detection. The third (forced juror tool use) is in Section 6
-(lines 365-367). All three are correctly scoped as follow-ups.
-
----
-
-## 8. Plan Review: Architecture Is Sound
-
-The updated plan (commits `a1bf48a4` through `622f376d`) integrates
-the audit's strongest findings:
-
-| Audit finding | Plan response | Status |
-|---|---|---|
-| "Structurally impossible" overclaims | → "defense in depth" (line 91) | **Addressed** |
-| Three-tier gate architecture | Integrated (lines 284-294) | **Addressed** |
-| Companion script value is reliability | Reframed (line 251) | **Addressed** |
-| Keep inline rule copies | Preserved (lines 296-297) | **Addressed** |
-| Court juror tool use | Acknowledged + fix proposed (lines 365-367) | **Addressed** |
-| Commit sequence needed | Added as Section 5 (lines 343-354) | **Addressed** |
-| Temporal confound in spec data | p=0.087 noted (line 389) | **Addressed** |
-| Autofix A/B test needed | Added to Not In Scope (line 407) | **Partially** |
-| Decision provenance | Added to Not In Scope (line 404) | **Partially** |
-| Blocked dependency detection | Added to Not In Scope (line 405-406) | **Partially** |
-
-**5 minor refinements remaining:**
-
-1. **"8 informational"** (line 286) → "8 zero-cost (4 always-PASS +
-   4 fast-path SKIP)" to match what the gate files actually say.
-
-2. **Onion percentages** (line 19) are correct under the balloon-
-   squeeze model but will confuse readers who compute naively. Add
-   "(balloon-squeeze adjusted)" annotation.
-
-3. **block-module-ops.md safety** (lines 315-317) — document WHY
-   it is safe: hooks see `bash /path/to/script.sh`, not the nested
-   `go mod tidy` inside the script.
-
-4. **Force-advance** (line 154) — add `force_reason: stale|FAIL`
-   to the INCOMPLETE marker for forensics. The current design
-   (force-advance on any block type) is correct; the adversarial
-   review confirmed that distinguishing stale from FAIL in the
-   counter would create unbounded retry.
-
-5. **Enforcement hook sentinel** — block-module-ops.md and
-   block-vendor-edit.md should check `.session-active` like the
-   stop hook does, to avoid interfering with non-rebase sessions.
-
-**The plan is ready to execute.** Ship commit 1 (companion scripts)
-first — lowest risk, highest signal, zero architecture change.
+The court's value is adversarial structure with independent
+verification. Without forced tool use, jurors collapse to a voting
+system on pre-digested arguments — the same pattern as a single
+reviewer, just with 3 copies.
 
 ---
 
-## Summary: What to Do
+## 6. What the Skill Doesn't Do Yet (and Should)
 
-| Priority | Action | Rationale |
-|----------|--------|-----------|
-| 1 | Companion scripts (4 .sh files) | Addresses gate flakiness. Zero architecture change. Ship now. |
-| 2 | Boot loader + step files | Addresses step-skipping via attentional isolation. |
-| 3 | Orchestrator | Deterministic advancement, resume, observability. |
-| 4 | Stop hook + enforcement hooks | Mechanical enforcement. |
-| 5 | Investigate autofix (A/B test) | p=0.002 signal needs controlled experiment. |
-| 6 | Strengthen the court | Force juror tool use. ~5 lines. |
+**Close the CI loop.** The skill ends at "here's a `gh pr create`
+command." An outstanding skill would: create a draft PR, monitor CI,
+investigate failures, fix them, iterate. The `/loop` command already
+exists — Step 5 could suggest `/loop 5m check CI, explore failures`.
+But structured CI feedback (parse Prow job output, identify which
+test failed, cross-reference with rebase changes) would make the
+skill genuinely end-to-end.
 
-Note: the audit previously had autofix investigation at #1. This
-was revised after the adversarial review showed companion scripts
-work regardless of autofix disposition (they evaluate code state,
-not autofix output) and can ship independently. The A/B test is
-important but not blocking for commit 1.
+**Handle downstream.** openshift/ovn-kubernetes has Dockerfiles
+(Dockerfile, Dockerfile.base, Dockerfile.microshift), OTE tests
+(openshift/ directory with its own go.mod replacing all k8s.io/*
+with openshift/kubernetes forks), and release branches
+(release-4.17 through release-5.1). None of the 33 gates check
+downstream-specific concerns. The rebase script already handles
+some downstream detection (OCP version mapping, CI image refs),
+but the gates verify upstream-shaped output.
+
+**Detect blocked dependencies.** Before starting, check if upstream
+deps (library-go, openshift/api) have been rebased to the target
+k8s version. A simple `go list -m -json github.com/openshift/
+library-go@release-5.0 | jq .Version` check would prevent wasting
+an entire 45-minute run on unsolvable compilation errors.
+
+**Record decision provenance.** When the agent chooses between two
+valid fixes (ptr.To[int32] vs pointer.Int32, both compile), record
+WHY in the rebase report. This helps the human reviewer focus on
+low-confidence choices and helps the court evaluate contested diffs.
+
+---
+
+## 7. The Principle That Matters Most
+
+**Migrate complexity from probabilistic to deterministic.**
+
+Every component that is currently AI judgment should be examined:
+can it be a bash script? If yes, make it one. If partially, split
+it into a deterministic evidence phase and an agentic judgment phase.
+
+This is not just a performance optimization. It is a reliability
+transformation. A deterministic check is correct every time or
+wrong every time — you can test it once and trust it forever. An
+AI judgment check is correct 94% of the time on average but wrong
+unpredictably — you can never trust any single result.
+
+The companion scripts are the first step. The three-tier gate
+architecture is the map. The end state: the AI handles only the
+~6 gates that genuinely require reading code and tracing data flow.
+Everything else is bash.
+
+---
+
+## Ship Order
+
+| # | What | Why |
+|---|------|-----|
+| 1 | 4 companion scripts + gate-script-lib.sh | Works now. No architecture change. Measure gate flakiness before and after. |
+| 2 | SKILL.md boot loader + 6 step files | Eliminates step-skipping. Each step gets fresh context. |
+| 3 | Orchestrator | Deterministic advancement, resume, status. Enables stop hook. |
+| 4 | Stop hook + enforcement hooks | Mechanical enforcement. Add `.session-active` sentinel checks. |
+| 5 | Court juror fix | ~5 lines of prompt. Independent of everything else. |
+| 6 | Evidence-tier companion scripts | Expand from 6 to ~14 scripted gates based on what commit 1 data shows. |
