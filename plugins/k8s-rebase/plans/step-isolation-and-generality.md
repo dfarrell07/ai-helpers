@@ -340,7 +340,19 @@ into `suggestions.jsonl` during `auto_record()`. `make suggestions`
 aggregates (count≥3 = automation candidate). `make improve` templates
 new autofix functions. No LLM in the improvement loop.
 
-## 5. Risks
+## 5. Commit Sequence
+
+7 commits. Old SKILL.md keeps working until commit 6 (the switchover).
+
+1. **Companion scripts** (gate-script-lib.sh + 4 .sh) — zero risk
+2. **Enforcement hooks** (block-module-ops.md, block-vendor-edit.md)
+3. **Orchestrator** (k8s-rebase-orchestrator.sh) — linchpin, depends on 1
+4. **Step files** (rules.md + 5 step files) — depends on 3
+5. **Stop hook** (stop-hook.sh + hooks.json) — depends on 3
+6. **SKILL.md boot loader** — **THE SWITCHOVER**, depends on 3-5
+7. **Observability** (results.tsv, events.jsonl) — independent of 6
+
+## 6. Risks
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
@@ -351,7 +363,7 @@ new autofix functions. No LLM in the improvement loop.
 | PLUGIN_ROOT not shell env var | High | Gates keep `find`. Steps get literal paths via SKILL.md text-sub. |
 | Discovery procedures unreliable | Medium | Autofix stays default. Discovery is additive (Step 3). |
 
-## 6. Success Criteria
+## 7. Success Criteria
 
 **End state:** ovnk spec=all pass rate 60-80%+ (from 26% baseline).
 Per-version floor 55%. Non-ovnk repos: no drop >15pp. Zero
@@ -370,7 +382,7 @@ tools, rubber-stamping without verification).
 | After companion scripts | 55% | 75% |
 | Ceiling (all layers addressed) | 84%+ | 94%+ |
 
-## 7. Caveats
+## 8. Caveats
 
 - Baseline includes 42% false-positive passes. True rate: 26% (16/62).
 - Per-version: 1.34.1=37%, **1.35.3=12%** (blocker), 1.36.2=35%.
@@ -379,8 +391,10 @@ tools, rubber-stamping without verification).
 - 112 "no-token" sessions: 76% test harness artifacts, ~7% real.
 - SKILL.md is static (loaded in full). True context isolation requires
   Agent delegation, not conditional display.
+- spec=all vs spec=none: p=0.002 across all repos BUT massive temporal
+  confound (96% of spec=none before Aug 1). Time-controlled: p=0.087.
 
-## 8. Not In Scope
+## 9. Not In Scope
 
 - Discovery procedures replacing version-specific recipes (future)
 - Multi-repo coordinator (library-go → ovnk → CNO sequencing)
