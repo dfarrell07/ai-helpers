@@ -385,6 +385,32 @@ This plan was produced and reviewed by ~180 AI agents. Known biases:
   is universally available and addresses both hypotheses. Use Stop
   hook as primary fix, Workflow as escalation if available.
 
+## Design Principles
+
+This skill is production infrastructure for 100s of OpenShift ecosystem
+repos and a primary learning resource for developers building similar
+Claude Code automation. Design choices must optimize for three things:
+
+1. **Clarity over cleverness.** A new developer should understand the
+   architecture by reading the directory layout. Each file should have
+   one clear purpose. Prefer explicit patterns (hooks, step files,
+   rules.md) over implicit conventions.
+
+2. **Modern Claude Code patterns.** Use `${CLAUDE_PLUGIN_ROOT}` (not
+   `find`), hooks for enforcement (not prose instructions the AI may
+   ignore), structured output schemas (not free-text parsing), and
+   the Workflow tool where available. This skill should demonstrate
+   best practices, not legacy patterns.
+
+3. **Teachability.** The code should read as a tutorial for "how to
+   build a multi-step AI automation skill with quality gates." Gate
+   files, step files, hooks, and the orchestrator should each be
+   independently understandable. Comments explain WHY, not WHAT.
+
+This matters because other teams will fork this pattern for their own
+automation. Every design shortcut becomes a template for shortcuts
+across the ecosystem.
+
 ## Not In Scope
 
 - Multi-repo coordinator (sequencing library-go → ovnk → CNO)
