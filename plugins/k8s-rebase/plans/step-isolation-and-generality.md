@@ -15,10 +15,17 @@ ovn-kubernetes (26% true pass rate, 16/62). Of 89 total failures:
 The "onion": 64% raw → 66% (infra fixed) → 78% (no skipping) →
 94% (no gate flake) → 99% (only real quality issues).
 
-**Step-skipping is behavioral, not resource exhaustion.** Sessions used
-14-50% of 1M context. 60% of "missing" failures land on exact step
-boundaries. Transcript evidence: *"Given the significant amount of
-work remaining... let me proceed directly to Step 5."*
+**Step-skipping is behavioral, not resource exhaustion.** Two clusters:
+N=26 (11 failures, 100% spec=all — agent skips at step 2→3 boundary)
+and N=15 (7 failures, both spec modes, 6/7 ovnk — agent skips before
+step 4). Sessions used 14-50% of 1M context. 60% of "missing" land on
+exact step boundaries. The Stop hook addresses 32 of 35 (91%).
+Transcript evidence: *"Given the significant amount of work
+remaining... let me proceed directly to Step 5."*
+
+**spec=none vs spec=all:** No significant difference for ovnk (p=0.53).
+But across all repos, spec=all significantly outperforms spec=none
+(70% vs 46%, p=0.002). Non-ovnk repos are at 60-76% already.
 
 **Gate flakiness is non-deterministic AI judgment.** Same repo+version
 passes in other runs for 94% of gate failures. Only 2 of 33 gates
@@ -129,9 +136,9 @@ subagents). Expected **65-75% subagent reduction** (~13 fewer per run,
 ~26 min saved, ~650K tokens saved).
 
 **`advance`** — check all gate reports for current step. Must exist
-and contain PASS or FAIL verdict. Stale detection: each report stores
-HEAD SHA (written by `write-gate-report.sh`); if report SHA ≠ current
-HEAD, the report is stale. Contract: agent must commit all fixes THEN
+and contain PASS or FAIL verdict. Stale detection: modify `write-gate-report.sh` to store HEAD SHA in
+each report (currently not written — this is a new feature). If
+report SHA ≠ current HEAD, the report is stale. Contract: agent must commit all fixes THEN
 run gates THEN advance (never gates-then-fix). If all present and
 fresh: bump step, update timestamps. If not: exit 1 with specific
 missing/failing gate names + file paths. After 3 failed advances:
@@ -172,6 +179,15 @@ remove master-checkout recovery, `${CLAUDE_PLUGIN_ROOT}` for paths.
 
 Preamble reframe: "Steps 3-4 are where you add unique value — the
 quality gates that prevent CI rejection."
+
+**Subagent prompt template** (for Agent() calls to step agents):
+Include: repo path, k8s version, `${CLAUDE_PLUGIN_ROOT}` (resolved
+at load time), "Read rules.md first", step file path, gate directory
+path, structured return format (STEP_VERDICT, GATES_PASSED, COMMITS).
+
+**Progress markers** in each step file heading: "PROGRESS: 20%
+complete" (step 1), "40%" (step 2), "60%" (step 3), "80%" (step 4),
+"95%" (step 5). Counters agent's "I've done enough" bias.
 
 **Agent delegation details:**
 - Hooks fire for subagents at depth 1 (session-level registration).
@@ -245,6 +261,17 @@ unexpected exit (crash/OOM still produces a report, not limbo).
 Always `set -euo pipefail`. Exit 0 for "nothing to check." Exit 1
 only for genuine infrastructure failures. Quote all variable
 expansions in loops (paths with spaces).
+
+**Gate .md integration pattern** (from crd-validation.sh):
+Each gate .md with a companion script has a `MANDATORY FIRST STEP`
+block that locates and runs the script. RULE 1: `NEW_ISSUES=0` →
+fast-path PASS (write report, no AI analysis). RULE 2: AI only
+evaluates items the script flagged as new/changed.
+
+**Gate YAML frontmatter** (add to each gate .md):
+`type: blocking|informational`, `script: <companion>.sh` (optional),
+`report-name: step3-crd-validation`. The orchestrator's `gates`
+subcommand reads this to know which scripts to run.
 
 **Gate classification** (33 total = 19 deterministic + 14 judgment):
 - 19 deterministic — fast-path PASS via bash predicate. Includes
