@@ -1,420 +1,424 @@
-# k8s-rebase: Step Isolation + Version-Agnostic Generality
+# k8s-rebase: Step Isolation and Version-Agnostic Generality
 
-## Executive Summary
+## 1. Executive Summary
 
-The k8s-rebase skill automates Kubernetes dependency rebases for Go projects.
-It works reliably for 5 smaller repos (90%+ pass rate) but fails on the
-largest target, ovn-kubernetes (1,358 Go files, 482K LOC, 3 go.mod files).
-After correcting for a test measurement bug, the true ovnk pass rate is
-~27% (13/49 genuine passes). Two interacting causes produce 35 "missing
-gates" failures:
+The k8s-rebase skill automates Kubernetes dependency rebases for Go
+projects across 100s of OpenShift ecosystem repos. It works reliably
+for 5 smaller repos (90%+ pass rate) but fails on ovn-kubernetes (true
+pass rate ~33-44% depending on false-positive filtering). Behavioral
+step-skipping produces "missing gates" failures (35 of 89 total) in
+two clusters: the agent makes a rational cost-benefit decision to skip
+Steps 3-4 at the step boundary (11 failures); and effort avoidance
+before Step 4 (the largest step) causes the agent to stop (7 failures).
+Separately, 46 "gate(s) failed" failures (52%) need different treatment.
 
-- **Autofix FAIL trigger** (mechanism): The autofix script prints
-  `RESULT: FAIL` with `exit 1`. The agent treats this as terminal and
-  skips Steps 3-5. Every N≥26 failure is spec=all (autofix neutered →
-  always reports FAIL). 11 of 35 failures.
+| Step | What | Effort | Targets |
+|------|------|--------|---------|
+| 0 | Branch fix (current-branch semantics) | Minutes | Test measurement bug (42% false positives) |
+| 1 | Stop hook + preamble reframe + signal cleanup | Hours | N=26 cluster (11 failures, step-boundary skipping) |
+| 1b | Gate companion scripts (parallel with 1) | Hours | 46 "gate failed" failures (52%, flaky AI judgment) |
+| 2 | Agent-based step delegation | Days | N=15 cluster (7 failures, effort avoidance) + scale |
+| 3 | Discovery procedures + recipe cleanup | Days | Version-specific recipe rot (~18-36% stale) |
 
-- **Context pressure** (trigger): Under high context usage, the agent
-  stops at step boundaries even without the FAIL signal. N=15 failures
-  appear in both spec=all and spec=none. 7 of 35 failures.
+### Glossary
 
-21 of 35 missing-gate failures (60%) land exactly on step boundaries
-(N=26, N=15, N=32). This is behavioral — the agent finishes a step and
-stops — not random context exhaustion.
+- **spec=all**: Test mode that disables autofix script + patterns doc.
+  The AI must solve everything independently. Tests version-agnosticism.
+- **spec=none**: Test mode that enables all recipes. Simulates production.
+- **Gates**: 33 `.md` files under `gates/step{1-4}*/` — each is a quality
+  check run as a subagent that produces a `.report` file (PASS/FAIL +
+  rationale) via `write-gate-report.sh`.
+- **N=X**: X gates missing (e.g., N=26 means 26 of 33 gates have no
+  `.report` file — the agent stopped after completing only 7 gates).
+- **Step boundaries**: step1 has 1 gate, step2 has 6, step3 has 11,
+  step4 has 15. Cumulative: 1, 7, 18, 33. N=26 = stopped after step2.
 
-The fix is a **graduated ladder** where both levels address distinct
-failure populations:
+## 2. Problem Statement
 
-1. **Autofix + hooks fix (hours):** Fix the FAIL signal + add Stop hook.
-   Targets the N=26 cluster (11 failures). Estimated fix rate: 75-85%.
+### Dual-cause step skipping
 
-2. **Workflow orchestration (days, if needed):** Deterministic step
-   sequencing + fresh context per step. Targets the N=15 cluster and
-   scattered failures. Needed at scale for 100s of repos.
+The agent skips Steps 3-4 and jumps prematurely to Step 5. Two independent behavioral triggers:
 
-## Key Concepts
+**Cause A — Rational skip at step boundary (N=26, 11 of 35 failures):**
+The agent reaches the Step 2→3 boundary, sees autofix output with
+non-zero checks, and makes a cost-benefit decision to skip to Step 5.
+The preamble ("Steps 1-4 are preparation, Step 5 is the deliverable")
+provides rational justification: preparation failed, skip to the
+deliverable. Session transcripts confirm: *"Given the significant
+amount of work remaining... let me proceed directly to Step 5."*
+Every N≥26 failure is spec=all. Sessions used 14-50% of 1M context —
+no resource constraint. The agent is not keyword-matching on "FAIL" —
+it is reasoning about whether continuing is worth the effort.
 
-- **Gate:** A `.md` file under `gates/step{N}-*/` defining one quality check.
-  A subagent reads it, runs the check, writes a PASS/FAIL `.report` to disk.
-  33 gates across Steps 1-4.
-- **Step subagent:** A fresh Claude agent that executes an entire rebase
-  phase. Gets its own 1M context window. Launched by the Workflow script.
-- **spec=all / spec=none:** Test modes. `spec=all` disables autofix + patterns
-  (blind mode). `spec=none` runs full skill (production mode).
-- **Compaction:** At ~83.5% context usage, Claude Code re-injects each skill
-  with a hard ~5,000-token cap. Steps 3-5 start at ~5K tokens — right at
-  the cap. (Inferred from failure distributions, not verified against source.)
-- **`CLAUDE_PLUGIN_ROOT`:** Text-substitution token resolved by Claude Code
-  in plugin-registered files (SKILL.md, commands, hooks) only. NOT a shell
-  environment variable. Does NOT resolve in files read via the Read tool.
+**Cause B — Effort avoidance at step boundary (N=15, 7 of 35 failures):**
+After completing Steps 1-3 (18 gates), the agent faces Step 4 — the
+largest step (15 gates, lint/test/review on a large codebase). It
+decides the remaining work isn't worth it and stops. Both spec modes
+appear (3 none, 4 all), ruling out autofix signals. 6 of 7 are ovnk.
+Not resource exhaustion — task-remaining estimation.
 
-## Problem Statement
+18 of these 35 failures are in the two major clusters (N=26 and N=15).
+The remaining 17 break into three tiers: 11 near-complete (N=1-7,
+dropped a few tail gates), 3 mid-range (N=12, N=28, N=30, partial
+step-skipping variants), and 3 startup crashes (N=32, infrastructure).
+The Stop hook addresses 32 of 35 (91%) — only the 3 infrastructure
+crashes need different intervention. 60% of all "missing" failures
+land on exact step boundaries — behavioral, not random.
 
-### Problem 1: Agent Skips Steps (Two Interacting Causes)
+### Other failure modes
 
-The "missing N of 33 gates" failures have TWO causes that interact:
+- **Gate failures are the majority but mostly flaky.** Of 89 total
+  failures: 46 "gate(s) failed" (52%), 35 "missing gates" (39%), 8
+  other. The Stop hook addresses "missing" but not "gate failed."
+  However, 94% of gate failures are flaky — the same repo+version
+  passes in other runs. 31 of 33 gates are pure AI judgment (no
+  companion script), making single-shot evaluation inherently
+  non-deterministic. **Gate names are not logged to results.tsv** —
+  add them to identify chronic offenders. Step 1b addresses this
+  with companion scripts for 4 high-value gates.
+- **spec=none vs spec=all: no real difference.** Raw rates (33% vs
+  46%) are not statistically significant (p=0.43, n=12 vs n=50).
+  Both modes share identical failure patterns (~63% "missing gates").
+  Branch-bug false passes inflate spec=all more. Autofix does not
+  create new gate failures. Recompute after Step 0.
 
-**Cause A — Autofix FAIL trigger (N=26 cluster, 11 of 35 failures):**
-The autofix script prints `RESULT: FAIL` with `exit 1`. The agent
-rationally interprets these as "stop" signals, ignoring three explicit
-anti-skip instructions in SKILL.md. Session `fdf1e3a9` confirms: the
-agent completes Step 2 gates, receives autofix FAIL, then jumps to
-Step 5 without running Steps 3-4. Every N≥26 failure is spec=all
-(autofix neutered → always reports FAIL).
+### Measurement and technical debt
 
-**Cause B — Context pressure (N=15 cluster, 7 of 35 failures):**
-Under high context usage, the agent stops at step boundaries even
-without the FAIL signal. N=15 failures appear in both spec=all and
-spec=none. OVNK is 6x more susceptible (37% skip rate vs 6% for
-other repos) — larger repo = more context consumed = agent more
-likely to stop after a hard step. A phase transition around Aug 3
-shifted failures from N=15 to N=26 after commits consumed more
-context budget.
+- **Test measurement bug:** SKILL.md says "default branch" but test
+  harness overrides → 42% false positive passes. Fix: "current branch."
+- **Recipe rot:** Autofix (1,678 lines) + patterns (591 lines, ~18-36%
+  version-specific) contain k8s 1.34-1.36 recipes. Rebase script is
+  fully general.
+- **find depth:** 50 `find "$HOME" -maxdepth 7` calls break at
+  marketplace install depth. Fix: `${CLAUDE_PLUGIN_ROOT}`.
 
-**Key evidence:**
-- 21 of 35 missing-gate failures (60%) land exactly on step
-  boundaries (N=26, N=15, N=32). This is behavioral, not random.
-- The remaining 40% have scattered N values (mid-step stops),
-  consistent with context pressure or infrastructure issues.
-- N=32 pair on Aug 8 (CNO + CNCC within 7 minutes) suggests
-  an environment issue, not agent behavior.
-- Zero compaction events found in 1,455 sessions — but the agent
-  can stop under context pressure without hitting actual compaction.
-  (Note: absence of logged events doesn't prove absence of compaction —
-  compaction by design removes evidence of itself from the transcript.)
-- "missing 15" occurs with spec=NONE on ovnk (3 runs, July 30-31).
-  Autofix is NOT neutered in spec=none, so the FAIL trigger cannot
-  explain these. Context pressure alone causes N=15 skips for large
-  repos — confirming Cause B is real and independent of Cause A.
-- The "Robustness" commit (Aug 8, 9e52ec68) caused a 7x rate increase
-  in missing-26+ failures (2.5% → 17.8%). Changes to gate context
-  reduction and SKILL.md top-loading may have altered what the agent
-  retains under pressure.
+## 3. Design Principles
 
-**Earlier hypothesis was partially wrong:** ~180 agents attributed
-ALL failures to context exhaustion/compaction. Transcript inspection
-showed the N=26 cluster is behavioral (autofix FAIL trigger). But
-the N=15 cluster and OVNK's elevated rate confirm context pressure
-IS a real factor — just not through the compaction mechanism.
+This skill is production infrastructure and a learning resource for
+developers building Claude Code automation. Four target-state
+principles (current state partially implements 1 and 2):
 
-**Why both fixes are needed at scale (100s of repos):**
-- The autofix + hooks fix targets Cause A (the FAIL signal)
-- Workflow orchestration targets Cause B (fresh context per step +
-  deterministic sequencing eliminates both causes structurally)
+1. **Deterministic scaffolding, agentic judgment.** Split every workflow
+   into two layers: deterministic (scripts, hooks, gate counting) and
+   agentic (step files, gate evaluations, fix decisions). The test: can
+   it be a for-loop? Deterministic. Does it require reading code and
+   making a judgment? Agentic. Four roles: scripts = what always happens,
+   hooks = what must never happen, gates = what must be verified, AI
+   prompts = what requires thinking. If it says NEVER in prose, it
+   should be a hook in code.
 
-### Problem 2: Test Measurement Bug (`--from-commit` mode only)
+2. **Clarity over cleverness.** A new developer should understand the
+   architecture from the directory layout. Each file has one purpose.
 
-SKILL.md says "Run from the default branch (master/main)" but the test
-harness overrides this for historical replay tests. 42% of ovnk spec=all
-"passes" (11/26) have 6,000+ code hunks (wrong starting point). Fix:
-change SKILL.md to "Run from the current branch."
+3. **Modern Claude Code patterns.** Use `${CLAUDE_PLUGIN_ROOT}` (not
+   `find`), hooks for enforcement (not prose the AI may ignore), and
+   Agent-based delegation for step isolation.
 
-### Problem 3: Version-Specific Recipes Rot
+4. **Teachability.** The code should read as a tutorial for "how to
+   build a multi-step AI automation skill with quality gates."
 
-The autofix script (1,678 lines) and patterns doc (591 lines, 53.8% stale)
-contain k8s 1.34-1.36-specific recipes. The rebase script is fully general.
-`spec=all` tests show the AI discovers 74% of fixes independently.
+## 4. Architecture
 
-### Problem 4: `find` Calls Break at Marketplace Install Depth
-
-All 50 file-discovery calls use `find "$HOME" -maxdepth 7`. The marketplace
-install path exceeds this depth.
-
-## Architecture
-
-### Current (monolithic, 981-line SKILL.md)
+### Current (monolithic)
 
 ```
 claude --bg session (single 1M context)
-└── SKILL.md orchestrates Steps 1-5 sequentially (AI-interpreted prose)
-    ├── Step 2: fix loop (250-350K tokens)
-    ├── Step 3: autofix + 11 gates               ← SKIPPED (agent stops early)
-    ├── Step 4: lint/test/review + 15 gates       ← SKIPPED (agent stops early)
-    └── Step 5: generate PR command               ← JUMPED TO prematurely
+└── SKILL.md (981 lines) orchestrates Steps 1-5 via prose
+    ├── Step 2: fix loop
+    ├── Step 3: autofix + 11 gates           ← SKIPPED (agent stops)
+    ├── Step 4: lint/test/review + 15 gates  ← SKIPPED
+    └── Step 5: PR command                   ← JUMPED TO prematurely
 ```
 
-### Proposed (Workflow + step subagents)
+### Step 1 fix: signal consistency + hooks (no architectural change)
+
+Keep monolithic SKILL.md. Fix the stop signals. Add a Stop hook that
+blocks session ending without 33 gate reports. The Stop hook is
+cause-agnostic — it addresses both Cause A (N=26) and Cause B (N=15)
+plus 14 of 17 other "missing" failures (91% of all 35 total).
+
+### Step 2 fix: Agent-based step delegation
+
+SKILL.md becomes a ~100-line entry point that delegates each step to
+a fresh Agent. Each step agent gets its own 1M context. Gate counting
+happens in the orchestrating agent after each step returns.
 
 ```
 claude --bg session
-├── SKILL.md (~50 lines): parse args, invoke Workflow
-└── workflows/k8s-rebase.js (~150-200 lines): deterministic orchestration
-    ├── Step 1: agent() — run script + 1 gate
-    ├── Step 2: agent() — fresh 1M, fix loop + 6 gates
-    ├── Step 3: agent() — fresh 1M, autofix/discovery + 11 gates
-    ├── Step 4: agent() — fresh 1M, lint/test/review + 15 gates
-    ├── Mandatory checkpoint (JS: count .report files on disk)
-    └── Step 5: agent() — generate PR command, return to workflow
+└── SKILL.md (~100 lines): parse args, delegate via Agent tool
+    ├── Agent(step1-rebase.md)        — fresh 1M, script + 1 gate
+    ├── Agent(step2-compilation.md)   — fresh 1M, fix loop + 6 gates
+    ├── Agent(step3-autofix.md)       — fresh 1M, autofix + 11 gates
+    ├── Agent(step4-verification.md)  — fresh 1M, lint/test + 15 gates
+    ├── Gate count check (deterministic, in SKILL.md)
+    └── Agent(step5-submit.md)        — PR command
 ```
 
-**Why a Workflow instead of SKILL.md prose:** The orchestration layer
-(step sequencing, gate counting, dirty-tree checks, fast-fail logic) is
-a state machine with zero judgment calls — just integer/set comparisons
-and if-statements. Making an AI interpret this from prose is solving a
-deterministic problem with a non-deterministic tool. A Workflow script
-makes these guarantees actual guarantees. The existing `k8s-rebase-gates-wf`
-file in this project demonstrates the pattern.
+Nesting: main (0) → step (1) → gate (2) = 3 levels. All steps fit
+within 1M with comfortable margin (Step 2 worst case: ~36%).
 
-Nesting: main (0) → step agent (1) → gate agent (2) = 3 levels.
-
-### End-State Directory Layout
+### End-state directory layout
 
 ```
 plugins/k8s-rebase/
-├── .claude-plugin/plugin.json
-├── skills/k8s-rebase/SKILL.md     # Thin entry point (~50 lines)
-├── workflows/k8s-rebase.js        # NEW — deterministic orchestrator
-├── steps/                          # NEW — step subagent instructions
-│   ├── rules.md                   # Shared rules
-│   ├── step1-rebase.md            # Script launch + 1 gate
-│   ├── step2-compilation.md       # Fix loop + 6 gates
-│   ├── step3-autofix.md           # Autofix/discovery + 11 gates
-│   ├── step4-verification.md      # Lint/test/review + 15 gates
-│   └── step5-submit.md            # PR command + report
-├── gates/                          # Keep existing find patterns
-├── scripts/                        # UNCHANGED
-├── docs/k8s-rebase-patterns.md    # Restructured in PR-C
-├── hooks/block-push.md            # UNCHANGED
-├── plans/                          # This document
-└── test/                           # Minor cleanup
+  # Runtime (executed during rebase):
+├── skills/k8s-rebase/SKILL.md     # Entry point (~100 lines)
+├── steps/                          # Step agent instructions
+│   ├── rules.md, step{1-5}*.md
+├── gates/                          # 33 gate files (unchanged)
+├── scripts/                        # Deterministic shell scripts
+├── hooks/
+│   ├── block-push.md              # Existing (prompt-based)
+│   └── hooks.json + stop-hook.sh  # NEW: gate-completeness (command)
+  # Development-only (not executed):
+├── docs/k8s-rebase-patterns.md    # Recipe reference
+├── plans/                          # Design documents
+└── test/                           # Test harness + results
 ```
 
-### Token Budget (estimated)
+## 5. Implementation: Graduated Ladder
 
-The main agent runs SKILL.md (~50 lines, ~1.5K tokens) and invokes the
-Workflow. Each step agent gets a fresh 1M context:
+### Step 0: Branch fix (minutes)
 
-| Step Agent | Estimated Usage | Headroom |
-|------------|----------------|----------|
-| Step 1 | ~30K (3%) | 970K |
-| Step 2 | ~304-359K (30-36%) | 641K+ |
-| Step 3 | ~155-235K (16-24%) | 765K+ |
-| Step 4 | ~119-411K (12-41%) | 589K+ |
-| Step 5 | ~47K (5%) | 953K |
+- SKILL.md line 87: "default branch" → "current branch"
+- SKILL.md line 94: remove `git checkout master && git branch -D`
+  recovery instruction (delete the sentence entirely — recovery
+  should not switch branches)
 
-All steps have comfortable margin within 1M. Step 4 is the widest range
-due to variable test output.
+### Step 1: Stop hook + preamble reframe + autofix signal (hours)
 
-### Recovery: 3 Checks, Not a State Machine
+Three interventions, ranked by impact:
 
-Within-run retry of step subagents is counterproductive — fresh context
-+ same instructions = same decisions. The test harness already retries
-whole runs effectively. The Workflow script implements 3 validation
-checks, not a retry loop:
+**1. Stop hook (infrastructure-level enforcement, highest impact):**
+Significantly stronger than prose. When a Stop hook returns
+`{"decision": "block"}`, the CLI hard-prevents session termination
+and feeds the reason back as a new prompt. Three prose anti-skip
+instructions already exist in SKILL.md (lines 420, 537, 832) and all
+are ignored — a hook is qualitatively different because the agent
+gets another turn whether it wants one or not. Caveats: the agent
+controls what work it does during forced continuation, "silent tool
+stops" may bypass hooks in some model versions, and the max-block
+escape means this is enforcement with a timeout, not absolute.
+See Stop hook design details below.
 
-```javascript
-for (const step of [1, 2, 3, 4, 5]) {
-  // Check 1: dirty-tree guard
-  const dirty = await agent('Run: git status --porcelain');
-  if (dirty.includes('M ')) throw new Error('Dirty tree before step ' + step);
+**2. SKILL.md preamble reframe (removes rational justification):**
+- Line 16-17: change "Steps 1-4 are preparation. Step 5 is the
+  deliverable" to "Steps 3-4 are where you add unique value — the
+  quality gates that prevent CI rejection. A rebase that skips them
+  will fail CI." The current framing makes skipping RATIONAL — if
+  preparation failed, skip to the deliverable. The reframe makes
+  skipping IRRATIONAL — skipping the value-add produces a bad PR.
+- Add progress markers at each step heading ("PROGRESS: 40% complete"
+  at Step 3, "60%" at Step 4) to counter "I've done enough" bias.
 
-  // Launch step
-  const result = await agent(buildStepPrompt(step), {
-    label: 'step-' + step,
-    schema: STEP_RESULT_SCHEMA
-  });
+**3. Autofix signal cleanup (cosmetic, lowest impact):**
+The agent is not keyword-matching on "FAIL" — it reads the output and
+reasons about cost-benefit. This rename is cheap but unlikely to
+change behavior alone.
+- Line 324: `RESULT: FAIL` → `RESULT: ITEMS_REMAINING`
+- Line 1677: `exit 1` → `exit 0`
+- Move "FAIL is normal" instruction to BEFORE the autofix bash block
+- Add: `**Regardless of autofix output, proceed to gates below.**`
+- Line 520: fix "cat the gate file" → "let the subagent Read the
+  gate file" (contradicts 4 other locations that say "Do NOT cat")
 
-  // Check 2: Step 2 fast-fail
-  if (step === 2 && result.verdict === 'FAILED') {
-    const head = await agent('Run: git rev-parse HEAD');
-    if (head === mergeBase) throw new Error('Step 2 structural failure');
-  }
+**Robustness improvements (also in Step 1):**
+- Oscillation detection: stop gate-fix loop if a previously-passed
+  gate regresses after fixing a different gate
+- Dirty-tree check: `git status --porcelain` at start of each
+  gate-fix loop iteration
+- go.mod broadening: use `find` for go.mod instead of assuming
+  root-level only (catches multi-module repos)
+- Checkpoint tightening: detect "not PASS" instead of "is FAIL"
+  (catches malformed/empty reports)
 
-  // Check 3: gate count verification
-  const reports = countGateReports(step);
-  if (reports.missing > 0) log('Step ' + step + ': ' + reports.missing + ' gates missing');
-  if (reports.fails > 0) log('Step ' + step + ': ' + reports.fails + ' gates failed');
-}
+#### Stop Hook Design
 
-// Mandatory checkpoint
-const total = countAllGateReports();
-if (total.actual < total.expected) throw new Error('Missing gates: ' + (total.expected - total.actual));
-```
+~80-120 lines across hooks.json + script.
+Command-type hook (not prompt-based) that counts `.report` files in
+`.rebase-tmp/gates/`, compares against dynamically-counted expected
+gates (`find gates/ -name '*.md' | wc -l`). Based on the production
+pattern in `plugins/agentic-docs/hooks/stop-hook.sh`. Key design:
+- **Activation guard:** Only enforce when `.rebase-tmp/` exists (skip
+  for non-rebase sessions, early exits before Step 1).
+- **Content validation:** Each `.report` must contain a verdict line
+  (PASS or FAIL) and minimum 50 bytes — prevents empty-file gaming.
+- **Dynamic gate count:** Derived from `gates/` directory, not hardcoded
+  33. Survives future gate additions/removals.
+- **Multi-hook safety:** Check `stop_hook_active` (stdin JSON boolean)
+  first — if true, exit 0 immediately. Prevents conflicts if users
+  have other Stop hooks installed.
+- **Own iteration counter:** Maintain block count in `.rebase-tmp/`
+  state file. After 3 own blocks, write INCOMPLETE marker to
+  `.rebase-tmp/status/INCOMPLETE` (gates expected/completed/missing
+  list, last step attempted) and allow exit. CLI also enforces a hard
+  8-block cap (`CLAUDE_CODE_STOP_HOOK_BLOCK_CAP`).
+- **INCOMPLETE handling:** Test harness records as third verdict
+  (distinct from PASS/FAIL). Production: Step 5 degrades to `--draft`
+  PR with WARNING listing missing gates. Court skipped for INCOMPLETE.
+- **Worktree awareness (CRITICAL):** Sessions run in git worktrees
+  under `<repo>/.claude/worktrees/<branch>/`, not the repo root.
+  The hook's working directory is the repo root, so bare paths like
+  `.rebase-tmp/` will miss the worktree. Extract `cwd` from the
+  stdin JSON (`jq -r '.cwd'`) and use it as the base path for ALL
+  file checks. Gate counting derives plugin root from `$0`:
+  `PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"` — no argument
+  passing needed (no existing hook does this).
+- **Activation sentinel:** Check `$CWD/.rebase-tmp/.session-active`
+  (not just directory existence) to avoid stale-state false
+  activation. SKILL.md creates it at rebase start, removes it in
+  Step 5 after clean completion.
+- **Actionable reason message:** The block reason becomes the agent's
+  next prompt. Must include: which step's gates are missing (not just
+  count), the gate directory path, and the list of missing gate
+  filenames so the agent can construct subagent prompts. "You have 15
+  missing gates" is insufficient — the agent needs "Run these gates:
+  gates/step3-autofix/fix-verification.md, gates/step4-verification/
+  lint-clean.md, ..." to know where to resume.
+- **Hook type:** block-push stays prompt-based (PreToolUse). Stop hook
+  is command-based (hooks.json). Different mechanisms, no coordination
+  needed.
 
-If a step fails, the run fails. The test harness retries the whole repo.
-This is simpler and more effective than within-run retry.
+**Validation:** 15+ ovnk spec=all runs (5 per version). At a ~24% base
+rate, 5 runs cannot distinguish improvement from luck (25% false-pass
+probability). 15 runs give p<0.05 confidence.
 
-**Inter-step communication:** Step subagents write
-`.rebase-tmp/deferred.txt` (one issue per line) for items deliberately
-skipped. Subsequent steps discover prior work via `git log`, not
-AI-generated summaries.
+**Rollback checkpoint:** After 15 validation runs, record pass rates.
+If any per-version rate drops >10pp vs baseline, revert and investigate
+before proceeding. Steps 0-2 are the plan — phased for rollback safety,
+not as independent options. Step 3 is genuinely optional (independent
+concern, independent success criteria).
 
-## Implementation: Graduated Ladder
+### Step 1b: Gate companion scripts (parallel with Step 1)
 
-### Step 0: Verify diagnosis (1-2 hours)
+Addresses the "gate(s) failed" majority (46/89 = 52%) that the Stop
+hook cannot fix. Also mitigates Goodhart's Law — companion scripts
+make satisficing harder than doing real work. Independent of Step 1
+(orthogonal failure categories), so implement in parallel.
 
-Examine 3-5 failed session transcripts from different repos (ovnk, CNO,
-CNCC) to confirm the step-skipping mechanism is consistent. If any
-transcript shows compaction or a different failure mode, the ladder
-needs adjustment.
+Add companion `.sh` scripts to 4 high-value gates (prioritized):
+1. **build-vet.sh** (shared by step2/build-vet + step4/build-vet-
+   recheck) — `go build ./... && go vet ./...`, diff errors vs base
+   branch. Fast-path PASS on `NEW_ISSUES=0`.
+2. **version-consistency.sh** — parse go.mod files, check k8s.io/*
+   versions match target. Pure grep and string comparison.
+3. **go-version-check.sh** — compare `go` directive across go.mod,
+   Makefiles, Dockerfiles. Every check is already a grep command.
+4. **major-version-imports.sh** — grep for bare `k8s.io/klog` (should
+   be `/v2`). The gate .md already starts with "run these greps."
 
-### Step 1: Branch fix (2 min, ship immediately)
+Pattern: `MANDATORY FIRST STEP` block in the gate .md runs the
+companion script. RULE 1: `NEW_ISSUES=0` → fast-path PASS (no AI).
+RULE 2: AI only evaluates items the script flagged. Follows the
+existing crd-validation/patterns-completeness pattern.
 
-- Fix SKILL.md line 87: "Run from the default branch" → "Run from the
-  current branch"
-- Fix SKILL.md line 94: remove master checkout from recovery instruction
-- Version bump (patch), `make update`
+**Timing decision:** Implement in parallel with Step 1 (companion
+scripts have independent value for gate flakiness regardless of
+Stop hook), OR gate on Step 1 validation data (measure the balloon
+squeeze before investing). The graduated approach says measure first;
+the Goodhart risk says don't ship the Stop hook without deterministic
+evidence in high-value gates. User decision.
 
-### Step 2: Autofix + hooks fix (2-4 hours, the primary fix)
+### Step 2: Agent-based step delegation (days)
 
-The agent stops because autofix sends contradictory signals: `exit 1` +
-`RESULT: FAIL` say "stop" while SKILL.md prose says "continue." Make
-all signals consistent:
+Needed if agents hit the Stop hook's max-block escape (3 blocks →
+INCOMPLETE) rather than continuing. This means the agent is
+genuinely unable to complete within a single context, not just
+unwilling. Agent delegation gives each step a fresh 1M context.
 
-**In `k8s-rebase-autofix.sh`:**
-- Line 1677: change `exit 1` → `exit 0` (the script succeeded at its
-  job; remaining items are for the agent, not evidence of failure)
-- Line 324: change `RESULT: FAIL (N checks non-zero)` →
-  `RESULT: ITEMS_REMAINING (N checks for gates to verify)`
-- Add after the remaining-issues block:
-  `ACTION REQUIRED: Run all 11 Step 3 gate subagents now.`
+- Create `steps/`: rules.md + 5 step files extracted from SKILL.md
+- Rewrite SKILL.md to ~100-line entry point
+- Each step agent gets fresh 1M context
+- Gate counting in SKILL.md (deterministic) after each agent returns
+- Depth-2 nesting (main→step→gate) is within Claude Code's default
+  spawn depth limit of 3 (verified, shipped v2.1.172)
+- 2-hour spike on CNCC validates depth-2 gate nesting first
+- Test harness note: `mutate_plugin` will need updating — its `sed`
+  patterns target SKILL.md `find` calls, which move to step files
+- Subagent prompt template: include repo path, k8s version, plugin
+  root, gate directory, critical rules (module safety, commit
+  discipline, scope preservation, nesting cap), and structured
+  return format (STEP_VERDICT, GATES_PASSED, COMMITS, ISSUES)
 
-**In SKILL.md Step 3 (lines 428-475):**
-- Move the "FAIL is normal, proceed to gates" instruction from mid-
-  paragraph (line 443) to BEFORE the autofix bash block. The agent
-  reads top-down; put the instruction before the moment it decides.
-- Add: `**Regardless of autofix exit code or output, proceed to the
-  gate block below. The gates verify the result, not the autofix.**`
+### Step 3: Discovery procedures + cleanup (days, independent)
 
-**New hooks (defense in depth):**
-- `hooks/autofix-proceed.md` (PostToolUse): detects autofix output
-  with "ITEMS_REMAINING" and injects "Proceed to Step 3 gates now"
-- `hooks/gate-completeness.md` (Stop): blocks session ending if
-  fewer than 33 gate reports exist in `.rebase-tmp/gates/`
+- Replace version-specific recipes with discovery procedures
+- Feature gates: parse known_features.go + kube_features.go
+- kubeadm: indirect discovery (not vendored)
+- Restructure patterns doc (591 → ~208 lines)
+- Remove completed autofix functions (see `plans/autofix-disposition.md`)
 
-**Validation:** 5 ovnk spec=all runs on 1.36.2. If zero "missing 26+"
-failures, the fix works. If still >20% skip rate, escalate to Step 3.
-
-**Estimated fix rate:** 75-85%. Eliminates the two strongest stop
-signals (exit code + FAIL text). Hooks provide backup enforcement.
-
-### Step 3: Workflow orchestration (3-5 days, only if Step 2 insufficient)
-
-If the signal-consistency fix and hooks are not sufficient, build
-deterministic orchestration:
-
-- Create `workflows/k8s-rebase.js` (~150-200 lines)
-- Create `steps/`: rules.md + 5 step files
-- Rewrite SKILL.md to ~50-line entry point
-- Workflow for-loop runs each step — cannot be skipped by AI judgment
-- Gate counting in JS — deterministic, not AI-interpreted
-
-**Before investing:** Do a 2-hour spike on CNCC to validate depth-2
-gate nesting works correctly.
-
-### Step 4: Discovery procedures + cleanup (1-2 days, independent of Steps 2-3)
-
-- Replace version-specific recipes with discovery procedures in step files
-- Feature gate discovery: parse 2-3 files (client-go `known_features.go`
-  + kubernetes `kube_features.go` + dependency map)
-- kubeadm discovery: indirect paths (version correlation, file inspection,
-  extraArgs format detection) — kubeadm is NOT vendored
-- Restructure patterns doc (591 → ~208 lines), update `TAG_TO_PATTERN`
-- Rename 3 gates for process-agnosticism
-- Remove completed autofix functions (only after all repos past target)
-
-**Validation:** Within 5pp of PR-1 rate. At least 1 zero-recipe success.
-
-**Rollback:** `git revert`. Verify TAG_TO_PATTERN consistency.
-
-## Autofix Function Disposition
-
-26 functions (fix_lint_version counted once, fix_uncommitted excluded):
-
-| Category | Count | Functions | Action |
-|----------|-------|-----------|--------|
-| **Evergreen** | 6 | fix_feature_gates, fix_kind_image, fix_kind_version, fix_lint_version, fix_imports, fix_relaxed_svc_name | Keep |
-| **Permanent** | 4 | fix_reflect_ptr (no AI signal), fix_crd_int64_validation, fix_crd_name_validation, fix_addtoscheme | Keep |
-| **Accelerator** | 2 | fix_xexp, fix_fieldsv1 | Keep (self-gating) |
-| **Ovnk-specific** | 4 | fix_metallb_version, fix_kubevirt_version, fix_mocks, fix_docs_version | Keep |
-| **One-time done** | 7 | fix_bounding_dirs, 4 NPA v0.2 fns, fix_kubeadm_v1beta4, fix_lint v1→v2 block | Remove when done |
-| **Redundant** | 2 | fix_version_refs, fix_go_version (after GOVERSION port) | Remove |
-| **Compiler-driven** | 2 | fix_klog_v2, fix_eventf | Keep |
-
-12-14 of 26 only trigger on ovnk. Autofix stays default for production.
-spec=all validates AI independence but is not the shipping criterion.
-Don't remove working self-gating functions to optimize for a test mode.
-
-## Risks and Mitigations
+## 6. Risks
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| **Model-version coupling** | Critical | The system is prompt engineering tuned to the current model. When Anthropic ships updates, pass rates silently drift. No mitigation exists beyond continuous regression testing. Acknowledge as inherent. |
-| Step subagent fails to construct gate prompts | High | Spike validates on CNCC first. Pattern proven across 33 existing gates. |
-| PLUGIN_ROOT not a shell env var | High | Gates keep `find`. Step files receive literal paths from Workflow. |
-| Gate verdict drift at depth 2 | Medium | Spike compares depth-1 vs depth-2 verdicts on same repo state. |
-| Diagnosis unverified | Medium | Inspect 1 failed ovnk transcript before implementing. |
-| Orchestrator crosses 5K compaction cap | Medium | Moot — SKILL.md is ~50 lines with Workflow approach. |
-| Step file extraction loses guidance | Medium | Diff extracted content against original to verify coverage. |
-| Discovery procedures unreliable | High | Autofix stays default. Discovery is additive alongside autofix, not a replacement. |
-| Non-deterministic gate coverage | Medium | Workflow script lists gates deterministically from `fs.readdirSync()`. |
-| Wall-clock regression (+10-25 min) | Low | Net time per SUCCESS decreases (fewer wasted runs). |
+| Model-version coupling | Critical | Log exact model ID per run. The 10x rate increase Aug 7-9 may reflect a model update, not just skill changes. Continuous regression testing. |
+| Stop hook block loop | Medium | Max 3 blocks, then exit with INCOMPLETE marker. Activation guard skips non-rebase sessions. |
+| Goodhart's Law on Stop hook | High | Agent may write plausible PASS reports instead of doing real work. Content validation (50B + verdict) is trivially satisfiable by an LLM. Step 1b's companion scripts on 4 gates (build-vet, version-consistency, go-version-check, major-version-imports) capture deterministic evidence that makes satisficing harder than doing the actual work. |
+| Step agent fails gate prompts | High | Spike validates on CNCC first. |
+| PLUGIN_ROOT not a shell env var | High | Gates keep `find`. Steps get literal paths. |
+| Discovery procedures unreliable | High | Autofix stays default. Discovery is additive. |
+| Unbounded runtime | Medium | `claude --bg` has no default timeout. Stop hook's forced continuation could run indefinitely. Set `--max-turns` and/or `--max-budget-usd` as safety rails in test harness invocations. |
+| Silent tool stops bypass hook | Medium | Known in some model versions. Step 2 (agent delegation) is the backup if hooks prove porous. |
+| Diagnosis partially wrong | Medium | Verify with 3-5 more transcripts before Step 1. |
 
-## Success Criteria
+## 7. Success Criteria
 
-- **PR-1:** spec=none: zero "missing 15+" failures. spec=all: "missing 26+"
-  rate under 5%. Per-version floor 55%. Non-ovnk: no drop >15pp.
-  SKILL.md under 200 tokens (thin entry point). `make lint` passes.
-- **PR-2:** Within 5pp of PR-1 rate. One zero-recipe-coverage success.
-- **PRs revertible in reverse order** (PR-2 first, then PR-1 if needed).
+**Step 0-1:** spec=none: zero "missing 15+" failures. spec=all:
+"missing 26+" under 5%. Per-version floor 55%. Non-ovnk: no drop >15pp.
 
-## Epistemic Caveats
+**Step 1b:** Companion-scripted gates flaky rate under 10% (vs ~94%
+for AI-only). Overall "gate(s) failed" rate drops ≥15pp. No regression
+in "missing gates" metrics from Step 1.
 
-This plan was produced and reviewed by ~180 AI agents. Known biases:
+**Step 2:** All Step 1 criteria maintained. Zero step-skipping failures
+regardless of repo size.
 
-- **Convergence bias (proven):** ~180 agents decided "context exhaustion
-  is the root cause." Transcript inspection showed the agent explicitly
-  choosing to skip: *"Given the significant amount of work remaining...
-  let me proceed directly to Step 5."* Even tiny repos (INF) skip —
-  context exhaustion is physically impossible there. Zero compaction
-  events in automated test sessions (4 found, ALL in dev sessions).
-- **The root cause is dual, not singular.** The N=26 cluster (11
-  failures) is triggered by autofix `RESULT: FAIL` + `exit 1`. The
-  N=15 cluster (7 failures) occurs even with spec=none (autofix
-  succeeds), driven by context pressure on large repos. Both are
-  behavioral — the agent stops at step boundaries — but with
-  different triggers.
-- **Contaminated data:** The 66% and 27% figures include 42% false
-  positives from the branch bug. Recompute after the branch fix.
-- **The Robustness commit (Aug 8) caused a 7x rate increase** in
-  missing-26+ failures (2.5% → 17.8%). Gate context reduction and
-  SKILL.md restructuring may have inadvertently altered what the
-  agent retains under pressure.
-- **Workflow availability is uncertain.** The Workflow tool may not be
-  present in all Claude Code environments. The Stop hook (~55 lines)
-  is universally available and addresses both hypotheses. Use Stop
-  hook as primary fix, Workflow as escalation if available.
+**Step 3:** Within 5pp of Step 1 rate. One zero-recipe success.
 
-## Design Principles
+### Expected ovnk pass rate progression
 
-This skill is production infrastructure for 100s of OpenShift ecosystem
-repos and a primary learning resource for developers building similar
-Claude Code automation. Design choices must optimize for three things:
+| Step | Rate (pessimistic) | Rate (optimistic) | Assumption |
+|------|--------------------|--------------------|------------|
+| True baseline (Step 0) | 31% | 31% | 16 passes / 51 corrected total |
+| After Step 1 alone | 45% (30% eff.) | 65% (90% eff.) | "missing" converts to pass, not "gate failed" |
+| After Step 1 + 1b | 51% | 73% | companion scripts fix 2-4 of 10 gate failures |
+| After Step 2 | 61% | 82% | fixes remaining missing + gate-fail compound |
+| Ceiling | 84%+ | 84%+ | all missing fixed + companion scripts reduce flaky gates |
 
-1. **Clarity over cleverness.** A new developer should understand the
-   architecture by reading the directory layout. Each file should have
-   one clear purpose. Prefer explicit patterns (hooks, step files,
-   rules.md) over implicit conventions.
+**Key caveat:** "missing → pass" is the weakest assumption. Some agents
+forced to continue will produce failing gates, not passing ones. The
+70% point estimate is a midpoint, not a guarantee. Step 1b (companion
+scripts) addresses the "balloon squeeze" — without it, fixing step-
+skipping just converts "missing" into "gate failed."
 
-2. **Modern Claude Code patterns.** Use `${CLAUDE_PLUGIN_ROOT}` (not
-   `find`), hooks for enforcement (not prose instructions the AI may
-   ignore), structured output schemas (not free-text parsing), and
-   the Workflow tool where available. This skill should demonstrate
-   best practices, not legacy patterns.
+Validation: ~2 days compute, $250-900 API cost for 15 ovnk runs.
+Cannot parallelize same repo (harness uses single repo clone).
 
-3. **Teachability.** The code should read as a tutorial for "how to
-   build a multi-step AI automation skill with quality gates." Gate
-   files, step files, hooks, and the orchestrator should each be
-   independently understandable. Comments explain WHY, not WHAT.
+Steps revertible in reverse order. `make lint` passes at every step.
+Gate PASS is the minimum bar; court PASS (adversarial trial against
+known-good reference, where available) is the quality confirmation.
 
-This matters because other teams will fork this pattern for their own
-automation. Every design shortcut becomes a template for shortcuts
-across the ecosystem.
+## 8. Caveats
 
-## Not In Scope
+- Pass rates include 42% false positives. Recompute after Step 0.
+- Per-version corrected rates: 1.34.1=37%, 1.35.3=12%, 1.36.2=35%.
+  **1.35.3 is the blocker** — 7/10 passes were false positives, and
+  it uniquely has 50/50 gate-failed vs missing (others are ~85% missing).
+- 112 "no-token" sessions: 76% are test harness artifacts, true
+  infrastructure failure rate is ~7%.
 
-- Multi-repo coordinator (sequencing library-go → ovnk → CNO)
-- Gate consolidation (33 → ~28 gates)
-- CI integration (pushing draft PRs for Prow feedback)
-- Cross-repo dependency awareness (pre-flight checks)
-- Operator runbook / new maintainer guide (needed before production use)
+## 9. Not In Scope
+
+- Multi-repo coordinator (library-go → ovnk → CNO sequencing)
+- 2-of-3 voting for AI-judgment gates (rejected: up to 9 invocations
+  per flaky gate when combined with 3-retry fix loop; too expensive)
+- Additional gate companion scripts beyond the 4 in Step 1b
+  (version-completeness, deprecated-imports, gomod-diff-analysis)
+- Gate name logging: 3-line harness change in _tally_gates +
+  _do_record_one to log failing gate names to results.tsv detail
+- Gate consolidation (33 → ~28)
+- CI integration (draft PRs for Prow feedback)
+- Operator runbook / new maintainer guide
+- Test harness infrastructure reliability (crash recovery, rate limits)
+- Starter template for other teams (future: `plugins/skill-template/`)
