@@ -2,8 +2,9 @@
 
 Design review by 20 Opus exploration agents + 20 Opus adversarial
 agents. The adversarial pass corrected 6 findings and sharpened 4
-others. Focused on ideas that impact quality, robustness, and
-generality.
+others. Final review confirmed the updated plan integrates the
+audit's strongest findings. Focused on ideas that impact quality,
+robustness, and generality.
 
 ---
 
@@ -47,6 +48,7 @@ orchestrator), not plan to shed deterministic infrastructure.
 
 spec=all (no autofix) shows 70% vs spec=none's 46% across all repos
 (p=0.002). For ovnk specifically, no significant difference (p=0.53).
+Time-controlled: p=0.087 (the plan now notes this).
 
 **This does NOT prove the autofix is harmful.** The temporal confound
 is massive — 96% of spec=none runs ended by July 31, while spec=all
@@ -54,11 +56,15 @@ continued through August 10. The skill improved during this period.
 CNCC shows 83% spec=none vs 70% spec=all (reversed). The data is
 suggestive, not conclusive.
 
-**But it demands investigation before expanding.** A proper A/B test
-(same time period, same skill version, randomized assignment) would
-settle it. Until then, the plan should not add more recipes. The
-autofix's value may be reproducibility and review consistency (same
-fix pattern every time) rather than pass rate.
+**But it demands investigation before expanding.** The plan now lists
+an autofix A/B test in Not In Scope (line 407). Consider promoting
+it to a pre-commit-1 action: companion scripts (commit 1) interact
+with autofix output, so understanding autofix impact first would
+inform whether companion script fast-paths need autofix-awareness.
+That said, companion scripts work regardless of autofix disposition
+— they evaluate the CODE state, not the autofix output. Shipping
+commit 1 without the A/B test is acceptable if acknowledged as a
+known risk.
 
 ---
 
@@ -76,11 +82,11 @@ gates remain inherently non-deterministic.
 requires a known-good reference (not universal), goes INCONCLUSIVE
 on large diffs (ovnk), and passes 97% of runs in a system with 26%
 true quality. Jurors never use their tool access (zero VERIFIED lines
-in 15 outputs). Forcing tool use would significantly strengthen it.
+in 15 outputs). The plan now acknowledges this (Section 6, lines
+365-367) and proposes forcing tool use — a ~5-line prompt change.
 
 **CI** (go build + go vet + go test + Prow) is the only zero-flake
-quality signal. It is currently Not In Scope. Adding draft PR
-creation earlier (with CI feedback) would close this gap.
+quality signal. It is currently Not In Scope.
 
 **The right architecture:** gates for iterative feedback (fix while
 you can), companion scripts for deterministic evidence (zero-flake),
@@ -97,101 +103,112 @@ ground truth (when available).
 | Evidence + interpretation | ~8 | Script gathers, AI judges flagged items |
 | Fully agentic | ~6 | AI reads code, traces data flow |
 
-The middle tier is the highest-value engineering opportunity. Gates
-like `deprecated-calls` have a deterministic evidence phase (run
-staticcheck, filter pre-existing) and an agentic interpretation
-phase. Companion scripts should handle the evidence tier, reducing
-cost and flakiness while preserving judgment where it matters.
+The plan now integrates this (Section 4.4, lines 284-294).
+
+**Terminology note:** The plan says "8 informational gates" (line
+286) but only 4 are explicitly always-PASS in the gate files. The
+other 4 are fast-path SKIP gates (zero subagent cost when their
+domain is empty). Clearer: "8 zero-cost gates (4 always-PASS + 4
+fast-path SKIP)."
+
+The middle tier (evidence + interpretation) is the highest-value
+target for expanding companion scripts after the initial 4. Gates
+like `deprecated-calls` (run staticcheck, filter pre-existing) and
+`correctness` (format string grep) have deterministic evidence
+phases that could be scripted.
 
 ---
 
 ## 5. Defense-in-Depth: Add Layers, Don't Remove Them
 
-The module safety rule currently exists in 33 gate files + SKILL.md.
-The plan proposes adding rules.md + hook.
+The plan correctly keeps inline rule copies in gate files (line
+296-297) as defense-in-depth until depth-2 hook behavior is
+empirically verified. This addresses the audit's strongest
+adversarial finding: if hooks don't fire at depth 2 AND inline
+copies are removed, gates have NO enforcement at the exact layer
+where it matters most.
 
-**Keep all three.** Gate subagents are at depth 2. Whether hooks
-fire at depth 2 is unverified (the plan says so). If hooks don't
-fire AND inline copies are removed, gates have NO enforcement at the
-exact layer where it matters most. Inline copies provide direct
-delivery to depth-2 subagents. rules.md provides comprehension. The
-hook provides mechanical prevention. Three independent mechanisms
-that fail independently — genuine defense-in-depth via mechanistic
-diversity.
+**block-module-ops.md is safe** because PreToolUse hooks see the
+Bash tool's `tool_input` string (what the AI typed), not commands
+inside subprocess scripts. All legitimate `go mod tidy` operations
+flow through scripts invoked as `bash /path/to/script.sh`. The plan
+should document this mechanism: "Safe because hooks see the
+tool_input, not commands nested inside called scripts."
 
-After depth-2 hook behavior is empirically verified, revisit whether
-inline copies can be retired.
-
-**The enforcement taxonomy needs a SCOPE dimension.** Hooks are
-global, rules are skill-specific, gates are step-specific. The
-plan's `.session-active` sentinel is a pragmatic workaround. A
-principled framework: scope matches mechanism.
+Enforcement hooks should check `.session-active` sentinel to avoid
+interfering with non-rebase sessions (the plan specifies this for
+the stop hook but not for block-module-ops and block-vendor-edit).
 
 ---
 
-## 6. Signal Cleanup: Good Hygiene, Not a Design Principle
+## 6. Signal Cleanup: Good Hygiene, Not Architecture
 
 Renaming `RESULT: FAIL` to `RESULT: ITEMS_REMAINING` is good code
-hygiene. The plan already proposes this (lines 227-228). The data
+hygiene. The plan already proposes this (lines 231-234). The data
 shows the FAIL signal is NOT the cause of step-skipping — the N=26
-cluster occurs in spec=all where the autofix never runs. Renaming
-the signal is a cleanup item, not an architectural fix.
+cluster occurs in spec=all where the autofix never runs.
 
 ---
 
 ## 7. What's Genuinely Missing
 
-The adversarial review eliminated three previously-proposed ideas:
+Three previously-proposed ideas were eliminated by adversarial
+review (each contradicted the audit's own analysis):
 
-- ~~Historical priors (priors.json)~~ — this IS the autofix in JSON
-  form. If encoding patterns as bash functions is potentially
-  harmful (Section 2), encoding them as JSON won't be better. The
-  agent already has `git log` for history.
-- ~~Partial success scoring~~ — contradicts the Goodhart analysis.
-  Binary PASS/FAIL is ungameable. The existing gate-count breakdown
-  per step already captures trajectory. A composite score would
-  create a satisficing target for humans.
-- ~~Fix rollback (git revert HEAD)~~ — creates vendor inconsistency,
-  wastes one of 3 allowed iterations, and restarts the oscillation
-  cycle. The plan's oscillation detection (stop on regression) is
-  already the correct response.
+- ~~Historical priors~~ — the autofix in JSON form; same dynamics
+- ~~Partial success scoring~~ — creates a Goodhart/satisficing target
+- ~~Fix rollback~~ — oscillation detection is already correct
 
-What IS genuinely missing:
-
-**Decision provenance** (MEDIUM): Record WHY each fix was chosen,
-not just WHAT changed. A `decisions` array in the rebase report
-helps both the court and human reviewers.
-
-**Blocked dependency detection** (MEDIUM): Check if upstream
-dependencies (library-go, openshift/api) have been rebased before
-starting. A failed upstream produces unsolvable compilation errors
-that waste an entire run.
-
-**Forced juror tool use** (MEDIUM): Add "REQUIRE: cite at least one
-file:line from `git show` or `Read`" to the juror prompt. This is
-~5 lines of prompt change that strengthens the court's most
-underutilized feature.
+The plan now lists two of the surviving ideas in Not In Scope
+(lines 404-406): decision provenance and blocked dependency
+detection. The third (forced juror tool use) is in Section 6
+(lines 365-367). All three are correctly scoped as follow-ups.
 
 ---
 
-## 8. Architecture Is Sound, Framing Needs Revision
+## 8. Plan Review: Architecture Is Sound
 
-The plan's components (orchestrator, boot loader, step files,
-companion scripts, enforcement hooks) are all feasible and well-
-motivated. The design principles are correct. The directory layout
-is clear.
+The updated plan (commits `a1bf48a4` through `622f376d`) integrates
+the audit's strongest findings:
 
-What needs revision:
+| Audit finding | Plan response | Status |
+|---|---|---|
+| "Structurally impossible" overclaims | → "defense in depth" (line 91) | **Addressed** |
+| Three-tier gate architecture | Integrated (lines 284-294) | **Addressed** |
+| Companion script value is reliability | Reframed (line 251) | **Addressed** |
+| Keep inline rule copies | Preserved (lines 296-297) | **Addressed** |
+| Court juror tool use | Acknowledged + fix proposed (lines 365-367) | **Addressed** |
+| Commit sequence needed | Added as Section 5 (lines 343-354) | **Addressed** |
+| Temporal confound in spec data | p=0.087 noted (line 389) | **Addressed** |
+| Autofix A/B test needed | Added to Not In Scope (line 407) | **Partially** |
+| Decision provenance | Added to Not In Scope (line 404) | **Partially** |
+| Blocked dependency detection | Added to Not In Scope (line 405-406) | **Partially** |
 
-- **"Structurally impossible"** → "defense in depth that eliminates
-  the dominant failure mode." The improvement is attentional
-  isolation, not information-theoretic isolation.
-- **"65-75% subagent reduction"** → reframe around reliability.
-  The net gate subagent count doesn't change (fixing step-skipping
-  adds back the gates companion scripts eliminate). The real value
-  is zero-flake deterministic evidence.
-- **The autofix should be investigated, not expanded.** The p=0.002
-  signal needs a controlled experiment before building on it.
+**5 minor refinements remaining:**
+
+1. **"8 informational"** (line 286) → "8 zero-cost (4 always-PASS +
+   4 fast-path SKIP)" to match what the gate files actually say.
+
+2. **Onion percentages** (line 19) are correct under the balloon-
+   squeeze model but will confuse readers who compute naively. Add
+   "(balloon-squeeze adjusted)" annotation.
+
+3. **block-module-ops.md safety** (lines 315-317) — document WHY
+   it is safe: hooks see `bash /path/to/script.sh`, not the nested
+   `go mod tidy` inside the script.
+
+4. **Force-advance** (line 154) — add `force_reason: stale|FAIL`
+   to the INCOMPLETE marker for forensics. The current design
+   (force-advance on any block type) is correct; the adversarial
+   review confirmed that distinguishing stale from FAIL in the
+   counter would create unbounded retry.
+
+5. **Enforcement hook sentinel** — block-module-ops.md and
+   block-vendor-edit.md should check `.session-active` like the
+   stop hook does, to avoid interfering with non-rebase sessions.
+
+**The plan is ready to execute.** Ship commit 1 (companion scripts)
+first — lowest risk, highest signal, zero architecture change.
 
 ---
 
@@ -199,30 +216,15 @@ What needs revision:
 
 | Priority | Action | Rationale |
 |----------|--------|-----------|
-| 1 | Investigate autofix impact | p=0.002 signal. Zero code — just a controlled A/B test. Determines whether Step 3 should exist in current form. |
-| 2 | Companion scripts (4 .sh files) | Addresses gate flakiness for deterministic gates. Works within current architecture. No dependencies. |
-| 3 | Boot loader + step files | Addresses step-skipping via attentional isolation. Fresh context per step. |
-| 4 | Orchestrator | Foundation for deterministic advancement, resume, observability. Validates the architecture. |
-| 5 | Stop hook + enforcement hooks | Mechanical enforcement. Belt to the orchestrator's suspenders. |
-| 6 | Strengthen the court | Force juror tool use. ~5 lines of prompt change. Independent of everything else. |
+| 1 | Companion scripts (4 .sh files) | Addresses gate flakiness. Zero architecture change. Ship now. |
+| 2 | Boot loader + step files | Addresses step-skipping via attentional isolation. |
+| 3 | Orchestrator | Deterministic advancement, resume, observability. |
+| 4 | Stop hook + enforcement hooks | Mechanical enforcement. |
+| 5 | Investigate autofix (A/B test) | p=0.002 signal needs controlled experiment. |
+| 6 | Strengthen the court | Force juror tool use. ~5 lines. |
 
-This order respects dependencies: investigate before building on
-assumptions, ship independent components before dependent ones,
-measure after each phase.
-
-### Corrections from adversarial review
-
-The 20 adversarial agents corrected 6 findings from the exploration
-pass:
-- **Section 1**: Pipeline IS domain modeling, not just behavioral
-  enforcement. "Shed complexity" → "migrate to deterministic"
-- **Section 5**: Inline copies provide depth-2 enforcement that
-  hooks may not. Keep them, add rules.md + hook on top
-- **Section 7 (dropped)**: Neither gates nor court should be
-  elevated as "the real quality gate." Revised to Section 3.
-- **Section 10**: priors.json, partial scoring, and fix rollback
-  all dropped — each contradicts the audit's own analysis
-- **Section 8/9 (merged)**: Signal rename and three laws demoted
-  to cleanup items and heuristics respectively
-- **Summary**: Autofix investigation promoted from #5 to #1.
-  Dependencies respected in ordering.
+Note: the audit previously had autofix investigation at #1. This
+was revised after the adversarial review showed companion scripts
+work regardless of autofix disposition (they evaluate code state,
+not autofix output) and can ship independently. The A/B test is
+important but not blocking for commit 1.
