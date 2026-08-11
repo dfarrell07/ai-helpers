@@ -51,24 +51,43 @@ Matters for production users who crash and retry.
 Can't happen in test harness (always starts fresh) but will happen
 to production users.
 
-## Deterministic gate expansion (18% → ?)
+## Deterministic gate expansion
 
-The original architecture plan called for 19 of 33 gates to be
-fully deterministic (companion .sh scripts). 6 were built. Gate
-flakes went 29→15→0 — the orchestrator refactor eliminated flakes
-before the scripts could, so urgency dropped. But the principle
-holds: a deterministic gate can never flake, and 27 gates still
-rely on AI judgment that could regress with model updates.
+Core principle: deterministic gates can never flake and can't
+regress with model updates. Gate flakes went 29→15→0, but 27
+gates still rely on AI judgment.
 
-Remaining Tier 1 gates (straightforward to script):
-- `cleanliness` — git status + find + git ls-files
-- `rebase-completeness` — file checks, git log, go.mod grep
-- `test-compilation` — go test -run='^$' -count=0
-- `autofix-result` — git log + go build exit code
-- `feature-gates` — grep KUBE_FEATURE_ vs vendor
-- `deprecated-imports` — grep for promoted x/ packages
-- `version-completeness` — grep for stale version strings
+Deep audit of all 33 gates classified them into 3 tiers:
 
-7 scripts would bring coverage to 13/33 (39%). The 4 always-PASS
-info gates (commit-messages, dep-cve-check, maintainer-review,
-skill-improvement) could auto-PASS if flakes return.
+**Tier 1 — Fully deterministic (9 gates, 3 scripted):**
+All checks are shell commands with counting rules. No AI needed.
+
+| Gate | Has .sh? | Script does |
+|------|----------|-------------|
+| rebase-completeness | no | result file + git log + go.mod grep |
+| diff-scope | no | changed files × extension whitelist |
+| test-compilation | no | `go test -run='^$' -count=0` per module |
+| build-vet-recheck | no | reuse build-vet.sh |
+| cleanliness | no | git status + find + git ls-files |
+| dep-cve-check | no | diff go.sum, curl OSV.dev, grep imports |
+| deprecated-imports | no | grep x/ imports, go doc each |
+| feature-gates | no | grep KUBE_FEATURE_ vs vendor |
+| version-completeness | no | grep stale version strings |
+
+Scripting these 9 would bring Tier 1 coverage to 9/9 (100%).
+
+**Tier 2 — Evidence + judgment (14 gates, 6 scripted):**
+Script gathers deterministic evidence, fast-paths PASS when clean.
+AI only judges flagged items. All 6 existing .sh scripts are Tier 2.
+
+Unscripted Tier 2 gates that would benefit from evidence scripts:
+autofix-result, deprecated-calls, deprecated-api-remnants,
+e2e-infra, ci-readiness, correctness, commit-messages,
+gomod-diff-analysis.
+
+**Tier 3 — Fully agentic (10 gates, 0 scripted):**
+Requires reading code, tracing data flow, or understanding natural
+language. Cannot be scripted: fix-correctness, type-conversions,
+autofix-diff-review, dep-release-notes, logical-completeness,
+ci-prediction, k8s-changelog, logical-consistency,
+maintainer-review, skill-improvement.
