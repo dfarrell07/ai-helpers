@@ -92,6 +92,20 @@ version differs from argument.
 `RESULT: FAIL` -> `RESULT: ITEMS_REMAINING` (FAIL is misleading —
 remaining items are normal).
 
+### Auto-PASS informational gates in orchestrator
+4 gates are always-PASS by design (`commit-messages`, `dep-cve-check`,
+`maintainer-review`, `skill-improvement`) but still require an AI
+agent call each — 4 flaky calls per run for zero value. Add an
+`INFO_GATES` list in the orchestrator; auto-write PASS reports
+without launching subagents.
+
+### Court juror forced verification (test harness)
+Zero of ~15 jurors across 5 court sessions used their tool access
+(git show, Read) before voting. The court is rubber-stamping. Add
+~5 lines to the juror prompt in `test-skill.sh` requiring at least
+one tool call + a VERIFIED: line before verdict. Cheapest high-
+impact fix for test quality.
+
 ### Small fixes
 - `count_reports` (orchestrator lines 93-98) never called. Delete.
 - `maintainer-review.md` line 27 says FAIL but it's always-PASS.
