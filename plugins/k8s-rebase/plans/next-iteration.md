@@ -53,56 +53,50 @@ to production users.
 
 ## Gate work
 
-### Fix existing companion script bugs
-3 bugs in the 6 existing scripts (found by code review):
-- `major-version-imports.sh`: args swapped in `base_file_has` —
-  pre-existing detection is completely broken
-- `crd-validation.sh`, `patterns-completeness.sh`: dead `$pre`
-  variable — PRE_EXISTING always reports 0
-- `crd-validation.sh`, `patterns-completeness.sh` don't use
-  `gate-script-lib.sh` — inconsistent with the other 4
+### Fix existing companion script bugs (verified)
+All 3 bugs confirmed by per-file code review:
+- `major-version-imports.sh` lines 25, 51: args to `base_file_has`
+  are swapped (pattern where file should be). Pre-existing
+  detection always fails — every issue flagged as NEW.
+- `crd-validation.sh` line 27, `patterns-completeness.sh` line 17:
+  `$pre` initialized to 0, never incremented. PRE_EXISTING=0 always.
+- Both scripts also don't use `gate-script-lib.sh`.
 
-### Deterministic gate expansion
-Core principle: deterministic gates can't flake and can't regress
-with model updates. Scripting Tier 1 gates also reduces agent
-calls by 27% (33→24 per run), which helps with early-stop by
-reducing context pressure. Steps 2 and 3 need updating to "launch
-only PENDING gates" (like step 4 already does) for savings to
-materialize.
+### Deterministic gate expansion (verified per-gate)
+Reduces agent calls 27% (33→25). Steps 2/3 need "launch only
+PENDING" pattern (step 4 already does this). Never flaked in
+299 runs — prevents future risk. ~4 hours for 8 scripts.
 
-Tier 1 gates have NEVER flaked in 299 runs — they always PASS.
-Scripting them prevents future risk and reduces agent calls.
-~385 lines total, ~5 hours effort.
+| Gate | Effort | Script does | Verified |
+|------|--------|-------------|----------|
+| build-vet-recheck | 20 min | same logic as build-vet.sh, own file | step4 doesn't reference step2's .sh |
+| cleanliness | 20 min | git status + find + git ls-files | ~32 lines not 25 |
+| diff-scope | 30 min | changed files × extension whitelist | pure filter, no commit classification |
+| test-compilation | 30 min | `go test -run='^$' -count=0` | zero judgment needed |
+| feature-gates | 30 min | grep KUBE_FEATURE_ vs vendor | string existence, not semantic |
+| rebase-completeness | 45 min | result file + git log + go.mod | all 5 checks mechanical |
+| deprecated-imports | 45 min | grep x/ imports (hardcoded table) | go doc is optional, not required |
+| dep-cve-check | 1 hr | diff go.sum, curl OSV.dev | always-PASS, all steps deterministic |
 
-| Gate | Effort | Script does |
-|------|--------|-------------|
-| build-vet-recheck | 10 min | symlink/source build-vet.sh |
-| cleanliness | 20 min | git status + find + git ls-files |
-| diff-scope | 30 min | changed files × extension whitelist |
-| test-compilation | 30 min | `go test -run='^$' -count=0` |
-| feature-gates | 30 min | grep KUBE_FEATURE_ vs vendor |
-| rebase-completeness | 45 min | result file + git log + go.mod |
-| deprecated-imports | 45 min | grep x/ imports, go doc each |
-| version-completeness | 1 hr | grep stale version strings |
-| dep-cve-check | 1 hr | diff go.sum, curl OSV.dev |
+Note: `version-completeness` was reclassified from Tier 1 to
+Tier 2 — requires prose-vs-code judgment and per-finding ancestry
+checks that need AI interpretation.
 
-### Gate consolidation
-- `deprecated-api-remnants` duplicates 3 other gates (build+vet
-  from build-vet, x/ imports from deprecated-imports, staticcheck
-  from deprecated-calls). Narrow to its unique value: web-search
-  discovery of undocumented deprecations.
-- `logical-completeness` (step3) and `logical-consistency` (step4)
-  overlap significantly (both trace data flow in modified
-  functions). Consider merging into one step4 gate.
+### Gate consolidation (verified)
+- **Drop `logical-completeness` (step3)** — step4's
+  `logical-consistency` is a strict superset. Step3 adds nothing
+  unique. Reduces gate count 33→32.
+- **Narrow `deprecated-api-remnants`** — duplicates build-vet
+  (build+vet), deprecated-imports (x/ checks), and partially
+  deprecated-calls. Unique value: web-search discovery only.
 
 ### Tier 2 evidence scripts (after Tier 1)
-Top candidates ranked by how much is scriptable:
+Top 3 ranked by scriptable percentage:
 1. `deprecated-calls` (90%) — staticcheck + pre-existing filter
 2. `autofix-result` (85%) — commit counting + build pass/fail
 3. `gomod-diff-analysis` (75%) — parse go.mod diff
+Also: `version-completeness` (reclassified from Tier 1)
 
-### Tier 3 reclassification
-3 gates classified as "fully agentic" actually have scriptable
-evidence phases: ci-prediction, maintainer-review,
-skill-improvement. They should be Tier 2 (script gathers evidence,
-AI judges). True Tier 3 is 7 gates, not 10.
+### Tier reclassification (verified)
+3 "Tier 3" gates have scriptable evidence phases: ci-prediction,
+maintainer-review, skill-improvement → Tier 2. True Tier 3 = 7.
