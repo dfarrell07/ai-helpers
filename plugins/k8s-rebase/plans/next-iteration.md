@@ -3,8 +3,18 @@
 ## What this is
 
 Automates k8s.io/* dependency rebases for Go projects. Works on
-9 repos, 54% of test runs hit infra bugs. Goal: any engineer can
-rebase any supported repo without help.
+6 repos × 3 k8s versions. 299 test runs: 191 PASS (64%), 108 FAIL.
+
+Failure breakdown (108 total):
+- 44 gate failures (gates ran but some FAIL — 1-10 gates each)
+- 38 missing gates (agent stopped mid-pipeline — never ran all steps)
+- 20 stale branch (test harness branch cleanup bug)
+- 6 other (no branch, session died, harness bug)
+
+The dominant problem is the agent not completing all steps (38) and
+AI gates flaking (44). Stale branch is a harness bug, not a skill bug.
+ovn-org/ovn-kubernetes is the worst repo (42% pass, 24 of 42 failures
+are "missing 26 gates" = agent stopped after step2).
 
 ## Fix
 
@@ -55,13 +65,9 @@ blocks exit if orchestrator dies).
 
 ### Test harness (do alongside quick wins)
 
-**Stale-branch detection** — ~19% of test failures (20/108,
-not 63% — earlier figure was from a small sample). Root cause:
+**Stale-branch detection** — 20/108 failures (19%). Root cause:
 `cmd_run` deletes branches BEFORE `reset_to_default`, so
-`git branch -D` silently fails on checked-out branches. Fix:
-move `reset_to_default` before branch deletion. 2-line reorder.
-Note: dominant failure mode is gate failures (76%), not stale
-branches.
+`git branch -D` silently fails. Fix: 2-line reorder.
 
 **Court juror enforcement** — Add ~2 lines to reject output
 missing VERIFIED: line. Impacts 10 of 12 matrix cells.
