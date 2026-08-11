@@ -129,6 +129,22 @@ deletion in `cmd_run()`.
 **File:** `test/test-skill.sh`
 **Effort:** 30 min
 
+### 1c. Observability baseline (from original plan 4.7 — NOT DONE)
+The original plan specified 4 observability features. None were
+implemented. The minimum viable set for debugging at scale:
+
+- **results.tsv header row**: Add column names so the file is
+  self-documenting. Currently raw data with no schema.
+- **fail_code column** (same as 1b — already planned)
+- **model column**: Log which Claude model ran each test. Critical
+  for model-version coupling detection (Phase 6a).
+
+events.jsonl, suggestions.jsonl, `make suggestions`, and
+`make improve` are deferred — they're Phase 5c prerequisites
+but not needed for v1.0.
+**File:** `test/test-skill.sh`
+**Effort:** 30 min (alongside 1b)
+
 ## Phase 2: Fix confirmed bugs
 
 ### 2a. Orchestrator: empty array + set -u portability
@@ -164,7 +180,19 @@ Informational gate — fix line 27 to say always PASS.
 **File:** `gates/step4-verification/maintainer-review.md`
 **Effort:** 2 min
 
-### 2f. Force-advance blast radius reduction
+### 2f. block-module-ops.md: Add .session-active guard
+Original plan (step-isolation-and-generality.md section 4.6)
+explicitly required: "Add `.session-active` check so hook doesn't
+interfere with non-rebase sessions." Not implemented — the hook
+fires unconditionally whenever the plugin is installed. A developer
+who has the plugin installed but is doing non-rebase Go work gets
+blocked from running `go mod tidy` in any repo.
+**Fix:** Check for `.session-active` in cwd's `.rebase-tmp/`.
+If absent, ALLOW. Only block during active rebase sessions.
+**File:** `hooks/block-module-ops.md`
+**Effort:** 10 min
+
+### 2g. Force-advance blast radius reduction (was 2f)
 Force-advance after 3 attempts (line 293) sweeps gate failures
 into an INCOMPLETE file that nothing reads. If step2 force-advances
 with real build failures, steps 3-5 run against broken code.
@@ -185,6 +213,27 @@ orchestrator's positional arg parser. Keep it simple: env var
 
 **File:** `scripts/k8s-rebase-orchestrator.sh`, `steps/step5-pr.md`
 **Effort:** 2 hours
+
+### 2h. Gate-fix loop robustness (from original plan 4.3)
+Two robustness improvements specified in the original plan's step
+file section that were not implemented:
+
+- **Oscillation detection:** Stop gate-fix loop when a fix causes
+  regression (a gate that previously passed now fails after fixing
+  a different gate). Currently the loop retries up to 3 times with
+  no regression awareness. Fix: track set of passed gates; if any
+  gate regresses, stop and report the oscillation.
+- **Dirty-tree check:** `git status --porcelain` at gate-fix loop
+  start. Uncommitted changes cause false FAILs in gates that read
+  branch state. rules.md says "commit ALL fixes before re-launching
+  ANY gates" but nothing enforces it mechanically.
+
+Both are additions to rules.md gate-fix loop protocol + optional
+enforcement in orchestrator's `advance` command (refuse to advance
+if working tree is dirty).
+**File:** `skills/k8s-rebase/steps/rules.md`,
+`scripts/k8s-rebase-orchestrator.sh`
+**Effort:** 1 hour
 
 ## Phase 3: Companion scripts (6 exist, add 3 + feature gate discovery)
 
