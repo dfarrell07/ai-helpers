@@ -17,14 +17,11 @@ INCOMPLETE.
 
 1. Zero infra failures on 10 diverse repos
 2. Every successful run produces a PR command
-3. Gate stale-detection works (HEAD SHA in reports)
-4. `--preflight` validates repo compatibility
-5. One-page quickstart published
-6. **3 end-to-end runs by a non-author, without Slack help**
+3. Orchestrator rejects stale gate reports (HEAD SHA mismatch)
+4. README has safety guarantees + known limitations section
+5. **3 end-to-end runs by a non-author, without Slack help**
 
 ## Fix
-
-Quick wins first, test harness last.
 
 ### Quick wins (each under 15 min)
 
@@ -33,16 +30,13 @@ Quick wins first, test harness last.
 and autofix.
 
 **GOTOOLCHAIN=local** — Add alongside `GOWORK=off` in all scripts.
-Without it, Go auto-downloads toolchains mid-run.
-
-**Step5 race** — Don't report DONE until
-`.rebase-tmp/rebase-report.json` exists. Orchestrator.
 
 **HEAD SHA** — Add `echo "HEAD: $(git rev-parse HEAD)"` to
-`write-gate-report.sh`. Enables stale detection.
+`write-gate-report.sh`. Without it, `report_is_fresh()` always
+returns fresh — stale detection silently disabled.
 
 **Force-advance counter** — Clear `.advance-attempts-step*` on
-`cmd_init`. Prevents third-session silent skip.
+fresh `cmd_init` and on resume with version mismatch.
 
 **Empty array crash** — Line 325, use
 `"${arr[@]:+"${arr[@]}"}"`. Bash <4.4 compatibility.
@@ -53,34 +47,33 @@ reports in orchestrator, skip agent calls.
 
 ### Other fixes
 
-**block-module-ops session guard** — Blocks `go mod tidy` outside
-rebases. Add `.session-active` check.
-
 **Force-advance visibility** — Surface INCOMPLETE in PR description.
 Add `K8S_REBASE_NO_FORCE_ADVANCE=1` env var.
 
 **Resume version mismatch** — Warn if stored version differs from
 argument on resume.
 
-**Housekeeping** — Delete dead `count_reports`. Fix
-maintainer-review FAIL/PASS contradiction. Rename autofix
-`RESULT: FAIL` to `ITEMS_REMAINING`. Add fail_code to results.tsv.
-Add advance bash block to step3. Restore pre-push hook on cleanup.
+**Pre-push hook cleanup** — Script overwrites `hooks/pre-push`
+but never restores. Add cleanup to step5 and ERR trap.
+
+**Dead code** — Delete unused `count_reports` function.
 
 ### Test harness (do alongside quick wins)
 
-**Stale-branch detection** — 63% of test failures. Replace
-commit-timestamp check with reflog-based branch creation time.
-Fix branch deletion ordering. `test/test-skill.sh`.
+**Stale-branch detection** — 63% of test failures. Root cause:
+compares commit timestamps of old branches. Fix: delete old
+bump branches before launching (cleanup-first). Fix branch
+deletion ordering. `test/test-skill.sh`.
 
-**Court juror verification** — Add ~5 lines requiring tool call +
-VERIFIED: line before verdict. `test/test-skill.sh`.
+**Court juror enforcement** — Prompt and tools already exist in
+code. Add ~2 lines to reject output missing VERIFIED: line.
 
 ## Build
 
-### Companion scripts
-`cleanliness.sh` and `diff-scope.sh`. Brings deterministic gates
-to 8/33. Migrate `crd-validation.sh` to `gate-script-lib.sh`.
+### Companion script
+`cleanliness.sh` (git status + find — fully deterministic).
+Brings deterministic gates to 7/33. Migrate `crd-validation.sh`
+to `gate-script-lib.sh`.
 
 ### Feature gate auto-discovery
 Replace hardcoded `GATE_DEPS` with runtime parsing of
@@ -88,23 +81,7 @@ Replace hardcoded `GATE_DEPS` with runtime parsing of
 Handle non-vendored repos via `$GOMODCACHE`. **Riskiest item —
 build with fallback to hardcoded map if parsing fails.**
 
-### Go forward-compatibility
-Detect `go.work` at repo root (error until supported). Warn when
-`replace` directives override freshly-bumped requires.
-
-### Quickstart + known limitations
-One page in README. Prerequisites, first run, safety guarantees.
-Limitations: `go.work`, indirect-only k8s deps, library-go
-blockers, custom builds, operator-sdk bundles.
-
-### Preflight command
-`k8s-rebase-preflight.sh` — validates without modifying: go.mod
-has k8s.io deps, clean tree, Go/container available, blocked deps,
-disk space.
-
-### Human-readable progress
-Emit progress to stderr alongside machine-parseable stdout.
-
-### Escape hatches
-`skip-gate` (skip one gate without force-advancing step),
-`rollback` (clean branch + state), remediation hints in `status`.
+### README improvements
+Add safety guarantees (never pushes, new branch, you review) and
+known limitations section (`go.work`, indirect-only k8s deps,
+library-go blockers, custom builds, operator-sdk bundles).
