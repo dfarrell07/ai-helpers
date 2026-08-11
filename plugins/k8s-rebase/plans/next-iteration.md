@@ -65,7 +65,42 @@ first attempt — silently skipping all step 2 gates.
 **File:** `scripts/k8s-rebase-orchestrator.sh`
 **Effort:** 5 min
 
-### 0d. Resolve double-advance architecture question
+### 0d. GPG signing silently corrupts all commits in container
+Users with `commit.gpgsign=true` (common at Red Hat) hit silent
+commit failure inside the container — no GPG agent, no keyring,
+no socket forwarded. Every `git commit -s` fails silently. The
+script catches failures and prints "WARNING: git commit failed"
+but CONTINUES. Result: a dirty branch with go.mod changes but
+zero commits, and the summary says "uncommitted changes exist."
+The user gets a corrupted branch with no history.
+
+**Fix:** Override GPG signing for the session at the top of
+`k8s-rebase.sh`. The pattern already exists (lines 301-304 use
+`GIT_CONFIG_COUNT` for `safe.directory`). Add:
+```bash
+export GIT_CONFIG_COUNT=$((${GIT_CONFIG_COUNT:-0} + 2))
+export GIT_CONFIG_KEY_$((GIT_CONFIG_COUNT-2))=commit.gpgsign
+export GIT_CONFIG_VALUE_$((GIT_CONFIG_COUNT-2))=false
+export GIT_CONFIG_KEY_$((GIT_CONFIG_COUNT-1))=tag.gpgsign
+export GIT_CONFIG_VALUE_$((GIT_CONFIG_COUNT-1))=false
+```
+Also apply in `k8s-rebase-autofix.sh` (same container path).
+**File:** `scripts/k8s-rebase.sh`, `scripts/k8s-rebase-autofix.sh`
+**Effort:** 10 min
+
+### 0e. Concurrent run protection (no lockfile)
+Two people running the tool on the same repo simultaneously
+causes complete state corruption — `write_state` last-writer-wins,
+gate reports overwrite each other, `git checkout -b` fails for
+the second user. `.session-active` is a bare `touch` with no PID.
+
+**Fix:** Use `flock` on `.rebase-tmp/.lock` in `cmd_init`. Write
+PID into `.session-active`. Check for stale locks (PID no longer
+running). Refuse to init if lock is held.
+**File:** `scripts/k8s-rebase-orchestrator.sh`
+**Effort:** 20 min
+
+### 0f. Resolve double-advance architecture question
 Step1 and step2 have `## Advance` bash blocks (step agents call
 advance), AND SKILL.md tells the parent to call advance after each
 step agent completes. Both fire — potential double-advance.
@@ -287,6 +322,9 @@ Validates repo compatibility without modifying anything:
 - Go version available (or container runtime)
 - Blocked deps check (library-go, openshift/api rebased to target?)
 - `go.work` detection (warn: not yet supported)
+- Disk space check (need ~1GB free for vendor + git objects)
+- Builder image existence (check if `golang-X.Y-openshift-N.M`
+  exists in the ART image stream — prevents silent CI breakage)
 
 Implement as standalone script `scripts/k8s-rebase-preflight.sh`
 (simpler than adding flags to orchestrator's positional arg parser).
@@ -405,9 +443,14 @@ changes. Canary gate dry-run against known-good repo.
 ## Phase 7: Rollout + adoption
 
 ### 7a. Rollout plan
-- **Cohort 1** (weeks 1-2): 3 repos internal (ovnk, multus, CNCC)
-- **Cohort 2** (weeks 3-4): 10 friendly teams with support
-- **Cohort 3** (weeks 5-8): General availability
+- **Cohort 1** (weeks 1-2): 3 internal repos (ovnk, multus, CNCC)
+- **Cohort 2** (weeks 3-4): 10 friendly internal teams with support
+- **Cohort 3** (weeks 5-8): General availability (internal)
+- **Upstream** (after cohort 3 stabilizes): Only with explicit
+  maintainer opt-in. Open an issue first ("would you accept
+  AI-assisted rebase PRs?"). Some projects reject AI contributions
+  on principle. Never send unsolicited automated PRs to volunteer
+  maintainers — this burns goodwill.
 - Timeline gates: each cohort must have 0 force-advance and 0
   non-author-needs-help before proceeding to next.
 - **`--dry-run` risk:** Cohort 2/3 teams may demand preview mode.
@@ -444,9 +487,9 @@ changes. Canary gate dry-run against known-good repo.
 
 | Bucket | Items | Effort |
 |--------|-------|--------|
-| Ready to code now | 0a-0c, 2a-2e, 1b | ~2 hours |
-| Needs decision first | 0d (double-advance) | 30 min after decision |
-| Moderate implementation | 1a, 2f, 3a-3b, 4a, 4c-4e | ~2 days |
+| Ready to code now | 0a-0e, 2a-2e, 1b-1c | ~3 hours |
+| Needs decision first | 0f (double-advance) | 30 min after decision |
+| Moderate implementation | 1a, 2f-2h, 3a-3b, 4a, 4c-4e | ~3 days |
 | Needs design | 3c, 4b, 5a-5b | ~1 week |
 | Docs/process | 4a, 4e, 7a-d | ~1 day |
 
@@ -487,11 +530,27 @@ valuable but not on the v1.0 critical path.
 
 - Downstream handling (openshift/ovn-kubernetes Dockerfiles, OTE)
 - Multi-repo coordinator (library-go -> ovnk -> CNO sequencing)
+  with `depends_on` field in config.yaml and topological sort
+- Fleet dashboard (repo status: blocked/in-progress/pass/fail/PR-open)
 - Draft PR creation + CI monitoring loop
 - Decision provenance in rebase report
 - 2-of-3 voting for AI-judgment gates
 - `--dry-run` mode (preview without modifying — cohort 2/3 risk)
 - Starter template for other teams building similar automation
-- SBOM generation for vendored dependencies
+- SBOM / dependency change manifest (old SHA -> new SHA per module)
 - Commit signing (GPG/SSH/gitsign)
-- Non-vendored feature gate discovery (scan $GOMODCACHE instead of vendor/)
+- Non-vendored feature gate discovery (scan $GOMODCACHE instead)
+- License scan gate (`go-licenses` or `licensee` before PR command —
+  catches newly-introduced transitive deps with incompatible licenses)
+- Feature gate policy layer: flag newly-defaulted gates as "action
+  required" for human review instead of silently disabling — upstream
+  needs these breakage reports (per k8s upstream maintainer feedback)
+- Builder image stream validation (check ART image availability
+  before updating Dockerfile refs — prevents silent CI breakage)
+- Per-step checkpoint files for crash recovery within a step
+  (currently resume restarts the step from scratch)
+- Bad PR response plan for upstream repos (rollback, communication
+  template, designated responder)
+- `apidiff` integration for API-breaking change detection
+- Upstream structured release-notes.json parsing (instead of
+  free-form changelog analysis in k8s-changelog gate)
