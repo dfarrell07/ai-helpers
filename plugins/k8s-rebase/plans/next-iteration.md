@@ -70,6 +70,11 @@ reflog-based branch creation time. Also fix branch deletion
 ordering (reset to default branch BEFORE deleting bump branch).
 **File:** `test/test-skill.sh`. ~1-2 hours.
 
+### Concurrent run protection **(now)**
+Two simultaneous runs on the same repo corrupt state (last-writer-
+wins on state.json, gate reports overwrite). Use `flock` on
+`.rebase-tmp/.lock` in `cmd_init`. Write PID into `.session-active`.
+
 ### Orchestrator empty array crash
 Line 325 iterates arrays that may be empty under `set -u` in
 bash < 4.4. Use `"${arr[@]:+"${arr[@]}"}"`.
@@ -87,10 +92,11 @@ version differs from argument.
 `RESULT: FAIL` -> `RESULT: ITEMS_REMAINING` (FAIL is misleading —
 remaining items are normal).
 
-### Dead code removal
-`count_reports` (orchestrator lines 93-98) never called. Delete.
-`maintainer-review.md` line 27 says FAIL but it's always-PASS.
-Fix the contradiction.
+### Small fixes
+- `count_reports` (orchestrator lines 93-98) never called. Delete.
+- `maintainer-review.md` line 27 says FAIL but it's always-PASS.
+- Add fail_code column to results.tsv (INFRA/GATE/COURT) — only
+  way to distinguish failure types at scale. Header row too.
 
 ### Force-advance visibility
 INCOMPLETE file content must appear in the PR description so
@@ -133,6 +139,12 @@ you review before pushing.
 - `go.work` detection (warn: not yet supported)
 - Disk space (~1GB free needed)
 
+### Human-readable progress
+Users stare at opaque key-value output for 30 minutes with no idea
+what's happening. Emit human-friendly progress to stderr alongside
+machine-parseable output on stdout (test harness parses stdout).
+"Step 2/5: Compilation (gate 3/8: go-vet) — 4m elapsed."
+
 ### Escape hatches
 `skip-gate <repo> <gate>` — mark one gate as SKIP without
 force-advancing the entire step. `rollback <repo>` — clean branch
@@ -160,7 +172,14 @@ result. `GOMODCACHE` warm-up phase.
 ### Go forward-compatibility
 Set `GOTOOLCHAIN=local` alongside `GOWORK=off`. Detect `go.work`
 at repo root (error until supported). Warn when `replace` directives
-override freshly-bumped requires.
+override freshly-bumped requires (silent wrong resolution otherwise).
+
+### Discovery procedures
+Version-specific recipes (e.g., "k8s 1.36 removes --bounding-dirs")
+rot every release cycle. Without version-agnostic detection, every
+k8s release requires manual skill updates. Build detection via:
+vendor probing for deprecated APIs, GitHub API for e2e infra
+versions, Go version vs lint version matrix for compatibility.
 
 ### Model-version coupling
 Log model ID per run. Watch Tier 1 pass rates after model updates.
@@ -173,11 +192,15 @@ reject AI contributions on principle.
 
 ## Not yet
 
-- Multi-repo coordinator (dependency-ordered batch execution)
+- Multi-repo coordinator (dependency-ordered batch execution,
+  `depends_on` in config.yaml — operator's #1 need for 30+ repos)
 - Fleet dashboard (blocked/in-progress/pass/fail per repo)
 - Draft PR creation + CI monitoring loop
 - `--dry-run` mode (preview without modifying)
 - Downstream handling (openshift/ovn-kubernetes OTE module)
-- License scan gate before PR command
-- Feature gate policy (flag for human review vs silently disable)
-- Builder image stream validation (check ART availability)
+- License scan gate (`go-licenses` before PR — catches incompatible
+  licenses from new transitive deps)
+- Feature gate policy (flag for human review vs silently disable —
+  upstream needs these breakage reports)
+- Builder image validation (check ART image availability before
+  updating Dockerfile refs — prevents silent CI breakage)
