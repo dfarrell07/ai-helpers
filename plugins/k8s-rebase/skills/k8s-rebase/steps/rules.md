@@ -106,6 +106,11 @@ worked, under 15 lines). Step 5d reads these.
 - **Context budget:** Never burn main-agent context on build
   monitoring. Use `run_in_background: true` for long commands,
   or launch builds in subagents. NEVER use `sleep` to poll.
+- **Stay active:** NEVER produce a text-only response while
+  work remains. Every response must include at least one tool
+  call (Bash, Read, or Agent). If waiting for background tasks,
+  check status or start the next piece of work — never emit
+  prose like "Waiting for X" without a tool call alongside it.
 
 ## OCP Version Mapping
 

@@ -270,8 +270,8 @@ for s in data:
         cwd = s.get('cwd', '')
         raw_state = s.get('state')
         raw_status = s.get('status')
-        if raw_state == 'working' and raw_status in ('idle', 'done'):
-            st = raw_status
+        if raw_state == 'working' and raw_status == 'done':
+            st = raw_status  # idle means between-turns (bg tasks may be running); only 'done' is terminal
         else:
             st = raw_state or raw_status or '?'
         pid = s.get('pid') or '0'
@@ -435,6 +435,15 @@ cmd_run() {
       continue
     fi
     remove_worktrees "$repo"
+    # Clean up stale bump branches from prior runs for this version
+    local _bump_prefix="bump${version%.*}"
+    while IFS= read -r _old_branch; do
+      [[ -z "$_old_branch" ]] && continue
+      git -C "$repo" branch -D "$_old_branch" 2>/dev/null \
+        && info "Deleted stale branch: $_old_branch"
+    done < <(git -C "$repo" branch --no-color | sed 's/^[* +]*//' | grep "^${_bump_prefix}")
+    # Clear stale gate reports to prevent old results merging into new run
+    rm -rf "$repo/.rebase-tmp/gates" 2>/dev/null || true
     if [[ -n "$from_commit" ]]; then
       cd "$repo" || { warn "Skipping $short"; continue; }
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }

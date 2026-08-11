@@ -29,8 +29,11 @@ until `--no-test` exits 0.
 
 ## 4b. Verification wave
 
-Once 4a passes, launch ALL gates in one parallel wave. First,
-discover test packages:
+Launch ALL gates immediately — do NOT wait for 4a to finish.
+Gates run as parallel subagents while the main agent iterates
+on lint fixes. In your first response, launch gate subagents
+AND run the first lint command together. First, discover test
+packages:
 
 ```bash
 TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
