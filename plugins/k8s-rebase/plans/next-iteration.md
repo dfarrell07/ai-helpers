@@ -51,8 +51,24 @@ Matters for production users who crash and retry.
 Can't happen in test harness (always starts fresh) but will happen
 to production users.
 
-## Incremental reliability
+## Deterministic gate expansion (18% → ?)
 
-**Cleanliness companion script** — `cleanliness.sh` (git status +
-find). Gate hasn't flaked yet but a deterministic script eliminates
-the possibility permanently.
+The original architecture plan called for 19 of 33 gates to be
+fully deterministic (companion .sh scripts). 6 were built. Gate
+flakes went 29→15→0 — the orchestrator refactor eliminated flakes
+before the scripts could, so urgency dropped. But the principle
+holds: a deterministic gate can never flake, and 27 gates still
+rely on AI judgment that could regress with model updates.
+
+Remaining Tier 1 gates (straightforward to script):
+- `cleanliness` — git status + find + git ls-files
+- `rebase-completeness` — file checks, git log, go.mod grep
+- `test-compilation` — go test -run='^$' -count=0
+- `autofix-result` — git log + go build exit code
+- `feature-gates` — grep KUBE_FEATURE_ vs vendor
+- `deprecated-imports` — grep for promoted x/ packages
+- `version-completeness` — grep for stale version strings
+
+7 scripts would bring coverage to 13/33 (39%). The 4 always-PASS
+info gates (commit-messages, dep-cve-check, maintainer-review,
+skill-improvement) could auto-PASS if flakes return.
