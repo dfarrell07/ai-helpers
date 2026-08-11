@@ -5,16 +5,27 @@
 Automates k8s.io/* dependency rebases for Go projects. Works on
 6 repos × 3 k8s versions. 299 test runs: 191 PASS (64%), 108 FAIL.
 
-Failure breakdown (108 total):
-- 44 gate failures (gates ran but some FAIL — 1-10 gates each)
-- 38 missing gates (agent stopped mid-pipeline — never ran all steps)
-- 20 stale branch (test harness branch cleanup bug)
-- 6 other (no branch, session died, harness bug)
+Pass rate by day tells the real story:
+- Jul 29-31: 40-61% (early testing, many harness bugs)
+- Aug 1-7: 50-100% (fixes landing, peaking at 100% on Aug 7)
+- Aug 8: 72% (large batch, mostly good)
+- Aug 9: 47% (regression — ovnk "missing gates" cluster)
+- Aug 10: 100% (10/10, recovery)
+- Aug 11: 53% raw, **81% excluding stale-branch batch**
 
-The dominant problem is the agent not completing all steps (38) and
-AI gates flaking (44). Stale branch is a harness bug, not a skill bug.
-ovn-org/ovn-kubernetes is the worst repo (42% pass, 24 of 42 failures
-are "missing 26 gates" = agent stopped after step2).
+Aug 11's drop is one batch run (06:00-10:30) that hit the branch
+deletion ordering bug 14 times. Excluding it: 22/27 = 81%.
+
+Failure breakdown (108 total):
+- 44 gate failures (AI gates flaking — 1-10 per run)
+- 38 missing gates (agent stopped mid-pipeline, especially ovnk)
+- 20 stale branch (test harness branch cleanup bug)
+- 6 other
+
+ovn-org/ovn-kubernetes is the outlier: 42% pass rate, 24 of 42
+failures are "missing 26 gates" = agent stopped after step2. All
+other repos are 63-73%. The "missing gates" problem is
+non-deterministic — same repo passes and fails on the same day.
 
 ## Fix
 
