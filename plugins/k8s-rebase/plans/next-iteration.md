@@ -55,9 +55,13 @@ blocks exit if orchestrator dies).
 
 ### Test harness (do alongside quick wins)
 
-**Stale-branch detection** — 63% of test failures. Delete old
-bump branches before launching (cleanup-first, version-scoped).
-Fix branch deletion ordering. `test/test-skill.sh`.
+**Stale-branch detection** — ~19% of test failures (20/108,
+not 63% — earlier figure was from a small sample). Root cause:
+`cmd_run` deletes branches BEFORE `reset_to_default`, so
+`git branch -D` silently fails on checked-out branches. Fix:
+move `reset_to_default` before branch deletion. 2-line reorder.
+Note: dominant failure mode is gate failures (76%), not stale
+branches.
 
 **Court juror enforcement** — Add ~2 lines to reject output
 missing VERIFIED: line. Impacts 10 of 12 matrix cells.
