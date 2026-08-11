@@ -25,11 +25,10 @@ INCOMPLETE.
 
 ### Quick wins (each under 15 min)
 
-**GPG signing** — Increment `GIT_CONFIG_COUNT` to 3, add
-`commit.gpgsign=false` + `tag.gpgsign=false`. `k8s-rebase.sh`
-and autofix.
-
-**GOTOOLCHAIN=local** — Add alongside `GOWORK=off` in all scripts.
+**GPG signing** — Add `-c commit.gpgsign=false` to every
+`git commit` call in `k8s-rebase.sh` and autofix. (Not
+GIT_CONFIG_COUNT — that block only runs in-container where
+~/.gitconfig isn't mounted. The bug is on the HOST path.)
 
 **HEAD SHA** — Add `echo "HEAD: $(git rev-parse HEAD)"` to
 `write-gate-report.sh`. Without it, `report_is_fresh()` always
@@ -38,23 +37,24 @@ returns fresh — stale detection silently disabled.
 **Force-advance counter** — Clear `.advance-attempts-step*` on
 fresh `cmd_init` and on resume with version mismatch.
 
-**Empty array crash** — Line 325, use
-`"${arr[@]:+"${arr[@]}"}"`. Bash <4.4 compatibility.
-
-**Auto-PASS info gates** — `dep-cve-check`, `maintainer-review`,
-`skill-improvement`, `commit-messages` always PASS. Auto-write
-reports in orchestrator, skip agent calls.
+**Auto-PASS style gates** — `maintainer-review` and
+`commit-messages` are style-only, always PASS. Auto-write reports
+in orchestrator. Keep `dep-cve-check` and `skill-improvement` as
+agent calls — they produce genuinely useful diagnostic output.
 
 ### Other fixes
 
-**Force-advance visibility** — Surface INCOMPLETE in PR description.
-Add `K8S_REBASE_NO_FORCE_ADVANCE=1` env var.
+**Resume version mismatch** — Error (not warn) if stored version
+differs from argument on resume. Warn-and-continue produces
+silent corruption.
 
-**Resume version mismatch** — Warn if stored version differs from
-argument on resume.
+**Remove force-advance from production** — Default should be stop
+on gate failure, not silently advance. Test harness can opt-in to
+force-advance via env var. A PR with skipped gates is worse than
+no PR.
 
-**Pre-push hook cleanup** — Script overwrites `hooks/pre-push`
-but never restores. Add cleanup to step5 and ERR trap.
+**Pre-push hook restore** — Script backs up existing hook but
+never restores. Add restore to step5 cleanup and ERR trap.
 
 **Dead code** — Delete unused `count_reports` function.
 
@@ -75,13 +75,8 @@ code. Add ~2 lines to reject output missing VERIFIED: line.
 Brings deterministic gates to 7/33. Migrate `crd-validation.sh`
 to `gate-script-lib.sh`.
 
-### Feature gate auto-discovery
-Replace hardcoded `GATE_DEPS` with runtime parsing of
-`known_features.go`. Discovers Default:true, filters LockToDefault.
-Handle non-vendored repos via `$GOMODCACHE`. **Riskiest item —
-build with fallback to hardcoded map if parsing fails.**
-
 ### README improvements
-Add safety guarantees (never pushes, new branch, you review) and
-known limitations section (`go.work`, indirect-only k8s deps,
-library-go blockers, custom builds, operator-sdk bundles).
+Add explicit safety guarantees ("never pushes to remote, all work
+on a new branch, you review before merging") and known limitations
+section (`go.work`, indirect-only k8s deps, library-go blockers,
+custom builds, operator-sdk bundles).

@@ -17,7 +17,14 @@ just tracked so they don't get lost.
 
 - Downstream handling (openshift/ovn-kubernetes OTE module)
 - Operator-sdk/controller-tools automation
-- Non-vendored feature gate discovery (scan $GOMODCACHE)
+- Feature gate auto-discovery (replace GATE_DEPS map with runtime
+  parsing of known_features.go — reviewed and DEFERRED: the map
+  has only 2 entries, one line per release is simpler than a
+  fragile parser. The script already parses known_features.go for
+  LockToDefault detection. Revisit if GATE_DEPS grows past ~5.)
+- GOTOOLCHAIN=local (reviewed and DEFERRED: auto-containerize
+  already handles Go version mismatches, adding this could cause
+  hard failures where container fallback would have worked)
 
 ## Quality
 
