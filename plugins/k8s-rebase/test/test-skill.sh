@@ -53,9 +53,16 @@ _done_key() { local s="${2//[:\/\ ]/_}"; echo "${1}_${s}_$3"; }
 
 _worktree_info() {
   _WT_PATH="" _WT_BRANCH=""
+  local _wt_lines
+  _wt_lines=$(git -C "$1" worktree list 2>/dev/null | grep '\.claude/worktrees' || true)
+  [[ -z "$_wt_lines" ]] && return 1
+  local _wt_count
+  _wt_count=$(echo "$_wt_lines" | wc -l)
+  if [[ "$_wt_count" -gt 1 ]]; then
+    warn "Multiple worktrees for $(basename "$1") — results may be split. Run 'make clean' to fix."
+  fi
   local _wt_line
-  _wt_line=$(git -C "$1" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
-  [[ -z "$_wt_line" ]] && return 1
+  _wt_line=$(echo "$_wt_lines" | tail -1)
   _WT_PATH=$(echo "$_wt_line" | awk '{print $1}')
   _WT_BRANCH=$(echo "$_wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
 }
@@ -330,6 +337,14 @@ remove_worktrees() {
       info "Removed worktree (branch $wt_branch kept)"
     fi
   done <<< "$wt_lines"
+  # Sweep orphaned worktree directories that git lost track of
+  # (e.g., after ENOSPC corrupts git's worktree metadata)
+  if [[ -d "$repo/.claude/worktrees" ]]; then
+    for orphan in "$repo/.claude/worktrees"/*/; do
+      [[ -d "$orphan" ]] || continue
+      rm -rf "$orphan" 2>/dev/null && info "Removed orphaned worktree dir: $(basename "$orphan")"
+    done
+  fi
 }
 
 cmd_run() {
