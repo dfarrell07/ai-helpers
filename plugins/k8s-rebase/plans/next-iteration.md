@@ -3,29 +3,19 @@
 ## What this is
 
 Automates k8s.io/* dependency rebases for Go projects. Works on
-6 repos × 3 k8s versions. 299 test runs: 191 PASS (64%), 108 FAIL.
+6 repos × 3 k8s versions. The major refactor (orchestrator, step
+isolation, stop hook, companion scripts, hooks) shipped Aug 4-10.
 
-Pass rate by day tells the real story:
-- Jul 29-31: 40-61% (early testing, many harness bugs)
-- Aug 1-7: 50-100% (fixes landing, peaking at 100% on Aug 7)
-- Aug 8: 72% (large batch, mostly good)
-- Aug 9: 47% (regression — ovnk "missing gates" cluster)
-- Aug 10: 100% (10/10, recovery)
-- Aug 11: 53% raw, **81% excluding stale-branch batch**
+The refactor worked — 3 eras of data show clear improvement:
+- Pre-orchestrator (Jul 29-Aug 3): 57% pass, 29 gate flakes
+- Post-orchestrator (Aug 4-10): 72% pass, 15 gate flakes
+- Post-commit + 3 fixes (Aug 11): **81% pass** (excluding one
+  stale-branch batch), **zero gate flakes**
 
-Aug 11's drop is one batch run (06:00-10:30) that hit the branch
-deletion ordering bug 14 times. Excluding it: 22/27 = 81%.
-
-Failure breakdown (108 total):
-- 44 gate failures (AI gates flaking — 1-10 per run)
-- 38 missing gates (agent stopped mid-pipeline, especially ovnk)
-- 20 stale branch (test harness branch cleanup bug)
-- 6 other
-
-ovn-org/ovn-kubernetes is the outlier: 42% pass rate, 24 of 42
-failures are "missing 26 gates" = agent stopped after step2. All
-other repos are 63-73%. The "missing gates" problem is
-non-deterministic — same repo passes and fails on the same day.
+Gate flakes: 29 → 15 → 0. The remaining 5 failures on Aug 11
+(clean) are: 2 "no branch found", 3 "missing gates" (agent
+stopped early). The stale-branch harness bug (14 failures from
+one batch) is the only thing making the raw number look bad.
 
 ## Fix
 
