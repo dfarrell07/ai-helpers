@@ -2,9 +2,9 @@
 
 ## What this is
 
-Automates k8s.io/* dependency rebases for Go projects (~$35/repo vs
-~$400 manual). Works on 9 repos, 54% of test runs hit infra bugs.
-Goal: any engineer can rebase any supported repo without help.
+Automates k8s.io/* dependency rebases for Go projects. Works on
+9 repos, 54% of test runs hit infra bugs. Goal: any engineer can
+rebase any supported repo without help.
 
 **Glossary:** 5-step pipeline: bump deps, fix compilation, autofix
 patterns, lint+test+review, generate PR command. *Gate* = pass/fail
