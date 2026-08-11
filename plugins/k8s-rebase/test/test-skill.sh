@@ -53,33 +53,63 @@ _done_key() { local s="${2//[:\/\ ]/_}"; echo "${1}_${s}_$3"; }
 
 _worktree_info() {
   _WT_PATH="" _WT_BRANCH=""
-  local _wt_lines
-  _wt_lines=$(git -C "$1" worktree list 2>/dev/null | grep '\.claude/worktrees' || true)
-  [[ -z "$_wt_lines" ]] && return 1
-  local _wt_count
-  _wt_count=$(echo "$_wt_lines" | wc -l)
-  if [[ "$_wt_count" -gt 1 ]]; then
-    warn "Multiple worktrees for $(basename "$1") — results may be split. Run 'make clean' to fix."
-  fi
   local _wt_line
-  _wt_line=$(echo "$_wt_lines" | tail -1)
+  _wt_line=$(git -C "$1" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
+  [[ -z "$_wt_line" ]] && return 1
   _WT_PATH=$(echo "$_wt_line" | awk '{print $1}')
   _WT_BRANCH=$(echo "$_wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
 }
 
+# Collect gate report directories from ALL worktrees (+ main repo).
+# Sets _GATE_DIRS array.  Fixes false negatives when reports are split
+# across two worktrees (e.g. 1 report in wt-A + 32 in wt-B = 33 total).
+_collect_gate_dirs() {
+  _GATE_DIRS=()
+  local _repo="$1"
+  [[ -d "$_repo/.rebase-tmp/gates" ]] && _GATE_DIRS+=("$_repo/.rebase-tmp/gates")
+  while IFS= read -r _wt_line; do
+    [[ -z "$_wt_line" ]] && continue
+    local _wtp; _wtp=$(echo "$_wt_line" | awk '{print $1}')
+    [[ -d "$_wtp/.rebase-tmp/gates" ]] && _GATE_DIRS+=("$_wtp/.rebase-tmp/gates")
+  done < <(git -C "$_repo" worktree list 2>/dev/null | grep '\.claude/worktrees')
+}
+
+# Tally gate reports across one or more directories.
+# Accepts variadic args: _tally_gates dir1 [dir2 ...]
+# When the same gate name exists in multiple dirs, the newest file wins.
 _tally_gates() {
-  local _gdir="$1" _gt=0 _gf=0 _gs=0 _gfail_names=""
-  # Stale-report detection: if a FAIL report is older than the latest
-  # commit on the branch, the agent committed a fix after the gate ran.
-  # Treat stale FAILs as skipped to avoid false failures.
-  local _repo_root="${_gdir%/.rebase-tmp/gates}"
-  local _branch_tip_ts=0
-  if [[ -d "$_repo_root/.git" || -f "$_repo_root/.git" ]]; then
-    _branch_tip_ts=$(git -C "$_repo_root" log -1 --format='%ct' 2>/dev/null || echo 0)
-  fi
-  for _gf_file in "$_gdir"/*.report "$_gdir"/*.json; do
-    [[ -f "$_gf_file" ]] || continue; _gt=$((_gt + 1))
-    local _gn=$(basename "${_gf_file%.report}" .json)
+  local _gt=0 _gf=0 _gs=0 _gfail_names=""
+  # Collect all gate files, dedup by gate name (newest wins)
+  local -A _gate_files=()
+  for _gdir in "$@"; do
+    [[ -d "$_gdir" ]] || continue
+    for _gf_file in "$_gdir"/*.report "$_gdir"/*.json; do
+      [[ -f "$_gf_file" ]] || continue
+      local _gn=$(basename "${_gf_file%.report}" .json)
+      if [[ -z "${_gate_files[$_gn]+x}" ]]; then
+        _gate_files[$_gn]="$_gf_file"
+      else
+        local _old_ts=$(stat -c '%Y' "${_gate_files[$_gn]}" 2>/dev/null || echo 0)
+        local _new_ts=$(stat -c '%Y' "$_gf_file" 2>/dev/null || echo 0)
+        [[ "$_new_ts" -gt "$_old_ts" ]] && _gate_files[$_gn]="$_gf_file"
+      fi
+    done
+  done
+  # Stale-report detection: cache branch-tip timestamp per gate dir
+  local -A _tip_cache=()
+  for _gn in "${!_gate_files[@]}"; do
+    local _gf_file="${_gate_files[$_gn]}"
+    _gt=$((_gt + 1))
+    local _gdir="${_gf_file%/*}"
+    if [[ -z "${_tip_cache[$_gdir]+x}" ]]; then
+      local _repo_root="${_gdir%/.rebase-tmp/gates}"
+      local _ts=0
+      if [[ -d "$_repo_root/.git" || -f "$_repo_root/.git" ]]; then
+        _ts=$(git -C "$_repo_root" log -1 --format='%ct' 2>/dev/null || echo 0)
+      fi
+      _tip_cache[$_gdir]="$_ts"
+    fi
+    local _branch_tip_ts="${_tip_cache[$_gdir]}"
     local _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$_gf_file" 2>/dev/null | head -1)
     _gv="${_gv^^}"
     if [[ "$_gv" == *SKIP* || " $INFO_GATES " == *" ${_gn#step?-} "* ]]; then
@@ -338,11 +368,16 @@ remove_worktrees() {
     fi
   done <<< "$wt_lines"
   # Sweep orphaned worktree directories that git lost track of
-  # (e.g., after ENOSPC corrupts git's worktree metadata)
+  # (e.g., after ENOSPC corrupts git's worktree metadata).
+  # Safe: only called from cmd_run (before launch) and cmd_clean.
   if [[ -d "$repo/.claude/worktrees" ]]; then
     for orphan in "$repo/.claude/worktrees"/*/; do
       [[ -d "$orphan" ]] || continue
-      rm -rf "$orphan" 2>/dev/null && info "Removed orphaned worktree dir: $(basename "$orphan")"
+      if rm -rf "$orphan"; then
+        info "Removed orphaned worktree dir: $(basename "$orphan")"
+      else
+        warn "Could not remove orphaned worktree dir: $(basename "$orphan")"
+      fi
     done
   fi
 }
@@ -867,19 +902,16 @@ _do_record_one() {
   # Gate tally — every gate must produce a report, all must pass
   local verdict="FAIL"
   local gtotal=0 gfail=0 gskip=0
-  local gate_dir="${wt_path:+$wt_path/.rebase-tmp/gates}"
-  if [[ -n "$wt_path" && ! -d "$gate_dir" ]]; then
-    gate_dir=""
-  elif [[ -z "$wt_path" ]]; then
-    gate_dir="$repo/.rebase-tmp/gates"
-  fi
-  if [[ -d "$gate_dir" ]]; then
-    read -r gtotal gfail gskip gfail_names <<< "$(_tally_gates "$gate_dir")"
+  _collect_gate_dirs "$repo"
+  if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
+    read -r gtotal gfail gskip gfail_names <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
     # Reduce expected count for missing informational gates
     local _missing_info=0
     for _ig in $INFO_GATES; do
       local _found=false
-      for f in "$gate_dir"/*"${_ig}"*; do [[ -f "$f" ]] && _found=true && break; done
+      for _gd in "${_GATE_DIRS[@]}"; do
+        for f in "$_gd"/*"${_ig}"*; do [[ -f "$f" ]] && { _found=true; break 2; }; done
+      done
       $_found || _missing_info=$((_missing_info + 1))
     done
     [[ "$gtotal" -ge $((EXPECTED_GATES - _missing_info)) && "$gfail" -eq 0 ]] && verdict="PASS"
@@ -909,7 +941,11 @@ _do_record_one() {
       local _gstep="${_gdir_name%%-*}"
       local _gbase=$(basename "$_gmd" .md)
       local _gexpected="${_gstep}-${_gbase}"
-      if [[ ! -f "$gate_dir/${_gexpected}.report" && ! -f "$gate_dir/${_gexpected}.json" ]]; then
+      local _found_gate=false
+      for _gd in "${_GATE_DIRS[@]}"; do
+        [[ -f "$_gd/${_gexpected}.report" || -f "$_gd/${_gexpected}.json" ]] && { _found_gate=true; break; }
+      done
+      if ! $_found_gate; then
         _gmiss_names="${_gmiss_names:+$_gmiss_names, }${_gexpected}"
       fi
     done
@@ -968,10 +1004,19 @@ auto_record() {
 
     local _session_dead=false
     if _session_alive "$_run_sid"; then
-      # Session still running — check if gates are complete
-      _worktree_info "$repo" || true
-      local _wt="$_WT_PATH" _gc=0
-      [[ -n "$_wt" && -d "$_wt/.rebase-tmp/gates" ]] && _gc=$(ls "$_wt/.rebase-tmp/gates"/*.report "$_wt/.rebase-tmp/gates"/*.json 2>/dev/null | wc -l)
+      # Session still running — check if gates are complete (scan all worktrees)
+      _collect_gate_dirs "$repo"
+      local _gc=0
+      if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
+        local -A _gc_seen=()
+        for _gd in "${_GATE_DIRS[@]}"; do
+          for _gf in "$_gd"/*.report "$_gd"/*.json; do
+            [[ -f "$_gf" ]] || continue
+            _gc_seen[$(basename "${_gf%.report}" .json)]=1
+          done
+        done
+        _gc=${#_gc_seen[@]}
+      fi
       if [[ "$_gc" -ge "$EXPECTED_GATES" ]]; then
         info "Gate-complete: $spec on $short ($_gc/$EXPECTED_GATES gates)"
       else
@@ -1343,8 +1388,9 @@ cmd_watch() {
         local n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
         [[ "$n_commits" -gt 0 ]] && commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 30)
       fi
-      if [[ -d "$wt/.rebase-tmp/gates" ]]; then
-        read -r gc gf gs <<< "$(_tally_gates "$wt/.rebase-tmp/gates")"
+      _collect_gate_dirs "$repo"
+      if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
+        read -r gc gf gs <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
       fi
     fi
     local kg=$(_resolve_known_good "$short" "$repo")
@@ -1402,20 +1448,16 @@ _results_one() {
   cd "$repo" || die "Cannot cd to $repo"
   _worktree_info "$repo" || true
   local wt="$_WT_PATH"
-  local gate_dir="" wt_in_progress=false
-  if [[ -n "$wt" ]]; then
-    gate_dir="$wt/.rebase-tmp/gates"
-    [[ ! -d "$gate_dir" ]] && wt_in_progress=true
-  else
-    gate_dir="$repo/.rebase-tmp/gates"
-  fi
+  _collect_gate_dirs "$repo"
+  local wt_in_progress=false
+  [[ -n "$wt" && ${#_GATE_DIRS[@]} -eq 0 ]] && wt_in_progress=true
 
   echo "── $short ──"
   if $wt_in_progress; then
     echo "Run in progress (worktree exists, gates not yet written)"
-  elif [[ -d "$gate_dir" ]]; then
+  elif [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
     local total=0 gfail=0 gskip=0
-    read -r total gfail gskip <<< "$(_tally_gates "$gate_dir")"
+    read -r total gfail gskip <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
     local _skip_note=""
     [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
     if [[ "$total" -ge "$EXPECTED_GATES" && "$gfail" -eq 0 ]]; then
@@ -1425,18 +1467,33 @@ _results_one() {
     else
       echo "Gates: $total/$EXPECTED_GATES complete (in progress${_skip_note})"
     fi
-    local _repo_root="${gate_dir%/.rebase-tmp/gates}"
-    local _branch_tip_ts=0
-    if [[ -d "$_repo_root/.git" || -f "$_repo_root/.git" ]]; then
-      _branch_tip_ts=$(git -C "$_repo_root" log -1 --format='%ct' 2>/dev/null || echo 0)
-    fi
-    for f in "$gate_dir"/*.report "$gate_dir"/*.json; do
-      [[ -f "$f" ]] || continue
+    # Collect deduped gate files across all worktrees (newest wins per gate name)
+    local -A _rgate_files=()
+    for _gd in "${_GATE_DIRS[@]}"; do
+      for f in "$_gd"/*.report "$_gd"/*.json; do
+        [[ -f "$f" ]] || continue
+        local _gn=$(basename "${f%.report}" .json)
+        if [[ -z "${_rgate_files[$_gn]+x}" ]]; then
+          _rgate_files[$_gn]="$f"
+        else
+          local _old_ts=$(stat -c '%Y' "${_rgate_files[$_gn]}" 2>/dev/null || echo 0)
+          local _new_ts=$(stat -c '%Y' "$f" 2>/dev/null || echo 0)
+          [[ "$_new_ts" -gt "$_old_ts" ]] && _rgate_files[$_gn]="$f"
+        fi
+      done
+    done
+    for _gn in "${!_rgate_files[@]}"; do
+      local f="${_rgate_files[$_gn]}"
       local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       v="${v^^}"
       [[ "$v" != *"FAIL"* ]] && continue
-      local _gn=$(basename "${f%.report}" .json)
       [[ " $INFO_GATES " == *" ${_gn#step?-} "* ]] && continue
+      local _gdir="${f%/*}"
+      local _repo_root="${_gdir%/.rebase-tmp/gates}"
+      local _branch_tip_ts=0
+      if [[ -d "$_repo_root/.git" || -f "$_repo_root/.git" ]]; then
+        _branch_tip_ts=$(git -C "$_repo_root" log -1 --format='%ct' 2>/dev/null || echo 0)
+      fi
       _is_stale_fail "$f" "$_branch_tip_ts" && continue
       echo ""
       echo "FAILED: $_gn"
