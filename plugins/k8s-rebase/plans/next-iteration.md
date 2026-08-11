@@ -26,18 +26,32 @@ fresh `cmd_init`. On resume with version mismatch, delete
 `commit-messages` are style-only, always PASS. Auto-write reports
 in orchestrator, skip agent calls.
 
+**Hook session guards** — All 3 markdown hooks (block-module-ops,
+block-push, block-vendor-edit) lack session guards. They block
+`go mod tidy`, `git push`, and vendor edits in ALL repos during
+ANY Claude Code session — not just during rebases. Add
+`.rebase-tmp/.session-active` check to each. If absent, ALLOW.
+
 ### Other fixes
 
 **Resume version mismatch** — Error if stored version differs
 from argument. Include cleanup command in error message
 (`rm -rf .rebase-tmp`).
 
-**Force-advance default** — Default should be stop on gate
-failure. Test harness opts into force-advance via env var.
-Per-repo opt-in for flaky repos like ovnk.
+**Force-advance: surface, don't suppress** — The INCOMPLETE file
+is dead (nothing reads it). The advance counter tracks `advance`
+calls, not gate retries — can fire accidentally. Fix: (1) have
+step5 read `.rebase-tmp/status/INCOMPLETE` and add a WARNING
+section to the PR body listing skipped gates, (2) count gate
+re-evaluation cycles not advance calls, (3) suggest `--draft`
+PR when gates were skipped. A draft PR with documented skips is
+better than no PR.
 
-**Pre-push hook restore** — Script backs up existing hook but
-never restores. Add restore to step5 cleanup and ERR trap.
+**Pre-push hook cleanup** — Script backs up existing hook but
+never restores. Hook persists indefinitely after rebase. Add
+restore to step5 cleanup and ERR trap. Stop-hook should also
+clean up `.session-active` on orchestrator crash (currently
+blocks exit if orchestrator dies).
 
 ### Test harness (do alongside quick wins)
 
@@ -56,5 +70,4 @@ gates to 7/33. Migrate `crd-validation.sh` to `gate-script-lib.sh`.
 
 ### README safety guarantees
 Add "never pushes to remote, all work on a new branch, you review
-before merging." Known limitations belong in SKILL.md/scripts as
-validation checks, not README prose.
+before merging."
