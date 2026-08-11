@@ -11,12 +11,9 @@ patterns, lint+test+review, generate PR command. *Gate* = pass/fail
 check (33 total). *Companion script* = deterministic bash gate
 (6 exist). *Orchestrator* = state machine enforcing step ordering.
 
-## Definition of done
+## Done when
 
-1. Zero infra failures on 10 diverse repos
-2. Every successful run produces a PR command
-3. Orchestrator rejects stale gate reports (HEAD SHA mismatch)
-4. **3 end-to-end runs by a non-author, without Slack help**
+A non-author completes 3 rebases without Slack help.
 
 ## Fix
 
