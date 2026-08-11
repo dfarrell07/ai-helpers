@@ -1,84 +1,58 @@
 # Plan: k8s-rebase Next Iteration
 
-## What this is
+## Where we are
 
-Automates k8s.io/* dependency rebases for Go projects. Works on
-6 repos × 3 k8s versions. The major refactor (orchestrator, step
-isolation, stop hook, companion scripts, hooks) shipped Aug 4-10.
+81% clean pass rate (22/27 on Aug 11, excluding a stale-branch
+batch that ran before that bug was fixed). Gate flakes: 29→15→0
+across the 3 eras. The orchestrator refactor worked.
 
-The refactor worked — 3 eras of data show clear improvement:
-- Pre-orchestrator (Jul 29-Aug 3): 57% pass, 29 gate flakes
-- Post-orchestrator (Aug 4-10): 72% pass, 15 gate flakes
-- Post-commit + 3 fixes (Aug 11): **81% pass** (excluding one
-  stale-branch batch), **zero gate flakes**
+5 remaining failures on Aug 11 (clean):
+- 2 "no branch found" — harness bug, stale-branch fix covers it
+- 3 "missing gates" — agent stopped early (the unsolved problem)
 
-Gate flakes: 29 → 15 → 0. The remaining 5 failures on Aug 11
-(clean) are: 2 "no branch found", 3 "missing gates" (agent
-stopped early). The stale-branch harness bug (14 failures from
-one batch) is the only thing making the raw number look bad.
+## What actually moves the pass rate
 
-## Fix
+**Verify stale-branch fix** — The 3-fixes commit (Aug 11 10:19)
+already addressed branch deletion ordering. The 14 stale-branch
+failures were from a batch that ran BEFORE the fix. Run a clean
+batch to confirm the fix works. No new code needed — just a
+verification run.
 
-### Quick wins
+**Agent early-stop** — 3 of 5 remaining failures are the agent
+stopping mid-pipeline ("missing 1", "missing 14", "missing 32"
+gates). This is the single biggest unsolved problem. The
+orchestrator prevents step-skipping but can't prevent the agent
+from running out of context or timing out. Investigate: are these
+context exhaustion, API timeouts, or agent satisficing? The answer
+determines the fix.
 
-**GPG signing** — Set `GIT_CONFIG_COUNT` with `commit.gpgsign=false`
-EARLY in `k8s-rebase.sh` and autofix (before the container check,
-so it works for both host and container paths). 2 lines per script.
-
-**HEAD SHA** — Add `echo "HEAD: $(git rev-parse HEAD)"` to
-`write-gate-report.sh`. Enables stale detection (currently
-silently disabled).
-
-**Force-advance counter** — Clear `.advance-attempts-step*` on
-fresh `cmd_init`. On resume with version mismatch, delete
-`.rebase-tmp/` entirely and start fresh.
-
-**Auto-PASS style gates** — `maintainer-review` and
-`commit-messages` are style-only, always PASS. Auto-write reports
-in orchestrator, skip agent calls.
-
-**Hook session guards** — All 3 markdown hooks (block-module-ops,
-block-push, block-vendor-edit) lack session guards. They block
-`go mod tidy`, `git push`, and vendor edits in ALL repos during
-ANY Claude Code session — not just during rebases. Add
-`.rebase-tmp/.session-active` check to each. If absent, ALLOW.
-
-### Other fixes
-
-**Resume version mismatch** — Error if stored version differs
-from argument. Include cleanup command in error message
-(`rm -rf .rebase-tmp`).
-
-**Force-advance: surface, don't suppress** — The INCOMPLETE file
-is dead (nothing reads it). The advance counter tracks `advance`
-calls, not gate retries — can fire accidentally. Fix: (1) have
-step5 read `.rebase-tmp/status/INCOMPLETE` and add a WARNING
-section to the PR body listing skipped gates, (2) count gate
-re-evaluation cycles not advance calls, (3) suggest `--draft`
-PR when gates were skipped. A draft PR with documented skips is
-better than no PR.
+## Production hardening (for real users, not pass rate)
 
 **Pre-push hook cleanup** — Script backs up existing hook but
-never restores. Hook persists indefinitely after rebase. Add
-restore to step5 cleanup and ERR trap. Stop-hook should also
-clean up `.session-active` on orchestrator crash (currently
-blocks exit if orchestrator dies).
+never restores. Hook persists indefinitely after rebase, blocking
+`git push` in the target repo. Add restore to step5 cleanup and
+ERR trap.
 
-### Test harness (do alongside quick wins)
+**Hook session guards** — The 3 markdown hooks block `go mod tidy`,
+`git push`, and vendor edits in ALL repos during any Claude Code
+session. No one has hit this yet (pre-release), but it will be the
+first friction point when real users install the plugin. Add
+`.session-active` check.
 
-**Stale-branch detection** — 20/108 failures (19%). Root cause:
-`cmd_run` deletes branches BEFORE `reset_to_default`, so
-`git branch -D` silently fails. Fix: 2-line reorder.
+**GPG signing** — Set `GIT_CONFIG_COUNT` with `commit.gpgsign=false`
+early in scripts. No observed failures, but common Red Hat config
+that would silently break commits. Defensive fix.
 
-**Court juror enforcement** — Add ~2 lines to reject output
-missing VERIFIED: line. Impacts 10 of 12 matrix cells.
+**Force-advance counter** — Clear on fresh `cmd_init`. Real bug
+but untestable with current harness (worktrees create fresh state).
+Matters for production users who crash and retry.
 
-## Build
+**Resume version mismatch** — Error if stored version differs.
+Can't happen in test harness (always starts fresh) but will happen
+to production users.
 
-### Companion script
-`cleanliness.sh` (git status + find). Brings deterministic
-gates to 7/33. Migrate `crd-validation.sh` to `gate-script-lib.sh`.
+## Incremental reliability
 
-### README safety guarantees
-Add "never pushes to remote, all work on a new branch, you review
-before merging."
+**Cleanliness companion script** — `cleanliness.sh` (git status +
+find). Gate hasn't flaked yet but a deterministic script eliminates
+the possibility permanently.
