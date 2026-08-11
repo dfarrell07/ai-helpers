@@ -11,10 +11,6 @@ patterns, lint+test+review, generate PR command. *Gate* = pass/fail
 check (33 total). *Companion script* = deterministic bash gate
 (6 exist). *Orchestrator* = state machine enforcing step ordering.
 
-## Done when
-
-A non-author completes 3 rebases without Slack help.
-
 ## Fix
 
 ### Quick wins
