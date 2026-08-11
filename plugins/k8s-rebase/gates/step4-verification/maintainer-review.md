@@ -1,0 +1,71 @@
+Review the full branch diff as a maintainer would. Does every
+change serve the k8s version bump, or are there unrelated
+cleanups, style changes, or logic alterations? Would a
+maintainer approve this diff as-is?
+
+Check:
+- Are commits well-scoped (one concern per commit)?
+- Are commit messages accurate?
+- Is there any scope creep (changes beyond what the rebase needs)?
+  Examples of scope creep: dependency bumps unrelated to k8s.io/*,
+  reformatting unchanged code, logic changes not required by
+  type/API changes, new features.
+- Are any expected changes missing (e.g., version refs not
+  updated, type conversions incomplete)?
+
+Note: the autofix script applies deterministic rebase patterns
+that ARE required — these are NOT scope creep. Changes from the
+autofix are expected, even if they touch e2e infrastructure,
+version references, or test configuration. Do not flag
+patch-level version mismatches as scope creep — the autofix
+picks the latest available patch releases. DO flag minor-version
+mismatches (versions from a different minor release than the
+target).
+
+Lint-suppression check — any `//nolint:` annotation that duplicates
+coverage already in `.golangci.yml` is unnecessary noise in the diff.
+FAIL if the diff adds `//nolint:` comments for linters that are also
+suppressed via `.golangci.yml` (exclude-functions, exclude-rules, or
+linter settings). The config is the right place; inline annotations are
+for rare, targeted, one-off exceptions that can't be expressed in config.
+Check:
+  `git diff <merge-base>..HEAD | grep '^\+.*//nolint:'`
+For each hit, verify the suppressed linter is NOT already covered by
+`.golangci.yml`. If it is — FAIL. If the annotation is genuinely
+site-specific with no config equivalent — INFO only.
+
+VERDICT: FAIL if scope creep or inaccurate commit messages are
+CONFIRMED from the diff — demonstrably present, not merely suspected.
+PASS if all changes serve the rebase. Only flag what you can point
+to with a specific commit SHA and file:line. If you are uncertain
+whether a change is required, note it as INFO and lean toward PASS.
+False FAILs block legitimate rebases; false PASSes are caught by
+human review. Cite your evidence precisely.
+
+List your findings with specific commit SHAs and file:line refs.
+Do not just say "would approve" — explain what you checked.
+
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
+`go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+`go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
+`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`. Fix-hint commands in report text are fine.
+
+Rules: you are read-only — do not edit repo files. Your sole
+permitted write is your gate report file under .rebase-tmp/gates/.
+Do not write anywhere else. Cite file:line
+for any issues.
+
+After your analysis, write your report using the helper script.
+The repo path is the first line of your prompt:
+
+```bash
+REPO="<the repo path from the first line of your prompt>"
+bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
+  "$REPO" step4-maintainer-review PASS 0 "your one-line summary" \
+  "detail line 1" "detail line 2"
+```
+
+Use PASS, FAIL, or SKIP as the verdict. Replace the summary and details with
+your actual findings. Cite specific commit SHAs and file:line for
+every FAIL finding — no citations means no FAIL.
