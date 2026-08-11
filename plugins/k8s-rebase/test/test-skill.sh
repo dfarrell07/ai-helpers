@@ -887,8 +887,19 @@ _do_record_one() {
   if [[ "$gtotal" -eq 0 ]]; then
     detail="no gates ran (bug)"
   elif [[ "$gtotal" -lt "$EXPECTED_GATES" ]]; then
-    detail="missing $((EXPECTED_GATES - gtotal)) of $EXPECTED_GATES gates"
-    [[ "$gfail" -gt 0 ]] && detail="$detail, $gfail failed"
+    local _gmiss_names=""
+    for _gmd in "$PLUGIN_DIR/gates"/step*/*.md; do
+      [[ -f "$_gmd" ]] || continue
+      local _gdir_name=$(basename "$(dirname "$_gmd")")
+      local _gstep="${_gdir_name%%-*}"
+      local _gbase=$(basename "$_gmd" .md)
+      local _gexpected="${_gstep}-${_gbase}"
+      if [[ ! -f "$gate_dir/${_gexpected}.report" && ! -f "$gate_dir/${_gexpected}.json" ]]; then
+        _gmiss_names="${_gmiss_names:+$_gmiss_names, }${_gexpected}"
+      fi
+    done
+    detail="missing $((EXPECTED_GATES - gtotal)) of $EXPECTED_GATES gates [${_gmiss_names}]"
+    [[ "$gfail" -gt 0 ]] && detail="$detail, $gfail failed [${gfail_names//,/, }]"
     [[ "$gskip" -gt 0 ]] && detail="$detail$_gate_suffix"
   elif [[ "$gfail" -gt 0 ]]; then
     detail="$gfail gate(s) failed [${gfail_names//,/, }]${_gate_suffix}"
