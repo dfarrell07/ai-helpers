@@ -8,15 +8,19 @@ zero gate quality failures. 54% of test runs hit infrastructure bugs
 (stale-branch detection in the test harness). Goal: any engineer can
 rebase any supported repo without help.
 
-**Glossary:** *Gate* = pass/fail verification check (33 total). *Companion
-script* = deterministic bash gate replacement (6 exist). *Orchestrator* =
-bash state machine enforcing step ordering. *Court* = test harness's
-adversarial review (prosecution, defense, 3 jurors, judge) comparing
-output to a known-good human rebase. *Force-advance* = orchestrator
-gives up after 3 failed attempts, proceeds with INCOMPLETE marker.
-*Autofix* = deterministic fix patterns applied by script before AI
-gates run. *spec=none* = production test mode (all automation enabled);
-*spec=all* = diagnostic mode (autofix disabled, AI solves independently).
+**Glossary:** The skill runs a 5-step pipeline: (1) bump deps +
+codegen + version refs, (2) fix compilation, (3) apply autofix
+patterns, (4) lint + test + adversarial review, (5) generate PR
+command. *Gate* = pass/fail check (33 total, run per step).
+*Companion script* = deterministic bash gate (6 exist, zero flake).
+*Orchestrator* = bash state machine enforcing step ordering.
+*Court* = test harness adversarial review (prosecution, defense,
+3 jurors, judge) comparing output to a known-good human rebase.
+*Force-advance* = orchestrator gives up after 3 attempts, proceeds
+with INCOMPLETE marker. *Autofix* = deterministic fix patterns
+applied by script before AI gates. *spec=none* = production test
+mode (all automation enabled); *spec=all* = diagnostic (autofix
+disabled, AI solves independently).
 
 **Policy:** Never send unsolicited AI-generated PRs to upstream repos.
 Require explicit maintainer opt-in. Some projects reject AI
@@ -41,8 +45,17 @@ User-facing severity first. Test harness bugs at the end.
 Users with `commit.gpgsign=true` (common at Red Hat) get silent
 commit failures — no GPG agent in container. Every commit fails,
 script continues, branch has zero history.
-**Fix:** Override via `GIT_CONFIG_COUNT` (pattern exists for
-`safe.directory`). Apply in `k8s-rebase.sh` and autofix.
+**Fix:** Increment `GIT_CONFIG_COUNT` (don't overwrite — the script
+already sets count=1 for `safe.directory`). Add `commit.gpgsign=false`
+and `tag.gpgsign=false` as keys 1 and 2 (count becomes 3). Apply
+in `k8s-rebase.sh` and autofix.
+
+### GOTOOLCHAIN=local **(quick)**
+Without this, repos targeting a newer Go version auto-download a
+toolchain mid-run — fails in air-gapped and container environments.
+`GOWORK=off` is already set but `GOTOOLCHAIN=local` is missing.
+**Fix:** Add `export GOTOOLCHAIN=local` alongside `GOWORK=off`
+in all three scripts.
 
 ### Step5 / stop-hook race **(quick)**
 Orchestrator returns `DONE` after step4, but step5 runs after.
@@ -88,11 +101,14 @@ INCOMPLETE content must appear in PR description. Add
 - `RESULT: FAIL` -> `RESULT: ITEMS_REMAINING` in autofix.
 - fail_code column in results.tsv (INFRA/GATE/COURT). Header row.
 - Double-advance: add bash block to step3 for consistency.
+- Pre-push hook cleanup: script overwrites `hooks/pre-push` but
+  never restores the original. Add cleanup to step5 and ERR trap.
 
-### Stale-branch detection redesign (test harness only)
-63% of test failures but does not affect real users. Root cause:
-detection compares commit timestamps. Fix: use reflog-based branch
-creation time (fallback: 5-min grace window for shallow clones).
+### Stale-branch detection redesign (test harness — do alongside quick wins)
+63% of test failures. Does not affect real users, but without
+fixing it the test suite can't verify the other fixes work.
+Root cause: detection compares commit timestamps. Fix: use
+reflog-based branch creation time (fallback: 5-min grace window).
 Fix branch deletion ordering. `test/test-skill.sh`.
 
 ### Court juror forced verification (test harness only)
@@ -111,12 +127,14 @@ Replace hardcoded `GATE_DEPS` map with runtime parsing of
 `vendor/k8s.io/client-go/features/known_features.go`. Discovers
 Default:true, filters LockToDefault:true. Eliminates per-release
 maintenance. Handle non-vendored repos via `$GOMODCACHE`.
+**Risk:** Riskiest item in plan — the file's internal structure
+is not a stable API. Parsing bug = silent wrong gate list. Build
+with a fallback to the hardcoded map if parsing fails.
 
 ### Go forward-compatibility
-Prerequisites for diverse repos:
-- Set `GOTOOLCHAIN=local` alongside `GOWORK=off`
 - Detect `go.work` at repo root (error until supported)
 - Warn when `replace` directives override freshly-bumped requires
+(`GOTOOLCHAIN=local` moved to Fix — it breaks today in containers)
 
 ### Quickstart + known limitations
 One page in README. Prerequisites, first run, what each step does,
