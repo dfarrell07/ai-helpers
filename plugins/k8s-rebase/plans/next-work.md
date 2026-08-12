@@ -11,50 +11,45 @@ Both modes work:
 
 ## Correctness
 
-### Silent go get failures
-Failures swallowed with WARNING. Step2 gate catches mismatches
-post-hoc but no in-script early warning.
-**Fix:** Warn-and-continue assertion after skew alignment
-(~line 523). Non-fatal — gate is authoritative.
+### Silent go get assertion
+Add warn-and-continue after skew alignment (~line 523):
+grep k8s.io deps (excluding kube-openapi/utils/klog/gengo),
+warn if any not at API_VERSION. Non-fatal — gate catches.
 
-### CRD check/fix scope mismatch
-run_checks verifies 1 path, fix patches 6. CNO bindata/ missed.
-**Fix:** Broaden run_checks to 6 paths + 3 exclusions matching
-fix_crd_int64_validation.
+### CRD check scope
+Replace `*/helm/*/crds/*.yaml` in run_checks (lines 244, 254)
+with the 6-path + 3-exclusion pattern from fix_crd_int64.
 
-### sigs.k8s.io in derive_go_gets Rule 1
-Pins sigs.k8s.io to k8s minor versions — they version
-independently. Would try `sigs.k8s.io/yaml@v1.36.2` (wrong).
-**Fix:** Remove `sigs\.k8s\.io/` from Rule 1 grep. Rule 3
-catches them correctly. No regression.
+### sigs.k8s.io in Rule 1
+`k8s\.io/` already matches `sigs.k8s.io/` as substring —
+removing the alternation is a NO-OP. Need explicit exclusion:
+`grep -E "k8s\.io/" | grep -v "sigs\.k8s\.io/"` in Rule 1
+(line 390). Rule 3 catches sigs.k8s.io correctly via bare
+`go get`.
 
 ## Trust
 
 ### go-mod-tidy hook vs step2
-Step2 tells agent to run `go get <module>@latest && go mod tidy`
-directly. Hook blocks direct `go get`. Hook correctly exempts
-bash script invocations. The hook is RIGHT — scripts are
-trusted, ad-hoc agent commands aren't.
-**Fix:** Create `scripts/k8s-rebase-depfix.sh <module>` wrapper.
-Change step2 line 107 to call wrapper. Hook stays.
+Hook regex `^\s*(bash|sh)\s+\S+\.sh\s*$` blocks scripts with
+args. Created `scripts/k8s-rebase-depfix.sh <module>`. Updated
+hook regex to allow script arguments (restrictive char class,
+blocks shell metacharacters). Still need: update step2 line 107
+to call wrapper instead of direct `go get`.
 
-### Pre-push hook orphaned on die()
-ERR trap does NOT fire on die() — confirmed empirically. 12
-die() calls between hook install and branch creation orphan it.
-EXIT trap is wrong (removes guard on successful exit).
-**Fix:** Add `cleanup_hook` call inside die() function.
+### Pre-push hook on die()
+ERR trap does NOT fire on die() — confirmed empirically.
+Fix: `die() { echo "ERROR: $*" >&2; cleanup_hook; exit 1; }`
+Safe if hook not yet installed (cleanup_hook returns 0).
 
 ### Dead rebase-report.md
-rules.md lines 85-88 instruct checkpoints no step writes.
-step5 handles missing file gracefully.
-**Fix:** Remove lines 85-88 from rules.md.
+Remove rules.md lines 84-88 (checkpoint instructions). Also
+update step5-pr.md lines 45 and 57 (dangling references to
+rebase-report.md).
 
-### Hook jq dependency
-jq missing = fail-open. grep/sed replacement is unsafe (breaks
-on escaped quotes in JSON). jq is justified.
-**Fix:** Add jq-missing guard per hook that fails closed:
-`command -v jq >/dev/null || { printf '{"decision":"block",
-"reason":"jq required"}'; exit 0; }`
+### Hook jq guard
+Add after set -euo pipefail in all 4 hooks:
+`command -v jq >/dev/null 2>&1 || { printf '{"decision":
+"block","reason":"jq required"}\n'; exit 0; }`
 
 ## Performance
 
@@ -64,9 +59,11 @@ on escaped quotes in JSON). jq is justified.
 
 ## Dropped (verified wrong)
 
-- Remove block-module-ops hook — wrong, hook is correct
+- Remove block-module-ops hook — hook is correct, scripts
+  exempted by design
 - EXIT trap for pre-push — removes safety guard on success
 - Replace jq with grep/sed — breaks on escaped quotes
-- AtomicFIFO restoration — doesn't affect fake clientsets
+- Remove sigs.k8s.io alternation only — no-op, needs grep -v
+- AtomicFIFO — doesn't affect fake clientsets
 - ovnk rename — false
 - "autofix counterproductive" — disproven, 3/3 PASS
