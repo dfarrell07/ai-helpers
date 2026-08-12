@@ -442,8 +442,10 @@ cmd_run() {
       git -C "$repo" branch -D "$_old_branch" 2>/dev/null \
         && info "Deleted stale branch: $_old_branch"
     done < <(git -C "$repo" branch --no-color | sed 's/^[* +]*//' | grep "^${_bump_prefix}")
-    # Clear stale gate reports to prevent old results merging into new run
-    rm -rf "$repo/.rebase-tmp/gates" 2>/dev/null || true
+    # Clear all stale state from prior runs (state.json, .session-active,
+    # gate reports, advance counters). Live run data is in the worktree,
+    # not the main repo — nothing is lost.
+    rm -rf "$repo/.rebase-tmp" 2>/dev/null || true
     if [[ -n "$from_commit" ]]; then
       cd "$repo" || { warn "Skipping $short"; continue; }
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
@@ -577,6 +579,7 @@ cmd_clean() {
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
     remove_worktrees "$repo"
+    rm -rf "$repo/.rebase-tmp" 2>/dev/null || true
     # Recover to default branch first (so we can delete temp branches)
     local _cur=$(git branch --show-current 2>/dev/null)
     [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null || true; }
