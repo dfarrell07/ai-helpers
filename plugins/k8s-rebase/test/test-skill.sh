@@ -1479,7 +1479,7 @@ _results_one() {
     for _gd in "${_GATE_DIRS[@]}"; do
       for f in "$_gd"/*.report; do
         [[ -f "$f" ]] || continue
-        local _gn=$(basename "${f%.report}" .json)
+        local _gn=$(basename "$f" .report)
         if [[ -z "${_rgate_files[$_gn]+x}" ]]; then
           _rgate_files[$_gn]="$f"
         else
