@@ -246,7 +246,7 @@ run_checks() {
       _crd_int64_miss=$((_crd_int64_miss+1))
     fi
   done
-  r "CRD format:int32 before uint32 max" "$_crd_int64_miss"
+  r "CRD int32 before uint32 max" "$_crd_int64_miss"
   local _crd_name_miss=0
   local _base=""
   for _c in master main; do git rev-parse --verify "$_c" &>/dev/null && _base="$_c" && break; done
@@ -1266,7 +1266,7 @@ else
         echo "  $name: Update k8s version references in docs/features/requirements.md:"
         grep -n "| *1\." docs/features/requirements.md 2>/dev/null | sed 's/^/    docs\/features\/requirements.md:/' | head -20
         ;;
-      *"CRD format:int32"*)
+      *"CRD int32"*)
         echo "  $name: Change format: int32 → format: int64 for uint32 max fields:"
         for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
           awk '/format: int32/{line=NR; fmt=$0} /maximum: 4294967295/{if(NR==line+1) printf "    %s:%d: %s\n", FILENAME, line, fmt}' "$_crd" 2>/dev/null
