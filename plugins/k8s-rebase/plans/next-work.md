@@ -183,3 +183,19 @@ make test repo=openshift/multus-cni
 | P1: Fix now | 6 | ~2 hours |
 | P2: Design | 3 | Discussion + ~1 hour |
 | P3: Future | 5 | Separate PRs |
+
+### 20. Review prompt backtick injection (CRITICAL)
+
+k8s-rebase-review-prompt.md wraps $DIFF in triple-backtick
+code fence. If the diff contains triple backticks (Go doc
+comments, test fixtures), the fence breaks and injected text
+becomes top-level prompt instructions. Fix: use 5+ backtick
+fence or escape backticks in DIFF.
+
+### 21. Review default-APPROVE on all failures (CRITICAL)
+
+k8s-rebase-review.sh outputs APPROVE when template missing,
+claude CLI missing, or timeout. All 3 failure paths silently
+approve unreviewed code. The antagonistic review system is
+defeated by any infrastructure issue. Fix: default to REJECT
+or exit with distinct code forcing caller to decide.
