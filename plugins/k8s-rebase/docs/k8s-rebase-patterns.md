@@ -55,7 +55,8 @@ codegen output changes.
 | golangci-lint v1 + Go 1.26 | container image can't parse Go 1.26 | Replace Makefile no-op else with `go install @$(VERSION) && golangci-lint run` |
 | CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | New Go versions may only exist for newer OCP streams (e.g., 1.26 → openshift-5.0, not 4.22) |
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
-| MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in e2e setup script (check patch compat) |
+| KubeVirt version | VM readiness timeouts in kv-live-migration CI | Bump to latest stable patch within same minor; nightly as last resort |
+| MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in e2e setup script; update FRR image variable separately |
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go to latest; if still missing, use replace directive pointing to a fork (see Cross-repo dependency ordering below) |
 | Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Check `.snyk` strategy: `vendor/**` glob is safe; per-file exclusions need updating |
 | sudo PATH not preserved (often pre-existing) | `go: command not found` under sudo in CI scripts | In bash: `sudo env "PATH=$PATH" <cmd>` to preserve Go toolchain PATH |

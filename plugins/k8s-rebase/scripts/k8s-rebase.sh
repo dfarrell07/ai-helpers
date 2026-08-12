@@ -26,7 +26,7 @@ cleanup_hook() {
     [[ -f "$hdir/pre-push.bak.k8s-rebase" ]] && mv "$hdir/pre-push.bak.k8s-rebase" "$hdir/pre-push"
   fi
 }
-trap 'echo "ERROR: k8s-rebase.sh crashed at line $LINENO" >&2; cleanup_hook' ERR
+trap 'echo "ERROR: k8s-rebase.sh crashed at line $LINENO" >&2; cleanup_hook' ERR INT TERM
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
@@ -227,6 +227,7 @@ if [[ "$OLD_MINOR" == "$K8S_MINOR" ]]; then
   done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l "k8s.io/" {} \; 2>/dev/null)
   if [[ $stale_count -eq 0 ]]; then
     info "Already at k8s 1.${K8S_MINOR} — nothing to do"
+    cleanup_hook
     rm -rf "$REBASE_TMP"
     exit 0
   fi
