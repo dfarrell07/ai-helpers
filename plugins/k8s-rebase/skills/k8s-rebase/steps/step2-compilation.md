@@ -89,7 +89,7 @@ to re-vendor leaves stale packages that cause CI failures.
 
 **For OpenShift deps** (`openshift/api`, `openshift/client-go`,
 `openshift/library-go`): use the correct release branch per the
-OCP mapping in Step 5d (k8s 1.N -> OCP 4.(N-13), or 5.(N-36)
+OCP mapping in rules.md (k8s 1.N -> OCP 4.(N-13), or 5.(N-36)
 for k8s >=1.36). Do NOT escalate to a newer release branch to
 fix dependency conflicts — find newer commits on the correct
 branch instead. Wrong branch = MVS pulls k8s deps to the wrong
