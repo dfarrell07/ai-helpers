@@ -12,11 +12,13 @@ REPO_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 [[ -z "$CMD" ]] && exit 0
 
-# Allow script wrappers (bash *.sh) — they run module ops internally
-echo "$CMD" | grep -qE '^\s*(bash|sh)\s+\S+\.sh' && exit 0
+# Allow script wrappers — but ONLY if the entire command is a script
+# invocation (not "bash fix.sh && go mod tidy")
+echo "$CMD" | grep -qE '^\s*(bash|sh)\s+\S+\.sh\s*$' && exit 0
 
-# Block direct go module operations
-if echo "$CMD" | grep -qE '^\s*go\s+(mod\s+(tidy|edit|vendor)|get|generate|run)\b'; then
+# Block direct go module operations (unanchored to catch compound
+# commands like "cd /tmp && go mod tidy" or "sudo go get foo")
+if echo "$CMD" | grep -qE '\bgo\s+(mod\s+(tidy|edit|vendor|download|init)|get|generate|run|work\s+sync)\b'; then
   jq -n --arg reason "$(cat <<'MSG'
 BLOCKED: Direct go module operations are forbidden during k8s-rebase.
 Module operations (go mod tidy, go get, go mod vendor) are handled
