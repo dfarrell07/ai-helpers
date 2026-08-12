@@ -3,32 +3,33 @@
 Common breakage patterns from k8s rebases. Update after each
 rebase with new patterns discovered.
 
-## Extending for a New k8s Version
+<!-- LINE BUDGET: 300. Trim version-specific content before
+     adding new patterns. Run: wc -l docs/k8s-rebase-patterns.md -->
 
-When rebasing to k8s 1.37+, update these files:
+## Extending
 
-1. **This file** — add a `### New Pattern (k8s 1.XX)` section
-   under Version-Specific Patterns with the fix recipe.
-2. **`scripts/k8s-rebase-autofix.sh`** — if the fix is
-   deterministic (sed/grep), add a `fix_*` function in the
-   version-specific section. Add a matching check to
-   `run_checks()`. For new gate dependents, add one line to
-   the `GATE_DEPS` map at the top of the script.
+When a rebase surfaces a new breakage pattern:
+
+1. **Pattern Table** — add a row (one-liner: category, symptom,
+   fix). This is the primary entry point; most patterns belong
+   here and nowhere else.
+2. **Detailed section below the table** — add a `### Title
+   (recurring)` section only if the fix needs multi-step
+   instructions, code examples, or caveats that cannot fit a
+   single table row.
 3. **`scripts/k8s-rebase.sh`** — only if the mechanical rebase
-   needs changes (unlikely — it's version-generic).
+   needs changes (unlikely — it is version-generic).
 
-**How to discover new patterns:** Run the skill on a test repo
-and observe what breaks. Common sources of new patterns:
-- `go build` errors from renamed/removed types or functions
-- `go vet` errors from stricter format string checking
-- golangci-lint surfacing newly detectable issues
-- Tests hanging → new feature gate needs disabling (the rebase
-  script prints "New default-true feature gates" at the end)
-- e2e tests failing → KIND/MetalLB/KubeVirt version skew
-- CI `verify` jobs failing → codegen output changed
+**Criteria for inclusion:** patterns must be generic — they
+apply (or could apply) to any Go project that vendors k8s.
+If a fix only fires for one or two specific repos, put it in
+that repo's `CLAUDE.md` or `AGENTS.md`, not here.
 
-Most patterns are discovered on the first repo (usually ovnk)
-and then apply to all subsequent repos automatically.
+**How to discover patterns:** run the skill on a repo and
+observe what breaks. Common sources: renamed/removed API
+symbols, stricter `go vet` or lint checks, new default-true
+feature gates, KIND/MetalLB/KubeVirt version skew, and
+codegen output changes.
 
 ## Pattern Table
 
@@ -54,19 +55,17 @@ and then apply to all subsequent repos automatically.
 | golangci-lint v1 + Go 1.26 | container image can't parse Go 1.26 | Replace Makefile no-op else with `go install @$(VERSION) && golangci-lint run` |
 | CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | New Go versions may only exist for newer OCP streams (e.g., 1.26 → openshift-5.0, not 4.22) |
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
-| MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in kind-common.sh (check patch compat) |
+| MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in e2e setup script (check patch compat) |
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go to latest; if still missing, use replace directive pointing to a fork (see Cross-repo dependency ordering below) |
 | Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Check `.snyk` strategy: `vendor/**` glob is safe; per-file exclusions need updating |
 | sudo PATH not preserved (often pre-existing) | `go: command not found` under sudo in CI scripts | In bash: `sudo env "PATH=$PATH" <cmd>` to preserve Go toolchain PATH |
-| OTE module | downstream `openshift/` module needs separate bump | Run skill on downstream fork, OTE go.mod bumped alongside |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
-| CRD name validation lost | `not-default created` (should be rejected) | Re-insert `metadata.name: pattern: ^default$` after codegen |
+| CRD name validation lost | Resource with invalid name accepted (should be rejected) | Re-insert hand-edited `metadata.name` pattern constraints after codegen |
 | CRD codegen annotation | `verify-update-codegen` fails (`git diff`) | Re-run codegen to update `controller-gen.kubebuilder.io/version` |
-| Hybrid-overlay test race | Hybrid-overlay test timeout (2s) | Fixed upstream (PR #6617); bump timeout only if fix absent |
 | Webhook builder API | `too many arguments` in NewWebhookManagedBy | Move object from .For() to constructor arg (now generic) |
 | Vendor verify in container | `vendor not in sync` (container-only) | False positive — re-run on host to confirm |
-| e2e framework API | `undefined` in test/e2e | Fix like go-controller: rename, add params |
+| e2e framework API | `undefined` in test/e2e | Rename functions, add params to match new signatures |
 
 ## Feature Gates (recurring)
 
@@ -108,68 +107,7 @@ if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
 }
 ```
 
-**Gates that do NOT need disabling (k8s 1.36):**
-`AtomicFIFO` (internal FIFO queuing, no fake-clientset impact),
-`StaleControllerConsistency{Job,ReplicaSet,StatefulSet,DaemonSet}`
-(only affects k8s core controllers, not ovnk code),
-`UnlockWhileProcessingFIFO`, `ClientsAllowCARotation`,
-`ClientsAllowTLSCacheGC`, `InOrderInformers`.
-
-## Version-Specific Patterns
-
-### WithConditions + ObservedGeneration (network-policy-api v0.2.0)
-
-`WithConditions` now takes `*ConditionApplyConfiguration`. The
-autofix adds `.WithObservedGeneration(anp.Generation)` to ANP/BANP
-status condition builders if missing. This is specific to
-ANP/BANP status code, not project-internal CRD controllers
-(UDN, VTEP, EgressQoS have their own status patterns). Convert
-with builder, mapping ALL 6 fields:
-```go
-metaapplyv1.Condition().
-    WithType(c.Type).
-    WithStatus(c.Status).
-    WithObservedGeneration(c.ObservedGeneration).  // DO NOT OMIT
-    WithLastTransitionTime(c.LastTransitionTime).
-    WithReason(c.Reason).
-    WithMessage(c.Message)
-```
-
-### EgressPeer type divergence (network-policy-api v0.2.0)
-
-**Only EgressPeer diverged.** IngressPeer remains compatible.
-The autofix script handles this for known file paths.
-Convert field-by-field. Check `_test.go` files too.
-
-### Conformance suite rename (network-policy-api v0.2.0)
-
-| Old | New |
-|---|---|
-| `SupportAdminNetworkPolicy` | `SupportClusterNetworkPolicy` |
-| `SupportBaselineAdminNetworkPolicy` | `SupportClusterNetworkPolicy` (merged with ANP, dedup after) |
-| `ConformanceProfileName` type cast | `CNPConformanceProfileName` |
-
-The v0.2.0 conformance suite also expects `ClusterNetworkPolicy`
-resources in `v1alpha2` API version. If the project only installs
-`v1alpha1` CRDs, conformance tests fail with:
-```
-no matches for kind "ClusterNetworkPolicy" in version "policy.networking.k8s.io/v1alpha2"
-```
-Fix depends on which network-policy-api version the conformance
-module uses:
-- **v0.1.x or pre-release** (e.g. `v0.1.9-0.2026...`): uses
-  v1alpha1 `AdminNetworkPolicy` fixtures. No CRD changes needed.
-  The existing CRD URLs work. Do NOT bump the conformance module
-  to v0.2.0 — that brings v1alpha2 `ClusterNetworkPolicy` fixtures
-  that the controller can't enforce (policy timeout failures).
-- **v0.2.0+**: uses v1alpha2 `ClusterNetworkPolicy` fixtures. ADD
-  the `clusternetworkpolicies.yaml` CRD URL alongside existing
-  ones. Do NOT remove old CRDs — the controller still needs them.
-
-Do NOT force-bump the conformance module to match go-controller's
-version. The conformance module has its own version that may
-intentionally lag behind. The conformance test only runs on
-non-ipv6 CI jobs (`ipfamily != ipv6`).
+## Recurring Patterns
 
 ### AddToScheme → Install (SA1019)
 
@@ -193,11 +131,6 @@ script (like ovnk's `@v0.19.0`) are not.
 Fix: `k8s-rebase.sh` Phase 2 runs codegen and commits the output.
 If the CRD manifest diff only shows the version annotation, that's
 expected and correct.
-
-### deepcopy-gen --bounding-dirs removed (k8s 1.36)
-
-Remove flag from `hack/update-codegen.sh`, re-run codegen.
-`k8s-rebase.sh` handles this automatically (auto-retry + mockery).
 
 ### golang.org/x/exp → stdlib
 
@@ -241,138 +174,6 @@ processing order from `maps.Keys`) may flake after migration.
 These are pre-existing test fragilities, not rebase bugs — verify
 by re-running the failing test individually.
 
-### Project CRD int64 validation (k8s 1.36)
-
-k8s 1.36 enforces stricter CRD integer format validation. Any
-CRD field with `uint32` type and `Maximum > 2^31-1` (int32 max)
-needs `+kubebuilder:validation:Format=int64` or the CRD is
-rejected at runtime. Symptom: tests that use the CRD fail with
-timeouts because resources aren't properly applied.
-
-Example: NetworkQoS `Rate` and `Burst` fields are `uint32` with
-`Maximum:=4294967295`. Fix: add `+kubebuilder:validation:Format=int64`
-to both fields in `types.go`, then change `format: int32` to
-`format: int64` in the CRD YAML. The autofix handles both — it adds
-the kubebuilder marker and patches the YAML directly (no codegen
-re-run, which would strip hand-edited metadata blocks).
-
-### CRD metadata.name validation lost during codegen (recurring)
-
-Some CRDs enforce `metadata.name` must be a specific value (e.g.
-`"default"`) via a hand-edited `pattern: ^default$` in the CRD
-YAML. `controller-gen` doesn't generate metadata constraints, so
-re-running codegen strips these validations. Symptom: tests that
-create resources with invalid names succeed instead of being
-rejected:
-```
-egressqos.k8s.ovn.org/not-default created
-```
-but the test expected:
-```
-Invalid value: "not-default"
-```
-Fix: after any codegen run, re-insert the `metadata.name` pattern
-block into the affected CRD YAMLs (both `_output/crds/` and
-`helm/*/crds/`):
-```yaml
-          metadata:
-            type: object
-            properties:
-              name:
-                type: string
-                pattern: ^default$
-```
-Known affected CRDs: `k8s.ovn.org_egressqoses.yaml` and
-`k8s.ovn.org_egressfirewalls.yaml`. The autofix script handles
-this automatically.
-
-### MetalLB CRD validation (k8s 1.36)
-
-k8s 1.36 enforces stricter CRD validation: `format: int32` is
-now required on integer fields. MetalLB v0.15.3's `BGPPeer` CRD
-has `spec.myASN` and `spec.peerASN` fields without this
-annotation, causing cluster setup to fail:
-```
-BGPPeer.metallb.io "peer-1" is invalid: Maximum boundary value must be of type integer with format int32 in spec.myASN
-```
-Fix: bump `metallb_version` in `kind-common.sh` to v0.16.0+.
-MetalLB versions ship different FRR images — add a separate
-`METALLB_UPSTREAM_FRR_IMAGE` variable and update the
-`replace_in_file_or_exit` calls in `install_metallb` to use it
-instead of `FRR_K8S_UPSTREAM_FRR_IMAGE`. The autofix script
-handles the version bump and FRR image variable automatically.
-
-### KubeVirt version incompatibility (recurring)
-
-The autofix bumps `KUBEVIRT_VERSION` in `kind-common.sh` to the
-latest stable release from GitHub. The latest stable often carries
-fixes for the new k8s minor even before official support matrix
-inclusion. Nightly is a last resort — only switch manually when
-the latest stable actually fails kv-live-migration CI lanes.
-
-Known good: v1.8.4 works on k8s 1.36.
-
-Phases:
-1. **Autofix bumps to latest stable** — CI reveals compatibility.
-2. **Latest stable, CI fails** (VMs never reach readiness, 300s
-   timeouts in kv-live-migration tests) — switch to `nightly`
-   manually and add a TODO comment above it.
-3. **Nightly pin from a previous rebase** — check if a newer
-   stable KubeVirt release has shipped. If one exists, switch
-   back and remove the TODO comment.
-
-### RelaxedServiceNameValidation (k8s 1.36)
-
-Beta feature gate, default true in k8s 1.36, but custom KIND node
-images built with `kind build node-image` start kube-apiserver with
-`--feature-gates=""` (empty), so beta defaults are not applied.
-Symptom: conformance test fails creating Service named `1kubernetes`:
-```
-Service "1kubernetes" is invalid: metadata.name: Invalid value
-```
-Fix: add `featureGates: RelaxedServiceNameValidation: true` to
-`kind.yaml.j2`. The autofix script handles this automatically.
-
-### KubeVirt secondary interface IPv6 test fix (k8s 1.36, one-time)
-
-Secondary KubeVirt interfaces use IPv4-only cloud-init. VMI
-status only reports IPv4 for secondaries even though OVN
-allocates dual-stack. Tests validating persistent IPs see 1
-address instead of 2. Fix: read allocated IPs from the
-virt-launcher pod's Multus `network-status` annotation instead
-of VMI status. Test-only change — OVN allocation is correct.
-The autofix does not handle this (too complex for sed/awk).
-
-Implementation: add a helper function that finds the virt-launcher
-pod via label selector `vm.kubevirt.io/name=<vmi.Name>`, reads the
-`k8s.v1.cni.cncf.io/network-status` annotation, and extracts IPs
-(filtering link-local). Use it for secondary interfaces (role !=
-Primary); keep `virtualMachineAddressesFromStatus` for primaries.
-The existing `podNetworkStatus` helper parses the annotation.
-
-### kubeadm v1beta4 format (k8s 1.36)
-
-k8s 1.36 silently ignores v1beta3 `extraArgs` map format, causing
-controller-manager flags like `-service-lb-controller` to not be
-applied. This breaks the disable-forwarding MTU test and any test
-depending on custom controller-manager or kubelet flags.
-Migrate `kind.yaml.j2` kubeadmConfigPatches to v1beta4 format:
-```yaml
-# v1beta3 (old)
-apiServer:
-  extraArgs:
-    "v": "5"
-# v1beta4 (new)
-apiServer:
-  extraArgs:
-    - name: "v"
-      value: "5"
-```
-Add `apiVersion: kubeadm.k8s.io/v1beta4` to ClusterConfiguration,
-InitConfiguration, JoinConfiguration in `kind.yaml.j2`. Both
-`extraArgs` and `kubeletExtraArgs` need conversion. The autofix
-script handles this automatically.
-
 ### Transitive dependency compatibility
 
 When controller-runtime or another k8s ecosystem package bumps,
@@ -386,25 +187,6 @@ controller-runtime.
 Example: `cert-controller v0.10` uses `controller.NewUnmanaged`
 with an old signature. Bumping to v0.16 fixes the incompatibility
 with controller-runtime v0.24.
-
-### Hybrid-overlay informer coalescing (k8s 1.36)
-
-k8s 1.36 informer changes may cause flow sync events to coalesce
-differently, making hybrid-overlay tests that expect a specific
-sequence of flow sync calls flaky. Symptom: test times out at
-2 seconds waiting for expected OVS commands. Root cause: test
-race where flow sync expectations are registered after the API
-call that triggers the informer event (fixed upstream in
-ovn-kubernetes PR #6617). If the fix is in the base branch,
-timeout bumps are unnecessary. Agent handles remaining cases
-in Step 4 if needed.
-
-### E2e framework changes (k8s 1.35)
-
-| Old | New |
-|---|---|
-| `framework.WaitForServiceEndpointsNum(...)` | `e2eendpointslice.WaitForEndpointCount(...)` |
-| `e2enode.IsNodeReady(node)` | `e2enode.IsNodeReady(logger, node)` |
 
 ### Snyk vendor scan failures (recurring)
 
@@ -495,21 +277,6 @@ The rebase script does not currently automate these bumps.
 The agent should handle them in Step 2 if `go build` fails
 on controller-gen output, or in Step 4 if `verify-manifests`
 CI fails.
-
-### OTE downstream module (recurring)
-
-The downstream ovnk fork (`openshift/ovn-kubernetes`) has an
-`openshift/` directory containing OTE (openshift-tests-extension)
-code with its own `go.mod`. This module must be bumped alongside
-the main `go-controller/` module. The upstream fork does not
-have this directory.
-
-The skill finds all `go.mod` files, so running it on the
-downstream fork should bump OTE too — but this path has not
-been tested. OTE may have its own breakage patterns distinct
-from go-controller (e.g., `openshift/origin` test API changes).
-OTE is sometimes bumped as a separate PR by a different
-engineer (see CORENET-7293).
 
 ### ST1005 error string casing vs test assertions (recurring)
 

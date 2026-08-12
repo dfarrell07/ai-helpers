@@ -12,7 +12,7 @@
 # Fix function scope:
 #   Generic (any Go+k8s repo): fix_xexp, fix_reflect_ptr, fix_klog_v2, fix_fieldsv1,
 #     fix_eventf, fix_addtoscheme, fix_imports, fix_bounding_dirs,
-#     fix_go_version, fix_lint_version, fix_version_refs,
+#     fix_mocks, fix_go_version, fix_lint_version, fix_version_refs,
 #     fix_crd_int64_validation
 #   Ecosystem (KIND e2e): fix_kind_image, fix_kind_version,
 #     fix_kubeadm_v1beta4
