@@ -731,3 +731,36 @@ Post-implementation:
 - All 60+ verification agents: PASS
 
 Next: `make test` on 2-3 repos to verify pass rates don't regress.
+
+## Broader Cleanup (post-redesign exploration)
+
+Findings from 9-agent broader exploration wave:
+
+### Bugs fixed
+- **Pre-push hook not cleaned up** — permanently blocked git
+  push. Fixed: cleanup_hook() in ERR trap + step5 cleanup.
+- **GPG signing hangs** — 16 git commit calls hang silently.
+  Fixed: commit.gpgsign=false via GIT_CONFIG_COUNT.
+
+### Bugs identified (not yet fixed)
+- **Hook session guards** — 3 markdown hooks fire globally,
+  blocking go mod tidy/git push/vendor edits in ALL repos.
+  Fix: convert to command hooks with .session-active guard.
+  Priority: HIGH.
+
+### Cleanup done
+- Deleted 3 stale plan files (931 lines removed)
+- Marked step-isolation plan as IMPLEMENTED (ADR)
+
+### Opportunities identified (future work)
+- **Gate consolidation 33→30**: merge logical-completeness
+  into logical-consistency (-55 LOC), commit-messages into
+  maintainer-review (-50 LOC), ci-readiness into ci-prediction
+  (-40 LOC)
+- **k8s-rebase.sh --bump-tools** (88 LOC): only serves 1 repo,
+  could extract to separate script
+- **golangci-lint bump overlap**: k8s-rebase.sh same-major bump
+  (44 LOC) could move entirely to autofix
+- **validate.sh**: ~100% generic, only minor cleanup needed
+- **Step files**: ~90% generic, concentrated ovnk refs in step2
+  (test/e2e, go-controller, network-policy-api examples)
