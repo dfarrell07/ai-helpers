@@ -307,18 +307,18 @@ fi
 info "Go version: $CURRENT_GO (>= ${REQUIRED_GO:-any} required)"
 
 # Disable GPG signing — scripts run non-interactively (nohup/containers)
-# where gpg-agent cannot prompt. Stack with safe.directory in containers.
+# where gpg-agent cannot prompt. Append to existing GIT_CONFIG_COUNT
+# rather than clobbering (user may have proxy/credential config).
+_gc=${GIT_CONFIG_COUNT:-0}
+export GIT_CONFIG_KEY_${_gc}=commit.gpgsign
+export GIT_CONFIG_VALUE_${_gc}=false
+_gc=$((_gc + 1))
 if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
-  export GIT_CONFIG_COUNT=2
-  export GIT_CONFIG_KEY_0=safe.directory
-  export GIT_CONFIG_VALUE_0="$REPO_ROOT"
-  export GIT_CONFIG_KEY_1=commit.gpgsign
-  export GIT_CONFIG_VALUE_1=false
-else
-  export GIT_CONFIG_COUNT=1
-  export GIT_CONFIG_KEY_0=commit.gpgsign
-  export GIT_CONFIG_VALUE_0=false
+  export GIT_CONFIG_KEY_${_gc}=safe.directory
+  export GIT_CONFIG_VALUE_${_gc}="$REPO_ROOT"
+  _gc=$((_gc + 1))
 fi
+export GIT_CONFIG_COUNT=$_gc
 
 # Clean working tree (ignore dirs created by containerized Go)
 if [[ -n "$(git status --porcelain | grep -v "^?? \.rebase-tmp/" | grep -v "^?? \.config/" | grep -v "^?? \.cache/")" ]]; then

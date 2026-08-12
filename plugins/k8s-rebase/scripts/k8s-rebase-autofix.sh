@@ -125,19 +125,16 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
 fi
 
 # Disable GPG signing — scripts run non-interactively (nohup/containers)
-# where gpg-agent cannot prompt. Stack with safe.directory in containers.
+# where gpg-agent cannot prompt. Append to existing GIT_CONFIG_COUNT
+# rather than clobbering (user may have proxy/credential config).
+_gc=${GIT_CONFIG_COUNT:-0}
+export GIT_CONFIG_KEY_${_gc}=commit.gpgsign
+export GIT_CONFIG_VALUE_${_gc}=false
+_gc=$((_gc + 1))
 if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
-  export GIT_CONFIG_COUNT=2
-  export GIT_CONFIG_KEY_0=safe.directory
-  export GIT_CONFIG_VALUE_0="$REPO_ROOT"
-  export GIT_CONFIG_KEY_1=commit.gpgsign
-  export GIT_CONFIG_VALUE_1=false
-else
-  export GIT_CONFIG_COUNT=1
-  export GIT_CONFIG_KEY_0=commit.gpgsign
-  export GIT_CONFIG_VALUE_0=false
-fi
-if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
+  export GIT_CONFIG_KEY_${_gc}=safe.directory
+  export GIT_CONFIG_VALUE_${_gc}="$REPO_ROOT"
+  _gc=$((_gc + 1))
   # Install jq if missing (needed by verify-third-party-licenses)
   if ! command -v jq &>/dev/null; then
     curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq 2>/dev/null \
@@ -145,6 +142,7 @@ if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
       && chmod +x /tmp/jq && export PATH="/tmp:$PATH"
   fi
 fi
+export GIT_CONFIG_COUNT=$_gc
 
 # ── Problematic feature gates (extend for future releases) ────────
 # Curated: only gates that change fake-clientset wire protocol or API behavior.
