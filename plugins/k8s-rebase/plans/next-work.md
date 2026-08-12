@@ -305,3 +305,21 @@ vendored by test repos). Will activate when ovnk vendors v0.2.0.
 
 Reinforces NPA restoration decision: fix_obsgen and
 fix_banp_egresspeer should both be restored.
+
+### spec=none UNDERPERFORMS spec=all (critical framing gap)
+
+spec=none (with autofix): 49.1% (26/53)
+spec=all (without autofix): 77.0% (194/252)
+
+Same-day A/B (July 30): spec=none 53.8% vs spec=all 76.9%.
+
+The autofix provides ZERO measurable benefit and may be
+counterproductive by consuming context window. The plan's
+argument ("75% without help is good enough") buried the lead.
+The real finding: there is no evidence the removed functions
+help at all. This reframes the NPA restoration discussion —
+even if fix_obsgen catches a real semantic issue, adding
+autofix functions back may hurt overall pass rates.
+
+Caveat: temporal confounding (spec=none runs stopped Aug 4,
+tool improved since). A controlled re-test is needed.
