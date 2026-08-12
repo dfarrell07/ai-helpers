@@ -59,12 +59,15 @@ rebase so the rebase is cleanly bisectable.
 
 | File | Purpose |
 |------|---------|
-| `skills/k8s-rebase/SKILL.md` | Skill entry point and validation guide |
-| `scripts/k8s-rebase.sh` | Mechanical rebase orchestrator |
+| `skills/k8s-rebase/SKILL.md` | Skill entry point and boot loader |
+| `skills/k8s-rebase/steps/*.md` | Step definitions and shared rules (6 files) |
+| `scripts/k8s-rebase-orchestrator.sh` | Step/gate state machine |
+| `scripts/k8s-rebase.sh` | Mechanical rebase (deps, codegen, version refs) |
 | `scripts/k8s-rebase-autofix.sh` | Applies known fix patterns with PASS/FAIL verification |
 | `scripts/k8s-rebase-validate.sh` | Build/lint/vet/test across all modules |
 | `scripts/k8s-rebase-review.sh` | Antagonistic review via `claude -p` |
-| `scripts/k8s-rebase-review-prompt.md` | Review agent prompt template |
+| `scripts/gate-script-lib.sh` | Shared library for gate companion scripts |
+| `scripts/write-gate-report.sh` | Structured gate pass/fail report writer |
 | `gates/step{1,2,3,4}-*/*.md` | Subagent verification prompts (33 files) |
 | `docs/k8s-rebase-patterns.md` | Breakage patterns for k8s rebases |
 
