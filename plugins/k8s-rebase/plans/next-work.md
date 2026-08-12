@@ -260,3 +260,27 @@ the removal. Evidence:
 | fix_network_policy_api_crds | Dormant | LATER |
 
 Decision needed: restore fix_banp_egresspeer at minimum.
+
+## Fact-Checker Corrections (Wave 6)
+
+### Autofix is CORRECTNESS, not just time
+
+3 of 5 kept functions provide correctness the agent CANNOT
+achieve: fix_feature_gates (no error signal — tests hang),
+fix_kubeadm_v1beta4 (no error signal — config silently
+ignored), fix_kind_image (Docker Hub validation). The plan's
+framing of "agent discovers everything" is wrong for silent
+failure patterns. The removed functions that address silent
+failures (fix_obsgen, fix_crd_name_validation) may have been
+wrongly removed.
+
+### 300-line budget is dead letter
+
+Only 3 lines of headroom. Zero enforcement (no Makefile check,
+no lint rule, no pre-commit). Projected 320-350 after k8s 1.37.
+Either raise to 350 or add the Makefile check the plan proposed
+but never implemented.
+
+### NPA dead code claim confirmed wrong (see earlier)
+
+v0.2.0 shipped April 2026. fix_banp_egresspeer proven needed.
