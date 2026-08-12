@@ -74,7 +74,16 @@ the hook orphaned because die()/exit don't trigger the ERR
 trap. Fix: move hook installation to right before branch
 creation (~line 368). All pre-flight validation runs first.
 
-### 6. CRD check scope narrower than fix scope
+### 6. Dead rebase-report.md pipeline
+
+rules.md tells agents to write checkpoints to
+`.rebase-tmp/rebase-report.md` after each step. No step file
+reinforces this instruction, so agents never write them. step5
+then reads a nonexistent file. Fix: either remove the checkpoint
+instructions from rules.md and step5, or add checkpoint writes
+to each step file.
+
+### 7. CRD check scope narrower than fix scope
 
 BOTH CRD checks in run_checks() search only `helm/*/crds/*.yaml`
 but fix_crd_int64_validation searches 6 broader paths. Also the
