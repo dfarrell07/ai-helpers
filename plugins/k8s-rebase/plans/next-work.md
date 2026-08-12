@@ -293,3 +293,15 @@ verify path). 5 are KIND ecosystem. The header comment
 mislabels fix_docs_version, fix_mocks, and fix_feature_gates
 as "Generic" when they only fire for ovnk. Consider relabeling
 or documenting the actual scope honestly.
+
+### ObservedGeneration is a full gap
+
+Both fix_obsgen AND the patterns doc warning ("DO NOT OMIT")
+were removed. The failure is truly silent: code compiles with
+ObservedGeneration=0 but status conditions are semantically
+wrong. Controllers checking ObservedGeneration think the object
+was never reconciled. Currently dormant (NPA v0.2.0 not yet
+vendored by test repos). Will activate when ovnk vendors v0.2.0.
+
+Reinforces NPA restoration decision: fix_obsgen and
+fix_banp_egresspeer should both be restored.
