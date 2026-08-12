@@ -497,6 +497,23 @@ that fire for any repo with KIND infrastructure (even if currently
 only ovnk has it in the test matrix). Add a lightweight overlay
 hook later if repos want to contribute rebase hints.
 
+## Resolved: fix_lint_version 85 LOC Justified
+
+Verified: 3/6 test repos have hack/lint.sh. ingress-node-firewall
+is still on v1 (v1.64.8). The v1→v2 migration block WILL fire on
+the next rebase that bumps Go to 1.26+. The "can only be run
+within a container" pattern exists in 2/36 workspace repos (not
+ovnk-specific). Division of labor with Phase 3 is clean and
+intentional: Phase 3 does simple bumps, autofix does v1→v2.
+
+## Resolved: run_checks CRD Path Bug
+
+run_checks "CRD format:int32" only searches `helm/*/crds/*.yaml`
+but fix_crd_int64_validation searches 6 broader paths. CNO is
+affected via `bindata/` but run_checks never detects it. Fix:
+broaden run_checks to match the fix function's search paths.
+This is a standalone bug fix, independent of the removal plan.
+
 ## Open Questions
 
 1. Should NPA functions be extracted to a separate sourced file
