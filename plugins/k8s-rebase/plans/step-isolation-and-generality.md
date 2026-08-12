@@ -1,5 +1,9 @@
 # k8s-rebase: Step Isolation and Version-Agnostic Generality
 
+**STATUS: IMPLEMENTED.** This plan was executed — the orchestrator,
+boot loader, step files, companion scripts, and hooks all exist.
+Kept as an architectural decision record (ADR).
+
 LLMs skip steps because they are satisficers, not optimizers. This
 plan replaces a 981-line prompt with a state machine that gives each
 step a fresh context and gates advancement on deterministic evidence.
