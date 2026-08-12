@@ -316,9 +316,23 @@ test/test-skill.sh changes:
 
 ### Commit 6: Update gate references
 
-- Add inline category lists to autofix-diff-review.md and
-  maintainer-review.md so they don't need the patterns doc
-- Verify patterns-completeness.md fallback path works
+autofix-diff-review.md: replace lines 4-6 (find patterns doc)
+with inline category list:
+```
+Known autofix categories: x/exp→stdlib, reflect.Ptr, klog v2,
+FieldsV1, bare Eventf, AddToScheme→Install, KIND image/version,
+kubeadm v1beta4, CRD int64 format, CRD name validation, feature
+gates, version refs, Go version, golangci-lint version, import
+reordering, codegen flag removal, mocks, third-party licenses,
+docs version. Any change matching these categories is expected.
+```
+
+maintainer-review.md: replace lines 16-25 (find + cat patterns
+doc) with same inline list. Keep the "do not flag patch-level
+mismatches" guidance after the list.
+
+patterns-completeness.md: no changes needed (explicit fallback
+already handles missing doc).
 
 ### Commit 7: Fix feature gate inconsistency
 
@@ -330,6 +344,12 @@ test/test-skill.sh changes:
 - Delete plans/autofix-disposition.md (superseded by this plan)
 - Update plans/step-isolation-and-generality.md line 242:
   reference autofix-patterns-redesign.md instead
+
+### Commit 9: Version bump
+
+- Bump plugin.json version from 0.2.1 → 0.3.0 (minor bump —
+  behavioral change, not just bugfix)
+- Run `make update` from ai-helpers root to sync marketplace.json
 
 ## Risk Assessment
 
