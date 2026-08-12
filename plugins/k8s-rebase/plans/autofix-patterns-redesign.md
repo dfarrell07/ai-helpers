@@ -380,7 +380,10 @@ work) has never been observed but is architecturally possible.
 **Q2: fix_kubeadm_v1beta4 — keep despite 1-repo reach?**
 A: KEEP. Silent failure mode (k8s ignores v1beta3 without error)
 makes this impossible to diagnose. The `grep v1beta4` guard makes
-it a no-op after first transition. 76 lines, harmless.
+it a no-op after first transition. 76 lines, harmless. v1beta4 is
+the FINAL kubeadm beta (no v1beta5) — function never needs
+updating. The awk state machine handles Jinja2-templated YAML
+safely; an LLM could corrupt the Jinja2 syntax.
 
 **Q3: fix_kind_image — redundant with Phase 3?**
 A: KEEP. Phase 3 blindly sets kindest/node version. Autofix
