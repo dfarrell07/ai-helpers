@@ -2,12 +2,9 @@
 
 ## Where we are
 
-81% clean pass rate. Gate flakes: 29→15→0. The orchestrator
-refactor worked.
-
-5 remaining failures:
-- 2 "no branch found" — harness bug, stale-branch fix covers it
-- 3 "missing gates" — agent stopped early (unsolved)
+Gate flakes: 29→15→0. Non-ovnk repos: 88%. ovnk: 0/7 due to
+one harness bug (stale .rebase-tmp/). Fix that and run a clean
+matrix to see the real pass rate.
 
 ## What moves the pass rate
 
