@@ -239,7 +239,7 @@ fires. The function is a maintenance tool, not a bootstrapper.
 
 | Metric | Current | After | Change |
 |--------|---------|-------|--------|
-| autofix.sh LOC | 1678 | ~1315 | -22% |
+| autofix.sh LOC | 1678 | 1325 | -21% |
 | autofix functions | 27 | 17 | -37% |
 | run_checks entries | 18 | 11 | -39% |
 | patterns.md LOC | 591 | ~310 | -48% |
