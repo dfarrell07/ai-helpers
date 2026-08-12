@@ -241,7 +241,10 @@ run_checks() {
   # Check specifically for format: int32 preceding maximum: 4294967295
   # (can't just check for absence of format: int64 — unrelated fields may have it)
   local _crd_int64_miss=0
-  for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
+  for _crd in $(find . \( -path "*/crds/*.yaml" -o -path "*/crd/*.yaml" \
+    -o -path "*/bindata/*.yaml" -o -path "*/manifests/*.yaml" \
+    -o -path "*/config/crd/*.yaml" -o -path "*/_output/*.yaml" \) \
+    -not -path "*/vendor/*" -not -path "*/.claude/*" -not -path "*/testdata/*" 2>/dev/null); do
     if awk '/format: int32/{p=1;next} /maximum: 4294967295/{if(p){found=1;exit}} {p=0} END{exit !found}' "$_crd" 2>/dev/null; then
       _crd_int64_miss=$((_crd_int64_miss+1))
     fi
@@ -251,7 +254,10 @@ run_checks() {
   local _base=""
   for _c in master main; do git rev-parse --verify "$_c" &>/dev/null && _base="$_c" && break; done
   if [[ -n "$_base" ]]; then
-    for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
+    for _crd in $(find . \( -path "*/crds/*.yaml" -o -path "*/crd/*.yaml" \
+      -o -path "*/bindata/*.yaml" -o -path "*/manifests/*.yaml" \
+      -o -path "*/config/crd/*.yaml" -o -path "*/_output/*.yaml" \) \
+      -not -path "*/vendor/*" -not -path "*/.claude/*" -not -path "*/testdata/*" 2>/dev/null); do
       local _rel
       _rel=$(git ls-files --full-name "$_crd" 2>/dev/null) || continue
       # Did the base branch have a metadata.name pattern?
@@ -1268,13 +1274,19 @@ else
         ;;
       *"CRD int32"*)
         echo "  $name: Change format: int32 → format: int64 for uint32 max fields:"
-        for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
+        for _crd in $(find . \( -path "*/crds/*.yaml" -o -path "*/crd/*.yaml" \
+      -o -path "*/bindata/*.yaml" -o -path "*/manifests/*.yaml" \
+      -o -path "*/config/crd/*.yaml" -o -path "*/_output/*.yaml" \) \
+      -not -path "*/vendor/*" -not -path "*/.claude/*" -not -path "*/testdata/*" 2>/dev/null); do
           awk '/format: int32/{line=NR; fmt=$0} /maximum: 4294967295/{if(NR==line+1) printf "    %s:%d: %s\n", FILENAME, line, fmt}' "$_crd" 2>/dev/null
         done
         ;;
       *"CRD missing name"*)
         echo "  $name: Restore metadata.name pattern validation in CRD(s):"
-        for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
+        for _crd in $(find . \( -path "*/crds/*.yaml" -o -path "*/crd/*.yaml" \
+      -o -path "*/bindata/*.yaml" -o -path "*/manifests/*.yaml" \
+      -o -path "*/config/crd/*.yaml" -o -path "*/_output/*.yaml" \) \
+      -not -path "*/vendor/*" -not -path "*/.claude/*" -not -path "*/testdata/*" 2>/dev/null); do
           awk '/^          metadata:/{m=NR} m && /^          [a-z]/ && !/pattern:/{printf "    %s:%d: metadata block missing pattern\n", FILENAME, m; m=0}' "$_crd" 2>/dev/null
         done
         ;;
