@@ -453,6 +453,16 @@ paths (bindata, config/crd, manifests, _output). CNO is affected
 via `bindata/` but run_checks never detects it. Fix: broaden
 run_checks to match the fix function's search paths.
 
+## Resolved: fix_xexp Ordering
+
+A previous agent flagged a potential ordering bug: if MVS forces
+x/exp upgrade past deletion during step 1, go mod tidy fails
+before autofix runs. **Debunked:** x/exp packages (maps, slices,
+constraints) are deprecated, not deleted. They compile fine.
+Test results show zero x/exp-related step 1 failures across all
+repos and k8s versions. The ordering is correct — fix_xexp runs
+in step 3 as a code modernization, not a build fix.
+
 ## Resolved: InOrderInformers
 
 **Remove from GATE_DEPS.** The patterns doc is correct.
@@ -469,6 +479,24 @@ hangs is WatchListClient, which changes the reflector transport.
 **Change:** Remove `GATE_DEPS[InOrderInformers]=""` from line 152
 of autofix.sh.
 
+## Resolved: AGENTS.md Migration Not Practical
+
+Investigation found 5 of 6 test repos have no AGENTS.md. Only
+ovnk has one (and it has zero rebase guidance). Creating AGENTS.md
+in repos we don't maintain requires PRs and adoption negotiation.
+
+Key insight: the "repo-specific" patterns (MetalLB, KubeVirt,
+kind.yaml.j2) are really "KIND e2e infrastructure" patterns
+that apply to any repo with KIND tests. The autofix's file-
+detection approach (check if kind-common.sh exists) is the right
+design — it's centralized but applicability-gated.
+
+**Decision:** Keep patterns centralized in the skill. Remove
+functions that ONLY fire for ovnk's unique files. Keep functions
+that fire for any repo with KIND infrastructure (even if currently
+only ovnk has it in the test matrix). Add a lightweight overlay
+hook later if repos want to contribute rebase hints.
+
 ## Open Questions
 
 1. Should NPA functions be extracted to a separate sourced file
@@ -483,6 +511,32 @@ Files that need text updates after removals:
 - step3-autofix.md — 4 edits (MetalLB/KubeVirt refs)
 - patterns doc "Extending" section — rewrite to prevent bloat
 - autofix-disposition.md plan — superseded by this plan
+
+## Anti-Bloat Guardrails for Patterns Doc
+
+The doc grew from 136→599 lines in 6 weeks (77 lines/week).
+Without guardrails, a 240-line trim returns to 500+ in ~4 weeks.
+
+**Guardrail 1: Line budget (enforced).** Add HTML comment at top:
+```
+<!-- LINE BUDGET: 300. Trim version-specific content before
+     adding new patterns. Run: wc -l docs/k8s-rebase-patterns.md -->
+```
+Consider adding a Makefile lint check:
+```bash
+lines=$(wc -l < docs/k8s-rebase-patterns.md)
+[ "$lines" -gt 300 ] && echo "ERROR: patterns doc $lines lines (budget: 300)" && exit 1
+```
+
+**Guardrail 2: Version expiration.** Sections tagged `(k8s 1.XX)`
+are removed after the NEXT k8s version ships. If the pattern
+recurs, re-tag as `(recurring)`.
+
+**Guardrail 3: Generic-only rule** in the Extending section
+(already drafted).
+
+Natural size: table (40) + 8-10 recurring sections (150) +
+Feature Gates (50) + Extending (15) = ~255 lines.
 
 ## Draft: New "Extending" Section for Patterns Doc
 
