@@ -115,7 +115,6 @@ Vendored packages may fix misspelled `Depreciated` → `Deprecated`
 annotations, newly surfacing SA1019. Check vendored source; if
 `Install` exists, use it. Project-internal CRD register.go is
 NOT deprecated.
-The autofix script handles this migration automatically.
 
 ### controller-gen version annotation mismatch (recurring)
 
@@ -140,15 +139,9 @@ expected and correct.
 - `maps.Clear(m)` → `clear(m)`
 - `constraints.Ordered` → `cmp.Ordered`
 
-**Import placement:** `"maps"`, `"slices"`, `"cmp"` are stdlib.
-The autofix replaces import paths in-place (e.g., `"golang.org/
-x/exp/maps"` → `"maps"`), which leaves them in the third-party
-import group. goimports/gci move them to the stdlib group. If
-import grouping is wrong after the autofix, run `goimports -w`
-on the affected files.
-
-After migration: `go mod tidy && go mod vendor` to remove x/exp.
-The autofix script handles this migration automatically.
+**Import placement:** `"maps"`, `"slices"`, `"cmp"` are stdlib
+but end up in the third-party import group after replacement.
+Run `goimports -w` to fix grouping.
 
 ### Deprecated stdlib/apimachinery symbols (recurring)
 
@@ -159,20 +152,14 @@ not x/exp-related:
 - `.FieldsV1.Raw` → `.FieldsV1.GetRawBytes()` (read access)
 - `&metav1.FieldsV1{Raw: []byte(...)}` → `metav1.NewFieldsV1(...)` (construction)
 
-The autofix script handles these automatically.
+- `"k8s.io/klog"` → `"k8s.io/klog/v2"` (check `klog.V()` boolean
+  usage and implicit `init()` flag registration, which changed in v2)
 
-- `"k8s.io/klog"` → `"k8s.io/klog/v2"` (import path auto-fixed by
-  `fix_klog_v2()`). Manual check recommended for `klog.V()` used as
-  boolean or implicit `init()` flag registration, which changed in v2.
-
-**Map iteration ordering:** `x/exp/maps.Keys()` returned `[]T`
-directly. Stdlib `maps.Keys()` returns `iter.Seq[T]` which
-`slices.Collect` materializes. Both produce unspecified order,
-but the concrete order may differ. Tests that depend on specific
-map iteration order (e.g., IP allocation determined by pod
-processing order from `maps.Keys`) may flake after migration.
-These are pre-existing test fragilities, not rebase bugs — verify
-by re-running the failing test individually.
+**Map iteration ordering:** stdlib `maps.Keys()` returns
+`iter.Seq[T]` (materialized via `slices.Collect`), which may
+produce different concrete order than x/exp. Tests depending on
+map iteration order may flake — pre-existing fragility, not a
+rebase bug.
 
 ### Transitive dependency compatibility
 
@@ -180,13 +167,7 @@ When controller-runtime or another k8s ecosystem package bumps,
 other direct dependencies that consume it may break. Build errors
 appear in `/go/pkg/mod/` paths (not in the project's own code).
 
-Fix: `go get <broken-dep>@latest` then `go mod tidy`. The latest
-version of the dependency will be compatible with the bumped
-controller-runtime.
-
-Example: `cert-controller v0.10` uses `controller.NewUnmanaged`
-with an old signature. Bumping to v0.16 fixes the incompatibility
-with controller-runtime v0.24.
+Fix: `go get <broken-dep>@latest` then `go mod tidy`.
 
 ### Snyk vendor scan failures (recurring)
 
@@ -228,55 +209,25 @@ Downstream OpenShift repos form a dependency chain:
 3. **OTE last**: the downstream `openshift/` module in ovnk has its
    own go.mod and may depend on consumer repo changes.
 
-If `go mod tidy` / `go mod vendor` produces a diff in library-go
-files (e.g., `verify-deps` fails with `M vendor/.../library-go/...`),
-the plumbing repo hasn't merged yet. This is a BLOCKER — the
-rebase is complete but CI won't pass until the dependency chain
-catches up. Track via JIRA (e.g., CORENET-7287).
+If `go mod tidy`/`go mod vendor` diffs library-go files, or build
+errors show `does not implement` against library-go interfaces,
+the plumbing repo hasn't merged yet. This is an upstream BLOCKER.
 
-When the skill detects `does not implement` errors against
-library-go interfaces, or `verify-deps` fails with library-go
-diffs, it should tell the agent this is an upstream blocker
-rather than a fixable rebase issue.
+**Replace directive workaround:** Use `replace github.com/openshift/
+library-go => github.com/FORK/library-go v0.0.0-DATE-HASH` in
+go.mod. Remove when official library-go merges.
 
-**Replace directive workaround:** If library-go hasn't merged
-its k8s bump yet, use a `replace` directive in go.mod pointing
-to a fork that has the fix:
-
-```
-replace github.com/openshift/library-go => github.com/FORK/library-go v0.0.0-DATE-HASH
-```
-
-This is the standard approach used by manual rebases (e.g.,
-CNO PR #3017 uses `jubittajohn/library-go`). The `replace`
-survives `go mod vendor` because it directs the module system
-to fetch from the fork. Remove the `replace` when the official
-library-go merges its bump.
-
-**Do NOT hand-patch vendor/ directly.** CI runs `go mod vendor`
-which regenerates vendor from source, erasing patches. Repos
-with `verify-deps` CI will always fail vendor patches.
+**Do NOT hand-patch vendor/** — CI runs `go mod vendor` which
+regenerates from source, erasing patches.
 
 ### Operator Framework repos (recurring)
 
-Repos using operator-sdk (e.g., ingress-node-firewall) have
-additional version references beyond k8s.io/* that need bumping:
-
-- `CONTROLLER_TOOLS_VERSION` in Makefile — tracks controller-gen
-- `OPERATOR_SDK_VERSION` in Makefile — tracks operator-sdk
-- `VERSION` (OCP release version) in Makefile
-- Bundle manifests (`bundle/`, `config/`) — regenerated via
-  `make bundle` after tooling bumps
-- `bundle.Dockerfile` — may reference OCP version
-
+Repos using operator-sdk have additional version refs:
+`CONTROLLER_TOOLS_VERSION`, `OPERATOR_SDK_VERSION`, `VERSION`
+in Makefile, plus bundle manifests (`bundle/`, `config/`).
 Detection: check for a `PROJECT` file or `operator-sdk` in
 Makefile. If present, bump controller-tools and operator-sdk
-to latest compatible versions, then regenerate bundles.
-
-The rebase script does not currently automate these bumps.
-The agent should handle them in Step 2 if `go build` fails
-on controller-gen output, or in Step 4 if `verify-manifests`
-CI fails.
+to latest compatible versions, then `make bundle`.
 
 ### ST1005 error string casing vs test assertions (recurring)
 
@@ -336,23 +287,10 @@ Common exclusions: `fmt.Fprintf`, `fmt.Fprintln`,
 `ctrl.NewWebhookManagedBy` is now generic — the object moves
 from `.For()` into the constructor as a type parameter:
 ```go
-// Old (controller-runtime v0.22)
-ctrl.NewWebhookManagedBy(mgr).
-    For(&MyType{}).
-    WithValidator(&MyValidator{}).
-    Complete()
-
-// New (controller-runtime v0.24)
-ctrl.NewWebhookManagedBy(mgr, &MyType{}).
-    WithValidator(&MyValidator{}).
-    Complete()
+// Old: ctrl.NewWebhookManagedBy(mgr).For(&MyType{}).WithValidator(v).Complete()
+// New: ctrl.NewWebhookManagedBy(mgr, &MyType{}).WithValidator(v).Complete()
 ```
-The `.For()` method is removed. `WithValidator` now takes a
-generic `admission.Validator[T]` instead of the old interface.
-`WithCustomValidator` still exists but is deprecated — prefer
-`WithValidator` if the validator implements the new generic
-interface, otherwise use `WithCustomValidator` as a bridge.
-
-Symptom: `too many arguments` or `not enough arguments` in
-`NewWebhookManagedBy`.
+`.For()` is removed. `WithValidator` now takes generic
+`admission.Validator[T]`. `WithCustomValidator` still exists
+but is deprecated.
 
