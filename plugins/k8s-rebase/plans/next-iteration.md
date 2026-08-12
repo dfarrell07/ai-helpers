@@ -2,9 +2,10 @@
 
 ## Where we are
 
-Gate flakes: 29→15→0. Non-ovnk repos: 88%. ovnk: 0/7 due to
-one harness bug (stale .rebase-tmp/). Fix that and run a clean
-matrix to see the real pass rate.
+Gate flakes: 29→15→0. Non-ovnk repos: ~89%. ovnk: 0/7 with
+multiple failure modes (stale .rebase-tmp is one, but "missing
+gates" and "no branch found" are separate bugs). Fix .rebase-tmp
+first, then investigate remaining ovnk failures.
 
 ## What moves the pass rate
 
@@ -12,35 +13,33 @@ matrix to see the real pass rate.
 test-skill.sh from `rm -rf "$repo/.rebase-tmp/gates"` to
 `rm -rf "$repo/.rebase-tmp"`. The orchestrator creates state.json
 in the main repo during init (before entering a worktree), and
-it persists across runs. Old state.json causes the orchestrator
-to resume a dead run instead of starting fresh. Also add the
-same cleanup to `cmd_clean`.
+it persists across runs. Also add to `cmd_clean`. This also
+fixes the force-advance counter persistence bug (counter files
+live inside .rebase-tmp/).
 
 ## Production hardening
 
 **GPG signing** — Add `-c commit.gpgsign=false` to each
-`git commit` call (16 total: 14 in k8s-rebase.sh, 2 in autofix).
-Not GIT_CONFIG_COUNT — that doesn't survive container exec and
-would override host signing config for non-commit operations.
-
-**Force-advance counter** — Clear on fresh `cmd_init`.
+`git commit` call (8 total: 7 in k8s-rebase.sh, 1 in autofix).
+Works in both host and container paths, never overrides host
+signing for non-commit operations.
 
 **Resume version mismatch** — Error if stored version differs.
+Still needed for production users even after .rebase-tmp cleanup
+(user could have leftover state from a previous rebase).
 
 ## Gate work
 
 ### Fix companion script bugs
 - `major-version-imports.sh` lines 25, 51: args swapped in
-  `base_file_has` — pre-existing detection always fails, inflates
-  NEW_ISSUES. Inert today (AI gate re-analyzes anyway) but wrong.
+  `base_file_has` — pre-existing detection broken
 - `crd-validation.sh` line 27, `patterns-completeness.sh` line 17:
-  dead `$pre` — PRE_EXISTING always 0. Also inert (nothing reads
-  PRE_EXISTING) but wrong.
-- Both also need migration to `gate-script-lib.sh`.
+  dead `$pre` — PRE_EXISTING always 0
+- Both also need migration to `gate-script-lib.sh`
 
-### Script the 8 Tier 1 gates
-Reduces agent calls 27% (33→25). Steps 2/3 need "launch only
-PENDING" pattern like step 4.
+### Script the 9 Tier 1 gates
+Reduces agent calls when steps 2/3 adopt "launch only PENDING"
+pattern (step 4 already does this).
 
 | Gate | Script does |
 |------|-------------|
@@ -52,21 +51,18 @@ PENDING" pattern like step 4.
 | rebase-completeness | result file + git log + go.mod |
 | deprecated-imports | grep x/ imports (hardcoded table) |
 | dep-cve-check | diff go.sum, curl OSV.dev |
-
-`version-completeness` is Tier 2 (needs prose-vs-code judgment).
+| version-completeness | grep stale versions, exclude comments |
 
 ### Consolidate gates
-- Drop `logical-completeness` (step3) — step4's
-  `logical-consistency` is a strict superset
-- Narrow `deprecated-api-remnants` — duplicates build-vet,
-  deprecated-imports, and deprecated-calls. Keep only its
-  web-search discovery
+- Narrow `deprecated-api-remnants` — duplicates build-vet
+  (build+vet) and deprecated-imports (x/ checks). Keep only
+  its web-search discovery. Does NOT overlap with
+  deprecated-calls (different method: web-search vs staticcheck).
+- `logical-completeness` (step3) and `logical-consistency` (step4)
+  overlap heavily but each has unique checks. Consider merging
+  unique step3 checks INTO step4, not dropping step3 outright.
 
 ### Tier 2 evidence scripts (after Tier 1)
 1. `deprecated-calls` — staticcheck + pre-existing filter
 2. `autofix-result` — commit counting + build pass/fail
 3. `gomod-diff-analysis` — parse go.mod diff
-
-3 "Tier 3" gates actually have scriptable evidence phases
-(ci-prediction, maintainer-review, skill-improvement). True
-Tier 3 is 7 gates.
