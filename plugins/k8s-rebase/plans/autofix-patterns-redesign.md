@@ -280,8 +280,10 @@ docs/k8s-rebase-patterns.md changes:
 - Replace "Extending for a New k8s Version" with shorter
   "Extending" section (20 lines, emphasizes generic-only
   patterns and Pattern Table rows over recipe sections)
-- Trim Pattern Table: remove repo-specific rows (Hybrid-
-  overlay test race, CRD name validation lost, OTE module)
+- Pattern Table: remove 2 rows (Hybrid-overlay test race,
+  OTE module), generalize 3 rows (MetalLB → "e2e setup
+  script", CRD name validation → generic wording, e2e
+  framework API → generic wording). 33 → 31 rows.
 - Remove Feature Gates version-specific lists ("Gates that
   do NOT need disabling (k8s 1.36)")
 - Remove 14 sections: WithConditions+ObsGen, EgressPeer,
@@ -291,6 +293,8 @@ docs/k8s-rebase-patterns.md changes:
   bounding-dirs, Hybrid-overlay, E2e framework, OTE module
 - Trim 3 sections to short concept summaries: controller-gen
   annotation, Webhook builder API, Operator Framework repos
+- Reorganize remaining sections under "Recurring Patterns"
+  header (remove "Version-Specific Patterns" header)
 
 ### Commit 4: Update step3-autofix.md
 
@@ -527,8 +531,57 @@ Total: ~220 lines removed from a 1678-line file (13%).
 
 ---
 
-_Iteration 6 — 30+ agents across 3 waves. All implementation
-details drafted: run_checks() cleaned function, remaining-issues
-case blocks, main exec section ordering, gate inline category
-lists, TAG_TO_PATTERN cleanup, patterns doc table trim, extending
-section rewrite, version bump. Plan is implementation-ready._
+## Exec Section After Removals (Phase B + unconditional)
+
+Phase B (conditional, 12 commits from 20):
+1. fix_xexp → "Migrate x/exp imports to stdlib"
+2. fix_reflect_ptr → "Replace reflect.Ptr with reflect.Pointer"
+3. fix_klog_v2 → "Migrate klog v1 to v2"
+4. fix_fieldsv1 → "Replace FieldsV1.Raw"
+5. fix_eventf → "Fix bare Eventf format strings"
+6. fix_addtoscheme → "Replace removed AddToScheme with Install"
+7. fix_crd_int64 + fix_crd_name → "Fix CRD validation"
+8. fix_bounding_dirs → "Remove deprecated codegen flag"
+9. fix_mocks → "Regenerate mocks"
+10. fix_imports → "Reorder imports" (MUST be last)
+
+Unconditional (8 commits from 10):
+11. fix_feature_gates → "Disable new feature gates"
+12. fix_kind_image → "Update KIND image"
+13. fix_kind_version → "Bump KIND binary"
+14. fix_kubeadm_v1beta4 → "Migrate KIND kubeadm config to v1beta4"
+    (was paired with relaxed_svc_name, now standalone)
+15. fix_docs_version → "Update k8s version in docs"
+16. fix_version_refs + fix_go_version + fix_lint_version →
+    "Update version references and lint"
+17. third-party licenses → "Regenerate licenses"
+18. run_vet + fix_uncommitted (cleanup)
+
+No ordering dependencies between remaining functions except
+fix_imports MUST be last in Phase B.
+
+## Remaining Issues Case Blocks
+
+Decision: the run_checks entries for removed NPA/repo-specific
+functions ARE being removed. Therefore the corresponding case
+blocks (ObsGen, Conformance, AddToScheme x2, BANP, E2e test)
+should also be removed — they can never fire.
+
+10 case blocks remain: x/exp, Eventf, Gates, reflect.Ptr,
+FieldsV1.Raw, Stale docs ver, CRD format:int32, CRD missing
+name, Uncommitted, default (*).
+
+## No Hidden Coupling
+
+Verified: k8s-rebase.sh Phase 3 does not reference any removed
+autofix functions. The validate script does not reference them.
+The autofix is only invoked from step3-autofix.md. No coupling.
+
+---
+
+_Iteration 7 — ALL 33 agents complete across 4 waves. Every
+implementation detail drafted. Plan is fully implementation-ready
+with: exact line ranges, drafted replacement code for all 4
+major script sections (header, run_checks, exec, remaining-issues),
+gate inline category lists, TAG_TO_PATTERN cleanup, patterns doc
+trim, step3 edits, version bump. Ready for user review._
