@@ -30,11 +30,11 @@ removing the alternation is a NO-OP. Need explicit exclusion:
 ## Trust
 
 ### go-mod-tidy hook vs step2
-Hook regex `^\s*(bash|sh)\s+\S+\.sh\s*$` blocks scripts with
-args. Created `scripts/k8s-rebase-depfix.sh <module>`. Updated
-hook regex to allow script arguments (restrictive char class,
-blocks shell metacharacters). Still need: update step2 line 107
-to call wrapper instead of direct `go get`.
+Hook regex blocks scripts with args. Created depfix wrapper,
+updated hook regex. **MUST also update step2-compilation.md
+line 107** to call `bash "$PLUGIN_ROOT/scripts/k8s-rebase-
+depfix.sh" <module>` instead of direct `go get`. Without this,
+the hook blocks the agent on repos with dep conflicts.
 
 ### Pre-push hook on die()
 ERR trap does NOT fire on die() — confirmed empirically.
