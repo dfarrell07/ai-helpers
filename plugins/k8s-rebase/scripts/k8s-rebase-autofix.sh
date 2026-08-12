@@ -380,6 +380,19 @@ fix_eventf() {
   done
 }
 
+fix_docs_version() {
+  local NEW OLD
+  NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
+  [[ -z "$NEW" ]] && return 0
+  OLD=$((NEW-1))
+  local file="docs/features/requirements.md"
+  [[ -f "$file" ]] || return 0
+  if grep -q "| *1\.${OLD} *|" "$file"; then
+    echo ":: Fixing stale docs version 1.${OLD} → 1.${NEW}"
+    sed -i "s/| *1\.${OLD} *|/| 1.${NEW} |/g" "$file"
+  fi
+}
+
 fix_version_refs() {
   # Update stale K8S version references in CI, scripts, and docs.
   # Defense-in-depth for Phase 3 which may fail in some container setups.
@@ -1055,6 +1068,7 @@ declare -A FIX_DESC=(
   [reflect_ptr]="replace reflect.Ptr with reflect.Pointer"
   [fieldsv1]="replace FieldsV1.Raw with GetRawBytes/NewFieldsV1"
   [eventf]="fix bare Eventf format strings"
+  [docs_version]="update version references in docs"
   [version_refs]="update stale version references"
   [go_version]="bump Go version"
   [lint_version]="bump golangci-lint version"
@@ -1176,6 +1190,8 @@ run_fix fix_kubeadm_v1beta4
 fix_uncommitted "$(format_msg "ci" "Migrate KIND kubeadm config to v1beta4")"
 
 # ── Version refs, lint, licenses
+run_fix fix_docs_version
+fix_uncommitted "$(format_msg "docs" "Update k8s version in documentation")"
 run_fix fix_version_refs
 run_fix fix_go_version
 run_fix fix_lint_version
