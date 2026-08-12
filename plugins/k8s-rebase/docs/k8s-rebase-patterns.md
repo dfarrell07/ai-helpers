@@ -214,9 +214,9 @@ If `go mod tidy`/`go mod vendor` diffs library-go files, or build
 errors show `does not implement` against library-go interfaces,
 the plumbing repo hasn't merged yet. This is an upstream BLOCKER.
 
-**Replace directive workaround:** Use `replace github.com/openshift/
-library-go => github.com/FORK/library-go v0.0.0-DATE-HASH` in
-go.mod. Remove when official library-go merges.
+**Replace directive workaround:** Add to go.mod:
+`replace github.com/openshift/library-go => github.com/FORK/library-go v0.0.0-DATE-HASH`
+Remove when official library-go merges.
 
 **Do NOT hand-patch vendor/** — CI runs `go mod vendor` which
 regenerates from source, erasing patches.

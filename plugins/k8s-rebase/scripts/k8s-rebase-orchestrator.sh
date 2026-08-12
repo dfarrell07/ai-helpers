@@ -125,7 +125,7 @@ report_is_fresh() {
   local rpt_sha
   rpt_sha=$(grep '^HEAD: ' "$rpt" 2>/dev/null | awk '{print $2}')
   if [[ -z "$rpt_sha" ]]; then
-    return 0
+    return 1
   fi
   local cur_sha
   cur_sha=$(cd "$repo" && git rev-parse HEAD 2>/dev/null)
