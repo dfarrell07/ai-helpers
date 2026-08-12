@@ -19,8 +19,9 @@ Regardless of output, proceed to gates.
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-autofix.sh"
 ```
 
-Applies known fix patterns (code fixes, feature gates, lint
-version, CRD validation fixes, kubeadm v1beta4).
+Applies known fix patterns (deprecated API migrations, feature
+gates, lint version, CRD int64 format, kubeadm v1beta4, KIND
+image/version updates).
 The autofix does not write to summary.txt (that file comes from
 the validate script).
 
@@ -33,7 +34,7 @@ the message):
 
 - KIND image: `grep -rn 'kindest/node:' . --include='*.sh' --include='*.yaml' --include='*.yml' | grep -v vendor/` -- update to `v<k8s-version>` (e.g., v1.36.1 for k8s 1.36). Check https://hub.docker.com/r/kindest/node/tags for the latest patch.
 - kubeadm v1beta4: `grep -rn 'extraArgs:' . --include='*.yaml' --include='*.yml' --include='*.sh' | grep -v vendor/` -- if the format is `extraArgs:\n    key: value` (flat map), convert to `extraArgs:\n- name: key\n  value: "value"` (list-of-objects). Required for k8s >= 1.31.
-- CI dependency versions: `grep -rniE '_VERSION\s*=' . --include='*.sh' | grep -v vendor/` -- pinned CI tool versions may need bumping when k8s tightens CRD validation. Get the latest release tag and update.
+- CI dependency versions: `grep -rniE '_VERSION\s*=' . --include='*.sh' | grep -v vendor/` -- pinned CI tool versions (linters, test frameworks, e2e infrastructure) may need bumping after a k8s rebase. Get the latest release tag and update.
 - Feature gate exports: `grep -rn 'KUBE_FEATURE_' . --include='*.sh' | grep -v vendor/` -- check the rebase script output for new default-true gates. Add `export KUBE_FEATURE_<name>=false` to `hack/test-go.sh` if the repo's tests use fake clientsets with informers.
 
 ## Verify the script actually ran
