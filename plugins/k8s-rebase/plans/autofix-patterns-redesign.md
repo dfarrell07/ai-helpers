@@ -305,14 +305,18 @@ docs/k8s-rebase-patterns.md changes:
 ### Commit 5: Test harness cleanup
 
 test/test-skill.sh changes:
-- Remove TAG_TO_PATTERN entries (lines ~619-628) for the 10
-  removed function tags: metallb_version, kubevirt_version,
-  docs_version, mocks, relaxed_service_name_validation,
-  conformance_renames, banp_egresspeer, obsgen,
-  network_policy_api_crds
+- Remove 7 TAG_TO_PATTERN entries (lines ~619-628):
+  metallb_version, kubevirt_version,
+  relaxed_service_name_validation, conformance_renames,
+  banp_egresspeer, obsgen, network_policy_api_crds
+  (docs_version and mocks are KEPT per devil's advocate)
 - The spec=all mutation (all-fns handler) uses dynamic awk and
   needs NO changes — fewer functions = fewer insertions
 - Court review compares diffs, not function names — NO changes
+- `fn:<tag>` spec will correctly die with "Function not found"
+  if someone passes a removed tag — clear error, not silent
+- `pattern:<tag>` will correctly die with "Unknown pattern"
+  if someone passes a removed tag after TAG_TO_PATTERN cleanup
 
 ### Commit 6: Update gate references
 
@@ -523,10 +527,8 @@ Total: ~220 lines removed from a 1678-line file (13%).
 
 ---
 
-_Iteration 4 — ALL 19 research agents complete across 2 waves.
-Integrated: devil's advocate findings (revised 2 dispositions),
-InOrderInformers resolution (remove from GATE_DEPS), defense-in-
-depth verdict (keep), test harness impact (no hard deps), detailed
-line ranges, step3 edits, extending section draft, trimmed
-patterns doc draft (240 LOC from 591), README/plugin.json analysis
-(no changes needed). Plan is comprehensive and ready for review._
+_Iteration 6 — 30+ agents across 3 waves. All implementation
+details drafted: run_checks() cleaned function, remaining-issues
+case blocks, main exec section ordering, gate inline category
+lists, TAG_TO_PATTERN cleanup, patterns doc table trim, extending
+section rewrite, version bump. Plan is implementation-ready._
