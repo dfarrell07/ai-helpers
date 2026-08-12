@@ -70,4 +70,6 @@ Do NOT delete `.rebase-tmp/gates/` or `.rebase-tmp/rebase-report.json`.
 
 ---
 
-Run `bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" advance "$(pwd)"`
+Step 5 is the final step — the rebase is complete after PR
+generation. Do NOT run orchestrator advance (step 5 is not in the
+orchestrator's step list).
