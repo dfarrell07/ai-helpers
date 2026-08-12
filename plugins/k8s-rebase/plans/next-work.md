@@ -323,3 +323,16 @@ autofix functions back may hurt overall pass rates.
 
 Caveat: temporal confounding (spec=none runs stopped Aug 4,
 tool improved since). A controlled re-test is needed.
+
+## Fact-Checker Corrections to P1 Fixes
+
+Item 1 (modfix.sh): wrapper with <dir> arg won't match the
+script bypass regex (requires line to end after .sh). Drop
+the arg or fix the regex to allow arguments.
+
+Item 2 (Write/Edit): probably unnecessary — step subagents
+get full tools. The orchestrator never directly edits files.
+
+Item 7 (CRD scope): also update diagnostic output at lines
+~1271/1277 of autofix.sh. Add .claude and testdata exclusions
+to match the fix function.
