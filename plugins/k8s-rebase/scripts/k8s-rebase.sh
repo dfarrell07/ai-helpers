@@ -387,7 +387,7 @@ derive_go_gets() {
     ver_prefix=$(echo "$line" | awk '{print $2}' | grep -oE '^v[0-9]+' | sed 's/v//' || true)
     [[ -z "$ver_prefix" ]] && continue
     cmds+=("go get ${pkg}@v${ver_prefix}.${K8S_MINOR}.${K8S_PATCH}")
-  done < <(grep -E "k8s\.io/|sigs\.k8s\.io/" "$gomod" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | sort -u)
+  done < <(grep -E "k8s\.io/" "$gomod" | grep -v "sigs\.k8s\.io/" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | sort -u)
 
   # Rule 2: controller-runtime
   if grep -q "controller-runtime" "$gomod"; then
