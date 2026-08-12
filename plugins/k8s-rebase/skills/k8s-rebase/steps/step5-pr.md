@@ -42,8 +42,8 @@ Print: `/loop 5m check CI on the PR, explore any failures max carefully`
 
 ## 5d. Write rebase report
 
-Read `.rebase-tmp/rebase-report.md` checkpoints. Write final report
-to `.rebase-tmp/rebase-report.json` with: repo, versions, per-step
+Write final report to `.rebase-tmp/rebase-report.json` with: repo,
+versions, per-step
 data (duration, error categories, patterns applied), discoveries,
 unresolved items, and skill_improvements array.
 
@@ -54,7 +54,7 @@ what you observed — not generic advice.
 
 ```bash
 rm -rf .rebase-tmp/step*.log .rebase-tmp/step*.pid .rebase-tmp/*.log \
-       .rebase-tmp/*.txt .rebase-tmp/*.pid .rebase-tmp/rebase-report.md \
+       .rebase-tmp/*.txt .rebase-tmp/*.pid \
        .rebase-tmp/crd-pre-codegen/
 rm -f .rebase-tmp/.session-active
 

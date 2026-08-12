@@ -81,12 +81,6 @@ SetFromMap validates parent-dep consistency. ALL gates must go in
 SetFromMap AND env vars. The autofix script handles this; do not
 remove gates from its SetFromMap.
 
-## Rebase Report
-
-After each numbered step, append a checkpoint to
-`.rebase-tmp/rebase-report.md` (step number, what broke, what
-worked, under 15 lines). Step 5d reads these.
-
 ## Subagent Rules
 
 - Report specific counts, not just "looks good."
