@@ -52,7 +52,15 @@ Rule 1 assumes version-locked deps. sigs.k8s.io/ deps have
 independent versioning. Fix: remove `sigs\.k8s\.io/` from
 Rule 1's grep on line 390 of k8s-rebase.sh.
 
-### 5. CRD check scope narrower than fix scope
+### 5. Move hook installation after pre-flight validation
+
+k8s-rebase.sh installs the pre-push hook at line 42, before
+any validation. 12 of 15 exit points after installation leave
+the hook orphaned because die()/exit don't trigger the ERR
+trap. Fix: move hook installation to right before branch
+creation (line 368). All pre-flight validation runs first.
+
+### 6. CRD check scope narrower than fix scope
 
 run_checks searches `helm/*/crds/*.yaml` but the fix searches
 6 paths. Fix: broaden run_checks to match:
