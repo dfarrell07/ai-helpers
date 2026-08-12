@@ -2,10 +2,13 @@
 
 ## Where we are
 
-spec=all (blind, no autofix): 24/24 PASS post-.rebase-tmp fix.
-spec=none (production, with autofix): ~49% pass rate historically.
-Real users run spec=none. The autofix may be hurting by consuming
-context window. A controlled A/B test is needed.
+spec=all (blind, no autofix): 95% post-fix (20/21).
+spec=none (production, with autofix): 45% historically (26/57)
+BUT all spec=none data is from Jul 29 - Aug 4, before the
+orchestrator refactor AND before .rebase-tmp fix. Zero spec=none
+runs with current code. We don't know the real production pass
+rate — it could be much higher now. A spec=none test run is the
+single most important next step.
 
 ## Fix: Real bugs that will bite users
 
@@ -59,18 +62,16 @@ dependency, not in RHEL minimal install. Gates catch drift
 downstream, so not catastrophic.
 **Fix:** One line per hook: output block JSON if jq missing.
 
-## Investigate: autofix impact on pass rate
+## First priority: Run spec=none test
 
-spec=none ~49% vs spec=all ~77%. The autofix + patterns doc
-may consume more context than they save. Temporal confound:
-spec=none stopped Aug 4, tool improved after. But same-day
-comparison (Jul 30) showed 54% vs 77%.
+Zero spec=none runs exist with current code. The 45% number is
+stale (pre-orchestrator, pre-.rebase-tmp fix, pre-autofix
+redesign). The autofix was also trimmed from 27→18 functions
+and the patterns doc from 589→296 lines since then.
 
-**Next step:** Run controlled A/B test — spec=none on 3 repos
-with the current code (post-.rebase-tmp fix, post-redesign).
-Compare to spec=all results. If spec=none is still significantly
-worse, the autofix is counterproductive and should be further
-trimmed or made opt-in.
+**Run:** `make test spec=none` on 3 repos (multus, CNCC, ovnk).
+Compare to spec=all post-fix results. This answers the most
+important question: does the production skill actually work?
 
 ## Cleanup (do when convenient)
 
