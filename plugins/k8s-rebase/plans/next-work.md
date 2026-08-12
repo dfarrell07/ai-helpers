@@ -159,7 +159,15 @@ gate-script-lib.sh. They have reversed merge-base branch
 order, no crash trap, and different set flags. Migrate to
 shared library for consistency.
 
-### 14. Regression testing
+### 14. validate.sh container bugs
+
+(a) Silent fallthrough when Go too old + no container runtime —
+script continues with wrong Go producing confusing errors.
+k8s-rebase.sh correctly dies in this case; validate.sh does not.
+(b) --full mode corrupts host GOMODCACHE with root-owned files
+because container runs as root with mounted cache.
+
+### 15. Regression testing
 
 Run `make test` on 2-3 repos to verify pass rates:
 ```
