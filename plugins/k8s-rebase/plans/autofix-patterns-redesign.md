@@ -302,16 +302,34 @@ docs/k8s-rebase-patterns.md changes:
   ref from CI dependency versions bullet
 - Lines 53-55: Remove MetalLB FRR image warning sentence
 
-### Commit 5: Update gate references
+### Commit 5: Test harness cleanup
+
+test/test-skill.sh changes:
+- Remove TAG_TO_PATTERN entries (lines ~619-628) for the 10
+  removed function tags: metallb_version, kubevirt_version,
+  docs_version, mocks, relaxed_service_name_validation,
+  conformance_renames, banp_egresspeer, obsgen,
+  network_policy_api_crds
+- The spec=all mutation (all-fns handler) uses dynamic awk and
+  needs NO changes — fewer functions = fewer insertions
+- Court review compares diffs, not function names — NO changes
+
+### Commit 6: Update gate references
 
 - Add inline category lists to autofix-diff-review.md and
   maintainer-review.md so they don't need the patterns doc
 - Verify patterns-completeness.md fallback path works
 
-### Commit 6: Fix feature gate inconsistency
+### Commit 7: Fix feature gate inconsistency
 
 - Resolve InOrderInformers contradiction between GATE_DEPS
   and patterns doc (awaiting research agent result)
+
+### Commit 8: Delete superseded plan files
+
+- Delete plans/autofix-disposition.md (superseded by this plan)
+- Update plans/step-isolation-and-generality.md line 242:
+  reference autofix-patterns-redesign.md instead
 
 ## Risk Assessment
 
@@ -322,17 +340,98 @@ docs/k8s-rebase-patterns.md changes:
 | Gates produce noisier reports | Low | Add inline category lists. |
 | fix_mocks removal breaks codegen | Low | k8s-rebase.sh Phase 2 handles mockery. Agent discovers from build. |
 
+## Resolved Questions
+
+**Q1: Defense-in-depth functions (fix_go_version, fix_version_refs)?**
+A: KEEP. They are idempotent no-ops when Phase 3 succeeds (cost
+zero), and Phase 3's commit failure mode (git reset HEAD discards
+work) has never been observed but is architecturally possible.
+65 LOC is not worth removing for zero observed benefit.
+
+**Q2: fix_kubeadm_v1beta4 — keep despite 1-repo reach?**
+A: KEEP. Silent failure mode (k8s ignores v1beta3 without error)
+makes this impossible to diagnose. The `grep v1beta4` guard makes
+it a no-op after first transition. 76 lines, harmless.
+
+**Q3: fix_kind_image — redundant with Phase 3?**
+A: KEEP. Phase 3 blindly sets kindest/node version. Autofix
+validates against Docker Hub and falls back if tag doesn't exist.
+Different functionality, not redundant. Most valuable of the
+"defense-in-depth" group.
+
+## Devil's Advocate Findings
+
+An adversarial review challenged all 10 REMOVE decisions. Key
+counter-arguments that change the disposition:
+
+**NPA functions (4): timing matters.** NPA v0.2.0 shipped April
+2026. ovnk conformance is on v0.1.9-pre. The very next rebase
+will likely trigger ALL 4 NPA functions simultaneously. However:
+the functions are still speculative until the conformance module
+actually bumps. If removed now, the agent CAN discover 2/4 from
+compile errors (conformance_renames, banp_egresspeer). The other
+2 (obsgen, network_policy_api_crds) are subtle — the agent
+would likely miss them. Counter-counter: these repos should add
+NPA-specific AGENTS.md guidance if/when they bump to v0.2.0.
+
+**fix_docs_version (12 LOC): too cheap to argue about.** The
+devil's advocate is right — spending time debating 12 lines
+costs more than keeping them. But it only fires for one file
+that only exists in ovnk. KEEP for now, remove if/when we do
+a broader "repo-specific knowledge goes in repo AGENTS.md" pass.
+
+**fix_mocks (19 LOC): stronger case to keep.** The agent needs
+to know to run `make mocksgen` (not `go generate`). k8s-rebase.sh
+Phase 2 has its own mockery step, but it only fires if codegen
+auto-retry succeeds. KEEP.
+
+**fix_metallb_version: FRR image subtlety.** The FRR image tag
+extraction from MetalLB values.yaml is non-obvious. An agent
+bumping MetalLB without updating the FRR image causes silent BGP
+failures. But this is ovnk-only. REMOVE — move to ovnk AGENTS.md.
+
+**Extraction alternative:** Instead of removing NPA functions,
+extract them to a separate sourced file. This gives modularity
+without regression risk. Worth considering if the user prefers.
+
+### Revised disposition after devil's advocate
+
+| Function | Original | Revised | Reason |
+|----------|----------|---------|--------|
+| fix_docs_version | REMOVE | KEEP | 12 LOC, too cheap to argue |
+| fix_mocks | REMOVE | KEEP | Agent needs `make mocksgen` knowledge |
+| fix_obsgen | REMOVE | REMOVE | Subtle but only 1 repo. Move to AGENTS.md |
+| fix_network_policy_api_crds | REMOVE | REMOVE | Only 1 repo. Move to AGENTS.md |
+| fix_conformance_renames | REMOVE | REMOVE | Compile error guides fix |
+| fix_banp_egresspeer | REMOVE | REMOVE | Compile error guides fix |
+| fix_metallb_version | REMOVE | REMOVE | ovnk-only. FRR subtlety → AGENTS.md |
+| fix_kubevirt_version | REMOVE | REMOVE | ovnk-only |
+| fix_relaxed_svc_name | REMOVE | REMOVE | ovnk-only kind.yaml.j2 |
+
+**Net change: 8 REMOVE (was 10), 19 KEEP (was 17).**
+**LOC removed: ~220 (was ~260).**
+
+## Resolved: InOrderInformers
+
+**Remove from GATE_DEPS.** The patterns doc is correct.
+
+InOrderInformers only selects the internal FIFO queue (RealFIFO
+vs DeltaFIFO) — it does NOT change fake-clientset wire protocol.
+The stated GATE_DEPS criteria is "gates that change fake-clientset
+wire protocol or API behavior." InOrderInformers doesn't meet it.
+On k8s 1.36 it's GA+LockToDefault so the autofix already skips
+it (dead code). On 1.33-1.35 it unnecessarily forces tests to
+run with legacy DeltaFIFO. The real culprit for fake-clientset
+hangs is WatchListClient, which changes the reflector transport.
+
+**Change:** Remove `GATE_DEPS[InOrderInformers]=""` from line 152
+of autofix.sh.
+
 ## Open Questions
 
-1. InOrderInformers: GATE_DEPS has it, patterns doc says it
-   doesn't need disabling. Which is correct?
-2. Should fix_kubeadm_v1beta4 be kept (silent failure) even
-   though only 1 repo (ovnk) has kind.yaml.j2? It's a one-
-   time transition with a no-op guard after.
-3. Should we also remove the remaining Phase 3 defense-in-
-   depth functions (fix_go_version, fix_version_refs) given
-   Phase 3 already handles them? Trade-off: ~65 LOC saved
-   vs losing the safety net.
+1. Should NPA functions be extracted to a separate sourced file
+   instead of removed? (Devil's advocate suggestion — modularity
+   without regression risk. User preference.)
 
 ## Collateral Changes (non-code)
 
@@ -374,8 +473,40 @@ codegen output changes.
 
 ---
 
-_Iteration 3 — integrated step3 impact analysis, extending
-section draft, autofix header comment draft. 5 agents still
-running (devil's advocate, InOrderInformers, test harness,
-trimmed patterns draft, autofix line ranges, defense-in-depth,
-README impact)._
+## Detailed Line Ranges for Autofix Removals
+
+Sorted top-to-bottom of autofix.sh (1678 lines):
+
+| # | Lines | What to remove |
+|---|-------|---------------|
+| 1 | 18-19 + edits 16,21,23 | Header comment categories |
+| 2 | 164-187 | run_checks: conformance/addtoscheme/banp block |
+| 3 | 239-249 | run_checks: ObsGen |
+| 4 | 310-321 | run_checks: E2e test fixes missing |
+| 5 | 695-736 | fix_metallb_version |
+| 6 | 738-758 | fix_kubevirt_version |
+| 7 | 760-793 | fix_relaxed_service_name_validation |
+| 8 | 976-1012 | fix_network_policy_api_crds |
+| 9 | 1047-1074 | fix_conformance_renames |
+| 10 | 1076-1131 | fix_obsgen |
+| 11 | 1133-1149 | fix_banp_egresspeer |
+| 12 | 1414-1416,1420,1422-1424 | FIX_DESC entries (7 lines) |
+| 13 | 1515-1520 | main: NPA fix+commit block |
+| 14 | 1541-1545 | main: metallb+kubevirt+relaxed block |
+| 15 | 1603-1608 | case: ObsGen |
+| 16 | 1620-1635 | case: Conformance+AddToScheme+BANP block |
+| 17 | 1660-1663 | case: E2e test |
+
+Also: remove GATE_DEPS[InOrderInformers]="" from line 152.
+
+Total: ~220 lines removed from a 1678-line file (13%).
+
+---
+
+_Iteration 4 — ALL 19 research agents complete across 2 waves.
+Integrated: devil's advocate findings (revised 2 dispositions),
+InOrderInformers resolution (remove from GATE_DEPS), defense-in-
+depth verdict (keep), test harness impact (no hard deps), detailed
+line ranges, step3 edits, extending section draft, trimmed
+patterns doc draft (240 LOC from 591), README/plugin.json analysis
+(no changes needed). Plan is comprehensive and ready for review._
