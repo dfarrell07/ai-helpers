@@ -104,7 +104,8 @@ can break CI.
 If errors appear in `/go/pkg/mod/` paths (not the project's own
 code), a direct dependency is incompatible with the bumped k8s
 packages. Extract the module path (between `/go/pkg/mod/` and
-`@`) and fix with `go get <module>@latest && go mod tidy`.
+`@`) and fix with:
+`bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" <module>`
 
 **NEVER modify files under vendor/ directly.** CI runs
 `go mod vendor` which regenerates vendor from source, erasing
