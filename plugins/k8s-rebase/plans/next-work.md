@@ -40,13 +40,25 @@ Fix: add Edit and Write to allowed-tools.
 ### 3. Hook crash-to-allow
 
 If jq is missing, hooks crash with exit 1. Claude Code treats
-non-JSON exit 1 as "allow." Fix: output block JSON and exit 0:
+exit 1 as "allow." Must NOT use bare `exit 2` at top — that
+would block ALL commands globally when jq is missing (skips
+the session guard). Fix: add after `INPUT=$(cat)`, before jq:
+
 ```bash
 if ! command -v jq &>/dev/null; then
-  echo '{"decision":"block","reason":"jq required for hook"}'
-  exit 0
+  # Best-effort session check without jq
+  CWD=$(printf '%s' "$INPUT" | grep -o '"cwd" *: *"[^"]*"' \
+    | head -1 | sed 's/.*"\([^"]*\)"$/\1/')
+  if [[ -n "$CWD" && -f "$CWD/.rebase-tmp/.session-active" ]]; then
+    echo "BLOCKED: jq required for k8s-rebase hooks" >&2
+    exit 2
+  fi
+  exit 0  # Not in a session — allow
 fi
 ```
+
+For stop-hook.sh: fail-open (`exit 0`) since trapping a user
+in a session with broken tooling is worse than premature exit.
 
 ### 4. derive_go_gets sigs.k8s.io in Rule 1
 

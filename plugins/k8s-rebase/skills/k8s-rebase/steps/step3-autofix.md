@@ -9,10 +9,10 @@ Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 Use `timeout: 600000` -- the autofix auto-containerizes and
 runs go vet internally.
 
-The autofix outputs RESULT: PASS or RESULT: ITEMS_REMAINING.
-ITEMS_REMAINING is normal -- it means the repo has patterns the
-autofix documents but cannot fix automatically (e.g., complex
-test refactors). The agent handles those in Step 4.
+The autofix outputs RESULT: PASS or RESULT: FAIL.
+FAIL is normal -- it means some checks found issues the autofix
+could not fix automatically (e.g., complex test refactors).
+The agent handles those in Step 4.
 Regardless of output, proceed to gates.
 
 ```bash
@@ -47,7 +47,7 @@ this is normal for repos with few k8s dependencies.
 **You must still run the step3 gates below** -- they discover
 issues the autofix does not cover.
 
-If ITEMS_REMAINING, check `git log` for autofix commits -- if any
+If FAIL, check `git log` for autofix commits -- if any
 groups already committed, fix remaining items manually rather than
 re-running. Re-running duplicates the committed groups (new
 commits, not amends). Read the patterns doc for unfamiliar
