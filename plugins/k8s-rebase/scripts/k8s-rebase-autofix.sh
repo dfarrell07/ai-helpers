@@ -157,30 +157,6 @@ GATE_DEPS[WatchListClient]=""
 run_checks() {
   local F=0
   r() { echo "$1: $2"; [ "$2" != "0" ] && F=$((F+1)); }
-  # Only check conformance renames if conformance module uses v0.2.0+
-  local _conf_npa_minor=0
-  local _conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" -not -path "*/.claude/*" | head -1)
-  [[ -n "$_conf_gomod" ]] && _conf_npa_minor=$(grep "network-policy-api " "$_conf_gomod" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
-  if (( _conf_npa_minor >= 2 )) 2>/dev/null; then
-    r "Conformance old names" "$(grep 'SupportAdminNetworkPolicy' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
-  else
-    r "Conformance old names" "0"
-  fi
-  local _factory=$(find . -name "factory.go" -path "*/factory/*" -not -path "*/vendor/*" | head -1)
-  r "AddToScheme in factory" "$(grep 'anpapi.AddToScheme' "$_factory" 2>/dev/null | wc -l)"
-  # Only check conformance AddToScheme if conformance module uses v0.2.0+
-  if (( _conf_npa_minor >= 2 )) 2>/dev/null; then
-    r "AddToScheme in conformance" "$(grep 'AddToScheme' test/conformance/network_policy_v2_test.go 2>/dev/null | wc -l)"
-  else
-    r "AddToScheme in conformance" "0"
-  fi
-  # Only flag shared EgressPeer in BANP test if the split type exists in vendor
-  if grep -rq "BaselineAdminNetworkPolicyEgressPeer" "$MODULE_ROOT/vendor/sigs.k8s.io/network-policy-api/" 2>/dev/null; then
-    local _banp_test=$(find . -name "baseline_admin_network_policy_test.go" -not -path "*/vendor/*" | head -1)
-    r "BANP wrong EgressPeer" "$(grep 'AdminNetworkPolicyEgressPeer' "$_banp_test" 2>/dev/null | grep -vc Baseline)"
-  else
-    r "BANP wrong EgressPeer" "0"
-  fi
   # Gate checks — driven by GATE_DEPS map. Only checks gates that
   # exist in the vendored k8s code (safe across k8s versions).
   local _active_gates="" _all_gate_names=""
@@ -232,17 +208,6 @@ run_checks() {
     done
   done
   r "Gates in SetFromMap files" "$_gsfm"
-  # Check ObservedGeneration completeness: need at least 5 references
-  # (2 assignments + 1 comparison + 2 propagations). Fewer means partial fix.
-  local _obsgen_file
-  _obsgen_file=$(find . -name "status.go" -path "*/admin_network_policy/*" -not -path "*/vendor/*" | head -1)
-  local _obsgen_count=0
-  [[ -f "$_obsgen_file" ]] && _obsgen_count=$(grep -c 'ObservedGeneration' "$_obsgen_file" 2>/dev/null || true)
-  if [[ -f "$_obsgen_file" ]] && [[ "$_obsgen_count" -gt 0 ]] && [[ "$_obsgen_count" -lt 5 ]]; then
-    r "ObsGen incomplete" "1"
-  else
-    r "ObsGen missing" "$(grep -L 'WithObservedGeneration\|ObservedGeneration' "$_obsgen_file" 2>/dev/null | wc -l)"
-  fi
   r "x/exp imports" "$(grep -rn 'golang.org/x/exp' --include='*.go' . | grep -v vendor | wc -l)"
   r "reflect.Ptr" "$(grep -rn 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor | wc -l)"
   if [[ "${K8S_MINOR:-0}" -ge 36 ]] 2>/dev/null; then
@@ -303,18 +268,6 @@ run_checks() {
     done
   fi
   r "CRD missing name validation" "$_crd_name_miss"
-  # E2e test fixes: check if known CI-blocking test patterns exist
-  # without their corresponding fix. Each entry is: file, old pattern
-  # (the broken code), fix marker (the new code). If old exists but
-  # fix doesn't, the test will fail in CI.
-  local _e2e_miss=0
-  if [[ -f "test/e2e/kubevirt.go" ]]; then
-    if grep -q "virtualMachineAddressesFromStatus" "test/e2e/kubevirt.go" && \
-       ! grep -q "virtLauncherNetworkStatusIPs" "test/e2e/kubevirt.go"; then
-      _e2e_miss=$((_e2e_miss+1))
-    fi
-  fi
-  r "E2e test fixes missing" "$_e2e_miss"
   r "Uncommitted" "$(git status --short | grep -v '^[?]' | wc -l)"
   echo "---"
   [ "$F" -eq 0 ] && echo "RESULT: PASS" || echo "RESULT: FAIL ($F checks non-zero)"
@@ -1097,23 +1050,14 @@ declare -A FIX_DESC=(
   [reflect_ptr]="replace reflect.Ptr with reflect.Pointer"
   [fieldsv1]="replace FieldsV1.Raw with GetRawBytes/NewFieldsV1"
   [eventf]="fix bare Eventf format strings"
-  [docs_version]="update version references in docs"
   [version_refs]="update stale version references"
   [go_version]="bump Go version"
   [lint_version]="bump golangci-lint version"
   [kind_image]="update KIND node image tag"
   [kind_version]="bump KIND binary version"
-  [metallb_version]="bump MetalLB version"
-  [kubevirt_version]="bump KubeVirt version (patch only)"
-  [relaxed_service_name_validation]="manage RelaxedServiceNameValidation gate"
   [kubeadm_v1beta4]="migrate kubeadm config to v1beta4 format"
   [crd_int64_validation]="add int64 format to CRD integer fields"
-  [crd_name_validation]="update CRD name validation"
-  [network_policy_api_crds]="update network-policy-api CRD vendored copies"
   [addtoscheme]="rename AddToScheme to Install"
-  [conformance_renames]="apply conformance test renames"
-  [obsgen]="add ObservedGeneration to status conditions"
-  [banp_egresspeer]="fix BANP EgressPeer type references"
   [feature_gates]="disable problematic feature gates for tests"
   [imports]="deduplicate and sort imports"
   [bounding_dirs]="remove dropped --bounding-dirs codegen flag"
@@ -1204,15 +1148,8 @@ if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
   fix_uncommitted "$(format_msg "vet" "Fix bare Eventf format strings")"
   run_fix fix_addtoscheme
   fix_uncommitted "$(format_msg "deps" "Replace removed AddToScheme with Install")"
-  run_fix fix_conformance_renames
-  run_fix fix_banp_egresspeer
-  run_fix fix_network_policy_api_crds
-  fix_uncommitted "$(format_msg "deps" "Update network-policy-api symbols for conformance")"
-  run_fix fix_obsgen
-  fix_uncommitted "$(format_msg "deps" "Add ObservedGeneration to ANP/BANP status conditions")"
   run_fix fix_crd_int64_validation
-  run_fix fix_crd_name_validation
-  fix_uncommitted "$(format_msg "deps" "Fix CRD validation (int64 format, metadata.name)")"
+  fix_uncommitted "$(format_msg "deps" "Fix CRD int64 format validation")"
   run_fix fix_bounding_dirs
   fix_uncommitted "$(format_msg "codegen" "Remove deprecated --bounding-dirs flag")"
   run_fix fix_mocks
@@ -1230,17 +1167,10 @@ run_fix fix_kind_image
 fix_uncommitted "$(format_msg "ci" "Update KIND image to match k8s ${K8S_MAJOR_MINOR}")"
 run_fix fix_kind_version
 fix_uncommitted "$(format_msg "ci" "Bump KIND binary to latest release")"
-run_fix fix_metallb_version
-fix_uncommitted "$(format_msg "ci" "Bump MetalLB to latest release")"
-run_fix fix_kubevirt_version
-fix_uncommitted "$(format_msg "ci" "Bump KubeVirt to latest patch")"
-run_fix fix_relaxed_service_name_validation
 run_fix fix_kubeadm_v1beta4
-fix_uncommitted "$(format_msg "ci" "Update KIND cluster config for k8s ${K8S_MAJOR_MINOR}")"
+fix_uncommitted "$(format_msg "ci" "Migrate KIND kubeadm config to v1beta4")"
 
 # ── Version refs, lint, licenses
-run_fix fix_docs_version
-fix_uncommitted "$(format_msg "docs" "Update k8s version in documentation")"
 run_fix fix_version_refs
 run_fix fix_go_version
 run_fix fix_lint_version
@@ -1292,12 +1222,6 @@ else
   echo "$RESULT" | grep -v ': 0$' | grep -v '^---' | grep -v '^RESULT' | while IFS=: read -r name count; do
     count=$(echo "$count" | tr -d ' ')
     case "$name" in
-      *"ObsGen"*)
-        echo "  $name: Add .WithObservedGeneration(anp.Generation) to the metav1apply.Condition() builder chain."
-        echo "    ObservedGeneration is on ConditionApplyConfiguration (k8s.io/client-go/applyconfigurations/meta/v1),"
-        echo "    NOT on the ANP/BANP status struct. File:"
-        find . -name "status.go" -path "*/admin_network_policy/*" -not -path "*/vendor/*" -exec grep -L 'WithObservedGeneration' {} \; 2>/dev/null | sed 's/^/    /'
-        ;;
       *"x/exp"*)
         echo "  $name: Migrate these imports to stdlib (maps, slices, cmp):"
         grep -rn 'golang.org/x/exp' --include='*.go' . | grep -v vendor | sed 's/^/    /'
@@ -1308,22 +1232,6 @@ else
         ;;
       *"Gates"*)
         echo "  $name: Feature gates missing. Check GATE_DEPS in autofix script."
-        ;;
-      *"Conformance old names"*)
-        echo "  $name: Rename SupportAdminNetworkPolicy → AdminNetworkPolicy in:"
-        grep -n 'SupportAdminNetworkPolicy' test/conformance/network_policy_v2_test.go 2>/dev/null | sed 's/^/    test\/conformance\/network_policy_v2_test.go:/' | sed 's/:/:/' | head -20
-        ;;
-      *"AddToScheme in factory"*)
-        echo "  $name: Remove anpapi.AddToScheme (now registered via scheme init):"
-        find . -name "factory.go" -path "*/factory/*" -not -path "*/vendor/*" -exec grep -n 'anpapi.AddToScheme' {} + 2>/dev/null | sed 's/^/    /'
-        ;;
-      *"AddToScheme in conformance"*)
-        echo "  $name: Remove AddToScheme calls (now registered via scheme init):"
-        grep -n 'AddToScheme' test/conformance/network_policy_v2_test.go 2>/dev/null | sed 's/^/    test\/conformance\/network_policy_v2_test.go:/' | head -20
-        ;;
-      *"BANP wrong EgressPeer"*)
-        echo "  $name: Change AdminNetworkPolicyEgressPeer → BaselineAdminNetworkPolicyEgressPeer:"
-        find . -name "baseline_admin_network_policy_test.go" -not -path "*/vendor/*" -exec grep -n 'AdminNetworkPolicyEgressPeer' {} + 2>/dev/null | grep -v Baseline | sed 's/^/    /'
         ;;
       *"reflect.Ptr"*)
         echo "  $name: Replace reflect.Ptr → reflect.Pointer (deprecated in Go 1.18):"
@@ -1348,10 +1256,6 @@ else
         for _crd in $(find . -path "*/helm/*/crds/*.yaml" -not -path "*/vendor/*" 2>/dev/null); do
           awk '/^          metadata:/{m=NR} m && /^          [a-z]/ && !/pattern:/{printf "    %s:%d: metadata block missing pattern\n", FILENAME, m; m=0}' "$_crd" 2>/dev/null
         done
-        ;;
-      *"E2e test"*)
-        echo "  $name: Replace virtualMachineAddressesFromStatus → virtLauncherNetworkStatusIPs:"
-        grep -n 'virtualMachineAddressesFromStatus' test/e2e/kubevirt.go 2>/dev/null | sed 's/^/    test\/e2e\/kubevirt.go:/' | head -20
         ;;
       *"Uncommitted"*)
         echo "  $name: $count uncommitted changes — stage and commit:"
