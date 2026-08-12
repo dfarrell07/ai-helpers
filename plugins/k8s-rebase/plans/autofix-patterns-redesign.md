@@ -249,39 +249,69 @@ fires. The function is a maintenance tool, not a bootstrapper.
 
 ### Commit 1: Remove repo-specific autofix code
 
-- Remove fix_metallb_version (42 LOC)
-- Remove fix_kubevirt_version (21 LOC)
-- Remove fix_docs_version (12 LOC)
-- Remove fix_mocks (19 LOC)
-- Remove fix_relaxed_service_name_validation (34 LOC)
-- Remove FIX_DESC entries, main exec calls, case blocks
-- Remove E2e test fixes and stale docs ver from run_checks
+autofix.sh changes:
+- Remove fix_metallb_version (lines ~695-736, 42 LOC)
+- Remove fix_kubevirt_version (lines ~738-758, 21 LOC)
+- Remove fix_docs_version (lines ~429-440, 12 LOC)
+- Remove fix_mocks (lines ~1347-1365, 19 LOC)
+- Remove fix_relaxed_service_name_validation (lines ~760-793, 34 LOC)
+- Remove their FIX_DESC entries
+- Remove their `run_fix` + `fix_uncommitted` calls in main exec
+- Remove "E2e test fixes" and "Stale docs ver" from run_checks
+- Remove their case blocks in remaining-issues section
+- Update header comment (lines 1-22 → 19 lines)
 
 ### Commit 2: Remove NPA ecosystem autofix code
 
-- Remove fix_conformance_renames (28 LOC)
-- Remove fix_banp_egresspeer (17 LOC)
-- Remove fix_obsgen (56 LOC)
-- Remove fix_network_policy_api_crds (37 LOC)
-- Remove 5 NPA run_checks entries
+autofix.sh changes:
+- Remove fix_conformance_renames (lines ~1047-1074, 28 LOC)
+- Remove fix_banp_egresspeer (lines ~1133-1149, 17 LOC)
+- Remove fix_obsgen (lines ~1076-1131, 56 LOC)
+- Remove fix_network_policy_api_crds (lines ~976-1012, 37 LOC)
+- Remove 5 NPA run_checks entries: Conformance old names,
+  AddToScheme in factory, AddToScheme in conformance,
+  BANP wrong EgressPeer, ObsGen incomplete/missing
 - Remove NPA case blocks from remaining-issues section
+- Remove NPA FIX_DESC entries and main exec calls
 
 ### Commit 3: Trim patterns doc
 
-- Remove 14 version/repo-specific sections (~280 LOC)
-- Keep Pattern Table + 11 generic/recurring sections
-- Trim 2 "keep but trim" sections
+docs/k8s-rebase-patterns.md changes:
+- Replace "Extending for a New k8s Version" with shorter
+  "Extending" section (20 lines, emphasizes generic-only
+  patterns and Pattern Table rows over recipe sections)
+- Trim Pattern Table: remove repo-specific rows (Hybrid-
+  overlay test race, CRD name validation lost, OTE module)
+- Remove Feature Gates version-specific lists ("Gates that
+  do NOT need disabling (k8s 1.36)")
+- Remove 14 sections: WithConditions+ObsGen, EgressPeer,
+  Conformance rename, CRD int64, CRD name validation,
+  MetalLB, KubeVirt, RelaxedServiceNameValidation,
+  KubeVirt IPv6 test, kubeadm v1beta4, deepcopy-gen
+  bounding-dirs, Hybrid-overlay, E2e framework, OTE module
+- Trim 3 sections to short concept summaries: controller-gen
+  annotation, Webhook builder API, Operator Framework repos
 
-### Commit 4: Update gate references
+### Commit 4: Update step3-autofix.md
+
+4 edits in step3-autofix.md:
+- Line 14: "KubeVirt test changes" → "complex API migrations
+  that need manual judgment"
+- Line 23: Remove "MetalLB, KubeVirt," from autofix description
+- Line 37: Remove "(MetalLB, KubeVirt, etc.)" and patterns doc
+  ref from CI dependency versions bullet
+- Lines 53-55: Remove MetalLB FRR image warning sentence
+
+### Commit 5: Update gate references
 
 - Add inline category lists to autofix-diff-review.md and
   maintainer-review.md so they don't need the patterns doc
 - Verify patterns-completeness.md fallback path works
 
-### Commit 5: Fix feature gate inconsistency
+### Commit 6: Fix feature gate inconsistency
 
-- Remove InOrderInformers from GATE_DEPS (contradicts doc)
-  OR update patterns doc to include it. Research needed.
+- Resolve InOrderInformers contradiction between GATE_DEPS
+  and patterns doc (awaiting research agent result)
 
 ## Risk Assessment
 
@@ -304,7 +334,48 @@ fires. The function is a maintenance tool, not a bootstrapper.
    Phase 3 already handles them? Trade-off: ~65 LOC saved
    vs losing the safety net.
 
+## Collateral Changes (non-code)
+
+Files that need text updates after removals:
+- autofix.sh header comment (lines 1-22)
+- README.md — possibly update "Tested against" table features
+- step3-autofix.md — 4 edits (MetalLB/KubeVirt refs)
+- patterns doc "Extending" section — rewrite to prevent bloat
+- autofix-disposition.md plan — superseded by this plan
+
+## Draft: New "Extending" Section for Patterns Doc
+
+```markdown
+## Extending
+
+When a rebase surfaces a new breakage pattern:
+
+1. **Pattern Table** — add a row (one-liner: category, symptom,
+   fix). This is the primary entry point; most patterns belong
+   here and nowhere else.
+2. **Detailed section below the table** — add a `### Title
+   (recurring)` section only if the fix needs multi-step
+   instructions, code examples, or caveats that cannot fit a
+   single table row.
+3. **`scripts/k8s-rebase.sh`** — only if the mechanical rebase
+   needs changes (unlikely — it is version-generic).
+
+**Criteria for inclusion:** patterns must be generic — they
+apply (or could apply) to any Go project that vendors k8s.
+If a fix only fires for one or two specific repos, put it in
+that repo's `CLAUDE.md` or `AGENTS.md`, not here.
+
+**How to discover patterns:** run the skill on a repo and
+observe what breaks. Common sources: renamed/removed API
+symbols, stricter `go vet` or lint checks, new default-true
+feature gates, KIND/MetalLB/KubeVirt version skew, and
+codegen output changes.
+```
+
 ---
 
-_Iteration 2 — synthesized from 11 completed research agents.
-All agents complete. LOC numbers are exact. Ready for review._
+_Iteration 3 — integrated step3 impact analysis, extending
+section draft, autofix header comment draft. 5 agents still
+running (devil's advocate, InOrderInformers, test harness,
+trimmed patterns draft, autofix line ranges, defense-in-depth,
+README impact)._
