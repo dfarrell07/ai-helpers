@@ -238,8 +238,8 @@ Autofix signal cleanup lives in step3:
 - Add "Regardless of output, proceed to gates"
 - Fix line 520 contradiction ("cat" → "let subagent Read")
 
-See `plans/autofix-disposition.md` for the full 26-function catalog
-with self-gating guards and keep/remove recommendations.
+See `plans/autofix-patterns-redesign.md` for the autofix function
+disposition (18 kept, 9 removed) and patterns doc trimming.
 
 **Robustness improvements** (in rules.md or step files):
 - Oscillation detection: stop gate-fix loop if a previously-passed

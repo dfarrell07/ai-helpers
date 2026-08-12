@@ -616,16 +616,12 @@ declare -A TAG_TO_PATTERN=(
   [xexp]="golang.org/x/exp" [reflect_ptr]="Deprecated stdlib/apimachinery symbols"
   [fieldsv1]="Deprecated stdlib/apimachinery symbols" [klog_v2]="Deprecated stdlib/apimachinery symbols"
   [eventf]="Deprecated stdlib/apimachinery symbols" [imports]="Deprecated stdlib/apimachinery symbols"
-  [bounding_dirs]="deepcopy-gen --bounding-dirs removed" [obsgen]="WithConditions + ObservedGeneration"
-  [conformance_renames]="Conformance suite rename" [addtoscheme]="AddToScheme"
-  [mocks]="Deprecated stdlib/apimachinery symbols" [crd_int64_validation]="Project CRD int64 validation"
-  [crd_name_validation]="CRD metadata.name validation" [feature_gates]="RelaxedServiceNameValidation"
-  [kind_image]="E2e framework changes" [kind_version]="E2e framework changes"
-  [metallb_version]="MetalLB CRD validation" [kubevirt_version]="KubeVirt version incompatibility"
-  [relaxed_service_name_validation]="RelaxedServiceNameValidation" [kubeadm_v1beta4]="kubeadm v1beta4 format"
-  [docs_version]="Deprecated stdlib/apimachinery symbols" [version_refs]="Deprecated stdlib/apimachinery symbols"
-  [go_version]="E2e framework changes" [lint_version]="golangci-lint"
-  [network_policy_api_crds]="MetalLB CRD validation" [banp_egresspeer]="EgressPeer type divergence"
+  [bounding_dirs]="Deprecated stdlib/apimachinery symbols" [addtoscheme]="AddToScheme"
+  [mocks]="Deprecated stdlib/apimachinery symbols" [crd_int64_validation]="Deprecated stdlib/apimachinery symbols"
+  [feature_gates]="Feature Gates" [kind_image]="Transitive dependency"
+  [kind_version]="Transitive dependency" [kubeadm_v1beta4]="Recurring Patterns"
+  [version_refs]="Deprecated stdlib/apimachinery symbols"
+  [go_version]="Deprecated stdlib/apimachinery symbols" [lint_version]="golangci-lint"
 )
 
 mutate_plugin() {
