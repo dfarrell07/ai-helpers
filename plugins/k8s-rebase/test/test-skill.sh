@@ -618,8 +618,7 @@ declare -A TAG_TO_PATTERN=(
   [eventf]="Deprecated stdlib/apimachinery symbols" [imports]="Deprecated stdlib/apimachinery symbols"
   [bounding_dirs]="Deprecated stdlib/apimachinery symbols" [addtoscheme]="AddToScheme"
   [mocks]="Deprecated stdlib/apimachinery symbols" [crd_int64_validation]="Deprecated stdlib/apimachinery symbols"
-  [feature_gates]="Feature Gates" [kind_image]="Transitive dependency"
-  [kind_version]="Transitive dependency" [kubeadm_v1beta4]="Recurring Patterns"
+  [kind_image]="Transitive dependency" [kind_version]="Transitive dependency"
   [version_refs]="Deprecated stdlib/apimachinery symbols"
   [go_version]="Deprecated stdlib/apimachinery symbols" [lint_version]="golangci-lint"
 )
