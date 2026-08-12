@@ -14,10 +14,6 @@ batch. Expect non-ovnk to stay ~89%+; ovnk likely stays ~25-35%
 `rm -rf "$repo/.rebase-tmp/gates"` to `rm -rf "$repo/.rebase-tmp"`.
 Also add to `cmd_clean`.
 
-**Fix stale branch detection** — Checkout default branch BEFORE
-deleting bump branches. Also needs `git checkout -f` (current
-`reset_to_default` fails on dirty state from crashed runs).
-
 **Run clean batch** — `make matrix` to get honest baseline.
 
 ## 2. Fix bugs that break users
