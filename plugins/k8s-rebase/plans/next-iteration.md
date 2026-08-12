@@ -11,22 +11,9 @@ first, then investigate remaining ovnk failures.
 
 **Clean .rebase-tmp/ in test harness** — Change line 446 of
 test-skill.sh from `rm -rf "$repo/.rebase-tmp/gates"` to
-`rm -rf "$repo/.rebase-tmp"`. The orchestrator creates state.json
-in the main repo during init (before entering a worktree), and
-it persists across runs. Also add to `cmd_clean`. This also
-fixes the force-advance counter persistence bug (counter files
-live inside .rebase-tmp/).
-
-## Production hardening
-
-**GPG signing** — Add `-c commit.gpgsign=false` to each
-`git commit` call (8 total: 7 in k8s-rebase.sh, 1 in autofix).
-Works in both host and container paths, never overrides host
-signing for non-commit operations.
-
-**Resume version mismatch** — Error if stored version differs.
-Still needed for production users even after .rebase-tmp cleanup
-(user could have leftover state from a previous rebase).
+`rm -rf "$repo/.rebase-tmp"`. Also add to `cmd_clean`. This also
+fixes force-advance counter persistence (counter files live
+inside .rebase-tmp/).
 
 ## Gate work
 
@@ -39,7 +26,8 @@ Still needed for production users even after .rebase-tmp cleanup
 
 ### Script the 9 Tier 1 gates
 Reduces agent calls when steps 2/3 adopt "launch only PENDING"
-pattern (step 4 already does this).
+pattern (step 4 already does this). Directly attacks the #1
+failure mode: sessions dying before completing all gates.
 
 | Gate | Script does |
 |------|-------------|
@@ -56,13 +44,19 @@ pattern (step 4 already does this).
 ### Consolidate gates
 - Narrow `deprecated-api-remnants` — duplicates build-vet
   (build+vet) and deprecated-imports (x/ checks). Keep only
-  its web-search discovery. Does NOT overlap with
-  deprecated-calls (different method: web-search vs staticcheck).
+  its web-search discovery.
 - `logical-completeness` (step3) and `logical-consistency` (step4)
-  overlap heavily but each has unique checks. Consider merging
-  unique step3 checks INTO step4, not dropping step3 outright.
+  overlap heavily but each has unique checks. Merge unique step3
+  checks into step4.
 
 ### Tier 2 evidence scripts (after Tier 1)
 1. `deprecated-calls` — staticcheck + pre-existing filter
 2. `autofix-result` — commit counting + build pass/fail
 3. `gomod-diff-analysis` — parse go.mod diff
+
+## Production hardening (after pass rate improves)
+
+**GPG signing** — Add `-c commit.gpgsign=false` to each
+`git commit` call (8 total: 7 in k8s-rebase.sh, 1 in autofix).
+
+**Resume version mismatch** — Error if stored version differs.
