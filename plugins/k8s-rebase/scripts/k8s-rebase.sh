@@ -522,6 +522,21 @@ rebase_module() {
     go mod tidy 2>/dev/null || true
   fi
 
+  # Warn if any k8s.io staging deps still diverge from target
+  local _still_wrong
+  _still_wrong=$(grep -E '^\s+k8s\.io/' go.mod | grep -v "=>" | \
+                 grep -E 'v0\.[0-9]+\.[0-9]+' | grep -v "${API_VERSION}" | \
+                 grep -v 'v0\.0\.0' | \
+                 grep -v 'kube-openapi' | grep -v 'k8s\.io/utils' | \
+                 grep -v 'k8s\.io/klog' | grep -v 'k8s\.io/gengo' | \
+                 awk '{print $1, $2}' || true)
+  if [[ -n "$_still_wrong" ]]; then
+    info "WARNING: Some k8s.io deps not at ${API_VERSION} after alignment:"
+    while IFS= read -r _line; do
+      [[ -n "$_line" ]] && info "  $_line"
+    done <<< "$_still_wrong"
+  fi
+
   # k8s.io/kubernetes uses v1.x.x (not v0.x.x like staging modules).
   # The staging alignment above misses it. Re-pin if tidy reverted it.
   # Uses go mod edit (text-only) instead of go get because go get
