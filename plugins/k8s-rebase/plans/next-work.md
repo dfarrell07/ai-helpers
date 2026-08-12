@@ -199,3 +199,29 @@ claude CLI missing, or timeout. All 3 failure paths silently
 approve unreviewed code. The antagonistic review system is
 defeated by any infrastructure issue. Fix: default to REJECT
 or exit with distinct code forcing caller to decide.
+
+### 22. k8s-rebase.sh Phase 1: silent go get failures (SERIOUS)
+
+Every go get failure in derive_go_gets is swallowed with a
+WARNING. The script commits go.mod with wrong dep versions.
+Fix: verify k8s.io/api, client-go, apimachinery are at
+API_VERSION after the go get loop before proceeding.
+
+### 23. k8s-rebase.sh re-pin tidy: break instead of die (SERIOUS)
+
+The k8s.io/kubernetes re-pin tidy loop (lines 534-546) uses
+break instead of die when exhausted. Falls through to vendor
+which crashes with a confusing error. Fix: die instead of break.
+
+### 24. k8s-rebase.sh re-tidy loop: no re-vendor (SERIOUS)
+
+The re-tidy loop for sibling replace directives (lines 608-624)
+runs go mod tidy but never go mod vendor. Commits stale vendor.
+Fix: add go mod vendor for vendored modules after tidy.
+
+### 25. step4 gates launched before lint (waste)
+
+step4 says "launch ALL gates immediately" but rules.md says
+"commit ALL fixes before re-launching ANY gates." Orchestrator
+discards all 15 gate reports as stale after first lint commit.
+Fix: launch gates after lint iteration completes.
