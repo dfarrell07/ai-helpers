@@ -83,7 +83,7 @@ _tally_gates() {
   local -A _gate_files=()
   for _gdir in "$@"; do
     [[ -d "$_gdir" ]] || continue
-    for _gf_file in "$_gdir"/*.report "$_gdir"/*.json; do
+    for _gf_file in "$_gdir"/*.report; do
       [[ -f "$_gf_file" ]] || continue
       local _gn=$(basename "${_gf_file%.report}" .json)
       if [[ -z "${_gate_files[$_gn]+x}" ]]; then
