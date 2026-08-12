@@ -742,11 +742,11 @@ Findings from 9-agent broader exploration wave:
 - **GPG signing hangs** — 16 git commit calls hang silently.
   Fixed: commit.gpgsign=false via GIT_CONFIG_COUNT.
 
-### Bugs identified (not yet fixed)
-- **Hook session guards** — 3 markdown hooks fire globally,
-  blocking go mod tidy/git push/vendor edits in ALL repos.
-  Fix: convert to command hooks with .session-active guard.
-  Priority: HIGH.
+### Bugs fixed (broader exploration)
+- **Hook session guards** — converted 3 markdown hooks to
+  command hooks (.sh) with .session-active guard. Markdown
+  hooks can't check the filesystem; command hooks can. Now
+  only fires during active rebase sessions.
 
 ### Cleanup done
 - Deleted 3 stale plan files (931 lines removed)
