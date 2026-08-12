@@ -3,127 +3,107 @@
 Deep audit of the draft plan against the actual codebase.
 Focus: issues that impact skill results and reliability.
 
+*Updated after plan was revised on Aug 11. Old "81%/5 failures"
+framing removed from plan. New framing: "non-ovnk 88%, ovnk
+0/7 due to stale .rebase-tmp/."*
+
 ---
 
 ## 1. "Where we are" — Fact Check
 
-### "81% clean pass rate"
+### "Non-ovnk repos: 88%. ovnk: 0/7"
 
-**NOT SUPPORTED BY DATA.** `results.tsv` has 299 entries:
-191 PASS, 108 FAIL = **63% overall**. Even excluding
-stale-branch failures: 191/279 = **68%**. Best recent window
-(Aug 4-6 excl stale): 35/45 = 78%. No window reaches 81%.
+**CONSISTENT WITH DATA.** The plan now frames the problem
+correctly: non-ovnk repos pass well, ovnk is the blocker.
 
-### "5 remaining failures: 2 'no branch found', 3 'missing gates'"
+### Historical context (299 entries total)
 
-**DRASTICALLY UNDERSTATES THE PROBLEM.** The TSV has **108
-FAIL entries**, not 5. Breakdown:
+| Category | Count | % |
+|----------|-------|---|
+| Gate(s) failed | 44 | 41% |
+| Missing gates (step boundary) | 24 | 22% |
+| Stale branch | 20 | 19% |
+| Missing gates (other) | 14 | 13% |
+| Court FAIL | 2 | 2% |
+| Other | 4 | 4% |
 
-| Category | Count | Detail |
-|----------|-------|--------|
-| Gate(s) failed | 44 | At least 1 gate FAIL verdict |
-| Missing gates (step boundary) | 24 | Agent stopped at exact step boundary — orchestrator didn't prevent |
-| Stale branch | 20 | Agent never committed to the branch — 14 on Aug 11 alone |
-| Missing gates (other) | 14 | Various partial completions |
-| Court FAIL | 2 | Real quality issues |
-| Other | 4 | "no branch found" (2), "session ended" (1), "no gates ran" (1) |
+Step-boundary failures (agent stopped at exact step boundaries)
+are concentrated: 79% on ovnk, 88% on spec=all (blind mode).
 
-The "missing 26 of 33 gates" pattern (= stopped at step2→3
-boundary) appears **11 times**. "missing 15" (step3→4) appears
-**7 times**. "missing 32" (step1→2) appears **4 times**. These
-are step-skipping failures the orchestrator was specifically
-designed to prevent.
+### Two root causes — plan's and audit's
 
-### "Stale-branch fix — Already fixed"
+The plan identifies **stale .rebase-tmp/** as the root cause.
+The audit identified **stale branch detection** separately.
+Both are real and verified on disk:
 
-**WRONG — 14 stale-branch failures on Aug 11 (today).**
+**1. Stale .rebase-tmp/ (plan's diagnosis):** Confirmed.
+All 3 checked main repos have stale `state.json` and
+`.session-active` from prior runs. If an agent somehow runs
+from the main repo instead of the worktree, it resumes an
+old orchestrator state (wrong step, wrong version). The
+`.session-active` sentinel also makes the stop hook fire for
+all sessions on that repo.
 
-Root cause found by inspecting the test repos on disk:
+Fix: `rm -rf "$repo/.rebase-tmp/"` in the harness before
+launching. This removes state.json, .session-active, gate
+reports, and advance counters in one command.
 
-1. A prior test run creates a `bump1.34` branch in the worktree.
-   When the worktree is cleaned, the branch persists in the main
-   repo. If the main repo ends up checked out on `bump1.34`
-   (which happens when the harness resets to it after worktree
-   removal), `git branch -D bump1.34` fails ("cannot delete
-   branch checked out at...").
-2. New sessions create timestamped branches (`bump1.34-<ts>`)
-   because `bump1.34` already exists.
-3. When `auto_record` runs for a dead session whose worktree
-   was already cleaned, `_worktree_info` returns nothing. The
-   fallback (`git branch | grep bump | sort -V | tail -1`)
-   finds the OLD `bump1.34`, not the new timestamped one.
-4. `branch_tip_epoch` of the old branch < `launch_epoch` of the
-   new session → "stale branch."
+**2. Stale branch detection (audit's diagnosis):** Confirmed.
+`ovn-org/ovn-kubernetes` main repo is checked out on `bump1.34`.
+`git branch -D bump1.34` fails (can't delete current branch).
+8 stale `bump1.35-*` branches persist. When `_do_record_one`
+can't find a worktree, its fallback finds the old `bump1.34`
+→ stale epoch → "stale branch."
 
-**Evidence:** `ovn-org/ovn-kubernetes` main repo is currently
-checked out on `bump1.34`. A locked worktree from a dead session
-(PID 372312, long gone) persists at `.claude/worktrees/
-k8s-rebase-1.34.1`. 8 stale `bump1.35-*` branches also remain.
+Fix: checkout default branch before deleting bump branches.
+Also filter fallback branches by tip age.
 
-**Fix:** In `_do_record_one`, the fallback branch detection
-should prefer the WORKTREE branch. If the worktree still exists,
-use whatever branch it's on. If the worktree is gone, check
-`git branch | grep bump | sort -V | tail -1` BUT filter for
-branches whose tip is NEWER than launch. Also: in the cleanup
-phase, reset the main repo to the default branch before deleting
-bump branches (`git checkout main` then `git branch -D bump*`).
-
-**The cleanup code (`remove_worktrees`) already tries unlock +
-force-remove but fails when the lock file references a dead PID.
-The fix must also handle stale locks from dead sessions.**
+**Relationship:** The `.rebase-tmp/` fix is more comprehensive
+(one command handles state, session sentinel, gate reports,
+and counters). But it doesn't fix the branch detection issue —
+old bump branches in the main repo will still confuse
+`_do_record_one` even after `.rebase-tmp/` is cleaned. **Both
+fixes are needed.**
 
 ---
 
 ## 2. "What moves the pass rate" — Analysis
 
-### "Agent early-stop — 3 of 5 remaining failures"
+### "Clean .rebase-tmp/ in test harness"
 
-**WRONG SCALE.** The plan says 3 failures. The data shows
-**24 step-boundary failures** plus **14 other missing-gates
-failures** = 38 total (35% of all failures).
+**CORRECT — this is the highest-impact fix.** The plan
+correctly identifies stale .rebase-tmp/ as the root cause of
+ovnk failures. Verified: all 3 checked main repos have stale
+state.json and .session-active.
 
-Root cause analysis by examining the failure patterns:
+The plan's one-line fix (`rm -rf "$repo/.rebase-tmp/"`) also
+resolves several production-hardening items at once:
+- Force-advance counter (stale `.advance-attempts-*` files)
+- Stale .session-active (stop hook fires incorrectly)
+- Old gate reports (interfere with recording)
 
-**Step-skipping is concentrated:** 79% on ovn-org/ovn-kubernetes,
-88% on spec=all (blind mode, no autofix/patterns). Breakdown:
-- `missing 26` (step2→3 boundary): 11 times, ALL spec=all
-- `missing 15` (step3→4 boundary): 7 times, 4 spec=all + 3 none
-- `missing 32` (step1→2 boundary): 4 times, ALL spec=all
+**The plan should also add the branch cleanup fix** (checkout
+default branch before deleting bump branches) because stale
+branches cause `_do_record_one` to find old branches even
+after .rebase-tmp/ is cleaned.
 
-**Most likely cause: context exhaustion.** ovnk is the largest
-repo (3 modules, codegen, 18k+ lines of test code). In spec=all
-mode, the agent gets no autofix help — it must figure out fixes
-from scratch, consuming much more context. The compilation fix
-cycle (step 2) involves reading error logs, reading source files,
-making fixes, re-validating, and launching 6 gate subagents.
-After all this, the session may hit context limits.
+### Step-skipping after .rebase-tmp/ fix
 
-**Why the stop hook doesn't help:** When a session hits context
-limits or crashes, the stop hook never fires (it's a pre-exit
-hook, not a crash handler). The session simply terminates.
-`_session_alive` detects the dead session, and `auto_record`
-records whatever gates exist → "missing N of 33."
+Once stale state is cleaned, the remaining step-skipping
+failures will either disappear (they were caused by stale
+resume) or persist (genuinely caused by context exhaustion or
+satisficing). The distribution suggests both:
 
-**Why satisficing is the SECONDARY cause:** The 3 spec=none
-failures at step3→4 aren't explained by context exhaustion
-(spec=none runs are shorter because autofix does the work).
-These may be satisficing — the agent decides it's done after
-step 3. The stop hook should catch this, but may fail if the
-agent's response to the BLOCKED message is to try exiting again.
+- `missing 26` (step2→3): 11 times, ALL spec=all — likely
+  context exhaustion on ovnk without autofix help
+- `missing 15` (step3→4): 7 times, 4 spec=all + 3 spec=none
+  — the 3 spec=none cases may be satisficing
+- `missing 32` (step1→2): 4 times — could be stale resume
 
-**Diagnostic procedure needed:**
-1. Save session transcripts from the next batch (session IDs
-   are in `.matrix-state/running/*` during execution)
-2. For a step-boundary failure, check the transcript for:
-   - Context compression messages (system auto-summarization)
-   - The agent's last tool call before exiting
-   - Whether the stop hook BLOCKED message appears
-   - Whether the agent attempted advance
-3. If context exhaustion is confirmed: reduce context consumption
-   per step (run gate subagents with smaller context budgets,
-   avoid reading large error logs into main context)
-4. If satisficing is confirmed: make the stop hook's BLOCKED
-   message include the exact next command to run
+**After cleaning .rebase-tmp/, run a batch and count residual
+step-skipping.** If it drops to near-zero, stale state was
+the dominant cause. If step2→3 skips persist on ovnk+spec=all,
+context exhaustion is real and needs transcript investigation.
 
 ---
 
@@ -495,27 +475,17 @@ specify dependencies. This matters because:
   is one possible explanation for the "missing gates" failures
   the plan is trying to diagnose)
 
-### Step-skipping and stale-branch are the two biggest problems
+### Plan now correctly prioritizes the harness fix
 
-The plan treats step-skipping as solved and stale-branch as
-fixed. Neither is true:
+The updated plan puts "Clean .rebase-tmp/" first, which is
+correct. This one fix may resolve both stale-branch AND
+step-skipping failures (if step-skipping was caused by stale
+orchestrator resume rather than context exhaustion).
 
-**Stale branch (20 failures, 19%):** Harness bug — main repo
-gets stuck on a prior run's bump branch, cleanup can't delete
-it, `_do_record_one` finds the old branch and reports stale.
-This is fixable with a targeted harness change (reset to
-default branch before cleanup, or filter branches by age in
-the fallback detection).
-
-**Step-skipping (24 step-boundary + 14 other = 38 failures,
-35%):** Most likely context exhaustion on ovnk + spec=all.
-The orchestrator and stop hook can't prevent session crashes.
-Needs transcript capture to confirm cause. Possible mitigation:
-reduce context consumption per step.
-
-Together these are 58 of 108 failures (54%). The plan focuses
-on the 44 gate-failure cases (41%) which are the THIRD-largest
-category. The priorities should be inverted.
+The plan should also add the branch cleanup fix (checkout
+default branch before deleting bump branches). Even after
+cleaning .rebase-tmp/, old bump branches in the main repo
+will confuse `_do_record_one`'s fallback branch detection.
 
 ### `version-completeness` vs `version-consistency` confusion
 
@@ -532,20 +502,19 @@ it's already scripted. Worth a note.
 
 ## 9. Summary — What Impacts Results
 
-### The plan's priorities are inverted
+### Plan's priorities are now correct
 
-The plan focuses on companion scripts and gate polish. But
-the data shows the dominant failure modes are:
+After the update, the plan correctly puts the harness fix
+first. The three failure buckets:
 
-1. **Step-skipping (38 failures, 35%)** — the orchestrator
-   isn't preventing it. Root cause unknown.
-2. **Stale branch (20 failures, 19%)** — plan says "fixed"
-   but 14 failures occurred today.
-3. **Gate failures (44 failures, 41%)** — some are real
-   quality issues, some are flaky gates.
+1. **Stale state + stale branch (58 failures, 54%)** — plan's
+   `.rebase-tmp/` cleanup + audit's branch cleanup fix this.
+2. **Gate failures (44 failures, 41%)** — companion scripts
+   address flaky subset. Correct as second priority.
+3. **Other (6 failures, 5%)** — court FAIL, no branch, etc.
 
-Companion scripts address #3 (gate flakiness) but don't
-touch #1 or #2, which together are 54% of all failures.
+The key question is how much of bucket #1 survives after the
+cleanup fix. A clean batch will answer this.
 
 ### Bugs that directly cause failures
 
@@ -562,17 +531,18 @@ touch #1 or #2, which together are 54% of all failures.
 |-------|----------|------------|
 | GPG signing | `commit.gpgsign=true` → step 1 hangs in nohup, step 3 hangs in subagent | ~6 lines per script |
 
-### Harness bugs (root causes found)
+### Harness bugs (two root causes, both verified)
 
 | Issue | Scale | Root cause | Fix |
 |-------|-------|-----------|-----|
-| Stale branch | 20 failures (19%) | Main repo stuck on bump branch, cleanup fails, `_do_record_one` fallback finds old branch | Checkout default before cleanup; filter branches by age |
+| Stale .rebase-tmp/ | Unknown (plan says ALL ovnk) | Stale state.json causes orchestrator resume; stale .session-active triggers stop hook | `rm -rf .rebase-tmp/` before launch |
+| Stale branch detection | 20 failures (19%) | Main repo stuck on bump branch, `_do_record_one` fallback finds old branch | Checkout default before cleanup; filter branches by age |
 
-### Investigation needed (root cause partially identified)
+### Unknown until after cleanup fix
 
-| Issue | Scale | Most likely cause | First step |
-|-------|-------|------------------|------------|
-| Step-skipping | 38 failures (35%) | Context exhaustion on ovnk + spec=all (79% on ovnk, 88% on spec=all) | Add transcript capture. Examine for context compression messages. |
+| Issue | Scale | What we'll learn | First step |
+|-------|-------|-----------------|------------|
+| Residual step-skipping | TBD after cleanup | Whether step-skipping was stale resume or context exhaustion | Run clean batch. If still failing, add transcript capture. |
 
 ### Lower-priority improvements
 
@@ -586,32 +556,23 @@ touch #1 or #2, which together are 54% of all failures.
 
 ## 10. Recommended Ship Order
 
-1. **Fix stale-branch harness bug** — root cause identified:
-   main repo stuck on bump branch, `_do_record_one` finds old
-   branch. Fix: checkout default branch before cleanup; in the
-   fallback, filter branches with tip newer than launch. Also
-   clean the 6 test repos now (unlock worktrees, delete stale
-   bump branches, checkout default branch). This alone removes
-   20 of 108 failures (19%).
+1. **Clean .rebase-tmp/ + stale branches in harness** — the
+   plan's `rm -rf .rebase-tmp/` fix plus the audit's branch
+   cleanup (checkout default before `git branch -D bump*`).
+   Also: manually clean the 6 test repos now (unlock
+   worktrees, prune, delete stale branches, checkout default).
 
-2. **Fix hook session guards + imports.sh args + pre-push
-   cleanup + force-advance counter** — all trivial bug fixes.
+2. **Run a clean batch** — this reveals the REAL pass rate
+   once stale state is eliminated. Many of the 58 "stale
+   state + step-skipping" failures may disappear.
 
-3. **Fix GPG signing** — test `GIT_CONFIG_COUNT` stacking.
+3. **Fix hook session guards + imports.sh args + pre-push
+   cleanup** — trivial bug fixes, independent of batch results.
 
-4. **Add transcript capture to harness** — save session
-   transcripts before cleanup. This is required to diagnose
-   the 38 step-skipping failures (context exhaustion vs
-   satisficing).
+4. **Fix GPG signing** — test `GIT_CONFIG_COUNT` stacking.
 
-5. **Run a clean batch + examine step-skip transcripts** —
-   with stale-branch fixed, the pass rate should jump from
-   63% to ~75%. Examine transcripts from "missing 26" failures
-   for context compression messages. If confirmed: reduce
-   context consumption per step (don't read full error logs
-   into main context, use smaller gate report limits).
+5. **Assess residual step-skipping** — if step-boundary
+   failures persist after cleanup, add transcript capture and
+   investigate context exhaustion vs satisficing.
 
-6. **Then**: companion scripts, gate polish, PENDING pattern
-   — these address the 41% gate-failure bucket, which becomes
-   the dominant issue once stale-branch and step-skipping
-   are addressed.
+6. **Then**: companion scripts, gate polish, PENDING pattern.
