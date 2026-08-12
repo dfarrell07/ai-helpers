@@ -236,7 +236,7 @@ fi
 
 # Check required tools
 MISSING=()
-for tool in go git make curl sed grep; do
+for tool in go git make curl sed grep perl; do
   command -v "$tool" &>/dev/null || MISSING+=("$tool")
 done
 [[ ${#MISSING[@]} -gt 0 ]] && die "Missing required tools: ${MISSING[*]}"
