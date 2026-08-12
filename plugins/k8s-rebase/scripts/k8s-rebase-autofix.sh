@@ -12,14 +12,11 @@
 # Fix function scope:
 #   Generic (any Go+k8s repo): fix_xexp, fix_reflect_ptr, fix_klog_v2, fix_fieldsv1,
 #     fix_eventf, fix_addtoscheme, fix_imports, fix_bounding_dirs,
-#     fix_mocks, fix_go_version, fix_lint_version, fix_version_refs,
-#     fix_docs_version, fix_crd_int64_validation, fix_crd_name_validation
-#   Ecosystem (network-policy-api): fix_conformance_renames,
-#     fix_banp_egresspeer, fix_obsgen, fix_network_policy_api_crds
+#     fix_go_version, fix_lint_version, fix_version_refs,
+#     fix_crd_int64_validation
 #   Ecosystem (KIND e2e): fix_kind_image, fix_kind_version,
-#     fix_relaxed_service_name_validation, fix_kubeadm_v1beta4
+#     fix_kubeadm_v1beta4
 #   Ecosystem (client-go features): fix_feature_gates
-#   Repo-specific (ovnk): fix_kubevirt_version, fix_metallb_version
 
 set -uo pipefail
 
@@ -149,7 +146,6 @@ fi
 # Adding a gate for k8s 1.37+: one line here, everything else automatic.
 declare -A GATE_DEPS
 GATE_DEPS[WatchListClient]=""
-GATE_DEPS[InOrderInformers]=""
 # k8s 1.37+: add new entries like:
 # GATE_DEPS[NewGate]="Dep1 Dep2 Dep3"
 
@@ -426,19 +422,6 @@ fix_eventf() {
   done
 }
 
-fix_docs_version() {
-  local NEW OLD
-  NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
-  [[ -z "$NEW" ]] && return 0
-  OLD=$((NEW-1))
-  local file="docs/features/requirements.md"
-  [[ -f "$file" ]] || return 0
-  if grep -q "| *1\.${OLD} *|" "$file"; then
-    echo ":: Fixing stale docs version 1.${OLD} → 1.${NEW}"
-    sed -i "s/| *1\.${OLD} *|/| 1.${NEW} |/g" "$file"
-  fi
-}
-
 fix_version_refs() {
   # Update stale K8S version references in CI, scripts, and docs.
   # Defense-in-depth for Phase 3 which may fail in some container setups.
@@ -692,106 +675,6 @@ fix_kind_version() {
   done
 }
 
-fix_metallb_version() {
-  local kind_common
-  kind_common=$(find . \( -name "kind-common" -o -name "kind-common.sh" \) -not -path "*/vendor/*" | head -1)
-  [[ -z "$kind_common" ]] && return 0
-  local current_metallb
-  current_metallb=$(grep -oE 'metallb_version=v[0-9.]+' "$kind_common" | head -1 | sed 's/metallb_version=//')
-  [[ -z "$current_metallb" ]] && return 0
-
-  local latest_metallb
-  # /releases/latest returns Helm chart releases (metallb-chart-*),
-  # not code releases. Use /releases and filter for v-prefixed tags.
-  latest_metallb=$(curl -sf "https://api.github.com/repos/metallb/metallb/releases?per_page=20" 2>/dev/null | grep -oE '"tag_name": "v[0-9][^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
-  [[ -z "$latest_metallb" ]] && { echo ":: WARNING: Could not fetch latest MetalLB version (GitHub API may be rate-limited)"; return 0; }
-
-  if [[ "$current_metallb" != "$latest_metallb" ]]; then
-    echo ":: Bumping MetalLB: $current_metallb → $latest_metallb"
-    sed -i "s|metallb_version=${current_metallb}|metallb_version=${latest_metallb}|" "$kind_common"
-
-    # MetalLB versions ship different FRR images. Add a separate variable
-    # so install_metallb replaces the correct source tag.
-    local metallb_frr_tag
-    metallb_frr_tag=$(curl -sf "https://raw.githubusercontent.com/metallb/metallb/${latest_metallb}/charts/metallb/values.yaml" 2>/dev/null | awk '/repository.*frrouting\/frr/{getline; if(/tag:/) {gsub(/.*tag: */,""); print; exit}}' || true)
-    if [[ -n "$metallb_frr_tag" ]]; then
-      local metallb_frr_image="quay.io/frrouting/frr:${metallb_frr_tag}"
-      if ! grep -q "METALLB_UPSTREAM_FRR_IMAGE" "$kind_common"; then
-        sed -i "/^readonly FRR_K8S_UPSTREAM_FRR_IMAGE=/a readonly METALLB_UPSTREAM_FRR_IMAGE=${metallb_frr_image}" "$kind_common"
-        echo ":: Added METALLB_UPSTREAM_FRR_IMAGE=${metallb_frr_image}"
-      fi
-      # Update replace_in_file_or_exit calls inside install_metallb() to use the new var
-      # Handles both ${VAR} and ${VAR##*:} patterns
-      sed -i '/^install_metallb()/,/^}/s/FRR_K8S_UPSTREAM_FRR_IMAGE/METALLB_UPSTREAM_FRR_IMAGE/g' "$kind_common"
-      if sed -n '/^install_metallb()/,/^}/p' "$kind_common" | grep -q 'FRR_K8S_UPSTREAM_FRR_IMAGE'; then
-        echo ":: WARNING: install_metallb still references FRR_K8S_UPSTREAM_FRR_IMAGE — manual update needed"
-      else
-        echo ":: Updated install_metallb to use METALLB_UPSTREAM_FRR_IMAGE"
-      fi
-    else
-      echo ":: WARNING: Could not detect FRR image for MetalLB $latest_metallb"
-      echo "   Verify FRR image tags in install_metallb manually."
-    fi
-  fi
-}
-
-fix_kubevirt_version() {
-  local kind_common
-  kind_common=$(find . \( -name "kind-common" -o -name "kind-common.sh" \) -not -path "*/vendor/*" | head -1)
-  [[ -z "$kind_common" ]] && return 0
-  grep -q 'KUBEVIRT_VERSION:-"v[0-9]' "$kind_common" || return 0
-  local current current_minor latest_patch
-  current=$(grep -oE 'KUBEVIRT_VERSION:-"v[^"]+' "$kind_common" | head -1 | sed 's/.*:-"//')
-  # Only bump patches within the same minor — never cross minor boundaries.
-  # KubeVirt minors have different k8s compatibility matrices.
-  current_minor="${current%.*}"
-  latest_patch=$(curl -sf --retry 2 --connect-timeout 10 \
-    "https://api.github.com/repos/kubevirt/kubevirt/releases?per_page=30" 2>/dev/null \
-    | grep -oE '"tag_name": "v[0-9][^"]*"' | sed 's/"tag_name": "//;s/"//g' \
-    | grep "^${current_minor//./\\.}\." \
-    | grep -v '\-\(alpha\|beta\|rc\)' \
-    | sort -V | tail -1 || true)
-  if [[ -n "$latest_patch" && "$latest_patch" != "$current" ]]; then
-    sed -i "s|KUBEVIRT_VERSION:-\"${current}\"|KUBEVIRT_VERSION:-\"${latest_patch}\"|" "$kind_common"
-    echo ":: Bumped KubeVirt ${current} → ${latest_patch} (latest patch in ${current_minor}.x)"
-  fi
-}
-
-fix_relaxed_service_name_validation() {
-  # Version-aware: k8s >= 1.36 (beta/default-on) removes the explicit
-  # gate to prevent "unknown feature gate" errors when it graduates to
-  # GA. k8s < 1.36 (alpha/default-off) adds it for upgrade CI.
-  local kind_yaml
-  kind_yaml=$(find . -name "kind.yaml.j2" -path "*/contrib/*" | head -1)
-  [[ -z "$kind_yaml" ]] && return 0
-
-  if [[ "${K8S_MINOR:-0}" -ge 36 ]]; then
-    grep -q "RelaxedServiceNameValidation" "$kind_yaml" || return 0
-    local gate_count
-    gate_count=$(awk '/^featureGates:/{f=1;next} f && /^  [A-Za-z]/{n++} f && /^[^ ]/{f=0} END{print n+0}' "$kind_yaml")
-    if [[ "$gate_count" -le 1 ]]; then
-      awk '
-        /^#/ { buf[++n] = $0; next }
-        /^featureGates:/ { n = 0; fg = 1; next }
-        { for (i = 1; i <= n; i++) print buf[i]; n = 0 }
-        fg && /^  [A-Za-z]/ { next }
-        fg && /^$/ { fg = 0; next }
-        fg && /^[^ ]/ { fg = 0 }
-        { print }
-        END { for (i = 1; i <= n; i++) print buf[i] }
-      ' "$kind_yaml" > "${kind_yaml}.tmp" && mv "${kind_yaml}.tmp" "$kind_yaml"
-      echo ":: Removed RelaxedServiceNameValidation block from kind.yaml.j2 (default-on in k8s >= 1.36)"
-    else
-      sed -i '/^  RelaxedServiceNameValidation:/d' "$kind_yaml"
-      echo ":: Removed RelaxedServiceNameValidation line from kind.yaml.j2 (default-on in k8s >= 1.36)"
-    fi
-  else
-    grep -q "RelaxedServiceNameValidation" "$kind_yaml" && return 0
-    awk '/^networking:/ { print "featureGates:"; print "  RelaxedServiceNameValidation: true"; print "" } 1' "$kind_yaml" > "${kind_yaml}.tmp" && { chmod "$(stat -c '%a' "$kind_yaml" 2>/dev/null || stat -f '%Lp' "$kind_yaml" 2>/dev/null || echo 644)" "${kind_yaml}.tmp" 2>/dev/null || true; } && mv "${kind_yaml}.tmp" "$kind_yaml"
-    echo ":: Added RelaxedServiceNameValidation to kind.yaml.j2"
-  fi
-}
-
 fix_kubeadm_v1beta4() {
   # k8s 1.36 silently ignores kubeadm v1beta3 extraArgs map format,
   # causing controller-manager flags (e.g. -service-lb-controller) to
@@ -925,92 +808,6 @@ fix_crd_int64_validation() {
     fi
   done
 }
-
-fix_crd_name_validation() {
-  # Safety net: k8s-rebase.sh Phase 2 preserves CRD metadata blocks
-  # across codegen. This function catches any that slipped through
-  # (e.g., agent ran codegen manually, or k8s-rebase.sh was skipped).
-  # Uses the base branch as the source of truth for what should exist.
-  local helm_crd_dir
-  helm_crd_dir=$(find . -path "*/helm/*/crds" -type d -not -path "*/vendor/*" | head -1)
-  [[ -z "$helm_crd_dir" ]] && return 0
-
-  local base_branch=""
-  for candidate in master main; do
-    git rev-parse --verify "$candidate" &>/dev/null && base_branch="$candidate" && break
-  done
-  [[ -z "$base_branch" ]] && return 0
-
-  for crd_file in "$helm_crd_dir"/*.yaml; do
-    [[ -f "$crd_file" ]] || continue
-    local rel_path
-    rel_path=$(git ls-files --full-name "$crd_file" 2>/dev/null)
-    [[ -z "$rel_path" ]] && continue
-    local old_file
-    old_file=$(git show "${base_branch}:${rel_path}" 2>/dev/null) || continue
-
-    # Compare metadata section line counts — if old has more, hand-edits were lost
-    # (|| true prevents pipefail from killing the script on no-match)
-    local s_start s_end c_start c_end
-    s_start=$(echo "$old_file" | grep -n "^          metadata:" 2>/dev/null | head -1 | cut -d: -f1 || true)
-    c_start=$(grep -n "^          metadata:" "$crd_file" 2>/dev/null | head -1 | cut -d: -f1 || true)
-    [[ -z "$s_start" || -z "$c_start" ]] && continue
-    s_end=$(echo "$old_file" | awk "NR>$s_start && /^          [a-z]/{print NR; exit}")
-    c_end=$(awk "NR>$c_start && /^          [a-z]/{print NR; exit}" "$crd_file")
-    [[ -z "$s_end" || -z "$c_end" ]] && continue
-
-    local s_lines=$((s_end - s_start)) c_lines=$((c_end - c_start))
-    if [[ "$s_lines" -gt "$c_lines" ]]; then
-      echo ":: Restoring CRD metadata hand-edits in $(basename "$crd_file")"
-      {
-        head -n "$((c_start - 1))" "$crd_file"
-        echo "$old_file" | sed -n "${s_start},$((s_end - 1))p"
-        tail -n "+${c_end}" "$crd_file"
-      } > "${crd_file}.tmp"
-      chmod "$(stat -c '%a' "$crd_file" 2>/dev/null || stat -f '%Lp' "$crd_file" 2>/dev/null || echo 644)" "${crd_file}.tmp" 2>/dev/null || true
-      mv "${crd_file}.tmp" "$crd_file"
-    fi
-  done
-}
-
-fix_network_policy_api_crds() {
-  # The conformance module may use a different network-policy-api version
-  # than go-controller. Do NOT force-bump the conformance module to match —
-  # the conformance suite's fixtures must match the API version the controller
-  # supports. If go-controller uses v0.2.0 (Go types still include
-  # AdminNetworkPolicy v1alpha1), the conformance module may use a pre-release
-  # that has v1alpha1 fixtures. Bumping to v0.2.0 would bring v1alpha2
-  # ClusterNetworkPolicy fixtures that the controller can't enforce.
-  #
-  # Only add ClusterNetworkPolicy CRD if the conformance module itself
-  # uses v0.2.0+ (meaning the conformance tests expect it).
-  local conf_gomod
-  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" -not -path "*/.claude/*" | head -1)
-  [[ -z "$conf_gomod" ]] && return 0
-
-  local conf_npa
-  conf_npa=$(grep "network-policy-api " "$conf_gomod" 2>/dev/null | awk '{print $2}' || true)
-  [[ -z "$conf_npa" ]] && return 0
-
-  # Only add CRD if conformance module uses v0.2.0+ (not a pre-release)
-  local conf_minor
-  conf_minor=$(echo "$conf_npa" | cut -d. -f2)
-  # Pre-release versions like v0.1.9-0.20260225... have minor=1
-  (( conf_minor < 2 )) 2>/dev/null && return 0
-
-  local kind_helm
-  kind_helm=$(find . -name "kind-helm.sh" -not -path "*/vendor/*" | head -1)
-  [[ -z "$kind_helm" ]] && kind_helm=$(find . -name "kind.sh" -not -path "*/vendor/*" -not -type l | head -1)
-  if [[ -n "$kind_helm" ]] && ! grep -q "clusternetworkpolicies" "$kind_helm"; then
-    local anp_line
-    anp_line=$(grep -n "adminnetworkpolicies.yaml" "$kind_helm" | head -1 | cut -d: -f1 || true)
-    if [[ -n "$anp_line" ]]; then
-      echo ":: Adding ClusterNetworkPolicy CRD for conformance (${conf_npa})"
-      sed -i "${anp_line}a\\  run_kubectl apply -f https://raw.githubusercontent.com/kubernetes-sigs/network-policy-api/${conf_npa}/config/crd/experimental/policy.networking.k8s.io_clusternetworkpolicies.yaml" "$kind_helm"
-    fi
-  fi
-}
-
 # Pattern-based fixes (conditional — only run if pattern found)
 
 fix_addtoscheme() {
@@ -1043,111 +840,6 @@ fix_addtoscheme() {
     done < <(grep '\.AddToScheme\b' "$f")
   done
 }
-
-fix_conformance_renames() {
-  # SupportAdminNetworkPolicy* → SupportClusterNetworkPolicy* (all variants)
-  # SupportBaselineAdminNetworkPolicy* → SupportClusterNetworkPolicy* (merged)
-  # Only rename if the conformance module uses v0.2.0+ where these symbols
-  # were renamed. Pre-release versions (v0.1.9-0.2026...) still use the old names.
-  local conf_gomod
-  conf_gomod=$(find . -name "go.mod" -path "*/conformance/*" -not -path "*/vendor/*" -not -path "*/.claude/*" | head -1)
-  # No conformance module → nothing to rename
-  [[ -z "$conf_gomod" ]] && return 0
-  local conf_npa_minor
-  conf_npa_minor=$(grep "network-policy-api " "$conf_gomod" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
-  # Pre-release versions (minor < 2) still use the old symbol names
-  (( conf_npa_minor < 2 )) 2>/dev/null && return 0
-  local files
-  files=$(grep -rln 'SupportAdminNetworkPolicy\|SupportBaselineAdminNetworkPolicy' --include='*.go' . | grep -v vendor)
-  [[ -z "$files" ]] && return 0
-  echo ":: Fixing conformance suite renames"
-  for f in $files; do
-    # Replace Baseline variants first (longer prefix), then non-Baseline
-    # No \b — must also catch EgressNodePeers, NamedPorts suffixes
-    sed -i 's/SupportBaselineAdminNetworkPolicy/SupportClusterNetworkPolicy/g' "$f"
-    sed -i 's/SupportAdminNetworkPolicy/SupportClusterNetworkPolicy/g' "$f"
-    # ConformanceProfileName type cast → CNPConformanceProfileName
-    sed -i 's/ConformanceProfileName(suite\.SupportClusterNetworkPolicy)/CNPConformanceProfileName/g' "$f"
-    # Remove duplicate conformance lines after baseline→cluster merge
-    awk '!/SupportClusterNetworkPolicy|CNPConformanceProfileName/ || !seen[$0]++' "$f" > "${f}.tmp" && mv "${f}.tmp" "$f"
-  done
-}
-
-fix_obsgen() {
-  # Ensure ObservedGeneration is set on ANP/BANP status conditions.
-  # Handles both patterns:
-  #   Builder chain: .WithObservedGeneration(anp.Generation)
-  #   Struct literal: newCondition.ObservedGeneration = anp.Generation
-  local file
-  file=$(find . -name "status.go" -path "*/admin_network_policy/*" -not -path "*/vendor/*" | head -1)
-  [[ -z "$file" ]] && return 0
-  grep -q 'WithObservedGeneration\|\.ObservedGeneration' "$file" && return 0
-
-  echo ":: Fixing ObsGen in $file"
-  if grep -q 'Condition()' "$file"; then
-    # Builder pattern: insert WithObservedGeneration in chain
-    local is_first=true
-    while IFS= read -r lineno; do
-      local gen_var="anp.Generation"
-      $is_first && gen_var="banp.Generation" && is_first=false
-      sed -i "${lineno}a\\
-\\t\\t\\tWithObservedGeneration(${gen_var})." "$file"
-    done < <(grep -n 'WithStatus(newCondition' "$file" | tac | cut -d: -f1)
-  else
-    # Struct literal pattern: three changes needed for correctness.
-    # 1. Set newCondition.ObservedGeneration = X.Generation after fetching
-    # 2. Add ObservedGeneration to doesStatusNeedAnUpdate comparison
-    # 3. Propagate ObservedGeneration when reusing existingCondition
-
-    # Change 1: insert assignment after object fetch + error check
-    for func_pattern in "updateANPZoneStatusCondition" "updateBANPZoneStatusCondition"; do
-      local obj_var="anp"
-      [[ "$func_pattern" == *BANP* ]] && obj_var="banp"
-      local return_line
-      return_line=$(awk "
-        /func.*${func_pattern}/ { in_func=1 }
-        in_func && /${obj_var}, err :=/ { found_fetch=1 }
-        in_func && found_fetch && /return err/ { print NR; found_fetch=0; exit }
-      " "$file")
-      if [[ -n "$return_line" ]]; then
-        sed -i "$((return_line + 1))a\\
-\\tnewCondition.ObservedGeneration = ${obj_var}.Generation" "$file"
-      fi
-    done
-
-    # Change 2: add ObservedGeneration to the equality check in doesStatusNeedAnUpdate
-    if grep -q "existingCondition.Message == newCondition.Message {" "$file" &&
-       ! grep -q "existingCondition.ObservedGeneration == newCondition.ObservedGeneration" "$file"; then
-      sed -i 's/existingCondition\.Message == newCondition\.Message {/existingCondition.Message == newCondition.Message \&\&\
-\t\texistingCondition.ObservedGeneration == newCondition.ObservedGeneration {/' "$file"
-    fi
-
-    # Change 3: propagate ObservedGeneration when copying from existingCondition
-    # Insert after each "existingCondition.Message = newCondition.Message" line
-    if ! grep -q "existingCondition.ObservedGeneration = newCondition.ObservedGeneration" "$file"; then
-      sed -i '/existingCondition\.Message = newCondition\.Message/a\\t\texistingCondition.ObservedGeneration = newCondition.ObservedGeneration' "$file"
-    fi
-  fi
-}
-
-fix_banp_egresspeer() {
-  local file
-  file=$(find . -name "baseline_admin_network_policy_test.go" -not -path "*/vendor/*" | head -1)
-  [[ -z "$file" ]] && return 0
-  # Only rename if BaselineAdminNetworkPolicyEgressPeer exists in vendored source.
-  # In network-policy-api v0.1.x, the type doesn't exist — BANP uses the
-  # shared AdminNetworkPolicyEgressPeer. In v0.2.0+ it was split.
-  if ! grep -rq "BaselineAdminNetworkPolicyEgressPeer" "$MODULE_ROOT/vendor/sigs.k8s.io/network-policy-api/" 2>/dev/null; then
-    return 0
-  fi
-  local count
-  count=$(grep 'AdminNetworkPolicyEgressPeer' "$file" | grep -vc Baseline)
-  [[ "$count" -eq 0 ]] && return 0
-  echo ":: Fixing BANP EgressPeer type in $file ($count occurrences)"
-  sed -i 's/\bAdminNetworkPolicyEgressPeer\b/BaselineAdminNetworkPolicyEgressPeer/g' "$file"
-  sed -i 's/BaselineBaselineAdminNetworkPolicyEgressPeer/BaselineAdminNetworkPolicyEgressPeer/g' "$file"
-}
-
 fix_feature_gates() {
   # Iterate GATE_DEPS directly — no external file needed.
   # Only process gates that exist in the vendored k8s code.
