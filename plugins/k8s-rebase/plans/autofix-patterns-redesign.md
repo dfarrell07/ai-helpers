@@ -76,7 +76,7 @@ fire for 1 of 6 repos (ovn-org/ovn-kubernetes).
 | 4 | fix_kind_image | 70 | Docker Hub availability check. Not redundant with Phase 3. |
 | 5 | fix_imports | 62 | goimports + gci with project lint config. |
 | 6 | fix_crd_int64_validation | 56 | Silent CRD rejection at runtime. |
-| 7 | fix_crd_name_validation | 46 | Silent regression — codegen strips hand-edits. |
+| 7 | ~~fix_crd_name_validation~~ | ~~46~~ | MOVED TO REMOVE — only fires for helm/*/crds/ (ovnk-only). |
 | 8 | fix_go_version | 45 | CI fails remotely. Defense-in-depth for Phase 3. |
 | 9 | fix_xexp | 33 | `maps.Keys()` → `slices.Collect(maps.Keys())` is non-obvious. |
 | 10 | fix_addtoscheme | 30 | Vendor-aware rename. |
@@ -105,14 +105,15 @@ All fire for exactly 1 of 6 repos. 3 of 4 are dead code (NPA
 | 3 | fix_conformance_renames | 28 | Compile error |
 | 4 | fix_banp_egresspeer | 17 | Compile error |
 
-### REMOVE — Repo-specific (4 functions, 106 LOC)
+### REMOVE — Repo-specific (5 functions, 152 LOC)
 
 | # | Function | LOC | Agent discovers from |
 |---|----------|-----|---------------------|
-| 1 | fix_metallb_version | 42 | CI failure |
-| 2 | fix_relaxed_service_name_validation | 34 | KIND cluster creation error |
-| 3 | fix_kubevirt_version | 21 | CI timeout |
-| 4 | fix_docs_version | 12 | Not caught (cosmetic) |
+| 1 | fix_crd_name_validation | 46 | Silent regression (ovnk helm/*/crds/ only) |
+| 2 | fix_metallb_version | 42 | CI failure |
+| 3 | fix_relaxed_service_name_validation | 34 | KIND cluster creation error |
+| 4 | fix_kubevirt_version | 21 | CI timeout |
+| 5 | fix_docs_version | 12 | Not caught (cosmetic) |
 
 ### REMOVE — Redundant (1 function, 19 LOC)
 
@@ -436,8 +437,21 @@ without regression risk. Worth considering if the user prefers.
 | fix_kubevirt_version | REMOVE | REMOVE | ovnk-only |
 | fix_relaxed_svc_name | REMOVE | REMOVE | ovnk-only kind.yaml.j2 |
 
-**Net change: 8 REMOVE (was 10), 19 KEEP (was 17).**
-**LOC removed: ~220 (was ~260).**
+**Net change: 9 REMOVE (was 10), 18 KEEP (was 17).**
+**LOC removed: ~266 (was ~260).**
+
+### CRD Function Reclassification (iteration 8)
+
+fix_crd_name_validation (46 LOC): reclassified from KEEP to
+**REMOVE**. Only fires for repos with `helm/*/crds/` layout —
+only ovn-org/ovn-kubernetes in the test matrix. Ovnk-specific.
+
+fix_crd_int64_validation (56 LOC): stays KEEP but has a
+**run_checks inconsistency bug**: run_checks only searches
+`helm/*/crds/*.yaml` but the fix function searches 6 broader
+paths (bindata, config/crd, manifests, _output). CNO is affected
+via `bindata/` but run_checks never detects it. Fix: broaden
+run_checks to match the fix function's search paths.
 
 ## Resolved: InOrderInformers
 
