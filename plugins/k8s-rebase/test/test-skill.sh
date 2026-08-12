@@ -620,6 +620,7 @@ declare -A TAG_TO_PATTERN=(
   [mocks]="Deprecated stdlib/apimachinery symbols" [crd_int64_validation]="Deprecated stdlib/apimachinery symbols"
   [kind_image]="Transitive dependency" [kind_version]="Transitive dependency"
   [version_refs]="Deprecated stdlib/apimachinery symbols"
+  [docs_version]="Deprecated stdlib/apimachinery symbols"
   [go_version]="Deprecated stdlib/apimachinery symbols" [lint_version]="golangci-lint"
 )
 
