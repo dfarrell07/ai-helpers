@@ -124,13 +124,20 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
   fi
 fi
 
-# Container setup: git safe.directory for mounted volumes.
-# Use env vars instead of git config --global which writes a .gitconfig
-# file that could end up committed to the repo.
+# Disable GPG signing — scripts run non-interactively (nohup/containers)
+# where gpg-agent cannot prompt. Stack with safe.directory in containers.
 if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
-  export GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_COUNT=2
   export GIT_CONFIG_KEY_0=safe.directory
   export GIT_CONFIG_VALUE_0="$REPO_ROOT"
+  export GIT_CONFIG_KEY_1=commit.gpgsign
+  export GIT_CONFIG_VALUE_1=false
+else
+  export GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_KEY_0=commit.gpgsign
+  export GIT_CONFIG_VALUE_0=false
+fi
+if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
   # Install jq if missing (needed by verify-third-party-licenses)
   if ! command -v jq &>/dev/null; then
     curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq 2>/dev/null \

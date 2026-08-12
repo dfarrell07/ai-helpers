@@ -305,11 +305,18 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
 fi
 info "Go version: $CURRENT_GO (>= ${REQUIRED_GO:-any} required)"
 
-# Container setup: git safe.directory for mounted volumes
+# Disable GPG signing — scripts run non-interactively (nohup/containers)
+# where gpg-agent cannot prompt. Stack with safe.directory in containers.
 if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
-  export GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_COUNT=2
   export GIT_CONFIG_KEY_0=safe.directory
   export GIT_CONFIG_VALUE_0="$REPO_ROOT"
+  export GIT_CONFIG_KEY_1=commit.gpgsign
+  export GIT_CONFIG_VALUE_1=false
+else
+  export GIT_CONFIG_COUNT=1
+  export GIT_CONFIG_KEY_0=commit.gpgsign
+  export GIT_CONFIG_VALUE_0=false
 fi
 
 # Clean working tree (ignore dirs created by containerized Go)
