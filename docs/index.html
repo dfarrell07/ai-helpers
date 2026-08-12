@@ -1749,6 +1749,16 @@ footer a { color: var(--primary); }
       "agents": [],
       "hooks": [
         {
+          "event_type": "PreToolUse",
+          "matcher": "Bash",
+          "hooks_json": "[\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/block-module-ops.sh\",\n    \"type\": \"command\"\n  },\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/block-push.sh\",\n    \"type\": \"command\"\n  }\n]"
+        },
+        {
+          "event_type": "PreToolUse",
+          "matcher": "Edit|Write",
+          "hooks_json": "[\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/block-vendor-edit.sh\",\n    \"type\": \"command\"\n  }\n]"
+        },
+        {
           "event_type": "Stop",
           "matcher": ".*",
           "hooks_json": "[\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/stop-hook.sh\",\n    \"type\": \"command\"\n  }\n]"
