@@ -3,6 +3,7 @@
 # k8s-rebase sessions. Only fires when .rebase-tmp/.session-active
 # exists — harmless in non-rebase sessions.
 set -euo pipefail
+command -v jq >/dev/null 2>&1 || { printf '{"decision":"block","reason":"jq required"}\n'; exit 0; }
 
 INPUT=$(cat)
 

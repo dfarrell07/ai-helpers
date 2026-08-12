@@ -3,6 +3,7 @@
 # k8s-rebase sessions. Only fires when .rebase-tmp/.session-active
 # exists — harmless in non-rebase sessions.
 set -euo pipefail
+command -v jq >/dev/null 2>&1 || { printf '{"decision":"block","reason":"jq required"}\n'; exit 0; }
 
 INPUT=$(cat)
 
@@ -14,7 +15,7 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 
 # Allow script wrappers — but ONLY if the entire command is a script
 # invocation (not "bash fix.sh && go mod tidy")
-echo "$CMD" | grep -qE '^\s*(bash|sh)\s+\S+\.sh\s*$' && exit 0
+echo "$CMD" | grep -qE '^\s*(bash|sh)\s+[A-Za-z0-9_./@:-]+\.sh(\s+[A-Za-z0-9_./@:=-]+)*\s*$' && exit 0
 
 # Block direct go module operations (unanchored to catch compound
 # commands like "cd /tmp && go mod tidy" or "sudo go get foo")
