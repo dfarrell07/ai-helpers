@@ -1,9 +1,12 @@
 Read the autofix commit's diff. For each code change, verify it
 is a correct transformation.
 
-Read the patterns doc (find k8s-rebase-patterns.md in the plugin
-directory) for the full list of known transformations for this
-version. Use it as a reference — do not assume specific patterns.
+Known autofix categories: x/exp→stdlib, reflect.Ptr→Pointer, klog v2,
+FieldsV1, bare Eventf, AddToScheme→Install, KIND image/version,
+kubeadm v1beta4, CRD int64 format, feature gates, version refs,
+Go version, golangci-lint version, import reordering, codegen flag
+removal, mocks, third-party licenses. Any change matching these
+categories is expected.
 
 Only flag a change as incorrect if the transformation itself is
 WRONG (e.g., wrong format verb, missing field, wrong import

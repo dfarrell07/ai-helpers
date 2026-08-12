@@ -14,12 +14,13 @@ Check:
   updated, type conversions incomplete)?
 
 Note: the autofix script applies known rebase patterns that ARE
-required — these are NOT scope creep. To identify them, run:
-  `PATTERNS=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/docs/*" 2>/dev/null | head -1)`
-  `[ -n "$PATTERNS" ] && cat "$PATTERNS"`
-Any change that matches a documented pattern is expected, even
-if it touches e2e infrastructure, version references, or test
-configuration. Do not flag patch-level mismatches within the same minor
+required — these are NOT scope creep. Known categories: x/exp→stdlib,
+reflect.Ptr→Pointer, klog v2, FieldsV1, bare Eventf, AddToScheme→Install,
+KIND image/version, kubeadm v1beta4, CRD int64 format, feature gates,
+version refs, Go version, golangci-lint version, import reordering,
+codegen flag removal, mocks, third-party licenses. Any change matching
+these is expected, even if it touches e2e infrastructure, version
+references, or test configuration. Do not flag patch-level mismatches within the same minor
 version as a concern — the autofix picks the latest available
 patch releases. DO flag minor-version mismatches (versions
 from a different minor release than the target).

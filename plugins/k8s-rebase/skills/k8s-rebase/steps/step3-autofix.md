@@ -11,8 +11,8 @@ runs go vet internally.
 
 The autofix outputs RESULT: PASS or RESULT: ITEMS_REMAINING.
 ITEMS_REMAINING is normal -- it means the repo has patterns the
-autofix documents but cannot fix automatically (e.g., KubeVirt
-test changes). The agent handles those in Step 4.
+autofix documents but cannot fix automatically (e.g., complex
+test refactors). The agent handles those in Step 4.
 Regardless of output, proceed to gates.
 
 ```bash
@@ -20,8 +20,7 @@ bash "${PLUGIN_ROOT}/scripts/k8s-rebase-autofix.sh"
 ```
 
 Applies known fix patterns (code fixes, feature gates, lint
-version, CRD validation fixes, AND e2e infra: MetalLB, KubeVirt,
-RelaxedServiceNameValidation, kubeadm v1beta4).
+version, CRD validation fixes, kubeadm v1beta4).
 The autofix does not write to summary.txt (that file comes from
 the validate script).
 
@@ -34,7 +33,7 @@ the message):
 
 - KIND image: `grep -rn 'kindest/node:' . --include='*.sh' --include='*.yaml' --include='*.yml' | grep -v vendor/` -- update to `v<k8s-version>` (e.g., v1.36.1 for k8s 1.36). Check https://hub.docker.com/r/kindest/node/tags for the latest patch.
 - kubeadm v1beta4: `grep -rn 'extraArgs:' . --include='*.yaml' --include='*.yml' --include='*.sh' | grep -v vendor/` -- if the format is `extraArgs:\n    key: value` (flat map), convert to `extraArgs:\n- name: key\n  value: "value"` (list-of-objects). Required for k8s >= 1.31.
-- CI dependency versions: `grep -rniE '_VERSION\s*=' . --include='*.sh' | grep -v vendor/` -- pinned CI tool versions (MetalLB, KubeVirt, etc.) may need bumping when k8s tightens CRD validation. Get the latest release tag and update. See the patterns doc for project-specific details (e.g., MetalLB FRR companion image).
+- CI dependency versions: `grep -rniE '_VERSION\s*=' . --include='*.sh' | grep -v vendor/` -- pinned CI tool versions may need bumping when k8s tightens CRD validation. Get the latest release tag and update.
 - Feature gate exports: `grep -rn 'KUBE_FEATURE_' . --include='*.sh' | grep -v vendor/` -- check the rebase script output for new default-true gates. Add `export KUBE_FEATURE_<name>=false` to `hack/test-go.sh` if the repo's tests use fake clientsets with informers.
 
 ## Verify the script actually ran
@@ -50,10 +49,8 @@ issues the autofix does not cover.
 If ITEMS_REMAINING, check `git log` for autofix commits -- if any
 groups already committed, fix remaining items manually rather than
 re-running. Re-running duplicates the committed groups (new
-commits, not amends). Check output for MetalLB FRR image warnings
--- if the autofix bumped MetalLB, verify the FRR image variable
-matches what the new MetalLB version ships. Read the patterns doc
-for unfamiliar patterns:
+commits, not amends). Read the patterns doc for unfamiliar
+patterns:
 
 ```bash
 cat "${PLUGIN_ROOT}/docs/k8s-rebase-patterns.md"
