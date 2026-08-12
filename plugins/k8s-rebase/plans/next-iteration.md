@@ -8,25 +8,20 @@ matrix to see the real pass rate.
 
 ## What moves the pass rate
 
-**Clean .rebase-tmp/ in test harness** — Root cause of ALL ovnk
-failures in the current matrix run: stale state.json in the main
-repo causes the orchestrator to resume an old run instead of
-starting fresh. The harness cleans worktrees and branches but
-not .rebase-tmp/. One-line fix: `rm -rf "$repo/.rebase-tmp/"`
-in `cmd_run`. Without this, non-ovnk repos pass at 88% but
-ovnk is 0/7.
+**Clean .rebase-tmp/ in test harness** — Change line 446 of
+test-skill.sh from `rm -rf "$repo/.rebase-tmp/gates"` to
+`rm -rf "$repo/.rebase-tmp"`. The orchestrator creates state.json
+in the main repo during init (before entering a worktree), and
+it persists across runs. Old state.json causes the orchestrator
+to resume a dead run instead of starting fresh. Also add the
+same cleanup to `cmd_clean`.
 
 ## Production hardening
 
-**Pre-push hook cleanup** — Hook persists after rebase, blocks
-`git push`. Add restore to step5 and ERR trap.
-
-**Hook session guards** — The 3 markdown hooks block `go mod tidy`,
-`git push`, vendor edits in ALL repos, not just during rebases.
-Add `.session-active` check.
-
-**GPG signing** — Set `commit.gpgsign=false` via `GIT_CONFIG_COUNT`
-early in scripts.
+**GPG signing** — Add `-c commit.gpgsign=false` to each
+`git commit` call (16 total: 14 in k8s-rebase.sh, 2 in autofix).
+Not GIT_CONFIG_COUNT — that doesn't survive container exec and
+would override host signing config for non-commit operations.
 
 **Force-advance counter** — Clear on fresh `cmd_init`.
 
@@ -35,11 +30,13 @@ early in scripts.
 ## Gate work
 
 ### Fix companion script bugs
-- `major-version-imports.sh`: args swapped in `base_file_has` —
-  pre-existing detection broken
-- `crd-validation.sh`, `patterns-completeness.sh`: dead `$pre` —
-  PRE_EXISTING always 0
-- Both also need migration to `gate-script-lib.sh`
+- `major-version-imports.sh` lines 25, 51: args swapped in
+  `base_file_has` — pre-existing detection always fails, inflates
+  NEW_ISSUES. Inert today (AI gate re-analyzes anyway) but wrong.
+- `crd-validation.sh` line 27, `patterns-completeness.sh` line 17:
+  dead `$pre` — PRE_EXISTING always 0. Also inert (nothing reads
+  PRE_EXISTING) but wrong.
+- Both also need migration to `gate-script-lib.sh`.
 
 ### Script the 8 Tier 1 gates
 Reduces agent calls 27% (33→25). Steps 2/3 need "launch only
