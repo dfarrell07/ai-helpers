@@ -11,11 +11,13 @@ refactor worked.
 
 ## What moves the pass rate
 
-**Verify stale-branch fix** — Already fixed. Run a clean batch.
-
-**Agent early-stop** — 3 of 5 remaining failures. Agent stops
-mid-pipeline. Investigate: context exhaustion, API timeouts, or
-satisficing? The answer determines the fix.
+**Clean .rebase-tmp/ in test harness** — Root cause of ALL ovnk
+failures in the current matrix run: stale state.json in the main
+repo causes the orchestrator to resume an old run instead of
+starting fresh. The harness cleans worktrees and branches but
+not .rebase-tmp/. One-line fix: `rm -rf "$repo/.rebase-tmp/"`
+in `cmd_run`. Without this, non-ovnk repos pass at 88% but
+ovnk is 0/7.
 
 ## Production hardening
 
