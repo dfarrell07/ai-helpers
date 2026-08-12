@@ -225,3 +225,16 @@ step4 says "launch ALL gates immediately" but rules.md says
 "commit ALL fixes before re-launching ANY gates." Orchestrator
 discards all 15 gate reports as stale after first lint commit.
 Fix: launch gates after lint iteration completes.
+
+### 26. ovn-org/ovn-kubernetes renamed (HIGH)
+
+The repo was transferred to ovn-kubernetes/ovn-kubernetes.
+GitHub redirects work now but will eventually expire. All 3
+test configs and the README reference the old org name. Fix:
+update all references to ovn-kubernetes/ovn-kubernetes.
+
+### 27. README "Tested against" lists 3 repos with no configs
+
+openshift/api, metallb/frr-k8s, kubernetes-sigs/network-policy-api
+are in the README table but have zero test configs. Either add
+configs or remove from README.
