@@ -336,3 +336,24 @@ get full tools. The orchestrator never directly edits files.
 Item 7 (CRD scope): also update diagnostic output at lines
 ~1271/1277 of autofix.sh. Add .claude and testdata exclusions
 to match the fix function.
+
+### AtomicFIFO incorrectly removed from GATE_DEPS
+
+AtomicFIFO is a generic client-go gate (beta/default-on in
+k8s 1.36) with 4 StaleController* dependencies. It was removed
+with the NPA cleanup because the old code had hardcoded
+go-controller/ paths. But the gate itself is generic. Should
+be added back for k8s 1.37:
+```
+GATE_DEPS[AtomicFIFO]="StaleControllerConsistencyJob \
+StaleControllerConsistencyReplicaSet \
+StaleControllerConsistencyStatefulSet \
+StaleControllerConsistencyDaemonSet"
+```
+
+### GATE_DEPS "one line to add" never tested in practice
+
+Every change to the map has been a removal. The add path is
+structurally correct (dependency syntax works across all 3
+layers, LockToDefault detection handles GA graduation) but
+has zero production usage history.
