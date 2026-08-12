@@ -55,7 +55,7 @@ chmod +x "$HOOK_DIR/pre-push"
 
 # ── Helpers ──────────────────────────────────────────────────────────
 
-die() { echo "ERROR: $*" >&2; exit 1; }
+die() { echo "ERROR: $*" >&2; cleanup_hook; exit 1; }
 info() { echo ":: $*"; }
 banner() { echo ""; echo "━━━━ $* ━━━━"; echo ""; }
 
