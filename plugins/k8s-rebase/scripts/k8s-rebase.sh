@@ -18,7 +18,15 @@
 # -e: fail fast on unexpected errors (autofix/validate omit -e
 # because they must continue past failures to collect all results)
 set -euo pipefail
-trap 'echo "ERROR: k8s-rebase.sh crashed at line $LINENO" >&2' ERR
+cleanup_hook() {
+  local hdir
+  hdir="$(git rev-parse --git-common-dir 2>/dev/null)/hooks" 2>/dev/null || return 0
+  if [[ -f "$hdir/pre-push" ]] && grep -q 'k8s-rebase' "$hdir/pre-push" 2>/dev/null; then
+    rm -f "$hdir/pre-push"
+    [[ -f "$hdir/pre-push.bak.k8s-rebase" ]] && mv "$hdir/pre-push.bak.k8s-rebase" "$hdir/pre-push"
+  fi
+}
+trap 'echo "ERROR: k8s-rebase.sh crashed at line $LINENO" >&2; cleanup_hook' ERR
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"
@@ -35,7 +43,7 @@ grep -qF '.cache' "$GIT_COMMON_DIR/info/exclude" 2>/dev/null || echo '.cache/' >
 HOOK_DIR="$(git rev-parse --git-common-dir 2>/dev/null || echo "$GIT_DIR_RESOLVED")/hooks"
 mkdir -p "$HOOK_DIR"
 [[ -f "$HOOK_DIR/pre-push" ]] && ! grep -q 'k8s-rebase' "$HOOK_DIR/pre-push" 2>/dev/null \
-  && cp "$HOOK_DIR/pre-push" "$HOOK_DIR/pre-push.bak.$$"
+  && cp "$HOOK_DIR/pre-push" "$HOOK_DIR/pre-push.bak.k8s-rebase"
 cat > "$HOOK_DIR/pre-push" <<'HOOKEOF'
 #!/bin/bash
 # k8s-rebase guard — remove this file to push manually

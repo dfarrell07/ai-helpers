@@ -57,6 +57,13 @@ rm -rf .rebase-tmp/step*.log .rebase-tmp/step*.pid .rebase-tmp/*.log \
        .rebase-tmp/*.txt .rebase-tmp/*.pid .rebase-tmp/rebase-report.md \
        .rebase-tmp/crd-pre-codegen/
 rm -f .rebase-tmp/.session-active
+
+# Remove the pre-push hook installed by k8s-rebase.sh (restore backup if exists)
+HOOK_DIR="$(git rev-parse --git-common-dir 2>/dev/null || echo .git)/hooks"
+if [[ -f "$HOOK_DIR/pre-push" ]] && grep -q 'k8s-rebase' "$HOOK_DIR/pre-push" 2>/dev/null; then
+  rm -f "$HOOK_DIR/pre-push"
+  [[ -f "$HOOK_DIR/pre-push.bak.k8s-rebase" ]] && mv "$HOOK_DIR/pre-push.bak.k8s-rebase" "$HOOK_DIR/pre-push"
+fi
 ```
 
 Do NOT delete `.rebase-tmp/gates/` or `.rebase-tmp/rebase-report.json`.
