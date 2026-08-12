@@ -360,6 +360,24 @@ already handles missing doc).
   behavioral change, not just bugfix)
 - Run `make update` from ai-helpers root to sync marketplace.json
 
+## spec=all Failure Gap Analysis
+
+262 spec=all runs: 177 PASS, 85 FAIL. The 85 failures break into:
+- **Infrastructure (33%):** stale branch, no branch — harness bugs
+- **Context exhaustion (35%):** agent ran out of context. ovnk is
+  63% of these (largest codebase). Agent never reached autofix.
+- **Gate quality (32%):** gates ran but FAILed. 74% on repos with
+  ZERO MetalLB/KubeVirt/NPA references — cannot be caused by
+  removed patterns.
+
+**Zero failures are attributable to the patterns being removed.**
+3/4 NPA functions are dead code. MetalLB/KubeVirt gate failures
+are on repos that don't use them. Context exhaustion means the
+agent never reached the autofix step. When the agent finishes,
+100% court pass rate.
+
+**Removing the autofix patterns is safe.**
+
 ## Risk Assessment
 
 | Risk | Severity | Mitigation |
@@ -516,6 +534,24 @@ but fix_crd_int64_validation searches 6 broader paths. CNO is
 affected via `bindata/` but run_checks never detects it. Fix:
 broaden run_checks to match the fix function's search paths.
 This is a standalone bug fix, independent of the removal plan.
+
+## Resolved: GATE_DEPS Future-Proofing
+
+GATE_DEPS with just WatchListClient is correct and sufficient.
+WatchListClient is the ONLY client-go gate that changes wire
+protocol (LIST → streaming WATCH). All other gates (AtomicFIFO,
+UnlockWhileProcessingFIFO, ClientsAllowCARotation, etc.) are
+internal optimizations that don't affect fake clientsets.
+
+WatchListClient is NOT graduating to GA in k8s 1.37 (stays Beta
+default-on). The LockToDefault awk parser handles the lifecycle
+correctly (verified against actual known_features.go). When
+WatchListClient eventually goes GA+Locked, the existing parser
+will skip it automatically.
+
+Auto-discovery: DEFERRED remains correct. With 1 entry, the
+curated map wins on simplicity. Revisit if GATE_DEPS grows
+past ~5 entries.
 
 ## Open Questions
 
