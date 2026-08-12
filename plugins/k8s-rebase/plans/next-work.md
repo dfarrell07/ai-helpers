@@ -238,3 +238,25 @@ update all references to ovn-kubernetes/ovn-kubernetes.
 openshift/api, metallb/frr-k8s, kubernetes-sigs/network-policy-api
 are in the README table but have zero test configs. Either add
 configs or remove from README.
+
+## CRITICAL CORRECTION: NPA Functions Removal Was Premature
+
+Fact-checker found the "NPA v0.2.0 not released" claim was
+**false** — v0.2.0 shipped April 21, 2026, 4 months before
+the removal. Evidence:
+
+- go-controller on the k8s 1.36 rebase branch bumped to
+  network-policy-api v0.2.0
+- Commit e34d4742 manually fixed the exact EgressPeer type
+  change that fix_banp_egresspeer would have automated
+- fix_obsgen has NO version guard — it fires on any rebase
+  where the pattern exists
+
+| Function | Dead code? | Should restore? |
+|----------|-----------|-----------------|
+| fix_banp_egresspeer | NO — proven needed | YES |
+| fix_obsgen | NO — no version guard | CONSIDER |
+| fix_conformance_renames | Dormant (conformance still pre-release) | LATER |
+| fix_network_policy_api_crds | Dormant | LATER |
+
+Decision needed: restore fix_banp_egresspeer at minimum.
