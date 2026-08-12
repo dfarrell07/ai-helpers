@@ -11,10 +11,15 @@ framing removed from plan. New framing: "non-ovnk 88%, ovnk
 
 ## 1. "Where we are" — Fact Check
 
-### "Non-ovnk repos: 88%. ovnk: 0/7"
+### "Non-ovnk repos: ~89%. ovnk: 0/7"
 
-**CONSISTENT WITH DATA.** The plan now frames the problem
-correctly: non-ovnk repos pass well, ovnk is the blocker.
+**Non-ovnk ~89%: VERIFIED.** Aug 11 non-ovnk excluding stale
+branch: 22/25 = 88%. The tilde accounts for counting variance.
+
+**ovnk 0/7: NOT VERIFIED.** Aug 11 ovnk has 3 PASS and 11
+FAIL (3/14). ovnk CAN pass — the "0/7" is either from a
+different batch or a filtered view. The failures are real but
+ovnk isn't completely blocked.
 
 ### Historical context (299 entries total)
 
@@ -38,11 +43,14 @@ Both are real and verified on disk:
 
 **1. Stale .rebase-tmp/ (plan's diagnosis):** Confirmed.
 All 3 checked main repos have stale `state.json` and
-`.session-active` from prior runs. If an agent somehow runs
-from the main repo instead of the worktree, it resumes an
-old orchestrator state (wrong step, wrong version). The
-`.session-active` sentinel also makes the stop hook fire for
-all sessions on that repo.
+`.session-active` from prior runs. The plan claims state.json
+is created "in the main repo during init (before entering a
+worktree)" — this is imprecise. For current worktree-based
+runs, state.json goes into the worktree. The stale state in
+the main repo is from prior non-worktree runs or crashed
+sessions. Regardless: `rm -rf .rebase-tmp/` before launch
+is the correct fix. The `.session-active` sentinel also makes
+the stop hook fire for all sessions on that repo.
 
 Fix: `rm -rf "$repo/.rebase-tmp/"` in the harness before
 launching. This removes state.json, .session-active, gate
@@ -486,6 +494,25 @@ The plan should also add the branch cleanup fix (checkout
 default branch before deleting bump branches). Even after
 cleaning .rebase-tmp/, old bump branches in the main repo
 will confuse `_do_record_one`'s fallback branch detection.
+
+### Pre-push hook cleanup dropped from plan
+
+The previous plan version included "Pre-push hook cleanup —
+Hook persists after rebase, blocks `git push`." The updated
+plan removed it. The bug is confirmed: all 6 test repos have
+stale `pre-push` hooks from prior runs (verified on disk).
+In production, this silently blocks `git push` after every
+rebase until the user manually removes the hook. Should be
+re-added to "Production hardening."
+
+### Hook session guards dropped from plan
+
+The previous plan included "Hook session guards — The 3
+markdown hooks block `go mod tidy`, `git push`, vendor edits
+in ALL repos, not just during rebases." The updated plan
+removed it. The bug is confirmed: the `.md` hooks have no
+`.session-active` check and fire unconditionally when the
+plugin is installed. Should be re-added.
 
 ### `version-completeness` vs `version-consistency` confusion
 
