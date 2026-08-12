@@ -284,3 +284,12 @@ but never implemented.
 ### NPA dead code claim confirmed wrong (see earlier)
 
 v0.2.0 shipped April 2026. fix_banp_egresspeer proven needed.
+
+### Generality is overstated
+
+9 of 18 kept functions are truly general. 4 are ovnk-specific
+in practice (feature_gates, docs_version, mocks, crd_int64
+verify path). 5 are KIND ecosystem. The header comment
+mislabels fix_docs_version, fix_mocks, and fix_feature_gates
+as "Generic" when they only fire for ovnk. Consider relabeling
+or documenting the actual scope honestly.
