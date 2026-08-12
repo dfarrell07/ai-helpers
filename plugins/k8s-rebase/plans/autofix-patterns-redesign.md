@@ -722,6 +722,12 @@ Verification results:
 - Version: 0.2.1 → 0.3.0
 - autofix-disposition.md: deleted (superseded)
 
-Remaining: run `make lint` and `make update` from ai-helpers root
-to sync marketplace.json. Then `make test` on 2-3 repos to verify
-pass rates don't regress.
+Post-implementation:
+- `make lint`: PASS (A+, 0 errors)
+- `make update`: done (marketplace synced 0.2.1 → 0.3.0)
+- Cross-check: 1 stale ref found and fixed (step2 "Step 5d" → "rules.md")
+- TAG_TO_PATTERN: 2 heading-level mismatches fixed
+- README: Contents table updated with 4 missing files
+- All 60+ verification agents: PASS
+
+Next: `make test` on 2-3 repos to verify pass rates don't regress.
