@@ -85,7 +85,7 @@ _tally_gates() {
     [[ -d "$_gdir" ]] || continue
     for _gf_file in "$_gdir"/*.report; do
       [[ -f "$_gf_file" ]] || continue
-      local _gn=$(basename "${_gf_file%.report}" .json)
+      local _gn=$(basename "$_gf_file" .report)
       if [[ -z "${_gate_files[$_gn]+x}" ]]; then
         _gate_files[$_gn]="$_gf_file"
       else
@@ -950,7 +950,7 @@ _do_record_one() {
       local _gexpected="${_gstep}-${_gbase}"
       local _found_gate=false
       for _gd in "${_GATE_DIRS[@]}"; do
-        [[ -f "$_gd/${_gexpected}.report" || -f "$_gd/${_gexpected}.json" ]] && { _found_gate=true; break; }
+        [[ -f "$_gd/${_gexpected}.report" ]] && { _found_gate=true; break; }
       done
       if ! $_found_gate; then
         _gmiss_names="${_gmiss_names:+$_gmiss_names, }${_gexpected}"
@@ -1017,9 +1017,9 @@ auto_record() {
       if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
         local -A _gc_seen=()
         for _gd in "${_GATE_DIRS[@]}"; do
-          for _gf in "$_gd"/*.report "$_gd"/*.json; do
+          for _gf in "$_gd"/*.report; do
             [[ -f "$_gf" ]] || continue
-            _gc_seen[$(basename "${_gf%.report}" .json)]=1
+            _gc_seen[$(basename "$_gf" .report)]=1
           done
         done
         _gc=${#_gc_seen[@]}
@@ -1477,7 +1477,7 @@ _results_one() {
     # Collect deduped gate files across all worktrees (newest wins per gate name)
     local -A _rgate_files=()
     for _gd in "${_GATE_DIRS[@]}"; do
-      for f in "$_gd"/*.report "$_gd"/*.json; do
+      for f in "$_gd"/*.report; do
         [[ -f "$f" ]] || continue
         local _gn=$(basename "${f%.report}" .json)
         if [[ -z "${_rgate_files[$_gn]+x}" ]]; then
