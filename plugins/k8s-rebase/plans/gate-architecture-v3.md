@@ -105,16 +105,34 @@ gate `.md`/`.sh`, and step files.
    artifact is HEAD-stamped, freshness-checked, and cleaned on init — the same
    discipline reports already get. Stale evidence is worse than none: it turns a
    grounding fact into a confident hallucination.
-5. **Generality beats cleverness.** Derive facts at runtime (e.g. staging-module
-   classification from `k8s.io/kubernetes`'s `go.mod` `replace` set at the target
-   tag) rather than hardcoding lists or extension allow-lists that rot or
-   false-flag legitimate files. Prefer evidence the subagent can reason over to a
-   brittle predicate the script commits to.
-6. **Be honest about what each layer catches.** Evidence-in closes *hallucination*
-   (the AI guessing a fact). It does **not** close *satisficing* (the AI not
-   looking). Satisficing is caught at test time by the court; in production it is
-   currently *not* directly caught (human + CI miss silent semantic drops). See
-   "Production backstop" for the open decision.
+5. **Generality beats cleverness — with a degradation path.** Derive facts at
+   runtime (e.g. staging-module classification from `k8s.io/kubernetes`'s `go.mod`
+   `replace`-to-`./staging/src/k8s.io/*` set at the target tag — which correctly
+   *includes* the v0.MINOR-tracking staging modules and *excludes* `k8s.io/utils`,
+   `klog/v2`, `kube-openapi`, and all `sigs.k8s.io/*`, the four the current
+   substring `grep 'k8s.io/'` false-flags) rather than hardcoding lists that rot.
+   But `k8s.io/kubernetes` is usually **not** in a rebased repo's dep graph, so the
+   fetch is a network op that can fail (GOPROXY-offline, tag-not-yet-published). The
+   helper must degrade gracefully: on fetch failure, emit the raw module/version
+   list as evidence with a `SUMMARY:` noting classification was unavailable, and
+   defer to the subagent — never fall back to a stale hardcoded table or to
+   flagging everything. Prefer evidence the subagent can reason over to a brittle
+   predicate the script commits to.
+6. **Be honest about what each layer catches — evidence-in can *worsen*
+   satisficing if done naively.** Evidence-in closes *hallucination* (the AI
+   guessing a fact). It does **not** close *satisficing* (the AI not looking), and
+   a verdict-shaped `SUMMARY:` line is an active satisficing *accelerant*: a lazy
+   judge copies it verbatim. Today's MANDATORY blocks already institutionalize this
+   — `version-consistency.md:10-11` tells the subagent "If NEW_ISSUES=0, set
+   verdict=PASS immediately… Do NOT run the checks below," i.e. the script telling
+   the judge not to judge, the exact inverse of the north star. So evidence-in has
+   two design rules: (a) the evidence file states **neutral facts, not a verdict**
+   (`SUMMARY:` describes what was found, never "PASS"/"looks clean"); (b) Phase 2
+   **removes the "set PASS immediately / do NOT run the checks below" instruction**
+   from the MANDATORY blocks — the subagent must reason over the evidence, not
+   rubber-stamp a counter. Residual satisficing is caught at test time by the
+   court; in production it is *not* directly caught (human + CI miss silent semantic
+   drops). See "Production backstop" for the open decision.
 
 ## Shapes (by convention — which `finish_*` the script calls)
 
@@ -126,9 +144,19 @@ gate `.md`/`.sh`, and step files.
   module drift the script can't soundly call).
 - **filter** (`finish_filter`) — evidence **plus** a sound clean predicate, so it
   may fast-path PASS with no subagent on the provably-clean case; the dirty case
-  writes evidence and defers. A cost optimization layered on `evidence`. Use only
-  where "script sees zero" genuinely means clean (e.g. `crd-validation`,
-  `patterns-completeness`, which already base-filter to changed items).
+  writes evidence and defers. A cost optimization layered on `evidence`.
+  **A clean-PASS is an autonomous verdict** — it removes the judge exactly as a
+  `deterministic` PASS does — so **`filter`'s clean predicate is bound by the same
+  Phase-3 fixture proof** (zero false-PASS on a repo with a known regression in
+  that gate's domain). A gate whose "clean" test is a *heuristic* does **not**
+  qualify and must stay `evidence` (always defer). Concretely, `crd-validation`
+  today calls "clean" via a 6-keyword grep (`crd-validation.sh:46`,
+  `pattern:|format:|minimum:|maximum:|enum:|required:`) that misses `x-kubernetes-*`,
+  type changes, `default:`, `nullable`, and structural-schema edits — so a real CRD
+  regression in any un-grepped field yields `changed=0` → a false clean-PASS. Under
+  the north star it stays **`evidence`** until a fixture test proves the predicate;
+  `patterns-completeness` likewise. Genuinely sound predicates ("`go build` exits 0"
+  = compiles) are the only ones that start as `filter`.
 - **info** (`finish_info`) — always PASS, non-blocking; findings recorded for
   follow-up. Note a distinction no linter can see and that a maintainer must not
   "promote": some info gates are *inherently* non-computable (`maintainer-review`);
@@ -224,9 +252,16 @@ echo "PENDING: $gate_name"; ((pending++)) || true
 ```
 
 `report_is_fresh` (`:122-133`) already parses a `HEAD:` line, so it works on the
-now-stamped evidence file unchanged. **`cmd_init` must also clean `*.evidence` and
-`*.crash`**, not just `*.report` (`:151`) — otherwise a stale evidence file from a
-prior HEAD survives a re-init and grounds the subagent in old facts.
+now-stamped evidence file unchanged. Note the freshness gate at read time is the
+*correctness* guard (stale evidence is rejected regardless); the `cmd_init` cleanup
+below is disk hygiene, not a correctness requirement. Still worth doing: **`cmd_init`
+cleans only `*.report` (`:151`), and only on the FRESH branch** — so it must also
+clean `*.evidence`/`*.crash`, **and** the pre-existing stale-state footguns it
+already misses: `.rebase-tmp/.advance-attempts-step*` (`cmd_advance:286`) and
+`.rebase-tmp/status/INCOMPLETE` (`cmd_advance:310`). A stale `.advance-attempts-stepN`
+surviving a production re-init causes a **premature force-advance** (`cmd_advance:293`
+fires at `attempts >= 3`). The test harness masks this via `cmd_run` `rm -rf
+.rebase-tmp`, but production `cmd_init` is the path this plan edits.
 
 A crashed companion writes no report, lands here as PENDING, and the step launches
 a subagent for it — the same path a companion-less gate takes. It can never
@@ -248,14 +283,21 @@ Shape below is the *target convention*, not a declaration. Verified: 33 gate
   `autofix-diff-review`, `version-completeness`, `e2e-infra`. These are where "make
   the subagent more correct/general" pays off; several currently have no companion
   and would gain a small evidence pre-script.
-- **filter (evidence + sound clean-PASS fast-path):** `crd-validation`,
-  `patterns-completeness` (already base-filter), `build-vet`, `build-vet-recheck`,
-  `test-compilation`, `autofix-result` — where a clean compile/diff genuinely means
-  clean. Note the base filter here is *evidence the subagent weighs*: an unmodified
-  file that now fails to compile because a k8s API changed is a real regression,
-  and only the subagent (not a file-modified heuristic) can call that — so these
-  stay filter/evidence, never `deterministic`, unless a fixture test proves the
-  predicate sound for cross-file breakage.
+- **filter (evidence + *sound* clean-PASS fast-path):** `build-vet`,
+  `build-vet-recheck`, `test-compilation`, `autofix-result` — where "`go build`/`go
+  vet` exits 0" genuinely means the modified surface compiles. Even here the base
+  filter is *evidence the subagent weighs*, not a verdict: an unmodified file that
+  now fails to compile because a k8s API changed is a real regression only the
+  subagent (not a file-modified heuristic) can call — so these never become
+  `deterministic`, and their clean-PASS predicate must still survive the Phase-3
+  cross-file fixture test.
+- **evidence, NOT filter (heuristic clean predicate — must always defer):**
+  `crd-validation`, `patterns-completeness`. They base-filter to changed items, but
+  their "clean" test is a keyword grep (`crd-validation.sh:46` covers 6 of 20+
+  OpenAPI validation keywords), so `changed=0` does not soundly mean clean. Writing
+  an autonomous PASS on that is script-as-authority through the PASS door. They stay
+  `evidence` (inject the filtered diff, always defer) until — and only if — a
+  fixture test proves the predicate, at which point they may become `filter`.
 - **info (always PASS, non-blocking):** `dep-cve-check` (computable, policy
   non-block), `dep-release-notes`, `maintainer-review` (non-computable),
   `skill-improvement`, `commit-messages`.
@@ -283,15 +325,25 @@ Bump `plugin.json` + run `make lint && make update` once per landed PR (not per
 phase — intermediate bumps are dead weight on a single branch).
 
 **Phase 0 — Mechanical patch (ship first; this is the whole patch).**
-(a) `inc` with the `${!var:-0}` guard. (b) `_gate_trap` writes a `.crash`
-breadcrumb + `CRASH:` line instead of a FAIL report — removes the
-crash→false-FAIL class today. (c) `cmd_gates` disk re-check + freshness-gated
-`evidence_path()`; `cmd_init` cleans `*.evidence`/`*.crash`. (d) **A ~5-line
-harness reader**: `test-skill.sh`'s tally must surface any `*.crash` as an infra
-error distinct from "missing gate" — otherwise dropping crash→FAIL trades a named
-signal (`gfail>0`, "failed [name]") for an anonymous "missing N," and an infra
-crash becomes invisible. (d) ships in the same PR as (b); without it the crash is
-silent, which is worse than today.
+(a) `inc` with the `${!var:-0}` guard — defensive, currently unreached (all 6
+companions guard `((n++))` with `|| true`), so it prevents a future footgun, it
+doesn't fix a live failure. (b) `_gate_trap` writes a `.crash` breadcrumb +
+`CRASH:` line instead of a FAIL report. Scope honestly: the *most common* crash
+trigger, `timeout -s TERM`, already does **not** false-FAIL (the EXIT trap sees
+`exit_code=0` on SIGTERM — verified empirically), so this closes the *non-timeout*
+crash→false-FAIL class (an unguarded nonzero exit mid-script), not a rampant bug.
+(c) `cmd_gates` disk re-check + freshness-gated `evidence_path()`; `cmd_init`
+cleans `*.evidence`/`*.crash` **and** the stale-state footguns above
+(`.advance-attempts-step*`, `status/INCOMPLETE`). (d) **The `.crash` harness
+reader is more than "a few lines."** `_tally_gates` returns a fixed 4-field string
+(`test-skill.sh:129`) read at three sites (`_do_record_one:948`, `cmd_watch:1450`,
+`_results_one:1517`); surfacing crashes "distinct from missing" means either
+widening that arity (all three readers) or a parallel `.crash` scan, plus filtering
+crashed gates out of the missing-names loop (`_do_record_one:979-992`), plus the
+same cross-worktree fan-out reports get (`_collect_gate_dirs:66-75`). Budget it as
+a real change, and ship it in the **same PR** as (b) — without it a crash surfaces
+only as an anonymous "missing N," which is worse than today's named "failed
+[name]" signal.
 
 **Phase 1 — Fix the court, then measure the RIGHT thing (decision gate).**
 Two *separable* pieces:
@@ -312,29 +364,55 @@ per-version 1.35.3 = 12% is a live blocker. So "mostly healthy with a
 version-specific hole," not "solved." If it no longer binds, stop after Phase 0.
 
 **Phase 2 — Evidence-in rollout (the actual value; only if Phase 1 says it binds).**
-Make scripts feed subagents. First adopt the lib in the 6 gates that already have
-companions: `crd-validation`/`patterns-completeness` → `finish_filter` (they must
-first `source gate-script-lib.sh`; they currently roll their own BASE + report
-writing, so this is more than a rename); `build-vet` → `finish_filter`;
-`version-consistency`/`feature-gates` → `finish_evidence` with **runtime-derived**
-module classification (from `k8s.io/kubernetes`'s `go.mod` `replace` set at the
-target tag — one sourced helper, replacing the duplicated logic in
-`next-work.md:14-28`, not a hardcoded list). Then author small evidence
-pre-scripts for the highest-value judgment gates (`type-conversions`,
-`fix-correctness`, `rebase-completeness`). Coupling: any gate whose companion
-starts emitting `RESOLVED:`/`EVIDENCE:` must have its `.md` MANDATORY block updated
-in the *same commit*, and its `.md` must **retain full judgment prose** (the
-subagent still reads it — for a crash fallback and for the dirty path).
+Make scripts feed subagents. Be honest about how much is *new*: for the 6
+existing-companion gates, evidence-in already happens inline — the MANDATORY block
+runs the `.sh` and tells the subagent to read its output (`version-consistency.md:5-8`,
+`feature-gates.md`). So converting them mostly buys atomic HEAD-stamping +
+freshness, not new grounding. The genuine new value is authoring evidence
+pre-scripts for the **companion-less** judgment gates (`type-conversions`,
+`fix-correctness`, `rebase-completeness`) — do not treat that as an afterthought;
+it is the point of the phase.
+- *Two surfacing mechanisms, and Phase-0 machinery is step-4-only.* Steps 1-3
+  inject evidence **inline via the MANDATORY block** (works today, no orchestrator
+  needed); step 4 surfaces it via `cmd_gates` `EVIDENCE:` (the Phase-0 machinery).
+  So the `evidence_path`/freshness path is **inert for step 1-3 gates until Phase
+  4** unifies execution. Phase 2 therefore relies on the MANDATORY-block path for
+  steps 1-3; do not claim orchestrator-surfaced evidence for `version-consistency`
+  (step 2) or `feature-gates`/`type-conversions` (steps 2-3) before Phase 4.
+- *Conversions.* `build-vet` → `finish_filter` (sound predicate).
+  `crd-validation`/`patterns-completeness` → **`finish_evidence`** (heuristic
+  predicate — see Shapes; not `finish_filter`); they must first `source
+  gate-script-lib.sh` (they currently roll their own BASE + report writing, so this
+  is more than a rename). `version-consistency`/`feature-gates` → `finish_evidence`
+  with **runtime-derived** module classification (§principle 5), one sourced helper
+  replacing the duplicated logic in `k8s-rebase.sh` (the live code; `next-work.md`
+  only *describes* it), with the fetch-failure degradation path.
+- *Kill the rubber-stamp instruction.* Remove "set verdict=PASS immediately / do
+  NOT run the checks below" (`version-consistency.md:10-11` and any sibling) — under
+  the north star the subagent reasons over evidence; it is not told to skip judging
+  (§principle 6).
+- *Coupling.* Any gate whose companion starts emitting `RESOLVED:`/`EVIDENCE:` must
+  have its `.md` MANDATORY block updated in the *same commit*, and its `.md` must
+  **retain full judgment prose** (the subagent still reads it — for a crash
+  fallback and the dirty path).
+- *Cost is real and unmeasured.* `evidence` **adds** a script run and **never**
+  removes the subagent, so every companion-less gate that gains a pre-script raises
+  wall-clock. That is an accepted trade for reliability, but Phase 1's metric must
+  record per-gate latency alongside the false-FAIL rate so the cost is visible, not
+  silent.
 
 **Phase 3 — Fixture test + narrow verdict exceptions.**
 Build the fixture harness (reusing the `.repos` clone scaffolding; today only
 end-to-end + court exist, so this is a new target): run a single gate against a
 repo with **known pre-existing and cross-file breakage** and assert **zero
-false-FAIL and zero false-PASS**. Only a gate that passes may move to
-`finish_deterministic`. Expect this to admit very few (likely just
-`major-version-imports`, `go-version-check`) — and only if their base filters
-survive the cross-file case. If a gate can't prove it, it stays evidence/filter.
-This is the *unconditional* safety gate for any script-written FAIL.
+false-FAIL and zero false-PASS**. This is the *unconditional* safety gate for **any
+autonomous verdict a script writes — a `deterministic` PASS/FAIL *and* a `filter`
+clean-PASS** (a clean-PASS removes the judge just as a deterministic PASS does).
+Only a gate that passes may keep/adopt `finish_deterministic` or a `finish_filter`
+clean-PASS; expect this to admit very few (likely just `major-version-imports`,
+`go-version-check` for full verdicts, and the compile-based filters). A gate that
+can't prove its predicate stays `finish_evidence` (always defer) — including
+`crd-validation`/`patterns-completeness` until their keyword coverage is proven.
 
 **Phase 4 — Unify execution.**
 Steps 1-3 call `orchestrator.sh gates <step>` first, mirroring step 4, so evidence
@@ -388,7 +466,11 @@ Two cheap options, to decide before shipping the evidence rollout:
 |------|----------|------------|
 | Dropping crash→FAIL hides infra crashes | Medium | Phase 0(d) ships the `.crash` harness reader in the same PR as the trap change; a crash is surfaced as a distinct infra error, and the subagent/force-advance path prevents a silent green. |
 | Stale evidence injected as ground truth | Medium | HEAD-stamp + `report_is_fresh` gate on evidence; `cmd_init` cleans `*.evidence`/`*.crash`. |
-| A `verdict`-shape gate false-FAILs or false-PASSes | High if unguarded | Phase 3 fixture test (zero false-FAIL AND zero false-PASS on cross-file breakage) is the unconditional precondition for `finish_deterministic`. Default is evidence/filter, which can't false-FAIL. |
+| A `verdict`-shape gate false-FAILs or false-PASSes | High if unguarded | Phase 3 fixture test (zero false-FAIL AND zero false-PASS on cross-file breakage) is the unconditional precondition for `finish_deterministic`. Default is `evidence`, which can't write a verdict. |
+| A `filter` clean-PASS false-PASSes on a heuristic predicate | High if unguarded | A clean-PASS is an autonomous verdict; the Phase-3 fixture proof covers it too. Heuristic-predicate gates (`crd-validation`, `patterns-completeness`) stay `evidence` until proven. |
+| Evidence-in *amplifies* satisficing via a verdict-shaped `SUMMARY:` or "set PASS immediately" instructions | Medium | Neutral fact-only `SUMMARY:`; Phase 2 removes the "do NOT run the checks below" rubber-stamp instruction; court measures residual. |
+| `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Medium | Accepted trade for reliability; Phase 1 metric records per-gate latency so cost is visible, not silent. |
+| Runtime module-classification fetch fails (k8s.io/kubernetes outside dep graph / offline) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting classification unavailable, defer to subagent; never fall back to a stale table or flag-everything. |
 | Evidence-in doesn't stop satisficing | Medium | Acknowledged; court at test time; "Production backstop" decision for the field. |
 | Phase 4 `.md`/step rewrite mis-ordered (15 MANDATORY blocks) | Medium | Atomic per-gate: add `gates` call with block intact → verify → drop block after companion writes report/evidence; retain judgment prose. |
 | Cross-plan collision (count; module-class helper; test-skill.sh regions) | Medium | Reconcile in Phase 5 against *live* state; one sourced classification helper; Phase 1 court edit is a different region than pr-feedback's stripping edit but must run against the post-stripping baseline. |
