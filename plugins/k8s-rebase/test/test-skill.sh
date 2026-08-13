@@ -664,7 +664,7 @@ mutate_plugin() {
           "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
         info "Neutered: fix_${ftag}()" ;;
       all-patterns)
-        sed -i '/^### /,$ { /^## /!d }' "$dest/docs/k8s-rebase-patterns.md" ;;
+        sed -i '/^## Pattern Table/,$ d' "$dest/docs/k8s-rebase-patterns.md" ;;
       all-fns)
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
         awk '/^fix_[a-z0-9_]+\(\)/ && !/fix_uncommitted/ { print $0; print "  return 0"; skip=1; next } skip && /^\}/ { print; skip=0; next } skip { next } { print }' \
