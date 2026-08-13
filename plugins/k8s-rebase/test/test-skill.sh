@@ -1103,18 +1103,20 @@ cmd_court() {
   # (module hashes) that the court criteria explicitly cannot act on — a
   # version delta is only a regression if the DIFF proves an API is absent,
   # which hashes never show. go.sum is also ~half the byte weight of a large
-  # rebase diff, and cutting it keeps the prompt clear of the model's context
-  # window (a full go.sum diff alone can push the prompt past the limit and
-  # trigger "Prompt is too long"). go.mod is kept — version pins are signal.
+  # rebase diff (e.g. ovn-kubernetes: 292KB -> 150KB, ~211K -> ~100K tokens).
+  # Cutting it removes noise the briefs speculated on and leaves headroom below
+  # the context window (a full diff measures close to it, and the model's output
+  # reservation eats into the limit). go.mod is kept — version pins are signal.
   local court_excludes=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum')
   local diff_nv=$(git diff "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
   [[ -z "$diff_nv" ]] && { info "PASS: identical (non-vendor)"; return 0; }
 
   local diff_bytes=${#diff_nv}
-  # ~1.4 bytes/token for dense diffs; 250 KB ≈ 180K tokens, safely under the
-  # context window once the system prompt overhead is added.
+  # Backstop only. ~1.4 bytes/token for dense diffs, so 250 KB ≈ 180K tokens;
+  # past that the court prompt risks the context window. Real diffs (go.sum
+  # excluded) run ~150-185 KB, so this rarely fires.
   if [[ "$diff_bytes" -gt 250000 ]]; then
-    error "INCONCLUSIVE: diff too large for court (${diff_bytes} bytes — max 250000; would overflow model context)"
+    error "INCONCLUSIVE: diff too large for court (${diff_bytes} bytes — max 250000)"
     return 2
   fi
   local hunks=$(echo "$diff_nv" | grep -c '^@@' || true)
