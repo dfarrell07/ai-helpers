@@ -1,17 +1,14 @@
 Read the autofix commit's diff. For each code change, verify it
 is a correct transformation.
 
-Known autofix categories: x/exp→stdlib, reflect.Ptr→Pointer, klog v2,
-FieldsV1, bare Eventf, AddToScheme→Install, KIND image/version,
-kubeadm v1beta4, CRD int64 format, feature gates, version refs,
-Go version, golangci-lint version, import reordering, codegen flag
-removal, mocks, third-party licenses. Any change matching these
-categories is expected.
+The autofix applies deterministic fix patterns. Any change from
+the autofix script is expected — only flag changes that are
+demonstrably WRONG (incorrect logic, wrong replacement, data
+loss), not because they are unfamiliar.
 
 Only flag a change as incorrect if the transformation itself is
 WRONG (e.g., wrong format verb, missing field, wrong import
-section), not because it's unfamiliar. If a change matches a
-documented pattern, it's expected. K8S_VERSION patch-level
+section), not because it's unfamiliar. K8S_VERSION patch-level
 differences between go.mod and KIND/CI tooling are expected —
 the autofix picks the latest available versions. Do not flag
 minor version mismatches as a concern.

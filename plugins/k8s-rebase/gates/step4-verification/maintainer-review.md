@@ -13,17 +13,14 @@ Check:
 - Are any expected changes missing (e.g., version refs not
   updated, type conversions incomplete)?
 
-Note: the autofix script applies known rebase patterns that ARE
-required — these are NOT scope creep. Known categories: x/exp→stdlib,
-reflect.Ptr→Pointer, klog v2, FieldsV1, bare Eventf, AddToScheme→Install,
-KIND image/version, kubeadm v1beta4, CRD int64 format, feature gates,
-version refs, Go version, golangci-lint version, import reordering,
-codegen flag removal, mocks, third-party licenses. Any change matching
-these is expected, even if it touches e2e infrastructure, version
-references, or test configuration. Do not flag patch-level mismatches within the same minor
-version as a concern — the autofix picks the latest available
-patch releases. DO flag minor-version mismatches (versions
-from a different minor release than the target).
+Note: the autofix script applies deterministic rebase patterns
+that ARE required — these are NOT scope creep. Changes from the
+autofix are expected, even if they touch e2e infrastructure,
+version references, or test configuration. Do not flag
+patch-level version mismatches as scope creep — the autofix
+picks the latest available patch releases. DO flag minor-version
+mismatches (versions from a different minor release than the
+target).
 
 VERDICT: FAIL if scope creep or inaccurate commit messages
 found. PASS if all changes serve the rebase and commits are

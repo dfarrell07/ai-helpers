@@ -30,15 +30,7 @@ Step 1 — Discover major-version modules from go.mod:
   if non-vendor code still imports the unversioned path:
   `grep -rn '"k8s.io/klog"' --include='*.go' . | grep -v vendor/ | grep -v .cache/ | grep -v '/v2'`
 
-Step 2 — Check common major-version migrations:
-  These module path changes recur across k8s ecosystem repos:
-  - grep for bare `"k8s.io/klog"` (should be `k8s.io/klog/v2`)
-  - If vendor has `sigs.k8s.io/controller-runtime/v2`, grep
-    for bare `"sigs.k8s.io/controller-runtime"` without /v2
-  For each: if the old path is used AND the new version exists
-  in vendor/ or go.mod, this is a FAIL.
-
-Step 3 — Check go.mod require lines:
+Step 2 — Check go.mod require lines:
   `grep -E 'require' go.mod`
   Look for any direct dependency that uses a pre-v2 path when
   a v2+ version is available. Cross-reference with vendor/:

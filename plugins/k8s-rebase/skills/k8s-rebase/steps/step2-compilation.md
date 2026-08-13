@@ -59,27 +59,22 @@ any regenerated files (e.g., `zz_generated.deepcopy.go`).
 always use the NEWEST available API. Never introduce usage of a
 deprecated package. Check `// Deprecated:` comments in vendored
 source (`grep -r 'Deprecated:' vendor/<pkg>/`) to find the
-replacement. Anti-patterns to avoid:
+replacement. For common k8s API migrations, check the patterns
+doc if available.
+Anti-patterns to avoid:
 - `golang.org/x/net/context` instead of stdlib `context`
 - `k8s.io/utils/strings/slices` instead of stdlib `slices`
 - `k8s.io/utils/pointer` instead of `k8s.io/utils/ptr`
 - `admission.CustomValidator` instead of `admission.Validator[T]`
 
-**Common API migrations** (use when the compiler flags a removed API):
-- `pointer.Int32(v)` -> `ptr.To[int32](v)` (k8s.io/utils/ptr)
-- `sets.NewString(...)` -> `sets.New[string](...)`
-- `context.Context` added as first parameter: pass `ctx` from
+**General fix patterns:**
+- When a function requires `context.Context`: pass `ctx` from
   the caller, not `context.TODO()`.
 - `context.WithTimeout`/`WithCancel`: always capture the cancel
   function (`ctx, cancel := ...`) and `defer cancel()`.
   `ctx, _ := ...` leaks the context and fails `go vet`'s
   `lostcancel` analyzer.
 - `ioutil.ReadFile`/`ReadDir` -> `os.ReadFile`/`os.ReadDir`
-- `k8s.io/klog` -> `k8s.io/klog/v2` (klog v1 removed in k8s
-  1.35+; also remove `k8s.io/klog` from go.mod if present)
-- `webhook.WithCustomValidator(scheme, &T{}, &V{})` ->
-  `webhook.WithValidator[T](&V{})` (controller-runtime v0.23+,
-  the old `CustomValidator` interface is removed)
 
 After ANY `go get`, `go mod tidy`, or go.mod change, re-vendor
 if the module has a vendor directory: `go mod vendor`. Failing

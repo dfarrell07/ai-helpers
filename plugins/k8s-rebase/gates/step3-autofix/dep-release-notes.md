@@ -13,7 +13,7 @@ Sources by dep:
   raw.githubusercontent.com/golangci/golangci-lint/main/CHANGELOG.md
 - controller-runtime: gh api repos/kubernetes-sigs/controller-runtime/releases
   --paginate (focus on Breaking Changes in .0 minor releases; also
-  check deprecations and removed APIs — e.g. webhook builder changes)
+  check deprecations and removed APIs — e.g. breaking API changes)
 
 Also check for other non-k8s ecosystem deps bumped by a minor
 version or more. Find them with:

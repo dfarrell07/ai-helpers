@@ -5,11 +5,7 @@ the entire fix pipeline.
 Promoted x/ packages:
   `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
-Known promotions (check these first):
-- `golang.org/x/exp/slices` -> `slices` (Go 1.21+)
-- `golang.org/x/exp/maps` -> `maps` (Go 1.21+)
-- `golang.org/x/net/context` -> `context` (Go 1.7+)
-- `golang.org/x/sync/errgroup` -> still x/ (NOT promoted)
+For each hit, check if a stdlib equivalent exists:
 
 k8s ecosystem deprecated packages (also check):
   `grep -rn '"k8s.io/utils/strings/slices"\|"k8s.io/utils/pointer"' --include='*.go' . | grep -v vendor/ | grep -v .cache/`

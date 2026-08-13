@@ -39,7 +39,7 @@ if grep -q 'sigs.k8s.io/controller-runtime/v2' go.mod 2>/dev/null; then
 fi
 
 versioned_mods=$(grep -E '/v[0-9]+' go.mod 2>/dev/null | grep -v '^\s*//' | \
-  sed -n 's|.*\(k8s\.io/[a-z_-]*/v[0-9]*\).*|\1|p' | sort -u || true)
+  sed -n 's|.*[[:space:]]\([a-z][a-z0-9._/-]*/v[0-9]\+\)[[:space:]].*|\1|p' | sort -u || true)
 for vmod in $versioned_mods; do
   bare="${vmod%/v[0-9]*}"
   [[ "$bare" == "k8s.io/klog" ]] && continue
