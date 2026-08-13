@@ -1099,17 +1099,27 @@ cmd_court() {
   git rev-parse --verify "$result_branch" &>/dev/null || { error "Branch not found: $result_branch"; return 1; }
   git rev-parse --verify "$known_good" &>/dev/null || { error "Branch not found: $known_good"; return 1; }
 
-  local diff_nv=$(git diff "$known_good" "$result_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
+  # Court exclusions. Vendor is generated; go.sum is pure resolver output
+  # (module hashes) that the court criteria explicitly cannot act on — a
+  # version delta is only a regression if the DIFF proves an API is absent,
+  # which hashes never show. go.sum is also ~half the byte weight of a large
+  # rebase diff, and cutting it keeps the prompt clear of the model's context
+  # window (a full go.sum diff alone can push the prompt past the limit and
+  # trigger "Prompt is too long"). go.mod is kept — version pins are signal.
+  local court_excludes=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum')
+  local diff_nv=$(git diff "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
   [[ -z "$diff_nv" ]] && { info "PASS: identical (non-vendor)"; return 0; }
 
   local diff_bytes=${#diff_nv}
-  if [[ "$diff_bytes" -gt 600000 ]]; then
-    error "INCONCLUSIVE: diff too large (${diff_bytes} bytes — max 600000)"
+  # ~1.4 bytes/token for dense diffs; 250 KB ≈ 180K tokens, safely under the
+  # context window once the system prompt overhead is added.
+  if [[ "$diff_bytes" -gt 250000 ]]; then
+    error "INCONCLUSIVE: diff too large for court (${diff_bytes} bytes — max 250000; would overflow model context)"
     return 2
   fi
   local hunks=$(echo "$diff_nv" | grep -c '^@@' || true)
-  local diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null)
-  info "Diff: $hunks non-vendor hunks (${diff_bytes} bytes)"
+  local diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
+  info "Diff: $hunks non-vendor hunks, go.sum excluded (${diff_bytes} bytes)"
 
   local direction="DIFF DIRECTION: 'git diff known_good result'.
 '-' lines are in KNOWN-GOOD but not result (things the result may be MISSING).
@@ -1117,7 +1127,10 @@ cmd_court() {
 Example: if the result bumped k8s to 1.35 and the known-good has 1.34,
 you will see '-1.34' '+1.35' — the '+' shows what the result produced.
 'deleted file' = exists in known-good but not result (result REMOVED it).
-'new file' = exists in result but not known-good (result ADDED it)."
+'new file' = exists in result but not known-good (result ADDED it).
+NOTE: vendor/ and go.sum are omitted from this DIFF (generated/resolver
+output). Do not treat their absence as 'unchanged'; judge dependency
+questions from go.mod version pins, not from go.sum hashes."
   local preexisting="
 PASS/FAIL CRITERIA: PASS means the result is a valid, correct k8s rebase.
 FAIL means it has a data-correctness regression that would break compilation,
@@ -1170,13 +1183,13 @@ FILES: $diff_stat"
   mkdir -p "$cdir"
 
   info "Phase A: Prosecution + Defense..."
-  cat <<EOF_PROS | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
+  cat <<EOF_PROS | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
 $context
 
 You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.
 EOF_PROS
   local p1=$!
-  cat <<EOF_DEF | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
+  cat <<EOF_DEF | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
 $context
 
 You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.
@@ -1191,7 +1204,7 @@ EOF_DEF
 
   info "Phase B: Judge..."
   local judge
-  judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err"
+  judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err"
 $direction
 $preexisting
 
@@ -1211,7 +1224,7 @@ EOF_JUDGE
 
   info "Phase C: Jury (parallel)..."
   for j in 1 2 3; do
-    cat <<EOF_JURY | timeout 600 claude -p --permission-mode "$PERMISSION_MODE" --output-format text \
+    cat <<EOF_JURY | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text \
       --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
       > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
 REPO: $repo
