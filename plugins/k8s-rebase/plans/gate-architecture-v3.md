@@ -54,9 +54,13 @@ tracing of the live orchestrator, lib, and gate files):
    matches only `PASS|FAIL|SKIP`, so `cmd_advance` (`:251`) buckets ERROR as
    `missing` and force-advances after 3 attempts (`:293`). The fix is simpler: the
    trap writes **no** report, so the gate falls through the normal no-report →
-   PENDING → subagent path. (The common crash trigger, `timeout -s TERM`, already
-   does *not* false-FAIL: the EXIT trap sees `exit_code=0` on SIGTERM — verified.
-   So this closes the *non-timeout* nonzero-exit class, a real but narrow hole.)
+   PENDING → subagent path. But the in-script trap sees only *ordinary* nonzero
+   exits: on the common `timeout -s TERM` it sees `exit_code=0` (SIGTERM — verified,
+   so timeout does *not* false-FAIL either) and on SIGKILL it does not run at all. So
+   the trap closes the non-timeout nonzero-exit class, while *observability* of the
+   dominant (timeout/signal) crash must come from the orchestrator — the only layer
+   that sees the child's `>128` exit (124 SIGTERM / 137 SIGKILL). See "Execution
+   model."
 
 ## Design principles
 
@@ -74,8 +78,10 @@ tracing of the live orchestrator, lib, and gate files):
    `deterministic` FAIL *and* a `filter` clean-PASS — a clean-PASS removes the judge
    exactly as a deterministic PASS does. Today, zero gates qualify without the test.
 4. **A crash is never a verdict.** Infra failure writes no report → the gate
-   degrades to the subagent path, exactly like a companion-less gate. Made
-   observable (Phase 0), never silent.
+   degrades to the subagent path, exactly like a companion-less gate. Made observable
+   (Phase 0) — but the in-script trap sees only ordinary nonzero exits; the dominant
+   `timeout -s TERM`/SIGKILL crash (exit 0 / no trap) is observable *only* at the
+   orchestrator, which writes the breadcrumb on a `>128` child exit. Never silent.
 5. **Evidence must be fresh, and consumed at a settled HEAD.** Every artifact is
    HEAD-stamped and freshness-checked (`report_is_fresh:122-133` already does this
    for reports). But note the limit: `step4-verification.md:31-36` runs gates *while
@@ -144,7 +150,7 @@ inc() {                       # safe counter — never returns nonzero, safe und
   printf -v "$var" '%d' "$(( ${!var:-0} + 1 ))"
 }
 
-_gate_trap() {                # a crash writes NO report — it degrades to the subagent path
+_gate_trap() {                # ordinary nonzero exit: NO report → subagent (timeout/signal: orchestrator, below)
   local exit_code=$?
   [[ $exit_code -eq 0 ]] && return 0
   if [[ -n "${REPO:-}" && -n "${GATE_NAME:-}" ]]; then
@@ -199,20 +205,29 @@ The companion-less judgment gates the rollout most cares about (`type-conversion
 `fix-correctness`, `rebase-completeness`) are exactly the ones whose evidence would
 land in that unread file.
 
-**The fix is to make the orchestrator the single runner and wire its output to the
-judge**, so there is one transport and the script runs once:
+**The fix is to make the orchestrator (`scripts/k8s-rebase-orchestrator.sh`, where
+`cmd_gates`/`cmd_advance` live) the single runner and wire its output to the judge**,
+so there is one transport and the script runs once:
 
 ```bash
-report_path/evidence_path share the ${sd%-*}-${gate} prefix (matches report_path:106-110)
+# report_path/evidence_path share the ${sd%-*}-${gate} prefix (matches report_path:106-110).
+# Preserve the live aggregate contract this branch sits inside: `local resolved=0
+# pending=0` (:182), the resolved++/pending++ increments (:196/:206/:212/:215), and
+# the trailing summary `RESOLVED: $resolved` / `PENDING: $pending` +
+# `[[ "$pending" -gt 0 ]] && return 1` (:220-222) that callers depend on. The branch
+# below replaces ONLY the dead `NEW_ISSUES=0` grep (:204 — never matches finish_gate's
+# `RESOLVED:`/`PENDING:` output); keep the counters and the summary.
 
-# cmd_gates, per gate, replacing the dead NEW_ISSUES=0 grep (finding: :204 never matches finish_gate):
-[[ -x "$companion" ]] && timeout "${GATE_TIMEOUT:-300}" bash "$companion" "$repo" 2>&1 || true
+rc=0
+[[ -x "$companion" ]] && { timeout "${GATE_TIMEOUT:-300}" bash "$companion" "$repo" 2>&1 || rc=$?; }
+(( rc > 128 )) && printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" \
+  > "$repo/.rebase-tmp/gates/${gate_name}.crash"                        # SIGTERM(124)/SIGKILL(137): trap can't
 if report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then    # RESOLVED: skip subagent
-  echo "RESOLVED: $gate_name $(grep '^VERDICT:' "$rpt" | awk '{print $2}')"; continue
+  echo "RESOLVED: $gate_name $(grep '^VERDICT:' "$rpt" | awk '{print $2}')"; ((resolved++)); continue
 fi
 ev=$(evidence_path "$repo" "$sd" "$gate_name")                          # PENDING: hand path to caller
 [[ -f "$ev" ]] && report_is_fresh "$ev" "$repo" && echo "EVIDENCE: $ev"
-echo "PENDING: $gate_name"
+echo "PENDING: $gate_name"; ((pending++))
 ```
 
 Then the step files must **launch each PENDING subagent with its evidence**: the
@@ -242,8 +257,11 @@ PR) remains the backstop for any stuck gate.
 
 ## Gate map (33 today; consolidation deferred to Phase 5)
 
-Target convention, not a declaration. Verified: 33 gate `.md`, 6 companions, 15
-carry a MANDATORY block.
+Target convention, not a declaration. Verified: 33 gate `.md`, 6 companions. 15
+files contain the word "MANDATORY", but only **6 carry a run-the-companion
+"MANDATORY FIRST STEP" block** (== the 6 companions); the other 9 use "MANDATORY"
+for an unrelated *base-branch pre-existing filter* (`correctness.md:27`, "MANDATORY
+pre-existing check — run for EVERY finding") that Phase 3 keeps — not a block to drop.
 
 - **evidence (inject facts, always defer):** `version-consistency` (runtime module
   classification), `feature-gates` (refs + vendor symbol presence),
@@ -251,7 +269,11 @@ carry a MANDATORY block.
   `type-conversions`, `fix-correctness`, `correctness`, `deprecated-calls`,
   `deprecated-api-remnants`, `deprecated-imports`, `gomod-diff-analysis`,
   `ci-prediction`, `k8s-changelog`, `logical-consistency`, `autofix-diff-review`,
-  `version-completeness`, `e2e-infra`. `crd-validation`/`patterns-completeness` are
+  `version-completeness`, `e2e-infra`, `dep-release-notes`. `dep-release-notes` is a
+  companion-less **FAIL-capable** judgment gate (`dep-release-notes.md:40` "VERDICT:
+  FAIL if any dependency release note documents a breaking change…") — an earlier
+  draft misfiled it as `info`; it is evidence, per "every judgment gate."
+  `crd-validation`/`patterns-completeness` are
   **already** pure evidence-providers — their `.sh` sources no lib and writes no
   report; it prints `NEW_ISSUES=<n>` to stdout and the subagent writes the report
   (`crd-validation.sh:56`, `patterns-completeness.sh:55`). Their unsoundness is not
@@ -268,8 +290,9 @@ carry a MANDATORY block.
   and their clean-PASS must still pass the Phase-4 cross-file fixture test before
   adopting `finish_filter` (until then they run as `evidence`).
 - **info (always PASS, non-blocking):** `dep-cve-check` (computable, policy),
-  `dep-release-notes`, `maintainer-review` (non-computable), `skill-improvement`,
-  `commit-messages`.
+  `maintainer-review` (non-computable), `skill-improvement`, `commit-messages` —
+  exactly the live `INFO_GATES` (`test-skill.sh:21`, 4 gates). (`dep-release-notes`
+  is *not* here — it can FAIL; see the evidence list.)
 - **verdict candidates (only if the fixture test proves them):**
   `major-version-imports`, `go-version-check` — both already base-filter (`git show
   $BASE`, `go-version-check.sh:37,51`). Everything a script *could* mechanize but
@@ -293,13 +316,16 @@ make update` once per landed PR.
 
 **Phase 0 — Mechanical patch (ship first; independent of everything below).**
 (a) `inc` guard — defensive, currently unreached (all 6 companions guard `((n++))`
-with `|| true`). (b) `_gate_trap` → `.crash` breadcrumb, no FAIL report, + the
-harness reader: `_tally_gates` returns a fixed 4-field string (`test-skill.sh:129`)
-read at three sites (`:948/:1450/:1517`), so surfacing crashes "distinct from
-missing" means widening that arity (or a parallel `.crash` scan), filtering crashed
-gates from the missing-names loop (`:979-992`), and the cross-worktree fan-out
-reports get (`_collect_gate_dirs:66-75`) — budget it as a real change, shipped in
-the same PR as the trap. (c) `cmd_init` cleans `*.evidence`/`*.crash` +
+with `|| true`). (b) `_gate_trap` → `.crash` breadcrumb (ordinary nonzero exits only), no FAIL report;
+**and** the orchestrator writes the breadcrumb on a `>128` child exit — the dominant
+`timeout -s TERM`(124)/SIGKILL(137) crash is invisible to the in-script trap (SIGTERM
+→ exit 0, SIGKILL → no trap). Plus the harness reader, keyed off *both* breadcrumb
+sources: `_tally_gates` returns a fixed 4-field string (`test-skill.sh:129`) read at
+three sites (`:948/:1450/:1517`), so surfacing crashes "distinct from missing" means
+widening that arity (or a parallel `.crash` scan), filtering crashed gates from the
+missing-names loop (`:979-992`), and the cross-worktree fan-out reports get
+(`_collect_gate_dirs:66-75`) — budget it as a real change, shipped in the same PR as
+the trap. (c) `cmd_init` cleans `*.evidence`/`*.crash` +
 `.advance-attempts-step*`/`INCOMPLETE`.
 
 **Phase 1 — Fix the court, then measure (decision gate).** Two separable pieces:
@@ -317,21 +343,43 @@ longer binds, stop after Phase 0.**
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. Make the orchestrator the single runner (per "Execution model"):
-steps 1-3 call `orchestrator gates <step>` first, mirroring step 4; step files
-launch PENDING subagents *with* the `EVIDENCE:` path; remove the in-subagent
-MANDATORY re-run. ~20 files (15 MANDATORY blocks + inconsistent step spawn
-conventions). Atomic per gate: add the `gates` call and the evidence-injection
-instruction while keeping the block → verify the subagent receives identical facts
-via the file → drop the block. This phase carries no new evidence *content* — it
-only makes the existing script output reach the judge through one path, and turns on
-the fast-path everywhere (fixing the wasted-subagent bug).
+steps 1-3 call `orchestrator gates <step>` first, mirroring step 4; step files launch
+PENDING subagents *with* the `EVIDENCE:` path. Scope: the **6 run-companion "MANDATORY
+FIRST STEP" blocks** (the 6 companions) + the step-1-3 spawn wiring — *not* the 9
+"MANDATORY pre-existing check" base-filter blocks, which stay.
+
+Atomic per companion gate, in one edit so no intermediate state strands it:
+1. Convert its companion `finish_gate` → `finish_evidence` (for `crd-validation`/
+   `patterns-completeness`, which today only echo `NEW_ISSUES=` to stdout and write
+   no file, add the evidence-file writer). Safe here *without* the Phase-4 fixture
+   test because `finish_evidence` always defers — writes no verdict, cannot
+   false-anything. Without this step Phase 2 would strand the gate: no live companion
+   writes a `.evidence` file (`finish_gate`'s dirty path only echoes to stdout,
+   `gate-script-lib.sh:68-72`), so the transport's `[[ -f "$ev" ]]` check finds
+   nothing and — once the block is gone — the subagent gets no facts.
+2. Add the `gates` call + inject the `EVIDENCE:` path *while keeping* the FIRST STEP
+   block; verify the deferred subagent receives identical facts via the file.
+3. Remove the `NEW_ISSUES`/RULE-1 fast-path prose in the *same* edit
+   (`version-consistency.md:10-11`, `crd-validation.md:11-12`) — once the in-subagent
+   run is gone, a RULE 1 that reads `NEW_ISSUES` references a value the orchestrator
+   no longer surfaces to the subagent. (Pulled forward from Phase 3.)
+4. Drop *only* the FIRST STEP block. In the 3 companion gates that also carry a
+   base-filter block (`major-version-imports.md:22`, `patterns-completeness.md:48`,
+   `go-version-check.md:43`), delete the FIRST STEP block surgically and preserve the
+   base-filter.
+
+So Phase 2 carries the baseline `finish_gate`→`finish_evidence` conversion for the 6
+companions (not "no new content"), and turns on the fast-path everywhere (fixing the
+wasted-subagent bug). The value-add — evidence for the *companion-less* judgment
+gates — is Phase 3.
 
 **Phase 3 — Evidence-in content rollout (the value).** Author evidence for the
 companion-less judgment gates (`type-conversions`, `fix-correctness`,
 `rebase-completeness`) — the point of the plan. Adopt the lib + runtime module
-classification (§principle 6) in `version-consistency`/`feature-gates`. Remove the
-"set PASS immediately / do NOT run the checks below" rubber-stamp (§principle 7);
-make every `SUMMARY:` neutral. Keep full judgment prose in each `.md` (the subagent
+classification (§principle 6) in `version-consistency`/`feature-gates`. Remove any
+*remaining* "set PASS immediately / do NOT run the checks below" rubber-stamp
+(§principle 7 — the two companion-gate instances are already gone in Phase 2); make
+every `SUMMARY:` neutral. Keep full judgment prose in each `.md` (the subagent
 still reads it, for the crash fallback and the dirty path).
 
 **Phase 4 — Fixture test → promote proven predicates.** Build the fixture harness
@@ -371,11 +419,11 @@ is free insurance; the juror is the catch. Decide before Phase 3 ships.
 |------|----------|------------|
 | Evidence file unconsumed by the judge (the draft's core bug) | High | Single-runner transport: orchestrator writes report-or-evidence, step files launch PENDING subagents *with* the `EVIDENCE:` path; `_write_evidence` also `tee`s to stdout for the fallback. |
 | `filter` clean-PASS / `verdict` false-something on an unsound predicate | High if unguarded | Phase-4 fixture proof (zero false-FAIL AND false-PASS) is the precondition for any autonomous verdict; default `evidence` cannot false-anything. |
-| Dropping the MANDATORY block strands a gate with no evidence | Medium | Phase 2 drops the block only after verifying the subagent receives identical facts via the file. |
+| Dropping the FIRST STEP block strands a companion gate (no live companion writes a `.evidence` file) | Medium | Phase 2 converts `finish_gate`→`finish_evidence` (which writes the file) in the *same* per-gate edit that drops the block, after verifying the subagent reads identical facts; the 9 base-filter blocks are preserved. |
 | Evidence-in amplifies satisficing (verdict-shaped SUMMARY, "set PASS" instr.) | Medium | Neutral fact-only `SUMMARY:`; Phase 3 removes the rubber-stamp instruction; court measures residual. |
 | Freshness oversold — HEAD drifts during step-4's concurrent lint commits | Medium | Single-run transport narrows the window; document evidence-in is soundest at a settled HEAD; consider running the consuming subagent after 4a quiesces. Open. |
 | Runtime module-classification fetch fails (k8s.io/kubernetes outside dep graph) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
-| Crash hides as "missing" | Medium | Phase 0 `.crash` breadcrumb + harness reader ship together; force-advance prevents a silent green. |
+| Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb on a `>128` child exit. Breadcrumb + harness reader ship together (Phase 0); force-advance prevents a silent green. |
 | `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Med | Accepted trade; Phase 1 records per-gate latency so cost is visible. |
 | Cross-plan collision (count; module-class helper; test-skill.sh regions) | Medium | Reconcile in Phase 5 against live state; one sourced classification helper; Phase 1 court edit is a different region than pr-feedback's stripping edit but runs against the post-stripping baseline. |
 
