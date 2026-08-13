@@ -318,9 +318,10 @@ session_for_repo() {
 find_newest_branch() {
   local repo="$1" version="${2:-}"
   (cd "$repo" 2>/dev/null || return 1
+  # Phase 1: active worktrees (bump or worktree-k8s-rebase branches)
   local wt_line
   if [[ -n "$version" ]]; then
-    wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | grep "bump${version%.*}" | tail -1)
+    wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | grep -E "bump${version%.*}|k8s-rebase-${version}" | tail -1)
   else
     wt_line=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
   fi
@@ -329,9 +330,28 @@ find_newest_branch() {
     wt_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
     [[ -n "$wt_branch" ]] && { echo "$wt_branch"; return 0; }
   fi
+  # Phase 2: bump branches
   local pattern='bump'
   [[ -n "$version" ]] && pattern="bump${version%.*}"
-  LC_ALL=C git branch --no-color | grep "$pattern" | sed 's/^[* +]*//' | sort -V | tail -1 || true)
+  local result
+  result=$(LC_ALL=C git branch --no-color | grep "$pattern" | sed 's/^[* +]*//' | sort -V | tail -1)
+  [[ -n "$result" ]] && { echo "$result"; return 0; }
+  # Phase 3: Claude Code worktree branches (worktree-k8s-rebase-<version>*)
+  # k8s-rebase.sh creates bump branches inside worktrees, but retries can
+  # delete the bump branch while the worktree branch retains the commits.
+  # Pick the branch with the most commits ahead of the default branch.
+  if [[ -n "$version" ]]; then
+    local _db
+    _db=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+    : "${_db:=main}"
+    git rev-parse --verify "$_db" &>/dev/null || _db="master"
+    LC_ALL=C git branch --no-color | sed 's/^[* +]*//' \
+      | grep "worktree-k8s-rebase-${version}" \
+      | while read -r _b; do
+          _c=$(git rev-list --count "${_db}".."$_b" 2>/dev/null || echo 0)
+          [[ "$_c" -gt 0 ]] && echo "$_c $_b"
+        done | sort -n | tail -1 | awk '{print $2}'
+  fi)
 }
 
 reset_to_default() {
@@ -879,6 +899,13 @@ _do_record_one() {
   local repo="$1" repo_key="$2" spec="$3" state_dir="$4" launch_epoch="${5:-0}" _rec_version="${6:-$VERSION}"
   local short=$(repo_short "$repo")
 
+  local default_br
+  default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+  : "${default_br:=main}"
+  git -C "$repo" rev-parse --verify "$default_br" &>/dev/null \
+    || git -C "$repo" rev-parse --verify "origin/$default_br" &>/dev/null \
+    || default_br="master"
+
   local result_branch="" wt_path=""
   _worktree_info "$repo" || true
   result_branch="$_WT_BRANCH" wt_path="$_WT_PATH"
@@ -888,14 +915,19 @@ _do_record_one() {
     [[ -n "$_rec_version" ]] && _bp="bump${_rec_version%.*}"
     result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep "$_bp" | sed 's/^[* +]*//' | sort -V | tail -1)
   fi
+  # Fallback: Claude Code worktree branches (worktree-k8s-rebase-<version>*)
+  # k8s-rebase.sh creates bump branches inside worktrees, but retries can
+  # delete the bump branch while the worktree branch retains the commits.
+  # Pick the branch with the most commits ahead of the default branch.
+  if [[ -z "$result_branch" && -n "$_rec_version" ]]; then
+    result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | sed 's/^[* +]*//' \
+      | grep "worktree-k8s-rebase-${_rec_version}" \
+      | while read -r _b; do
+          _c=$(git -C "$repo" rev-list --count "${default_br}".."$_b" 2>/dev/null || echo 0)
+          [[ "$_c" -gt 0 ]] && echo "$_c $_b"
+        done | sort -n | tail -1 | awk '{print $2}')
+  fi
   [[ -z "$result_branch" ]] && { echo "no branch found"; return 1; }
-
-  local default_br
-  default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-  : "${default_br:=main}"
-  git -C "$repo" rev-parse --verify "$default_br" &>/dev/null \
-    || git -C "$repo" rev-parse --verify "origin/$default_br" &>/dev/null \
-    || default_br="master"
 
   if [[ "$launch_epoch" -gt 0 ]]; then
     local branch_tip_epoch
