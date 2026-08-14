@@ -59,8 +59,10 @@ tracing of the live orchestrator, lib, and gate files):
    so timeout does *not* false-FAIL either) and on SIGKILL it does not run at all. So
    the trap closes the non-timeout nonzero-exit class, while *observability* of the
    dominant (timeout/signal) crash must come from the orchestrator — the only layer
-   that sees the child's `>128` exit (124 SIGTERM / 137 SIGKILL). See "Execution
-   model."
+   that sees the child's exit code: `124` (timeout — sends SIGTERM, so the in-script
+   trap saw exit 0) or `>128` (killed by signal, e.g. `137` SIGKILL — no trap ran).
+   `timeout` exits `124`, *not* a value `>128` (that range is external signal-kills).
+   See "Execution model."
 
 ## Design principles
 
@@ -69,19 +71,20 @@ tracing of the live orchestrator, lib, and gate files):
    The subagent judges everything else, grounded in the script's facts.
 2. **Evidence must reach the judge, or it is theater.** The correctness of
    evidence-in depends on a single wired path from script output to the subagent's
-   prompt. A file nothing reads is not evidence. (This is the defect the current
+   prompt. A file nothing reads is not evidence. (This is the defect an earlier
    draft's transport had — see "Execution model.")
 3. **A script writes an autonomous verdict only as a fixture-proven exception.** Not
    by default. It must pass a fixture test showing **zero false-FAIL AND zero
    false-PASS** on a repo with known pre-existing/cross-file breakage, and the
    predicate must generalize across repos and k8s versions. This binds both a
-   `deterministic` FAIL *and* a `filter` clean-PASS — a clean-PASS removes the judge
+   `verdict`-shape FAIL (`finish_deterministic`) *and* a `filter` clean-PASS — a clean-PASS removes the judge
    exactly as a deterministic PASS does. Today, zero gates qualify without the test.
 4. **A crash is never a verdict.** Infra failure writes no report → the gate
    degrades to the subagent path, exactly like a companion-less gate. Made observable
    (Phase 0) — but the in-script trap sees only ordinary nonzero exits; the dominant
    `timeout -s TERM`/SIGKILL crash (exit 0 / no trap) is observable *only* at the
-   orchestrator, which writes the breadcrumb on a `>128` child exit. Never silent.
+   orchestrator, which writes the breadcrumb when the child exits `124` (timeout) or
+   `>128` (signal-killed). Never silent.
 5. **Evidence must be fresh, and consumed at a settled HEAD.** Every artifact is
    HEAD-stamped and freshness-checked (`report_is_fresh:122-133` already does this
    for reports). But note the limit: `step4-verification.md:31-36` runs gates *while
@@ -96,9 +99,11 @@ tracing of the live orchestrator, lib, and gate files):
    `replace`-to-`./staging/src/k8s.io/*` set at the target tag — which *includes*
    the v0.MINOR staging modules and *excludes* `k8s.io/utils`, `klog/v2`,
    `kube-openapi`, `sigs.k8s.io/*`, the four the substring grep false-flags) rather
-   than hardcoding lists that rot. But `k8s.io/kubernetes` is usually *not* in a
-   rebased repo's dep graph, so the fetch can fail (GOPROXY-offline,
-   tag-unpublished). Degrade: emit the raw module/version list as evidence with a
+   than hardcoding lists that rot. Fetching its `go.mod` at the target tag is a
+   GOPROXY read of go.mod *text* — no dependency-graph membership required (the
+   primary target does depend on it directly: `ovn-kubernetes/go-controller/go.mod`
+   pins `k8s.io/kubernetes`) — but it can still fail (GOPROXY offline, or the tag not
+   yet published). Degrade: emit the raw module/version list as evidence with a
    `SUMMARY:` noting classification was unavailable, and defer — never a stale table
    or flag-everything.
 7. **Be honest about what each layer catches — evidence-in can *worsen*
@@ -175,8 +180,8 @@ _write_evidence() {           # atomic, HEAD-stamped, AND echoed to stdout (see 
 
 finish_evidence()     { local s="${1:-}"; shift 2>/dev/null||true; _write_evidence "$s" "$@"; trap - EXIT; exit 0; }
 finish_info()         { local s="${1:-}"; shift 2>/dev/null||true; bash "$WRITE_REPORT" "$REPO" "$GATE_NAME" PASS 0 "$s" "$@"; echo "RESOLVED: $GATE_NAME PASS (informational)"; trap - EXIT; exit 0; }
-finish_filter()       { local n="${1:?}" s="${2:-}"; shift 2 2>/dev/null||true; if [[ "$n" -eq 0 ]]; then bash "$WRITE_REPORT" "$REPO" "$GATE_NAME" PASS 0 "$s" "$@"; echo "RESOLVED: $GATE_NAME PASS"; else _write_evidence "$s" "$@"; fi; trap - EXIT; exit 0; }
-finish_deterministic(){ local n="${1:?}" s="${2:-}"; shift 2 2>/dev/null||true; local v=PASS; [[ "$n" -gt 0 ]] && v=FAIL; bash "$WRITE_REPORT" "$REPO" "$GATE_NAME" "$v" "$n" "$s" "$@"; echo "RESOLVED: $GATE_NAME $v"; trap - EXIT; exit 0; }
+finish_filter()       { local n="${1:?}" s="${2:-}"; shift 2 2>/dev/null||shift "$#"; if [[ "$n" -eq 0 ]]; then bash "$WRITE_REPORT" "$REPO" "$GATE_NAME" PASS 0 "$s" "$@"; echo "RESOLVED: $GATE_NAME PASS"; else _write_evidence "$s" "$@"; fi; trap - EXIT; exit 0; }
+finish_deterministic(){ local n="${1:?}" s="${2:-}"; shift 2 2>/dev/null||shift "$#"; local v=PASS; [[ "$n" -gt 0 ]] && v=FAIL; bash "$WRITE_REPORT" "$REPO" "$GATE_NAME" "$v" "$n" "$s" "$@"; echo "RESOLVED: $GATE_NAME $v"; trap - EXIT; exit 0; }
 ```
 
 `_write_evidence` writes the file **and** `tee`s to stdout, so evidence survives on
@@ -187,9 +192,9 @@ migration — closing the "companion-less gate loses its facts" regression.
 
 ## Execution model (the load-bearing fix)
 
-The current draft built an evidence *file* (`_write_evidence`, `evidence_path`,
+An earlier v3 draft built an evidence *file* (`_write_evidence`, `evidence_path`,
 freshness-on-evidence, `cmd_init` cleanup, a `cmd_gates` `EVIDENCE:` line) that
-**no judge reads**. Two transports coexist and don't compose:
+**no judge reads** (no such apparatus exists in live code — `grep -rn '_write_evidence\|evidence_path\|EVIDENCE' scripts/ gates/` is empty; this section specifies the transport to build). Two transports coexist and don't compose:
 
 - **Orchestrator path (step 4 only):** `cmd_gates` runs the companion and writes
   `<gate>.evidence`, then prints `EVIDENCE: <path>` to the *main* agent.
@@ -220,8 +225,8 @@ so there is one transport and the script runs once:
 
 rc=0
 [[ -x "$companion" ]] && { timeout "${GATE_TIMEOUT:-300}" bash "$companion" "$repo" 2>&1 || rc=$?; }
-(( rc > 128 )) && printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" \
-  > "$repo/.rebase-tmp/gates/${gate_name}.crash"                        # SIGTERM(124)/SIGKILL(137): trap can't
+(( rc >= 124 )) && printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" \
+  > "$repo/.rebase-tmp/gates/${gate_name}.crash"  # 124 timeout(SIGTERM→trap saw 0); 125-127 timeout-infra; >128 signal-kill(137). Trap can't see these.
 if report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then    # RESOLVED: skip subagent
   echo "RESOLVED: $gate_name $(grep '^VERDICT:' "$rpt" | awk '{print $2}')"; ((resolved++)); continue
 fi
@@ -262,6 +267,8 @@ files contain the word "MANDATORY", but only **6 carry a run-the-companion
 "MANDATORY FIRST STEP" block** (== the 6 companions); the other 9 use "MANDATORY"
 for an unrelated *base-branch pre-existing filter* (`correctness.md:27`, "MANDATORY
 pre-existing check — run for EVERY finding") that Phase 3 keeps — not a block to drop.
+(3 of the 6 companion files carry *both* block types, so base-filter blocks total 12,
+not 9 — see Phase 2.)
 
 - **evidence (inject facts, always defer):** `version-consistency` (runtime module
   classification), `feature-gates` (refs + vendor symbol presence),
@@ -317,9 +324,9 @@ make update` once per landed PR.
 **Phase 0 — Mechanical patch (ship first; independent of everything below).**
 (a) `inc` guard — defensive, currently unreached (all 6 companions guard `((n++))`
 with `|| true`). (b) `_gate_trap` → `.crash` breadcrumb (ordinary nonzero exits only), no FAIL report;
-**and** the orchestrator writes the breadcrumb on a `>128` child exit — the dominant
-`timeout -s TERM`(124)/SIGKILL(137) crash is invisible to the in-script trap (SIGTERM
-→ exit 0, SIGKILL → no trap). Plus the harness reader, keyed off *both* breadcrumb
+**and** the orchestrator writes the breadcrumb when the child exits `124` (timeout —
+the dominant crash) or `>128` (signal-killed, e.g. `137` SIGKILL), both invisible to
+the in-script trap (SIGTERM → exit 0, SIGKILL → no trap). Plus the harness reader, keyed off *both* breadcrumb
 sources: `_tally_gates` returns a fixed 4-field string (`test-skill.sh:129`) read at
 three sites (`:948/:1450/:1517`), so surfacing crashes "distinct from missing" means
 widening that arity (or a parallel `.crash` scan), filtering crashed gates from the
@@ -336,17 +343,24 @@ which measures cost not the reliability at issue. *(court juror tool use)* juror
 granted tools yet 0/15 call one (step-isolation §6); forcing tool use is prompt
 research with uncertain yield — it sharpens the *measurement*, it does not gate the
 next phase. Decision: after the Stop-hook fix (91% adherence) and the stripping
-rewrite, does subagent reliability still bind? Baseline is mixed — spec=none 100%
-(3/3), overnight 24/24, spec=all 95% (20/21), but per-version 1.35.3 = 12% is a live
-blocker. "Mostly healthy with a version-specific hole," not solved. **If it no
-longer binds, stop after Phase 0.**
+rewrite, does subagent reliability still bind? Baseline (local `results.tsv`
+snapshot 2026-08-13; `test/.matrix-state/` is gitignored, so these are **provisional**
+and must be pinned to a committed metrics file before they gate the decision):
+aggregate spec=all 221/312 (71%), spec=none 32/63 (51%); the recent window is
+healthier — last 21 spec=all 20/21 (95%), last 24 spec=all 23/24. 1.35.3/spec=all is
+83/111 (75% all rows, 91% excluding infra-fails — stale/no branch, missing gates,
+session-ended — and 9/10 in the last 10 runs), *not* the regression an earlier draft's
+"12%" implied (that was the spec=none PASS *count*, 12/24, misread as a percent). The
+true low-water slice is `ovn-org/ovn-kubernetes` at 16/36 (44%, all specs). Mixed, not
+solved. **If it no longer binds, stop after Phase 0.**
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. Make the orchestrator the single runner (per "Execution model"):
 steps 1-3 call `orchestrator gates <step>` first, mirroring step 4; step files launch
 PENDING subagents *with* the `EVIDENCE:` path. Scope: the **6 run-companion "MANDATORY
-FIRST STEP" blocks** (the 6 companions) + the step-1-3 spawn wiring — *not* the 9
-"MANDATORY pre-existing check" base-filter blocks, which stay.
+FIRST STEP" blocks** (the 6 companions) + the step-1-3 spawn wiring — *not* the
+"MANDATORY pre-existing check" base-filter blocks (9 in non-companion files + the 3
+co-located in companion gates = 12 total), which stay.
 
 Atomic per companion gate, in one edit so no intermediate state strands it:
 1. Convert its companion `finish_gate` → `finish_evidence` (for `crd-validation`/
@@ -360,7 +374,7 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
 2. Add the `gates` call + inject the `EVIDENCE:` path *while keeping* the FIRST STEP
    block; verify the deferred subagent receives identical facts via the file.
 3. Remove the `NEW_ISSUES`/RULE-1 fast-path prose in the *same* edit
-   (`version-consistency.md:10-11`, `crd-validation.md:11-12`) — once the in-subagent
+   (`version-consistency.md:10-11`, `crd-validation.md:10-11`) — once the in-subagent
    run is gone, a RULE 1 that reads `NEW_ISSUES` references a value the orchestrator
    no longer surfaces to the subagent. (Pulled forward from Phase 3.)
 4. Drop *only* the FIRST STEP block. In the 3 companion gates that also carry a
@@ -394,8 +408,7 @@ stays `evidence`.
 **Phase 5 — Consolidation.** Re-audit live state (0% done). Reconcile the count
 across `autofix-patterns-redesign.md`/`next-work.md`. Drop `logical-completeness`;
 fold `ci-readiness` → `ci-prediction`; decide the contested `commit-messages` →
-`maintainer-review` merge; narrow `deprecated-api-remnants` to web-search discovery
-(step-isolation §8). `EXPECTED_GATES` is dynamic (`test-skill.sh:139`) so a count
+`maintainer-review` merge; narrow `deprecated-api-remnants` to web-search discovery. `EXPECTED_GATES` is dynamic (`test-skill.sh:139`) so a count
 drop auto-adjusts, but `INFO_GATES` (`:21`, 4 gates) is hardcoded — update it in the
 same commit if the info set changes.
 
@@ -419,11 +432,11 @@ is free insurance; the juror is the catch. Decide before Phase 3 ships.
 |------|----------|------------|
 | Evidence file unconsumed by the judge (the draft's core bug) | High | Single-runner transport: orchestrator writes report-or-evidence, step files launch PENDING subagents *with* the `EVIDENCE:` path; `_write_evidence` also `tee`s to stdout for the fallback. |
 | `filter` clean-PASS / `verdict` false-something on an unsound predicate | High if unguarded | Phase-4 fixture proof (zero false-FAIL AND false-PASS) is the precondition for any autonomous verdict; default `evidence` cannot false-anything. |
-| Dropping the FIRST STEP block strands a companion gate (no live companion writes a `.evidence` file) | Medium | Phase 2 converts `finish_gate`→`finish_evidence` (which writes the file) in the *same* per-gate edit that drops the block, after verifying the subagent reads identical facts; the 9 base-filter blocks are preserved. |
+| Dropping the FIRST STEP block strands a companion gate (no live companion writes a `.evidence` file) | Medium | Phase 2 converts `finish_gate`→`finish_evidence` (which writes the file) in the *same* per-gate edit that drops the block, after verifying the subagent reads identical facts; the 3 co-located base-filter blocks in the companion gates are surgically preserved (Phase 2 step 4), and the 9 non-companion base-filter blocks are untouched. |
 | Evidence-in amplifies satisficing (verdict-shaped SUMMARY, "set PASS" instr.) | Medium | Neutral fact-only `SUMMARY:`; Phase 3 removes the rubber-stamp instruction; court measures residual. |
 | Freshness oversold — HEAD drifts during step-4's concurrent lint commits | Medium | Single-run transport narrows the window; document evidence-in is soundest at a settled HEAD; consider running the consuming subagent after 4a quiesces. Open. |
-| Runtime module-classification fetch fails (k8s.io/kubernetes outside dep graph) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
-| Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb on a `>128` child exit. Breadcrumb + harness reader ship together (Phase 0); force-advance prevents a silent green. |
+| Runtime module-classification fetch fails (GOPROXY offline / target tag unpublished) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
+| Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb when the child exits `124` (timeout) or `>128` (signal). Breadcrumb + harness reader ship together (Phase 0); force-advance prevents a silent green. |
 | `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Med | Accepted trade; Phase 1 records per-gate latency so cost is visible. |
 | Cross-plan collision (count; module-class helper; test-skill.sh regions) | Medium | Reconcile in Phase 5 against live state; one sourced classification helper; Phase 1 court edit is a different region than pr-feedback's stripping edit but runs against the post-stripping baseline. |
 
