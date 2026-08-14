@@ -1,6 +1,7 @@
 #!/bin/bash
 # Gate companion: build-vet — deterministic go build + go vet check.
-# Shared by step2/build-vet and step4/build-vet-recheck.
+# Wired to step2/build-vet only. step4/build-vet-recheck has no companion — its .md
+# inlines its own build/vet loop with a base-branch pre-existing-error exclusion.
 # Fast-path PASS when zero errors. Issues found → AI subagent evaluates.
 # Usage: bash build-vet.sh <repo-path>
 

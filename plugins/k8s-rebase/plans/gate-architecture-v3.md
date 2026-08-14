@@ -98,7 +98,8 @@ tracing of the live orchestrator, lib, and gate files):
    breadcrumb, and defer — **never FAIL**, because FAIL from a build that would have
    compiled violates `filter`'s cannot-false-FAIL invariant (the safety boundary
    below), and a timeout is not "`go build` exits 0" so it fails the proven-clean
-   predicate (principle 3). Same rule for `test-compilation`.
+   predicate (principle 3). (This applies only to `build-vet` — the sole `filter`
+   candidate with a companion `.sh` today; see Gate map.)
 5. **Evidence must be fresh, and consumed at a settled HEAD.** Every artifact is
    HEAD-stamped and freshness-checked (`report_is_fresh:122-133` already does this
    for reports). But note the limit: `step4-verification.md:31-36` runs gates *while
@@ -107,7 +108,7 @@ tracing of the live orchestrator, lib, and gate files):
    (`cmd_advance:256`). Freshness detects drift; it does not create a quiescent
    HEAD. Evidence-in is soundest when a gate's evidence and its verdict share a
    commit — see "Execution model" for how the single-run transport narrows that
-   window, and the open question it leaves.
+   window, and the Risks table for the step-4 concurrency decision it resolves.
 6. **Generality beats cleverness — with a degradation path.** Derive facts at
    runtime (e.g. staging-module classification from `k8s.io/kubernetes`'s `go.mod`
    `replace`-to-`./staging/src/k8s.io/*` set at the target tag — which *includes*
@@ -137,9 +138,9 @@ A gate's shape is which lib function its script calls — no `shape:` frontmatte
 bespoke linter (step-isolation §4.4 already chose convention over declaration). Three
 of the shapes form a 2×2 over *(clean action) × (dirty action)* in {write-verdict,
 defer} — `evidence` = defer/defer, `filter` = write-PASS/defer, `verdict` =
-write/write (the fourth cell, write-on-clean-but-defer-on-dirty, is `filter`; a
-defer-clean/write-dirty cell would be a false-FAIL machine and is deliberately
-absent). `info` is **not** a cell of that grid — it is an orthogonal *always-PASS,
+write/write. `filter` occupies the write-on-clean/defer-on-dirty cell; the remaining
+cell (defer-on-clean/write-on-dirty) would be a false-FAIL machine and is deliberately
+absent. `info` is **not** a cell of that grid — it is an orthogonal *always-PASS,
 non-blocking* overlay that ignores the clean/dirty axis entirely. Named for the risk
 each carries:
 
@@ -254,7 +255,7 @@ fi
 # 2. No fresh verdict cached → run the companion exactly once.
 rc=0
 crash="$repo/.rebase-tmp/gates/${sd%-*}-${gate_name}.crash"  # SAME prefix as report_path/evidence_path (:108)
-[[ -x "$companion" ]] && { timeout "${GATE_OUTER_TIMEOUT:-900}" bash "$companion" "$repo" 2>&1 || rc=$?; }  # outer > sum of inner GATE_TIMEOUTs (M4)
+[[ -x "$companion" ]] && { timeout "${GATE_OUTER_TIMEOUT:-900}" bash "$companion" "$repo" 2>&1 || rc=$?; }  # outer > sum of inner GATE_TIMEOUTs (Phase 0(e))
 (( rc >= 124 )) && printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" > "$crash"
   # 124 timeout(SIGTERM→trap saw 0); 125-127 timeout-infra; >128 signal-kill(137). Trap can't see these.
 
@@ -391,13 +392,27 @@ not 9 — see Phase 2.)
   (`crd-validation.sh:46`, `pattern:|format:|minimum:|maximum:|enum:|required:`)
   that misses `x-kubernetes-*`, `default:`, `nullable`, and structural edits. Fix =
   remove RULE 1 + widen the predicate (principle 7), not a shape change.
-- **filter (evidence + *proven* clean-PASS):** `build-vet`, `build-vet-recheck`,
-  `test-compilation`, `autofix-result` — "`go build`/`go vet` exits 0" = the
-  modified surface compiles. Even here the base filter is *evidence the subagent
-  weighs*: an unmodified file that now fails to compile from a k8s API change is a
-  real regression only the subagent can call — so these never become `deterministic`,
-  and their clean-PASS must still pass the Phase-4 cross-file fixture test before
-  adopting `finish_filter` (until then they run as `evidence`).
+- **filter (evidence + *proven* clean-PASS):** `build-vet` **only** — "`go
+  build`/`go vet` exits 0" = the modified surface compiles. It is the **sole** gate
+  with a companion `.sh` today, and shape is which `finish_*` the script calls, so a
+  gate with no script can be no shape at all: `filter` has exactly one candidate.
+  Even here the clean-PASS is *evidence the subagent weighs* — an unmodified file that
+  now fails to compile from a k8s API change is a real regression only the subagent
+  can call — so it never becomes `deterministic`, and its clean-PASS must still pass
+  the Phase-4 cross-file fixture test before adopting `finish_filter` (until then it
+  runs as `evidence`). Three gates an earlier draft filed as `filter` have **no
+  companion** on disk, so they are `evidence` today and any `filter` promotion is
+  *blocked on first authoring a companion*: `test-compilation` (`go test -run='^$'
+  -count=0` — a compile-only predicate, so filter-*eligible in principle* once a
+  companion exists) and `build-vet-recheck` (same compile predicate, likewise
+  eligible-once-authored — but its companion must preserve the base-branch
+  pre-existing-error exclusion its `.md` carries at `build-vet-recheck.md:23-36`,
+  which `build-vet.sh` lacks, so **not** a naive symlink of `build-vet.sh`).
+  `autofix-result` is **not** filter-eligible at all: its predicate is git-log
+  judgment (`autofix-result.md:13`, autofix markers + commit history), **not reducible
+  to "`go build` exits 0"** (the `go build`/`vet` fallback at `:16-22` is only a
+  tie-breaker for the zero-fix-commit case) — it stays `evidence`/judgment
+  permanently.
 - **info (always PASS, non-blocking):** `dep-cve-check` (computable, policy),
   `maintainer-review` (non-computable), `skill-improvement`, `commit-messages` —
   exactly the live `INFO_GATES` (`test-skill.sh:21`, 4 gates). (`dep-release-notes`
@@ -440,8 +455,11 @@ transport is inert until execution is unified. Bump `plugin.json` + `make lint &
 make update` once per landed PR.
 
 **Phase 0 — Mechanical patch (ship first; independent of everything below).**
-(a) `inc` guard — defensive, currently unreached (all 6 companions guard `((n++))`
-with `|| true`). (b) `_gate_trap` → `.crash` breadcrumb (ordinary nonzero exits only), no FAIL report;
+(a) `inc` guard — defensive, currently unreached (the **4 lib-sourcing** companions —
+`build-vet`, `version-consistency`, `major-version-imports`, `go-version-check` —
+guard `((n++))` with `|| true`; `crd-validation`/`patterns-completeness` source no lib
+and increment via `$((new+1))`, so the trap/`inc`/counter guarantees here scope to the
+4, not all 6). (b) `_gate_trap` → `.crash` breadcrumb (ordinary nonzero exits only), no FAIL report;
 **and** the orchestrator writes the breadcrumb when the child exits `124` (timeout —
 the dominant crash) or `>128` (signal-killed, e.g. `137` SIGKILL), both invisible to
 the in-script trap (SIGTERM → exit 0, SIGKILL → no trap). Plus the harness reader, keyed off *both* breadcrumb
@@ -450,11 +468,16 @@ three sites (`:948/:1450/:1517`), so surfacing crashes "distinct from missing" m
 widening that arity (or a parallel `.crash` scan), filtering crashed gates from the
 missing-names loop (`:979-992`), and the cross-worktree fan-out reports get
 (`_collect_gate_dirs:66-75`) — budget it as a real change, shipped in the same PR as
-the trap. (c) `cmd_init` cleans `*.evidence`/`*.crash` +
-`.advance-attempts-step*`/`INCOMPLETE`. (d) **sub-tool timeout capture** (principle
-4): in `build-vet.sh:22-23` and `test-compilation`, capture each inner tool's exit
+the trap. (c) `cmd_init` cleans `*.evidence` +
+`.advance-attempts-step*`/`INCOMPLETE` on the **FRESH branch only** (like `*.report`),
+and `*.crash` on **both** the FRESH and RESUME branches — `.crash` has no HEAD stamp,
+so read-time freshness can't invalidate a stale one, and cleaning it FRESH-only would
+let a prior run's crash read as current (see "Execution model," the `cmd_init`
+paragraph). (d) **sub-tool timeout capture** (principle
+4): in `build-vet.sh:22-23` capture each inner tool's exit
 code *before* `|| true`; on `124`/`>128` write no verdict, drop a `.crash`
-breadcrumb, and defer to the subagent. This fixes a **live** false-PASS (a killed
+breadcrumb, and defer to the subagent. (`build-vet` is the only companion with an
+inner `|| true` to patch; `test-compilation` has no script.) This fixes a **live** false-PASS (a killed
 `go build` today counts 0 errors → PASS) before build-vet is ever promoted to
 `filter`; the normal build-failure path (nonzero + error lines → `NEW_ISSUES>0` →
 already defers) is untouched, so there is no regression. (e) **tier the timeouts.**
@@ -496,7 +519,13 @@ own PR (per the "one PR per phase" cadence), so a regression reverts that single
 Phase 2's transport rewrite and Phase 3's per-gate evidence are independently
 revertible, and the fixture promotions (Phase 4) revert to `evidence` (the always-safe
 default) without touching the transport. A phase that regresses the metric does not
-advance to the next.
+advance to the next. **Handle the AI-run variance in the gate itself:** the matrix is
+nondeterministic — the numbers above swing run-to-run (`ovn-org/ovn-kubernetes` 16/36
+vs a 95% recent window) — so a single sample cannot bound it. Require any **apparent
+aggregate regression to be confirmed by a re-run** before it blocks a phase, and
+compare **per-repo against a fixed repo/version set**, not one aggregate number. (A
+full N-run mean±CI is impractical — each matrix run is a large AI fan-out — so
+confirm-by-rerun + per-repo is the right-sized variance control.)
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. Make the orchestrator the single runner (per "Execution model"):
@@ -511,6 +540,12 @@ which today "rm the report and re-launch the subagent." With the in-subagent
 companion run removed, a bare re-launch would judge with **stale** evidence — so the
 re-run must re-invoke `orchestrator gates <step>` to regenerate evidence at the fixed
 HEAD before re-launching. Miss this and the fix loop silently re-judges old facts.
+Step 4's own gate-fix loop (`step4-verification.md:71-76`) already routes through
+`orchestrator gates 4` (it is the reference the steps-1-3 wiring mirrors), so its
+correctness is already protected by the consumer freshness check; add a one-line note
+that after its fix commit it must re-invoke `orchestrator gates 4` too — a
+**value/consistency** touch (so the re-judged gate keeps its evidence instead of
+degrading to judge-from-scratch), not a correctness fix.
 
 Atomic per companion gate, in one edit so no intermediate state strands it:
 1. Convert its companion `finish_gate` → `finish_evidence` (for `crd-validation`/
@@ -556,14 +591,18 @@ every `SUMMARY:` neutral. Keep full judgment prose in each `.md` (the subagent
 still reads it, for the crash fallback and the dirty path).
 
 **Phase 4 — Fixture test → promote proven predicates.** Build the fixture harness
-(reuse the `.repos` scaffolding; a new target) — one gate vs a repo with known
-pre-existing/cross-file breakage, asserting **zero false-FAIL AND zero false-PASS**.
+(reuse the `.repos` scaffolding; a new target) — each promotion candidate run
+**across the `.repos` corpus** (which already spans repos and k8s versions), against
+known pre-existing/cross-file breakage, asserting **zero false-FAIL AND zero
+false-PASS**. A single-repo fixture proves absence-of-failure on that repo, not the
+"generalize across repos and k8s versions" bar principle 3 demands, so the fixture set
+must span the corpus, not one repo.
 This is the unconditional precondition for *any* autonomous verdict — a
 `deterministic` FAIL/PASS *and* a `filter` clean-PASS. Only now may `build-vet` etc.
 adopt `finish_filter`, and `major-version-imports`/`go-version-check` adopt
 `finish_deterministic`; expect few to qualify. A gate that can't prove its predicate
 stays `evidence`. Two fixtures are mandatory for the promotions this phase gates:
-(a) a **killed-tool** case for `build-vet`/`test-compilation` (SIGKILL/timeout a
+(a) a **killed-tool** case for `build-vet` (SIGKILL/timeout a
 `go build` mid-run) — the promoted `filter` must **defer, not PASS and not FAIL**
 (principle 4); (b) a **no-base** repo for `major-version-imports`/`go-version-check`
 (empty `BASE` — no merge-base) — the promoted `finish_deterministic` must degrade to
@@ -587,9 +626,20 @@ manifest* in the draft-PR body listing the AI-judged-not-machine-verified gates 
 the human reviewer is aimed at the unverified surface. **Derive this list
 programmatically, not by hardcoding** — the "unverified surface" is exactly the set
 of gates whose final report the *subagent* wrote (every `evidence` gate, plus any
-`filter`/`verdict` gate that took its dirty/defer branch), computable from the report
-provenance the orchestrator already has; a hardcoded triple (`type-conversions`,
-`k8s-changelog`, `logical-consistency`) rots the moment a gate's shape changes. (2)
+`filter`/`verdict` gate that took its dirty/defer branch); a hardcoded triple
+(`type-conversions`, `k8s-changelog`, `logical-consistency`) rots the moment a gate's
+shape changes. But deriving it is **not** a free read of existing state:
+`write-gate-report.sh` persists only `HEAD`/`VERDICT`/`ISSUES`/`SUMMARY`/`DETAILS`
+(no writer field), and the companion (`finish_*`) and the subagent write
+**byte-identical** reports — so *who* wrote a report is not recoverable from disk, and
+step 5 is un-orchestrated (`orchestrator.sh:21`, `STEP_DIRS` = steps 1-4) so it lacks
+the orchestrator's transient runtime knowledge. Keying off `.evidence`-file presence
+is **insufficient**: the companion-less judgment gates the manifest most targets
+(`type-conversions`, `fix-correctness`, `rebase-completeness`) and crash-fallback
+gates write no `.evidence`, so they would be silently dropped. So the manifest
+requires **persisting a writer marker** at report-write time (e.g. a `WRITER:
+subagent|companion` field) — budget it as real step-5 work, not a free read of
+provenance the orchestrator does not durably keep. (2)
 Promote one adversarial juror to a *single pre-PR production gate* (one AI call with
 git show/diff/Read) — the real backstop, trivial against a plan whose premise is
 spending AI calls on quality. The manifest is free insurance; the juror is the catch.
@@ -618,6 +668,16 @@ human copy-pastes, never an executed push. Sequenced with the manifest above (sa
 draft-PR body, same "aim the human at unverified surface" goal); scoped as future
 work so it does not expand this plan past steps 1-4.
 
+**Out of scope (skill-robustness, not gate architecture).** A session killed before
+step 5 strands the push-blocking pre-push hook (`k8s-rebase.sh:47-54`) and
+`.session-active` (`orchestrator.sh:157`), which re-arm the push/module-op/Stop guards
+for later sessions in that clone. The fix belongs at the **teardown seam** — a
+session-scoped trap, or a PID/heartbeat in `.session-active` the hooks treat as stale
+when the owner is gone — **not** in `cmd_init`, which cannot distinguish a dead prior
+session from a live concurrent one (`.session-active` is PID-less) and would defeat
+push protection mid-run. Filed here so it is visibly deferred, not silently absent;
+orthogonal to the steps-1-4 gate redesign.
+
 ## Risks
 
 | Risk | Severity | Mitigation |
@@ -627,7 +687,7 @@ work so it does not expand this plan past steps 1-4.
 | `filter` clean-PASS / `verdict` false-something on an unsound predicate | High if unguarded | Phase-4 fixture proof (zero false-FAIL AND false-PASS) is the precondition for any autonomous verdict; default `evidence` cannot false-anything. |
 | Dropping the FIRST STEP block strands a companion gate (no live companion writes a `.evidence` file) | Medium | Phase 2 converts `finish_gate`→`finish_evidence` (which writes the file) in the *same* per-gate edit that drops the block, after verifying the subagent reads identical facts; the 3 co-located base-filter blocks in the companion gates are surgically preserved (Phase 2 step 4), and the 9 non-companion base-filter blocks are untouched. |
 | Evidence-in amplifies satisficing (verdict-shaped SUMMARY, "set PASS" instr.) | Medium | Neutral fact-only `SUMMARY:`; Phase 3 removes the rubber-stamp instruction; court measures residual. |
-| Freshness oversold — HEAD drifts during step-4's concurrent lint commits | Medium | Single-run transport narrows the window; document evidence-in is soundest at a settled HEAD; consider running the consuming subagent after 4a quiesces. Open. |
+| Freshness oversold — HEAD drifts during step-4's concurrent lint commits | Medium | **Decided (not Open):** keep the deliberate 4a‖4b concurrency — drift degrades safely (consumer judges from scratch, and `report_is_fresh:122-133` already forces a re-run so no autonomous verdict is ever stale). Extend the per-iteration evidence regeneration mandated for steps 1-3 (Phase 2) to step 4's fix loop so evidence-in *value* survives re-runs, and gate `filter`/`verdict` **promotions** on a settled HEAD (`--no-test` exit 0). This is churn-avoidance + documentation, not a new correctness backstop; do **not** blanket-serialize step-4 consumption. |
 | Runtime module-classification fetch fails (GOPROXY offline / target tag unpublished) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
 | Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb when the child exits `124` (timeout) or `>128` (signal). Breadcrumb + harness reader ship together (Phase 0). NB: force-advance does **not** rescue this in production — `INCOMPLETE` is write-only (see "Execution model"); the human-facing surfacing is the deferred gap in "Production backstop". |
 | `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Med | Accepted trade; Phase 1 records per-gate latency so cost is visible. |
