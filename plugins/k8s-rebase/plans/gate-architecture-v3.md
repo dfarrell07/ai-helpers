@@ -393,9 +393,10 @@ not 9 — see Phase 2.)
   that misses `x-kubernetes-*`, `default:`, `nullable`, and structural edits. Fix =
   remove RULE 1 + widen the predicate (principle 7), not a shape change.
 - **filter (evidence + *proven* clean-PASS):** `build-vet` **only** — "`go
-  build`/`go vet` exits 0" = the modified surface compiles. It is the **sole** gate
-  with a companion `.sh` today, and shape is which `finish_*` the script calls, so a
-  gate with no script can be no shape at all: `filter` has exactly one candidate.
+  build`/`go vet` exits 0" = the modified surface compiles. It is the **sole**
+  *filter-candidate* gate with a companion `.sh` today — and since a gate's shape is
+  which `finish_*` its script calls, a gate with no companion cannot be `filter` or
+  `verdict` at all: so `filter` has exactly one candidate.
   Even here the clean-PASS is *evidence the subagent weighs* — an unmodified file that
   now fails to compile from a k8s API change is a real regression only the subagent
   can call — so it never becomes `deterministic`, and its clean-PASS must still pass
