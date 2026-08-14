@@ -1447,7 +1447,8 @@ cmd_watch() {
       fi
       _collect_gate_dirs "$repo"
       if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
-        read -r gc gf gs <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
+        local _gfn=""
+        read -r gc gf gs _gfn <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
       fi
     fi
     local kg=$(_resolve_known_good "$short" "$repo")
@@ -1513,8 +1514,8 @@ _results_one() {
   if $wt_in_progress; then
     echo "Run in progress (worktree exists, gates not yet written)"
   elif [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
-    local total=0 gfail=0 gskip=0
-    read -r total gfail gskip <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
+    local total=0 gfail=0 gskip=0 _gfn=""
+    read -r total gfail gskip _gfn <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
     local _skip_note=""
     [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
     if [[ "$total" -ge "$EXPECTED_GATES" && "$gfail" -eq 0 ]]; then
