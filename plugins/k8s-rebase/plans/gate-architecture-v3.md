@@ -69,10 +69,12 @@ tracing of the live orchestrator, lib, and gate files):
 1. **Scripts serve the subagent.** The default script output is *evidence* + defer;
    or a fast-path *verdict* only where the script can soundly prove that outcome.
    The subagent judges everything else, grounded in the script's facts.
-2. **Evidence must reach the judge, or it is theater.** The correctness of
-   evidence-in depends on a single wired path from script output to the subagent's
-   prompt. A file nothing reads is not evidence. (This is the defect an earlier
-   draft's transport had — see "Execution model.")
+2. **Evidence must reach the judge, or it is theater.** A file nothing reads is not
+   evidence: evidence-in is correct only if the subagent actually consumes the
+   script's output. v3 delivers it by *convention* — each gate `.md` names its own
+   evidence file, so the subagent reads a known path — **not** by relaying that path
+   through the main agent's prompt, which an earlier draft did and which fails
+   silently the first time the busy main agent forgets it (see "Execution model").
 3. **A script writes an autonomous verdict only as a fixture-proven exception.** Not
    by default. It must pass a fixture test showing **zero false-FAIL AND zero
    false-PASS** on a repo with known pre-existing/cross-file breakage, and the
@@ -228,18 +230,46 @@ rc=0
 (( rc >= 124 )) && printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" \
   > "$repo/.rebase-tmp/gates/${gate_name}.crash"  # 124 timeout(SIGTERM→trap saw 0); 125-127 timeout-infra; >128 signal-kill(137). Trap can't see these.
 if report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then    # RESOLVED: skip subagent
-  echo "RESOLVED: $gate_name $(grep '^VERDICT:' "$rpt" | awk '{print $2}')"; ((resolved++)); continue
+  echo "RESOLVED: $gate_name $(grep '^VERDICT:' "$rpt" | awk '{print $2}')"; ((resolved++)) || true; continue
 fi
-ev=$(evidence_path "$repo" "$sd" "$gate_name")                          # PENDING: hand path to caller
-[[ -f "$ev" ]] && report_is_fresh "$ev" "$repo" && echo "EVIDENCE: $ev"
-echo "PENDING: $gate_name"; ((pending++))
+# PENDING: the orchestrator does NOT relay a path. The subagent finds its own evidence
+# by convention — its .md names the fixed .rebase-tmp/gates/<prefix>-<gate>.evidence path,
+# which evidence_path derives identically (${sd%-*}-${gate}, matching report_path:106-110).
+ev=$(evidence_path "$repo" "$sd" "$gate_name")
+[[ -f "$ev" ]] && report_is_fresh "$ev" "$repo" && echo "EVIDENCE(log): $ev"   # log line, not a handoff
+echo "PENDING: $gate_name"; ((pending++)) || true
 ```
 
-Then the step files must **launch each PENDING subagent with its evidence**: the
-prompt becomes *"repo path + module safety rule + Read `<gate-file>` **and, if an
-`EVIDENCE:` path was printed for this gate, Read that file first**."* And the
-in-subagent MANDATORY re-run is **removed** — the script has already run in the
-orchestrator, so re-running it doubles work and re-opens the HEAD-drift window.
+`((resolved++))`/`((pending++))` carry `|| true` because under `set -euo pipefail`
+(orchestrator `:15`) `((x++))` returns status 1 on the `0 → 1` transition and would
+abort the function — this is why the live counters at `:196/:206/:212/:215` are
+already guarded; the snippet must preserve that.
+
+Then the subagent must **read its evidence by convention, not by relay**. The
+launched-subagent prompt is unchanged (*"repo path + module safety rule + Read
+`<gate-file>`"*); the `<gate-file>` itself carries a fixed instruction — *"If
+`.rebase-tmp/gates/<prefix>-<gate>.evidence` exists, Read it first and treat its
+facts as ground truth"* — naming its own evidence path literally, exactly as today's
+MANDATORY block names its own companion `.sh`. That path is fully determined by repo
+root + gate name (nothing to look up), so the subagent needs nothing relayed from the
+main agent.
+
+This is what closes the transport gap **without** the single point of failure the
+alternative would create. The alternative — have the main agent paste each PENDING
+gate's `EVIDENCE:` path into its subagent prompt — reintroduces the exact write-only
+failure this section exists to kill: the main agent launches gates *while it iterates
+lint fixes* (`step4-verification.md:31-36`), and the first time it forgets a path (or
+launches from stale orchestrator output) that gate silently judges with no facts, with
+no error. Convention discovery removes the main agent from the evidence path entirely:
+the file is delivered by the same mechanism that already reliably delivers the gate
+`.md` — the subagent reading a known file. The orchestrator's `EVIDENCE(log):` line is
+a diagnostic, not a handoff.
+
+The in-subagent MANDATORY *re-run* of the companion is **removed** — the script has
+already run once in the orchestrator, so re-running it doubles work (a second
+`go build`/`go vet` for `build-vet`) and re-opens the HEAD-drift window. The `.md`'s
+run-the-companion block is replaced by the read-the-evidence block; the companion is
+never invoked twice for one evaluation.
 
 Under this model every artifact is consumed: the report resolves-or-not, the
 evidence file is read by the deferred subagent, freshness gates a file that is now
@@ -253,7 +283,11 @@ pre-check at `:192`).
 only reports, only on the FRESH branch), **and** the pre-existing stale-state
 footguns it misses — `.advance-attempts-step*` (`cmd_advance:286`) and
 `status/INCOMPLETE` (`:310`) — since a stale `.advance-attempts-stepN` surviving a
-re-init triggers a premature force-advance (`:293` fires at `attempts >= 3`).
+re-init triggers a premature force-advance (`:293` fires at `attempts >= 3`). Note
+`.crash` has **no HEAD stamp**, so read-time freshness cannot invalidate a stale one
+the way it does an `.evidence`/`.report` file — `.crash` must be cleaned explicitly,
+on **both** the FRESH and RESUME branches, or a crash from a prior run reads as
+current.
 
 A crashed companion writes no report and no evidence → PENDING → subagent (which
 judges from scratch), same as a companion-less gate; visible via the `.crash`
@@ -356,11 +390,17 @@ solved. **If it no longer binds, stop after Phase 0.**
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. Make the orchestrator the single runner (per "Execution model"):
-steps 1-3 call `orchestrator gates <step>` first, mirroring step 4; step files launch
-PENDING subagents *with* the `EVIDENCE:` path. Scope: the **6 run-companion "MANDATORY
-FIRST STEP" blocks** (the 6 companions) + the step-1-3 spawn wiring — *not* the
-"MANDATORY pre-existing check" base-filter blocks (9 in non-companion files + the 3
-co-located in companion gates = 12 total), which stay.
+steps 1-3 call `orchestrator gates <step>` first, mirroring step 4; each gate `.md`
+gains a fixed *read-your-evidence-file* instruction (convention discovery — no
+main-agent path relay). Scope: the **6 run-companion "MANDATORY FIRST STEP" blocks**
+(the 6 companions) + the step-1-3 spawn wiring — *not* the "MANDATORY pre-existing
+check" base-filter blocks (9 in non-companion files + the 3 co-located in companion
+gates = 12 total), which stay. **Also in scope: the step-1-3 gate-fix re-run loops**
+(`step1-rebase.md:96-99`, `step2-compilation.md:177-180`, `step3-autofix.md:102-108`),
+which today "rm the report and re-launch the subagent." With the in-subagent
+companion run removed, a bare re-launch would judge with **stale** evidence — so the
+re-run must re-invoke `orchestrator gates <step>` to regenerate evidence at the fixed
+HEAD before re-launching. Miss this and the fix loop silently re-judges old facts.
 
 Atomic per companion gate, in one edit so no intermediate state strands it:
 1. Convert its companion `finish_gate` → `finish_evidence` (for `crd-validation`/
@@ -371,8 +411,9 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    writes a `.evidence` file (`finish_gate`'s dirty path only echoes to stdout,
    `gate-script-lib.sh:68-72`), so the transport's `[[ -f "$ev" ]]` check finds
    nothing and — once the block is gone — the subagent gets no facts.
-2. Add the `gates` call + inject the `EVIDENCE:` path *while keeping* the FIRST STEP
-   block; verify the deferred subagent receives identical facts via the file.
+2. Add the `gates` call + add the `.md`'s read-your-evidence-file instruction (the
+   fixed `.rebase-tmp/gates/<prefix>-<gate>.evidence` path) *while keeping* the FIRST
+   STEP block; verify the deferred subagent receives identical facts via the file.
 3. Remove the `NEW_ISSUES`/RULE-1 fast-path prose in the *same* edit
    (`version-consistency.md:10-11`, `crd-validation.md:10-11`) — once the in-subagent
    run is gone, a RULE 1 that reads `NEW_ISSUES` references a value the orchestrator
@@ -430,7 +471,8 @@ is free insurance; the juror is the catch. Decide before Phase 3 ships.
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
-| Evidence file unconsumed by the judge (the draft's core bug) | High | Single-runner transport: orchestrator writes report-or-evidence, step files launch PENDING subagents *with* the `EVIDENCE:` path; `_write_evidence` also `tee`s to stdout for the fallback. |
+| Evidence file unconsumed by the judge (the draft's core bug) | High | Single-runner transport + **convention-based discovery**: orchestrator writes report-or-evidence once; each gate `.md` names its own `.rebase-tmp/gates/<prefix>-<gate>.evidence` path so the subagent reads it directly (no main-agent path relay to forget); `_write_evidence` also `tee`s to stdout for the migration overlap. |
+| Main-agent path relay drops evidence silently (rejected alternative) | High | **Not adopted.** Relaying each `EVIDENCE:` path through the main agent's prompt fails the first time it forgets one while iterating lint fixes — a write-only regression. Convention discovery removes the main agent from the evidence path entirely. |
 | `filter` clean-PASS / `verdict` false-something on an unsound predicate | High if unguarded | Phase-4 fixture proof (zero false-FAIL AND false-PASS) is the precondition for any autonomous verdict; default `evidence` cannot false-anything. |
 | Dropping the FIRST STEP block strands a companion gate (no live companion writes a `.evidence` file) | Medium | Phase 2 converts `finish_gate`→`finish_evidence` (which writes the file) in the *same* per-gate edit that drops the block, after verifying the subagent reads identical facts; the 3 co-located base-filter blocks in the companion gates are surgically preserved (Phase 2 step 4), and the 9 non-companion base-filter blocks are untouched. |
 | Evidence-in amplifies satisficing (verdict-shaped SUMMARY, "set PASS" instr.) | Medium | Neutral fact-only `SUMMARY:`; Phase 3 removes the rubber-stamp instruction; court measures residual. |
