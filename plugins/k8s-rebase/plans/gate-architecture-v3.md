@@ -81,12 +81,24 @@ tracing of the live orchestrator, lib, and gate files):
    predicate must generalize across repos and k8s versions. This binds both a
    `verdict`-shape FAIL (`finish_deterministic`) *and* a `filter` clean-PASS — a clean-PASS removes the judge
    exactly as a deterministic PASS does. Today, zero gates qualify without the test.
-4. **A crash is never a verdict.** Infra failure writes no report → the gate
-   degrades to the subagent path, exactly like a companion-less gate. Made observable
-   (Phase 0) — but the in-script trap sees only ordinary nonzero exits; the dominant
-   `timeout -s TERM`/SIGKILL crash (exit 0 / no trap) is observable *only* at the
-   orchestrator, which writes the breadcrumb when the child exits `124` (timeout) or
-   `>128` (signal-killed). Never silent.
+4. **A crash is never a verdict — and this reaches inside the script to each
+   sub-tool.** Infra failure writes no report → the gate degrades to the subagent
+   path, exactly like a companion-less gate. Made observable (Phase 0) — but the
+   in-script trap sees only ordinary nonzero exits; the dominant `timeout -s
+   TERM`/SIGKILL crash (exit 0 / no trap) is observable *only* at the orchestrator,
+   which writes the breadcrumb when the child exits `124` (timeout) or `>128`
+   (signal-killed). Never silent. **A sub-tool timeout is a third blind spot both
+   layers miss:** `build-vet.sh:22-23` wraps each tool as `timeout … go build … ||
+   true`, so a killed `go build`/`go vet` is swallowed to exit 0 — the script exits 0
+   (in-script trap never fires) *and* the orchestrator's outer `timeout bash
+   companion` (`:203`) also exits 0, so a build that never completed counts zero error
+   lines → `finish_gate 0` → autonomous **PASS**. This is a live false-PASS today and
+   would persist into `build-vet`-as-`filter`. Fix: capture each inner tool's exit
+   code *before* `|| true`; on `124`/`>128` write **no** verdict, drop a `.crash`
+   breadcrumb, and defer — **never FAIL**, because FAIL from a build that would have
+   compiled violates `filter`'s cannot-false-FAIL invariant (the safety boundary
+   below), and a timeout is not "`go build` exits 0" so it fails the proven-clean
+   predicate (principle 3). Same rule for `test-compilation`.
 5. **Evidence must be fresh, and consumed at a settled HEAD.** Every artifact is
    HEAD-stamped and freshness-checked (`report_is_fresh:122-133` already does this
    for reports). But note the limit: `step4-verification.md:31-36` runs gates *while
@@ -122,9 +134,14 @@ tracing of the live orchestrator, lib, and gate files):
 ## Shapes (by convention — which `finish_*` the script calls)
 
 A gate's shape is which lib function its script calls — no `shape:` frontmatter, no
-bespoke linter (step-isolation §4.4 already chose convention over declaration). The
-four shapes are one 2×2 — *(clean action) × (dirty action)* over {write-verdict,
-defer} — named for the risk each carries:
+bespoke linter (step-isolation §4.4 already chose convention over declaration). Three
+of the shapes form a 2×2 over *(clean action) × (dirty action)* in {write-verdict,
+defer} — `evidence` = defer/defer, `filter` = write-PASS/defer, `verdict` =
+write/write (the fourth cell, write-on-clean-but-defer-on-dirty, is `filter`; a
+defer-clean/write-dirty cell would be a false-FAIL machine and is deliberately
+absent). `info` is **not** a cell of that grid — it is an orthogonal *always-PASS,
+non-blocking* overlay that ignores the clean/dirty axis entirely. Named for the risk
+each carries:
 
 - **evidence** (`finish_evidence`) — **the primary, general mode.** Computes facts
   and *always* defers, even when it flagged nothing, because it has no fixture-proven
@@ -225,18 +242,32 @@ so there is one transport and the script runs once:
 # below replaces ONLY the dead `NEW_ISSUES=0` grep (:204 — never matches finish_gate's
 # `RESOLVED:`/`PENDING:` output); keep the counters and the summary.
 
+# 1. CACHE HIT FIRST: a fresh verdict already on disk from a prior `gates` run → skip
+#    and do NOT re-run the companion. This ordering matches live cmd_gates:192 (which
+#    `continue`s before ever reaching the companion at :200); running the companion
+#    first would re-execute a second `go build`/`go vet` on every fix-loop iteration,
+#    breaking the "script runs once" invariant.
+if [[ -f "$rpt" ]] && report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then
+  echo "EXISTING: $gate_name $(grep '^VERDICT:' "$rpt" | awk '{print $2}')"; ((resolved++)) || true; continue
+fi
+
+# 2. No fresh verdict cached → run the companion exactly once.
 rc=0
-[[ -x "$companion" ]] && { timeout "${GATE_TIMEOUT:-300}" bash "$companion" "$repo" 2>&1 || rc=$?; }
-(( rc >= 124 )) && printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" \
-  > "$repo/.rebase-tmp/gates/${gate_name}.crash"  # 124 timeout(SIGTERM→trap saw 0); 125-127 timeout-infra; >128 signal-kill(137). Trap can't see these.
-if report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then    # RESOLVED: skip subagent
+crash="$repo/.rebase-tmp/gates/${sd%-*}-${gate_name}.crash"  # SAME prefix as report_path/evidence_path (:108)
+[[ -x "$companion" ]] && { timeout "${GATE_OUTER_TIMEOUT:-900}" bash "$companion" "$repo" 2>&1 || rc=$?; }  # outer > sum of inner GATE_TIMEOUTs (M4)
+(( rc >= 124 )) && printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" > "$crash"
+  # 124 timeout(SIGTERM→trap saw 0); 125-127 timeout-infra; >128 signal-kill(137). Trap can't see these.
+
+# 3. Did the companion just write a fresh verdict (filter/verdict clean path)? → RESOLVED.
+if report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then
   echo "RESOLVED: $gate_name $(grep '^VERDICT:' "$rpt" | awk '{print $2}')"; ((resolved++)) || true; continue
 fi
-# PENDING: the orchestrator does NOT relay a path. The subagent finds its own evidence
-# by convention — its .md names the fixed .rebase-tmp/gates/<prefix>-<gate>.evidence path,
-# which evidence_path derives identically (${sd%-*}-${gate}, matching report_path:106-110).
-ev=$(evidence_path "$repo" "$sd" "$gate_name")
-[[ -f "$ev" ]] && report_is_fresh "$ev" "$repo" && echo "EVIDENCE(log): $ev"   # log line, not a handoff
+
+# 4. Otherwise PENDING. The orchestrator does NOT relay a path: the subagent finds its
+#    own evidence by convention — its .md names the fixed
+#    .rebase-tmp/gates/${sd%-*}-${gate_name}.evidence path (evidence_path derives the
+#    same). The subagent MUST freshness-check it on read (see below) — the orchestrator
+#    just wrote it at this HEAD, but HEAD can drift before the subagent reads it.
 echo "PENDING: $gate_name"; ((pending++)) || true
 ```
 
@@ -245,14 +276,35 @@ echo "PENDING: $gate_name"; ((pending++)) || true
 abort the function — this is why the live counters at `:196/:206/:212/:215` are
 already guarded; the snippet must preserve that.
 
-Then the subagent must **read its evidence by convention, not by relay**. The
-launched-subagent prompt is unchanged (*"repo path + module safety rule + Read
-`<gate-file>`"*); the `<gate-file>` itself carries a fixed instruction — *"If
-`.rebase-tmp/gates/<prefix>-<gate>.evidence` exists, Read it first and treat its
-facts as ground truth"* — naming its own evidence path literally, exactly as today's
-MANDATORY block names its own companion `.sh`. That path is fully determined by repo
-root + gate name (nothing to look up), so the subagent needs nothing relayed from the
-main agent.
+Then the subagent must **read its evidence by convention, not by relay** — and
+**freshness-check it on read**. The launched-subagent prompt is unchanged (*"repo
+path + module safety rule + Read `<gate-file>`"*); the `<gate-file>` itself carries a
+fixed instruction — *"If `.rebase-tmp/gates/<prefix>-<gate>.evidence` exists,
+compare its `HEAD:` line to `git rev-parse HEAD`; if they match, Read it first and
+treat its facts as ground truth; if they differ (HEAD drifted since the orchestrator
+wrote it), the evidence is stale — ignore it and judge from scratch"* — naming its
+own evidence path literally, exactly as today's MANDATORY block names its own
+companion `.sh`. The consumer-side check is load-bearing: the orchestrator writes the
+evidence at the current HEAD, but `step4-verification.md:31-36` runs gates *while the
+main agent commits lint fixes*, so HEAD can drift between write and read; a HEAD-stamp
+comparison at the point of consumption is what makes principle 5's freshness discipline
+actually bind on evidence (as `report_is_fresh` already does for reports). That path
+is fully determined by repo root + gate name (nothing to look up), so the subagent
+needs nothing relayed from the main agent.
+
+One hazard the convention introduces: the `<prefix>-<gate>` string now has **three
+independent producers** that must agree byte-for-byte — the writer (`GATE_NAME`, built
+in `init_gate` via `grep -oE '^step[0-9]+'`, `gate-script-lib.sh:37`), the orchestrator
+locator (`evidence_path`/`report_path` via `${sd%-*}`, `:108`), and the literal path
+written into each `.md`. These derive the prefix *differently* (a `grep` vs a suffix
+strip); they happen to agree for today's `stepN-name` dirs, but that is a coincidence,
+not a guarantee — so this plan does **not** claim they are "identical." Phase 2 must
+either route all three through **one sourced helper** (`gate_artifact_prefix`) or add a
+test asserting the three agree for every step dir. And the read-evidence instruction
+must **fail loud** on a miss: if the `.md`'s named path does not exist, the subagent
+judges from scratch *and* the gate drops an `EVIDENCE_MISSING` breadcrumb (surfaced by
+the Phase-0 harness reader), so a silent prefix drift shows up as a diagnostic instead
+of a facts-free judgment that looks normal.
 
 This is what closes the transport gap **without** the single point of failure the
 alternative would create. The alternative — have the main agent paste each PENDING
@@ -260,7 +312,7 @@ gate's `EVIDENCE:` path into its subagent prompt — reintroduces the exact writ
 failure this section exists to kill: the main agent launches gates *while it iterates
 lint fixes* (`step4-verification.md:31-36`), and the first time it forgets a path (or
 launches from stale orchestrator output) that gate silently judges with no facts, with
-no error. Convention discovery removes the main agent from the evidence path entirely:
+no error. Convention discovery removes the main agent from the evidence *relay*:
 the file is delivered by the same mechanism that already reliably delivers the gate
 `.md` — the subagent reading a known file. The orchestrator's `EVIDENCE(log):` line is
 a diagnostic, not a handoff.
@@ -291,8 +343,24 @@ current.
 
 A crashed companion writes no report and no evidence → PENDING → subagent (which
 judges from scratch), same as a companion-less gate; visible via the `.crash`
-breadcrumb and `CRASH:` line; the 3-attempt force-advance (→ INCOMPLETE → `--draft`
-PR) remains the backstop for any stuck gate.
+breadcrumb and `CRASH:` line.
+
+A stuck gate is *not* silently green today — but the plan must not claim it is
+caught either. After 3 attempts `cmd_advance` force-advances: it writes
+`status/INCOMPLETE` (`orchestrator.sh:305,310`), bumps state to `STEP_COUNT+1`, and
+`cmd_status` then prints `DONE: true` (`:342-346`). Nothing reads `INCOMPLETE`; the
+Stop hook (`stop-hook.sh:25`) sees `DONE: true` and lets the session end; and step 5
+prints a plain, non-draft `gh pr create` (`step5-pr.md:37`) whose body
+(`step5-pr.md:30-35`) never mentions the force-advance. So an incomplete rebase
+currently yields a clean-looking PR command — `INCOMPLETE` is a **write-only
+breadcrumb no consumer surfaces**. Closing that gap (step 5 reads `INCOMPLETE` and
+either draft-flags the PR or annotates its body with the force-advanced gates) is
+real work that reaches into step 5 — which is deliberately **un-orchestrated**
+(`step5-pr.md:74-75`, "Do NOT run orchestrator advance"; `STEP_DIRS` is steps 1-4
+only, `orchestrator.sh:21`). It is therefore filed as an explicit **future-work gap**
+(see "Production backstop"), not smuggled into this plan's steps-1-4 scope. The
+skill only ever *prints* the PR command (`rules.md:33` forbids `git push`/`gh pr
+create`), so any fix changes printed text, never an executed action.
 
 ## Gate map (33 today; consolidation deferred to Phase 5)
 
@@ -336,8 +404,24 @@ not 9 — see Phase 2.)
   is *not* here — it can FAIL; see the evidence list.)
 - **verdict candidates (only if the fixture test proves them):**
   `major-version-imports`, `go-version-check` — both already base-filter (`git show
-  $BASE`, `go-version-check.sh:37,51`). Everything a script *could* mechanize but
-  can't do soundly — `diff-scope` (extension allow-list false-FAILs legit
+  $BASE`, `go-version-check.sh:37,51`). **The promotion has a required guard: empty
+  `BASE`.** `init_gate:40-45` falls `BASE` back to `""` and keeps running; the `[[ -n
+  "$BASE" ]]` guards (`major-version-imports.sh:25,51`, `go-version-check.sh:36,51`)
+  then count *every* hit as NEW. Harmless today (both `finish_gate` → defer), but as
+  an autonomous `finish_deterministic` it flags-everything → `NEW_ISSUES>0` →
+  false-FAIL, the worst outcome. So on empty `BASE` the script must **choose its
+  shape at runtime** — call `finish_evidence` (emit the unfiltered hits + a neutral
+  `SUMMARY:` "no merge-base available; hits shown unfiltered", then defer) instead of
+  `finish_deterministic`. This is principle 6 (degrade to evidence when a required
+  fact is missing) applied to the base — the same pattern as the GOPROXY-fetch
+  degradation, and fully consistent with "shape = which `finish_*` you call." Note
+  the other scripts (`k8s-rebase-review.sh:34`, `-validate.sh:451/594`,
+  `-autofix.sh:948`) fall back to `HEAD~N` instead; that divergence is **justified by
+  soundness class, not a bug** — those are downstream-reviewed heuristic fix-suggesters
+  where an approximate base is tolerable, whereas a judge-skipping verdict needs a
+  *sound* base or none. The plan mandates the **invariant** (no autonomous verdict
+  when `BASE` is empty), not a uniform fallback. Everything a script *could* mechanize
+  but can't do soundly — `diff-scope` (extension allow-list false-FAILs legit
   `.txt`/`.json`/`.proto` testdata), `cleanliness` (`find -user root` is
   environment-dependent; its `.md` says "run on the host") — stays `evidence`.
 - **Dropped/folded (Phase 5):** `logical-completeness` → `logical-consistency`;
@@ -367,7 +451,21 @@ widening that arity (or a parallel `.crash` scan), filtering crashed gates from 
 missing-names loop (`:979-992`), and the cross-worktree fan-out reports get
 (`_collect_gate_dirs:66-75`) — budget it as a real change, shipped in the same PR as
 the trap. (c) `cmd_init` cleans `*.evidence`/`*.crash` +
-`.advance-attempts-step*`/`INCOMPLETE`.
+`.advance-attempts-step*`/`INCOMPLETE`. (d) **sub-tool timeout capture** (principle
+4): in `build-vet.sh:22-23` and `test-compilation`, capture each inner tool's exit
+code *before* `|| true`; on `124`/`>128` write no verdict, drop a `.crash`
+breadcrumb, and defer to the subagent. This fixes a **live** false-PASS (a killed
+`go build` today counts 0 errors → PASS) before build-vet is ever promoted to
+`filter`; the normal build-failure path (nonzero + error lines → `NEW_ISSUES>0` →
+already defers) is untouched, so there is no regression. (e) **tier the timeouts.**
+The orchestrator's outer `timeout "${GATE_TIMEOUT:-300}" bash "$companion"` wraps a
+companion that itself `timeout`s each inner tool at the *same* `GATE_TIMEOUT`
+(`build-vet.sh:22-23`) — so on a large repo `go build` + `go vet` (up to 2×300s)
+outruns the outer 300s, and the orchestrator SIGTERMs a *healthy* companion, forging
+a spurious `.crash`/defer. The outer bound must exceed the sum of the inner bounds:
+give the orchestrator its own `GATE_OUTER_TIMEOUT` (default ≥ the max plausible
+inner-sum, and ideally repo-size-aware) rather than sharing one knob. Small change,
+but it prevents the whole crash/defer machinery from firing on slow-but-fine repos.
 
 **Phase 1 — Fix the court, then measure (decision gate).** Two separable pieces:
 *(metric)* the go/no-go for the rollout is **court verdict / false-FAIL rate on the
@@ -387,6 +485,18 @@ session-ended — and 9/10 in the last 10 runs), *not* the regression an earlier
 "12%" implied (that was the spec=none PASS *count*, 12/24, misread as a percent). The
 true low-water slice is `ovn-org/ovn-kubernetes` at 16/36 (44%, all specs). Mixed, not
 solved. **If it no longer binds, stop after Phase 0.**
+
+*(checkpoint, not a one-shot)* This same measurement is the **regression gate for
+every later phase**, not just the go/no-go. Re-run the matrix after Phase 2 (execution
+unified) and again after Phase 3 (evidence content) against the *committed* metrics
+baseline, and require **no pass-rate regression and no new false-FAIL** before the
+phase is considered landed. Pin the baseline to a committed file first (the snapshot
+above is gitignored/provisional). Define rollback concretely: each phase lands as its
+own PR (per the "one PR per phase" cadence), so a regression reverts that single PR —
+Phase 2's transport rewrite and Phase 3's per-gate evidence are independently
+revertible, and the fixture promotions (Phase 4) revert to `evidence` (the always-safe
+default) without touching the transport. A phase that regresses the metric does not
+advance to the next.
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. Make the orchestrator the single runner (per "Execution model"):
@@ -414,10 +524,17 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
 2. Add the `gates` call + add the `.md`'s read-your-evidence-file instruction (the
    fixed `.rebase-tmp/gates/<prefix>-<gate>.evidence` path) *while keeping* the FIRST
    STEP block; verify the deferred subagent receives identical facts via the file.
-3. Remove the `NEW_ISSUES`/RULE-1 fast-path prose in the *same* edit
-   (`version-consistency.md:10-11`, `crd-validation.md:10-11`) — once the in-subagent
-   run is gone, a RULE 1 that reads `NEW_ISSUES` references a value the orchestrator
-   no longer surfaces to the subagent. (Pulled forward from Phase 3.)
+3. Remove the `NEW_ISSUES`/RULE-1 fast-path prose in the *same* edit — once the
+   in-subagent run is gone, a RULE 1 that reads `NEW_ISSUES` references a value the
+   orchestrator no longer surfaces to the subagent. The identical "set verdict=PASS
+   immediately / Do NOT run the checks below" block lives in **all five** companion
+   gates with a fast-path (`version-consistency.md:10-11`, `crd-validation.md:10-11`,
+   `build-vet.md:10-11`, `major-version-imports.md:10-11`, `go-version-check.md:10-11`
+   — grep-verified; `patterns-completeness.md` carries a PATH-A variant), so remove
+   every instance here, not just the two. Leaving it in `build-vet`/`major-version-imports`/
+   `go-version-check` (all of which run as `evidence` until fixture-proven) tells the
+   subagent not to judge in exactly the gates re-classified to keep the judge — the
+   principle-7 accelerant. (Pulled forward from Phase 3.)
 4. Drop *only* the FIRST STEP block. In the 3 companion gates that also carry a
    base-filter block (`major-version-imports.md:22`, `patterns-completeness.md:48`,
    `go-version-check.md:43`), delete the FIRST STEP block surgically and preserve the
@@ -433,7 +550,8 @@ companion-less judgment gates (`type-conversions`, `fix-correctness`,
 `rebase-completeness`) — the point of the plan. Adopt the lib + runtime module
 classification (§principle 6) in `version-consistency`/`feature-gates`. Remove any
 *remaining* "set PASS immediately / do NOT run the checks below" rubber-stamp
-(§principle 7 — the two companion-gate instances are already gone in Phase 2); make
+(§principle 7 — all five companion-gate instances are removed in Phase 2 step 3, so
+this catch-all covers only any companion-*less* gate that grew one); make
 every `SUMMARY:` neutral. Keep full judgment prose in each `.md` (the subagent
 still reads it, for the crash fallback and the dirty path).
 
@@ -444,7 +562,12 @@ This is the unconditional precondition for *any* autonomous verdict — a
 `deterministic` FAIL/PASS *and* a `filter` clean-PASS. Only now may `build-vet` etc.
 adopt `finish_filter`, and `major-version-imports`/`go-version-check` adopt
 `finish_deterministic`; expect few to qualify. A gate that can't prove its predicate
-stays `evidence`.
+stays `evidence`. Two fixtures are mandatory for the promotions this phase gates:
+(a) a **killed-tool** case for `build-vet`/`test-compilation` (SIGKILL/timeout a
+`go build` mid-run) — the promoted `filter` must **defer, not PASS and not FAIL**
+(principle 4); (b) a **no-base** repo for `major-version-imports`/`go-version-check`
+(empty `BASE` — no merge-base) — the promoted `finish_deterministic` must degrade to
+`finish_evidence` and defer, not flag-everything into an autonomous FAIL (see below).
 
 **Phase 5 — Consolidation.** Re-audit live state (0% done). Reconcile the count
 across `autofix-patterns-redesign.md`/`next-work.md`. Drop `logical-completeness`;
@@ -460,25 +583,53 @@ only** (`test-skill.sh` + its Makefile target + `config-1.35.yaml`; zero refs in
 `skills/`/`scripts/`/`gates/`/`hooks/`). Human + CI at the PR boundary do not catch
 a silent semantic drop (a removed struct field that still compiles and passes unit
 tests). **Recommendation: do both, cheaply.** (1) Always emit a *semantic-risk
-manifest* in the draft-PR body listing the AI-judged-not-machine-verified gates
-(`type-conversions`, `k8s-changelog`, `logical-consistency`) so the human reviewer
-is aimed at the unverified surface. (2) Promote one adversarial juror to a *single
-pre-PR production gate* (one AI call with git show/diff/Read) — the real backstop,
-trivial against a plan whose premise is spending AI calls on quality. The manifest
-is free insurance; the juror is the catch. Decide before Phase 3 ships.
+manifest* in the draft-PR body listing the AI-judged-not-machine-verified gates so
+the human reviewer is aimed at the unverified surface. **Derive this list
+programmatically, not by hardcoding** — the "unverified surface" is exactly the set
+of gates whose final report the *subagent* wrote (every `evidence` gate, plus any
+`filter`/`verdict` gate that took its dirty/defer branch), computable from the report
+provenance the orchestrator already has; a hardcoded triple (`type-conversions`,
+`k8s-changelog`, `logical-consistency`) rots the moment a gate's shape changes. (2)
+Promote one adversarial juror to a *single pre-PR production gate* (one AI call with
+git show/diff/Read) — the real backstop, trivial against a plan whose premise is
+spending AI calls on quality. The manifest is free insurance; the juror is the catch.
+
+**Home and phasing.** Both live in **step 5** — the same un-orchestrated step that
+owns the H1 `INCOMPLETE` surfacing (below) and PR-body generation
+(`step5-pr.md:30-35`) — so all three PR-body additions land in one seam. The *decision*
+(ship both, one, or explicitly defer) is made before Phase 3 ships; the *build* is a
+step-5 work item, deliberately outside this plan's steps-1-4 scope. **Headless
+behavior:** the skill only ever prints, never pushes (`rules.md:33`), so in a headless
+run (test harness / cron, no human) the manifest is still written into the printed PR
+body and the juror still runs as its one AI call — but there is no reviewer to act on
+either, so headless runs must treat a juror FAIL as a hard stop (surfaced like any
+blocking gate) rather than relying on the human the manifest assumes.
+
+**Deferred gap — force-advanced (incomplete) rebases surface nothing to the human.**
+Today `cmd_advance` writes `status/INCOMPLETE` (`orchestrator.sh:305,310`) that no
+consumer reads, then `cmd_status` reports `DONE: true` and step 5 prints an ordinary
+`gh pr create` (`step5-pr.md:37`) — so a rebase that force-advanced past a stuck gate
+produces a clean-looking PR command (see "Execution model"). The right fix lives in
+step 5, which this plan deliberately leaves un-orchestrated: when `INCOMPLETE` is
+present, step 5 should annotate the printed PR body with the force-advanced
+gates (reusing the body it already generates, `step5-pr.md:30-35`) and MAY print
+`gh pr create --draft` instead — an explicit, called-out behavior change to what the
+human copy-pastes, never an executed push. Sequenced with the manifest above (same
+draft-PR body, same "aim the human at unverified surface" goal); scoped as future
+work so it does not expand this plan past steps 1-4.
 
 ## Risks
 
 | Risk | Severity | Mitigation |
 |------|----------|------------|
 | Evidence file unconsumed by the judge (the draft's core bug) | High | Single-runner transport + **convention-based discovery**: orchestrator writes report-or-evidence once; each gate `.md` names its own `.rebase-tmp/gates/<prefix>-<gate>.evidence` path so the subagent reads it directly (no main-agent path relay to forget); `_write_evidence` also `tee`s to stdout for the migration overlap. |
-| Main-agent path relay drops evidence silently (rejected alternative) | High | **Not adopted.** Relaying each `EVIDENCE:` path through the main agent's prompt fails the first time it forgets one while iterating lint fixes — a write-only regression. Convention discovery removes the main agent from the evidence path entirely. |
+| Main-agent path relay drops evidence silently (rejected alternative) | High | **Not adopted.** Relaying each `EVIDENCE:` path through the main agent's prompt fails the first time it forgets one while iterating lint fixes — a write-only regression. Convention discovery removes the main-agent *relay*: the subagent reads its evidence by a path it derives itself. |
 | `filter` clean-PASS / `verdict` false-something on an unsound predicate | High if unguarded | Phase-4 fixture proof (zero false-FAIL AND false-PASS) is the precondition for any autonomous verdict; default `evidence` cannot false-anything. |
 | Dropping the FIRST STEP block strands a companion gate (no live companion writes a `.evidence` file) | Medium | Phase 2 converts `finish_gate`→`finish_evidence` (which writes the file) in the *same* per-gate edit that drops the block, after verifying the subagent reads identical facts; the 3 co-located base-filter blocks in the companion gates are surgically preserved (Phase 2 step 4), and the 9 non-companion base-filter blocks are untouched. |
 | Evidence-in amplifies satisficing (verdict-shaped SUMMARY, "set PASS" instr.) | Medium | Neutral fact-only `SUMMARY:`; Phase 3 removes the rubber-stamp instruction; court measures residual. |
 | Freshness oversold — HEAD drifts during step-4's concurrent lint commits | Medium | Single-run transport narrows the window; document evidence-in is soundest at a settled HEAD; consider running the consuming subagent after 4a quiesces. Open. |
 | Runtime module-classification fetch fails (GOPROXY offline / target tag unpublished) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
-| Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb when the child exits `124` (timeout) or `>128` (signal). Breadcrumb + harness reader ship together (Phase 0); force-advance prevents a silent green. |
+| Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb when the child exits `124` (timeout) or `>128` (signal). Breadcrumb + harness reader ship together (Phase 0). NB: force-advance does **not** rescue this in production — `INCOMPLETE` is write-only (see "Execution model"); the human-facing surfacing is the deferred gap in "Production backstop". |
 | `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Med | Accepted trade; Phase 1 records per-gate latency so cost is visible. |
 | Cross-plan collision (count; module-class helper; test-skill.sh regions) | Medium | Reconcile in Phase 5 against live state; one sourced classification helper; Phase 1 court edit is a different region than pr-feedback's stripping edit but runs against the post-stripping baseline. |
 
