@@ -88,7 +88,7 @@ tracing of the live orchestrator, lib, and gate files):
    TERM`/SIGKILL crash (exit 0 / no trap) is observable *only* at the orchestrator,
    which writes the breadcrumb when the child exits `124` (timeout) or `>128`
    (signal-killed). Never silent. **A sub-tool timeout is a third blind spot both
-   layers miss:** `build-vet.sh:22-23` wraps each tool as `timeout … go build … ||
+   layers miss:** `build-vet.sh:23-24` wraps each tool as `timeout … go build … ||
    true`, so a killed `go build`/`go vet` is swallowed to exit 0 — the script exits 0
    (in-script trap never fires) *and* the orchestrator's outer `timeout bash
    companion` (`:203`) also exits 0, so a build that never completed counts zero error
@@ -419,9 +419,16 @@ not 9 — see Phase 2.)
   exactly the live `INFO_GATES` (`test-skill.sh:21`, 4 gates). (`dep-release-notes`
   is *not* here — it can FAIL; see the evidence list.)
 - **verdict candidates (only if the fixture test proves them):**
-  `major-version-imports`, `go-version-check` — both already base-filter (`git show
-  $BASE`, `go-version-check.sh:37,51`). **The promotion has a required guard: empty
-  `BASE`.** `init_gate:40-45` falls `BASE` back to `""` and keeps running; the `[[ -n
+  `major-version-imports`, `go-version-check` — both base-filter *some* checks (`git
+  show $BASE`, `go-version-check.sh:37,51`), **but not all.** `go-version-check.sh:17-25`
+  (the cross-module go-directive consistency check) has **no BASE reference** — it flags
+  any inter-module go-directive mismatch regardless of whether it pre-dates the rebase.
+  Harmless today (`finish_gate` defers), but as an autonomous `finish_deterministic` a
+  repo with a *legitimately* inconsistent-but-pre-existing set of go directives
+  false-FAILs. So promotion of `go-version-check` **requires base-filtering `:17-25`
+  first** (compare the cross-module directive set to the same set on `$BASE`; flag only a
+  *newly* introduced inconsistency), in addition to the empty-`BASE` guard below.
+  **The promotion also has a required guard: empty `BASE`.** `init_gate:40-45` falls `BASE` back to `""` and keeps running; the `[[ -n
   "$BASE" ]]` guards (`major-version-imports.sh:25,51`, `go-version-check.sh:36,51`)
   then count *every* hit as NEW. Harmless today (both `finish_gate` → defer), but as
   an autonomous `finish_deterministic` it flags-everything → `NEW_ISSUES>0` →
@@ -456,6 +463,17 @@ transport is inert until execution is unified. Bump `plugin.json` + `make lint &
 make update` once per landed PR.
 
 **Phase 0 — Mechanical patch (ship first; independent of everything below).**
+**(0) Install the evidence-transport lib API first — the entire design depends on it.** Add
+`_head_sha`/`_write_evidence`/`finish_evidence`/`finish_filter`/`finish_deterministic` (and
+`finish_info`, **forward-looking** — no `info` gate has a companion `.sh` today) to
+`gate-script-lib.sh` **alongside** the retained `finish_gate`. Live `gate-script-lib.sh` defines
+only `_gate_trap`/`init_gate`/`base_file_has`/`finish_gate`; the transport functions exist nowhere
+(`grep -rn 'finish_evidence\|finish_filter\|finish_deterministic\|_write_evidence' scripts/ gates/`
+is empty). Landing them here is **inert** — nothing calls them until Phase 2 — which is exactly why
+they ship now: it makes Phase 2 a pure *caller-swap* rather than an add-and-call in one PR. Without
+this step a literal Phase-2 execution calls an undefined `finish_evidence`, which under
+`set -euo pipefail` aborts, fires `_gate_trap`, and degrades every converted companion to a
+facts-free judge. The `inc` guard (a) and `_gate_trap` rewrite (b) are the only *other* lib edits.
 (a) `inc` guard — defensive, currently unreached (the **4 lib-sourcing** companions —
 `build-vet`, `version-consistency`, `major-version-imports`, `go-version-check` —
 guard `((n++))` with `|| true`; `crd-validation`/`patterns-completeness` source no lib
@@ -463,7 +481,14 @@ and increment via `$((new+1))`, so the trap/`inc`/counter guarantees here scope 
 4, not all 6). (b) `_gate_trap` → `.crash` breadcrumb (ordinary nonzero exits only), no FAIL report;
 **and** the orchestrator writes the breadcrumb when the child exits `124` (timeout —
 the dominant crash) or `>128` (signal-killed, e.g. `137` SIGKILL), both invisible to
-the in-script trap (SIGTERM → exit 0, SIGKILL → no trap). Plus the harness reader, keyed off *both* breadcrumb
+the in-script trap (SIGTERM → exit 0, SIGKILL → no trap). The live `cmd_gates` runs the
+companion as `if output=$(timeout … bash "$companion" …); then` (`orchestrator.sh:203`),
+which **discards** the child exit code — so this patch must restructure that line to
+capture it: `rc=0; output=$(timeout "$GATE_OUTER_TIMEOUT" bash "$companion" "$repo" 2>&1)
+|| rc=$?; (( rc >= 124 )) && printf 'CRASH: exit %s\n' "$rc" > "$crash"`, **keeping** the
+existing `NEW_ISSUES=0` grep branch on `$output` (this is the same restructure the
+Execution-model snippet shows; Phase 0 lands only the rc-capture + `.crash` write, not the
+evidence transport). Plus the harness reader, keyed off *both* breadcrumb
 sources: `_tally_gates` returns a fixed 4-field string (`test-skill.sh:129`) read at
 three sites (`:948/:1450/:1517`), so surfacing crashes "distinct from missing" means
 widening that arity (or a parallel `.crash` scan), filtering crashed gates from the
@@ -475,27 +500,46 @@ and `*.crash` on **both** the FRESH and RESUME branches — `.crash` has no HEAD
 so read-time freshness can't invalidate a stale one, and cleaning it FRESH-only would
 let a prior run's crash read as current (see "Execution model," the `cmd_init`
 paragraph). (d) **sub-tool timeout capture** (principle
-4): in `build-vet.sh:22-23` capture each inner tool's exit
-code *before* `|| true`; on `124`/`>128` write no verdict, drop a `.crash`
-breadcrumb, and defer to the subagent. (`build-vet` is the only companion with an
-inner `|| true` to patch; `test-compilation` has no script.) This fixes a **live** false-PASS (a killed
+4): at `build-vet.sh:23-24` capture each inner tool's exit
+code *before* `|| true` — errexit-safe: `build_rc=0; build_out=$(timeout
+"${GATE_TIMEOUT:-300}" go build ./... 2>&1) || build_rc=$?; (( build_rc >= 124 )) && {
+drop .crash; trap - EXIT; exit 0; }` (defer, **never FAIL**), leaving the normal
+nonzero+error-line path untouched. **Three companions swallow a go-tool exit with `||
+true`, not one:** `build-vet.sh:23-24` (`go build`/`go vet`),
+`patterns-completeness.sh:26` (`go build`), and `version-consistency.sh:35` (`go mod
+verify`) — grep-verified. build-vet is the promotion candidate so it gets the
+defer-on-kill treatment; the other two are `evidence` gates that already defer, but they
+get the same capture so a killed tool cannot masquerade as *clean evidence* (empty output
+→ 0 errors → a false "BUILD-OK" the subagent then trusts). (`test-compilation`/`build-vet-recheck`
+have no script.) This fixes a **live** false-PASS (a killed
 `go build` today counts 0 errors → PASS) before build-vet is ever promoted to
 `filter`; the normal build-failure path (nonzero + error lines → `NEW_ISSUES>0` →
 already defers) is untouched, so there is no regression. (e) **tier the timeouts.**
 The orchestrator's outer `timeout "${GATE_TIMEOUT:-300}" bash "$companion"` wraps a
 companion that itself `timeout`s each inner tool at the *same* `GATE_TIMEOUT`
-(`build-vet.sh:22-23`) — so on a large repo `go build` + `go vet` (up to 2×300s)
-outruns the outer 300s, and the orchestrator SIGTERMs a *healthy* companion, forging
-a spurious `.crash`/defer. The outer bound must exceed the sum of the inner bounds:
-give the orchestrator its own `GATE_OUTER_TIMEOUT` (default ≥ the max plausible
-inner-sum, and ideally repo-size-aware) rather than sharing one knob. Small change,
-but it prevents the whole crash/defer machinery from firing on slow-but-fine repos.
+(`build-vet.sh:23-24`) — and `build-vet` loops that pair *per module* (`:14` iterates
+every non-vendor `go.mod`), so the true inner sum is `2 × GATE_TIMEOUT × module-count`.
+`ovn-kubernetes` has 3 modules → up to `2×300×3 = 1800s`, which blows past any fixed
+outer bound and makes the orchestrator SIGTERM a *healthy* companion, forging a
+spurious `.crash`/defer. The outer bound must exceed the sum of the inner bounds:
+give the orchestrator its own `GATE_OUTER_TIMEOUT` computed as
+`2 × GATE_TIMEOUT × (module-count)` (count non-vendor `go.mod` at spawn time), not a
+fixed default — a fixed `900` is only a single-module floor. Small change, but it
+prevents the whole crash/defer machinery from firing on slow-but-fine multi-module repos.
 
 **Phase 1 — Fix the court, then measure (decision gate).** Two separable pieces:
 *(metric)* the go/no-go for the rollout is **court verdict / false-FAIL rate on the
-post-`pr-feedback-resolution` stripping baseline**, from `results.tsv`, plus
-per-gate latency (so the cost of adding scripts is visible) — NOT subagent count,
-which measures cost not the reliability at issue. *(court juror tool use)* jurors are
+post-`pr-feedback-resolution` stripping baseline**, plus per-gate latency (so the cost
+of adding scripts is visible) — NOT subagent count, which measures cost not the
+reliability at issue. **Source precisely:** the court verdict is **not** in
+`results.tsv` — that file's col-5 is the *gate-completion* verdict from `_tally_gates`
+(`test-skill.sh:1013/1079`); the court verdict is written separately to
+`court/${VERSION}_${repo_key}` (`:1585`) and `rm`'d on record (`:1016`). So the
+committed metrics snapshot must **join** the `results.tsv` row with the court verdict
+(and a recomputed known-good hunk count) per repo/version. Define false-FAIL
+concretely: *known-good input (court says good) but a blocking non-`info` gate FAILed*
+— explicitly **excluding** infra fails (stale/no-branch, missing gates,
+session-ended), which are not reliability signals. *(court juror tool use)* jurors are
 granted tools yet 0/15 call one (step-isolation §6); forcing tool use is prompt
 research with uncertain yield — it sharpens the *measurement*, it does not gate the
 next phase. Decision: after the Stop-hook fix (91% adherence) and the stripping
@@ -556,7 +600,19 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    false-anything. Without this step Phase 2 would strand the gate: no live companion
    writes a `.evidence` file (`finish_gate`'s dirty path only echoes to stdout,
    `gate-script-lib.sh:68-72`), so the transport's `[[ -f "$ev" ]]` check finds
-   nothing and — once the block is gone — the subagent gets no facts.
+   nothing and — once the block is gone — the subagent gets no facts. **Hazard for
+   `crd-validation`/`patterns-completeness` specifically:** to call `finish_evidence`
+   they must `source` the lib, which runs `set -euo pipefail` at its top level
+   (`gate-script-lib.sh:13`) *and* installs `trap _gate_trap EXIT` (`:27`) — neither
+   is in effect today (both scripts use `set -uo pipefail`, no `-e`, and source no
+   lib). Under the imported `-e`, `crd-validation.sh:39`'s unguarded
+   `crd_diff=$(diff <(echo "$base_crd") "$crd")` aborts the script on the **common**
+   case (`diff` exits 1 whenever the CRD differs from base), firing the EXIT trap →
+   spurious `.crash`/defer. So the conversion must guard those operations (`|| true`
+   on the `diff` and the `git show` assignments) — or extract `_write_evidence` into a
+   form callable without importing lib-level `set -e`. `patterns-completeness.sh`
+   already `|| true`s its risky commands, so it is safe once sourced; `crd-validation`
+   is not.
 2. Add the `gates` call + add the `.md`'s read-your-evidence-file instruction (the
    fixed `.rebase-tmp/gates/<prefix>-<gate>.evidence` path) *while keeping* the FIRST
    STEP block; verify the deferred subagent receives identical facts via the file.
@@ -583,13 +639,28 @@ gates — is Phase 3.
 
 **Phase 3 — Evidence-in content rollout (the value).** Author evidence for the
 companion-less judgment gates (`type-conversions`, `fix-correctness`,
-`rebase-completeness`) — the point of the plan. Adopt the lib + runtime module
-classification (§principle 6) in `version-consistency`/`feature-gates`. Remove any
+`rebase-completeness`) — the point of the plan (but see the fix-correctness caveat
+below). Adopt the lib + runtime module classification (§principle 6) in
+`version-consistency` **only** — `feature-gates` needs a *different* companion (it has
+zero go.mod/module logic: it greps `KUBE_FEATURE_`/`SetFromMap` refs excluding vendor
+and checks `vendor/k8s.io` symbol presence, then `finish_evidence`), so author its
+`feature-gates.sh` around that, not module classification. Remove any
 *remaining* "set PASS immediately / do NOT run the checks below" rubber-stamp
 (§principle 7 — all five companion-gate instances are removed in Phase 2 step 3, so
 this catch-all covers only any companion-*less* gate that grew one); make
 every `SUMMARY:` neutral. Keep full judgment prose in each `.md` (the subagent
 still reads it, for the crash fallback and the dirty path).
+
+Per companion-less gate, authoring evidence is more than dropping a `.sh` in place:
+each also needs its `.md`'s read-your-evidence + HEAD-freshness block (with the
+`EVIDENCE_MISSING` breadcrumb on a path miss) **and** registration in the step-1-3
+spawn + fix-loop wiring (Phase 2), or the orchestrator never runs it. And the facts
+differ per gate: `rebase-completeness` → its five existing counts;
+`type-conversions` → the changed conversion sites + the vendor struct's field list
+(*not* a scalar count — a count is the exact proxy §4 rejected). **`fix-correctness`
+is the exception: its predicate ("is each applied fix semantically correct?") has no
+sound deterministic value a script can compute, so it stays a pure-judgment
+**no-companion** gate — do not author a `fix-correctness.sh` just for symmetry.**
 
 **Phase 4 — Fixture test → promote proven predicates.** Build the fixture harness
 (reuse the `.repos` scaffolding; a new target) — each promotion candidate run
@@ -607,14 +678,24 @@ stays `evidence`. Two fixtures are mandatory for the promotions this phase gates
 `go build` mid-run) — the promoted `filter` must **defer, not PASS and not FAIL**
 (principle 4); (b) a **no-base** repo for `major-version-imports`/`go-version-check`
 (empty `BASE` — no merge-base) — the promoted `finish_deterministic` must degrade to
-`finish_evidence` and defer, not flag-everything into an autonomous FAIL (see below).
+`finish_evidence` and defer, not flag-everything into an autonomous FAIL (see below);
+(c) a **valid-`BASE`, multi-module repo whose go directives are inconsistent but
+pre-existing** for `go-version-check` — the promoted verdict must **defer/PASS, not
+FAIL** (it must not fire on the un-base-filtered `:17-25` check; this fixture is what
+proves the `:17-25` base-filter fix above actually holds).
 
 **Phase 5 — Consolidation.** Re-audit live state (0% done). Reconcile the count
 across `autofix-patterns-redesign.md`/`next-work.md`. Drop `logical-completeness`;
 fold `ci-readiness` → `ci-prediction`; decide the contested `commit-messages` →
 `maintainer-review` merge; narrow `deprecated-api-remnants` to web-search discovery. `EXPECTED_GATES` is dynamic (`test-skill.sh:139`) so a count
 drop auto-adjusts, but `INFO_GATES` (`:21`, 4 gates) is hardcoded — update it in the
-same commit if the info set changes.
+same commit if the info set changes. Two **hardcoded launch lists** in the step docs
+also drift the moment a gate is dropped/folded and must be updated in the *same*
+commit as each change: `step3-autofix.md:79` (names `logical-completeness` and a
+gate count) and `step4-verification.md:65-69` (a literal "15 gates:" list including
+`ci-readiness`/`commit-messages`/`logical-consistency`/`ci-prediction`). After each
+drop/fold, `grep -rn` the dropped gate name across `skills/` + `gates/` to catch any
+dangling reference before landing.
 
 ## Production backstop (recommendation)
 
