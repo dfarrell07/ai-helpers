@@ -532,7 +532,12 @@ the base at all; judge every CRD's validation surface unfiltered and defer — n
 self-comparison.** These three clauses — the trigger ("not found, crashes, or emits no"), the
 from-scratch scope ("for each CRD schema file in the repository"), and the empty-BASE guard
 ("never PASS on a self-comparison") — are the **verbatim sentinels** `check-phase1-baseline`
-condition (v) greps for, so author them literally, not paraphrased. (`patterns-completeness.md`'s checks 1-4 are *already*
+condition (v) greps for, so author them literally, not paraphrased — as **plain, contiguous prose
+with no inline markdown** (`**`, backticks) *inside* the sentinel span. Condition (v) flattens
+hard-wrapped lines before matching (so the wrapping in *this plan's* rendering of the phrases is
+harmless), but it greps raw text: emphasis or a backticked token embedded *within* a sentinel — as
+the group-(i) widen at `:510-511` bolds "crashes, or emits no" — would defeat the match, so keep
+the group-(ii) sentinels unadorned. (`patterns-completeness.md`'s checks 1-4 are *already*
 self-contained — check 1 finds modules and runs `go build`, checks 2-4 use `git
 diff`/`merge-base`, none reads script output — so its new branch may point at "run checks 1-4"
 with no rewrite; **only `crd-validation` needs the authored from-scratch scope.**) This is the
@@ -804,13 +809,19 @@ the model declining in plain text without calling Bash) means the probe never ex
 permission layer and MUST read as **INCONCLUSIVE (re-run required), never PASS**; only a
 *present-and-denied* event is a PASS. **Bound the re-run loop so it cannot spin forever:**
 INCONCLUSIVE stays blocking and is *never* auto-converted to PASS, but after **3 consecutive
-INCONCLUSIVE** results stop treating it as transient and declare the *probe itself* broken —
+INCONCLUSIVE** results (counted across successive re-runs at this same Phase-1 boundary — any
+conclusive `PASS`/`FAIL` resets the count) stop treating it as transient and declare the *probe
+itself* broken —
 emit a `probe-broken` diagnostic directing the operator to (1) check Vertex creds / network
 reachability, (2) inspect the stream-json transcript to tell a prose-decline (the model never
 emitted the `git checkout -b` `tool_use` at all) apart from an auth/transport abort, and (3)
 adjust the probe prompt if the model keeps declining without attempting the op. The exit
-criterion is **fix the probe, not lower the bar**: Phase 1 does not proceed until the probe
-returns a conclusive `PASS`/`FAIL`. This is a heavier deliverable than the pure-bash
+criterion is **fix the probe, not lower the bar** — and *only* a conclusive `PASS` advances:
+Phase 1 does not proceed until the probe returns `PASS`. A conclusive `FAIL` is **not** an exit —
+it means court permission enforcement is genuinely broken (the court fix is unproven), so Phase 1
+stays blocked per condition (vi) until the **court** is fixed, exactly as INCONCLUSIVE / `probe-broken`
+block until the **probe** is fixed. Condition (vi) enforces this mechanically — it reads *exactly*
+`PASS` — so a `FAIL` can never be mistaken for an exit. This is a heavier deliverable than the pure-bash
 `check-phase1-baseline`. **Persist its verdict** to a committed
 `test/metrics/assert-court-permissions-result.txt` (`PASS`/`FAIL`/`INCONCLUSIVE`) — that file is
 what `check-phase1-baseline` condition (vi) reads, so an INCONCLUSIVE or absent result
@@ -1026,15 +1037,20 @@ reads the rates *from that re-derived output* (not from the committed file) for 
 with *no* other fallback, so their absence is the silent-false-PASS hole Phase 2 step 4 opens if
 it deletes RULE 2 / PATH-B with no P0a body behind it) — but the two need **different** checks,
 because trigger-presence is a proxy for crash-branch completeness only where the check body
-*pre-exists*. For **`patterns-completeness.md`** a single grep for the trigger suffices
-(`grep -q 'not found, crashes, or emits no'`) — its checks 1-4 are already self-contained
-(`go build` / `git diff` / `merge-base`, none reads script output), so the trigger is the only
-new prose. For **`crd-validation.md`** the trigger is **not** a proxy for body presence — P0a
-must additionally author a from-scratch check body *and* its empty-BASE guard, neither of which
-a trigger grep detects — so condition (v) is a **three-part check there, all required:**
-(a) the trigger `grep -q 'not found, crashes, or emits no'`; (b) the from-scratch scope
-`grep -q 'for each CRD schema file in the repository'`; and (c) the empty-BASE guard
-`grep -q 'self-comparison'` (the distinctive token of "never PASS on a self-comparison"). A
+*pre-exists*. Because `grep` is line-oriented but the crash-body sentinels are hard-wrapped human prose (the
+gate `.md` files wrap at ~65 columns), condition (v) matches every sentinel against a
+**whitespace-flattened** copy of the file — `flat() { tr '\n' ' ' < "$1" | tr -s '[:space:]' ' '; }`
+— so a sentinel split across a wrap boundary or an indented continuation still matches
+(`flat <file> | grep -q '…'`). For **`patterns-completeness.md`** a single flattened grep for the
+trigger suffices (`grep -q 'not found, crashes, or emits no'`) — its checks 1-4 are already
+self-contained (`go build` / `git diff` / `merge-base` / a static patterns-doc lookup, none reads
+script output), so the trigger is the only new prose. For **`crd-validation.md`** the trigger is
+**not** a proxy for body presence — P0a must additionally author a from-scratch check body *and*
+its empty-BASE guard, neither of which a trigger grep detects — so condition (v) is a **three-part
+flattened check there, all required:** (a) the trigger `grep -q 'not found, crashes, or emits no'`;
+(b) the from-scratch scope `grep -q 'for each CRD schema file in the repository'`; and (c) the
+empty-BASE guard `grep -q 'self-comparison'` (the distinctive token of "never PASS on a
+self-comparison"). A
 developer who writes only the five-word trigger passes a naive single-grep but leaves
 `crd-validation.md` — once Phase 2 step 4 deletes its FIRST STEP block — with *nothing* behind
 the evidence template's judge-from-scratch branch: a silent false-PASS on a repo with real CRD
@@ -1131,8 +1147,10 @@ rolling one advances by one target: add `make commit-court-baseline` (a
 current working-tree `test/court-history.tsv` via `cmd_court_metrics`, and (2) stages **and
 commits** the log and the re-derived `court-baseline.tsv` together in one commit (never one
 without the other, so step (iv) stays consistent — the target *commits*, matching its name and
-Implementation-Sequence step 5, it does not merely `git add`) — it **never** touches the frozen
-`court-baseline-phase1.tsv`. The
+Implementation-Sequence step 5, it does not merely `git add`) — staging **only those two explicit
+paths** (`git add <log> <baseline>`, never `git commit -a`/`-am`, so a concurrently-edited frozen
+anchor or unrelated worktree change can never be swept into the roll), and it **never** touches the
+frozen `court-baseline-phase1.tsv`. The
 per-phase flow is: after Phase 2 (and again after Phase 3) **re-run the matrix** — appending its
 courts to the working-tree log — then run a **standalone** `cmd_court_metrics` comparison (a
 `make court-regression`, *not* a re-invocation of `check-phase1-baseline`): compare the **fresh**
@@ -1280,7 +1298,10 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    supplies the replacement "for each CRD schema file in the repository" scope), whereas
    `patterns-completeness` has **no** authored from-scratch body — dropping its PATH A/B selectors
    simply exposes checks 1-4, which are already self-contained, so nothing is promoted, only
-   uncovered.
+   uncovered. (Dropping the PATH A/B selectors must also rewrite the surviving checks header
+   `patterns-completeness.md:18` — "Checks (PATH B only — skip entirely if PATH A applies)" — to an
+   unconditional "Checks", or checks 1-4 read as skipped once PATH A/B are gone: the same
+   dangling-reference hazard the `crd-validation` "each CRD" swap avoids.)
 
 **Per-step wiring (lands ONCE per step, in the LAST companion-conversion PR for that
 step — NOT per gate).** Two step-level edits must not land until every companion in that
