@@ -516,8 +516,20 @@ companion-script fallback — its "If not found" refers to the optional patterns
 `k8s-rebase-patterns.md` located at `:40`, not the companion script; widening it would fix
 the wrong clause. Both group-(ii) files need an explicit new branch: "if the companion
 script is not found, crashes, or emits no `NEW_ISSUES` line, run the manual checks and judge
-from the diff — never PASS on unexamined output." Landing both shapes in the (b) PR keeps
-the semantic change and its consumer-side handling together, so no interval opens.
+from the diff — never PASS on unexamined output." **For `crd-validation.md` that branch must
+author a *self-contained* from-scratch check body — it cannot just point at the existing checks
+1-2, whose only scope is RULE 2's "For each CRD the script marked `CHANGED-VALIDATION`/`ALL-NEW`"
+lead-in (`crd-validation.md:19`), a selector that does not exist when the script has crashed.**
+So P0a authors, in that branch, a script-marking-independent scope: "**for each CRD schema file
+in the repository, compare `git show $BASE:<path>` against the working copy** and flag any newly
+removed/weakened validation constraint" — a body that stands on its own once the crash fires,
+not one gated on script output. (`patterns-completeness.md`'s checks 1-4 are *already*
+self-contained — check 1 finds modules and runs `go build`, checks 2-4 use `git
+diff`/`merge-base`, none reads script output — so its new branch may point at "run checks 1-4"
+with no rewrite; **only `crd-validation` needs the authored from-scratch scope.**) This is the
+body Phase 2 step 4 later promotes to "the checks below"; authoring it here (not implying it in
+step 4) is what keeps that promotion pointing at real prose. Landing both shapes in the (b) PR
+keeps the semantic change and its consumer-side handling together, so no interval opens.
 **The evidence-transport lib API is NOT installed here — each `finish_*` lands with its
 first caller.** The transport functions
 (`_head_sha`/`_write_evidence`/`finish_evidence`/`finish_filter`/`finish_deterministic`/`finish_info`)
@@ -665,7 +677,27 @@ re-run the 4 lib companions after any lib edit to confirm zero regression. P0a's
 (so converted gates inherit the `.crash`-not-FAIL semantics). Separate PRs beat one
 reviewer-hostile bundle.
 
-**Phase 1 — Fix the court, then measure (decision gate).** Three separable pieces:
+**Phase 1 — Fix the court, then measure (decision gate).** Three separable pieces.
+
+**Required implementation sequence for Phase 1** (mirrors "Landing order within Phase 0"; the
+ordering constraints below are load-bearing, not stylistic — the prose that follows states them
+only as subordinate clauses, so they are collected here as a checklist):
+1. Implement the court fix, all four parts — (a) disable tools for prosecution/defense/judge,
+   (b) bind the jurors' allow-list, (c) anchor `BASE_REF` to `from_commit`, (d) thread the ref
+   into every prompt + the prose.
+2. Ship `assert-court-permissions.sh` and confirm it writes `PASS` to
+   `test/metrics/assert-court-permissions-result.txt`. **Must precede step 4** — a baseline
+   measured against a still-wide-open court is meaningless.
+3. Drop the `cmd_court_all:1340` PASS-only filter (so gate-FAIL rows are courted and the
+   false-FAIL numerator is non-empty) and make the per-spec court-history writes + the analyzer.
+   **Must precede step 4** — courts run before the filter drop produce a structural 0% history
+   that `check-phase1-baseline`'s consistency math still passes, silently.
+4. Run the courts (the matrix), populating `test/court-history.tsv`.
+5. `make court-metrics`, then `make commit-court-baseline` to commit the raw log +
+   `test/metrics/court-baseline.tsv` together.
+6. Record and commit `test/metrics/phase1-decision.txt` (chosen branch + measured rates).
+7. Run `make check-phase1-baseline` — the mechanical gate over steps 2/5/6 (conditions i–vi).
+
 *(base anchoring — the load-bearing court fix, do first)* the court decides "is this a
 regression vs the **base**?", but only the **juror** prompt pins the base:
 `cmd_court` computes `BASE_REF: $(git merge-base "$known_good" "$result_branch")`
@@ -719,16 +751,34 @@ attempt is **blocked by the permission layer** while a `git show` in the same ro
 Assert on the **permission decision, not the git command's exit code**: a bare `git checkout`
 exits nonzero for many non-permission reasons (not a repo, missing ref, dirty tree, nothing to
 check out), so an exit-code test would green-pass a wide-open court whenever the checkout happens
-to fail for an ordinary reason — exactly masking the regression the probe exists to catch. Check
-instead that the harness recorded the `Bash(git checkout …)` tool call as denied (e.g.
-`--output-format json`, assert the tool was never executed) **or** that the scratch repo is
-**unmutated** after the attempt (no new branch created, HEAD unchanged) — either cleanly
-separates "denied, no effect" from "executed but failed." Caveat — this is a **live-model
+to fail for an ordinary reason — exactly masking the regression the probe exists to catch. The
+**primary and sufficient** assertion is a **two-part check on the `--output-format json` tool
+record: the denied op was *attempted* (a `Bash(git checkout …)` tool-use event is present) AND
+it was *denied* (that event is marked denied / not executed).** Both parts are load-bearing:
+"attempted" alone can't distinguish denial from success, and "denied" without "attempted" passes
+vacuously when the model never tried. **Do NOT rely on an unmutated-repo fallback as the
+decision** — it carries the *same* exit-code ambiguity this spec already rejects: `git checkout
+-b <name>` that the permission layer *blocks* leaves the repo unmutated, but so does a `git
+checkout <nonexistent-ref>` that *executed* and merely failed — the two are indistinguishable by
+repo state. "No new branch created" is at most a secondary sanity arm, never the assertion.
+**Specify the probe concretely so "attempted" is unambiguous:** instruct the role to run `git
+checkout -b <unique-name>` (a unique branch name, e.g. suffixed by the version/repo under test) —
+a mutating op with no benign failure mode on a valid scratch repo, so a *present-and-denied*
+tool event is the only clean signal, and a *present-and-executed* event (new branch exists) is an
+unambiguous FAIL (permissions not enforced). Caveat — this is a **live-model
 integration check, not a unit test**: it spawns a real `claude -p` session (Vertex creds,
 network, latency) against a scratch git repo and must reliably *induce* the role to attempt the
-denied op to get a signal, so it is a heavier deliverable than the pure-bash
-`check-phase1-baseline`, and a model-unavailable run must read as INCONCLUSIVE (re-run required),
-never PASS. Wire it to a k8s-rebase Makefile target and add it to the same pre-Phase-2 checklist
+denied op to get a signal. **Distinguish "denied" from "the session never got that far":** a
+result is only conclusive if the `git checkout -b` tool event is **present** in the JSON — an
+empty tool record (auth failure, network timeout, no Vertex creds, or the model declining in
+plain text without calling Bash) means the probe never exercised the permission layer and MUST
+read as **INCONCLUSIVE (re-run required), never PASS**; only a *present-and-denied* event is a
+PASS. This is a heavier deliverable than the pure-bash
+`check-phase1-baseline`. **Persist its verdict** to a committed
+`test/metrics/assert-court-permissions-result.txt` (`PASS`/`FAIL`/`INCONCLUSIVE`) — that file is
+what `check-phase1-baseline` condition (vi) reads, so an INCONCLUSIVE or absent result
+mechanically blocks baseline measurement, not just a checklist reminder. Wire it to a k8s-rebase
+Makefile target and add it to the same pre-Phase-2 checklist
 as `check-phase1-baseline`, so the court fix is proven effective *before* any baseline is
 measured against it.
 **(c) Anchor the base authoritatively:** the result branch is *definitionally* built from
@@ -834,7 +884,13 @@ at `:1586`. So the `_results_one` append must first recover them by reading back
 `results.tsv` row for its own `(VERSION, short)` (the same `awk -F'\t' … tail -1` shape as
 `cmd_court_all:1337`) immediately before the append. (Factor both appends through one
 `_append_court_history version repo spec gate_verdict detail court_verdict` helper so the row
-format lives in one place; each caller passes what it has resolved.) The
+format lives in one place; each caller passes what it has resolved. The helper must emit each row
+as a **single atomic `printf '…\n' … >> file`** — one write syscall — because `cmd_court_all`
+courts in concurrent background subshells (`) &` at `:1375`, throttled to
+`MAX_COURT_CONCURRENT`) that each append: a lone `printf >>` under the row's ~sub-512-byte size
+stays within Linux `O_APPEND` single-write atomicity on a local filesystem, so rows do not
+interleave; do **not** build the row with multiple `>>` calls, and add `flock` if a row could
+ever exceed that bound or the log could live on NFS.) The
 **detail** column is load-bearing for the infra exclusion below: the recorded gate verdict is
 only `PASS`/`FAIL` (`:944/:958`), so a `missing-gates`/`session-ended` infra fail is a `FAIL`
 distinguishable from a real gate FAIL *only* by its detail string — without the detail the
@@ -885,9 +941,15 @@ awk -F'\t' '
           d[repo[k]]++; tot++
           if (cv[k]=="PASS") { ff[repo[k]]++; num++ } }                            # court says good -> false-FAIL
         for (r in d) printf "%s\t%d/%d\n", r, ff[r], d[r]
-        printf "AGGREGATE\t%d/%d\n", num, tot }' test/court-history.tsv \
+        printf "AGGREGATE\t%d/%d\n", num, tot }' "${1:-test/court-history.tsv}" \
   | LC_ALL=C sort
 ```
+
+`cmd_court_metrics` takes its input path as `$1`, defaulting to the working-tree
+`test/court-history.tsv` for a live `make court-metrics`. Step (iv) below feeds it the
+**committed** log instead (`cmd_court_metrics <(git show HEAD:test/court-history.tsv)`), so the
+anti-fabrication re-derivation is committed-to-committed and does not drift as later court runs
+append to the working tree — see (iv).
 
 **Emit a canonical (sorted) order — the re-derivation check in (iv) below depends on it.**
 `for (r in d)` iterates awk associative-array keys in *unspecified* order (hash order; varies
@@ -915,12 +977,26 @@ log, not just the summary, is what makes step (iv) reproducible in review); (ii)
 `test/metrics/phase1-decision.txt` records the chosen branch (`stop-after-phase0` or
 `proceed-to-phase2`) together with the measured aggregate and worst per-repo false-FAIL rates;
 (iii) the recorded decision is *consistent with the ≤5%/≤10% rule* — `proceed-to-phase2` only
-when the rate still exceeds the boundary, `stop-after-phase0` when it does not; and (iv) the
-target **re-derives the snapshot from the raw log** — re-runs `cmd_court_metrics` on
-`test/court-history.tsv` and asserts its output equals the committed `court-baseline.tsv`
+when the rate still exceeds the boundary, `stop-after-phase0` when it does not; (iv) the
+target **re-derives the snapshot from the *committed* raw log** — re-runs `cmd_court_metrics
+<(git show HEAD:test/court-history.tsv)` (the committed log, **not** the working-tree
+`test/court-history.tsv`) and asserts its output equals the committed `court-baseline.tsv`
 exactly (a valid equality only because `cmd_court_metrics` emits the canonical `LC_ALL=C sort`
 order above — without that pin the check would flake on nondeterministic line ordering), then
-reads the rates *from that re-derived output* (not from the committed file) for the (iii) check. Recomputing from the *committed snapshot* alone (an earlier draft of this
+reads the rates *from that re-derived output* (not from the committed file) for the (iii) check;
+**(v)** P0a's crash-safe fallback is present — `grep -q 'not found, crashes, or emits no'` in
+**both** `gates/step3-autofix/crd-validation.md` and `gates/step3-autofix/patterns-completeness.md`
+(the two group-(ii) gates that have *no* other fallback, so their absence is the silent-false-PASS
+hole Phase 2 step 4 opens if it deletes RULE 2 / PATH-B with no P0a body behind it); and **(vi)**
+a committed `test/metrics/assert-court-permissions-result.txt` reads exactly `PASS` (the court
+permission fix was proven effective *before* the baseline was measured against it — an
+`INCONCLUSIVE` or absent result must block, since a measurement taken against a still-wide-open
+court is meaningless). Two temporal caveats: check (v) is a **pre-Phase-2 precondition** —
+it is sound because `check-phase1-baseline` runs at the Phase-1→Phase-2 boundary, *before* Phase
+2 step 4 legitimately deletes that trigger sentence; the later-phase *regression* re-runs
+(below) gate on rates via step (iv), not on re-grepping (v). And step (iv) reads `git show HEAD:`
+precisely so it stays stable across those later re-runs even as the working-tree log grows.
+Recomputing from the *committed snapshot* alone (an earlier draft of this
 spec) would be circular: a fabricated `court-baseline.tsv` + a matching `phase1-decision.txt`
 would pass. Re-deriving from `court-history.tsv` means faking the decision requires forging the
 entire per-run log consistently — far harder than editing two summary numbers. (It is not
@@ -982,6 +1058,25 @@ aggregate regression to be confirmed by a re-run** before it blocks a phase, and
 compare **per-repo against a fixed repo/version set**, not one aggregate number. (A
 full N-run mean±CI is impractical — each matrix run is a large AI fan-out — so
 confirm-by-rerun + per-repo is the right-sized variance control.)
+
+*(baseline-update protocol — how the regression gate advances across phases)* "Against the
+committed baseline" needs a concrete mechanism, or the checkpoint is unrunnable after Phase 1:
+step (iv)'s equality check is committed-to-committed and would break the moment a later matrix
+run grows the log unless the committed pair advances with it. So the baseline is **rolling, not
+frozen**, and it advances by one target: add `make commit-court-baseline` (a
+`cmd_commit_court_baseline`) that (1) re-derives `test/metrics/court-baseline.tsv` from the
+current working-tree `test/court-history.tsv` via `cmd_court_metrics`, and (2) stages **both**
+files for commit together (never one without the other, so step (iv) stays consistent). The
+per-phase flow is: after Phase 2 (and again after Phase 3) **re-run the matrix** — appending its
+courts to the working-tree log — then compare the **fresh** `cmd_court_metrics` output (working
+tree) against the **prior committed** `court-baseline.tsv`; require no pass-rate regression and
+no new false-FAIL (confirm-by-rerun, per-repo). *Only if that comparison passes* does the phase
+land: run `make commit-court-baseline` to roll the committed pair forward to include the new
+rows, so `check-phase1-baseline` step (iv) again re-derives cleanly at the new HEAD and the next
+phase compares against the now-current reference. A failing comparison blocks the phase and
+nothing is re-committed (the baseline stays at the last-good phase). This is deliberately **one**
+target reused at every boundary — not a `check-phase2-baseline`/`check-phase3-baseline` family
+— because the comparison logic is identical; only the committed reference moves.
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. **First sub-step — install the evidence transport, exercised on landing**
@@ -1098,9 +1193,14 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    `patterns-completeness.md`'s run under `PATH B — Script says BUILD-FAIL or NEW_ISSUES>0`
    (`:14-18`). For these two, "the checks below" the template's judge-from-scratch branch points
    to must be the **from-scratch variant P0a already added** (the new crash branch that runs the
-   manual checks against `git show $BASE:` without any script marking — Phase 0(b) group (ii),
-   lines 507-516), and the script-marking selectors (`crd-validation` RULE 2; `patterns-completeness`
+   manual checks against `git show $BASE:` without any script marking — Phase 0(b) group (ii)),
+   and the script-marking selectors (`crd-validation` RULE 2; `patterns-completeness`
    PATH A/B lead-ins) are dropped together with the FIRST STEP block, not preserved as "the body."
+   For `crd-validation` specifically, that P0a body supplies the replacement **"for each CRD
+   schema file in the repository"** scope that RULE 2's deleted lead-in used to provide — so
+   "Compare each CRD to the base branch version" (`crd-validation.md:21`) is not left with a
+   dangling "each CRD" antecedent. Removing RULE 2 is therefore a *swap* (script-marked scope →
+   from-scratch scope), not a bare deletion; do not drop the lead-in without landing the P0a body.
    So step 4 is a two-shape operation: a lead-in deletion for the 3 self-contained gates, and a
    selector-plus-lead-in removal that promotes the P0a from-scratch body for
    `crd-validation`/`patterns-completeness`.
@@ -1210,7 +1310,13 @@ still reads it, for the crash fallback and the dirty path).
 Per companion-less gate, authoring evidence is more than dropping a `.sh` in place:
 each also needs its `.md`'s read-your-evidence + HEAD-freshness block (paste the verbatim
 template from "Execution model"; the subagent judges from scratch on a miss) **and**
-registration in that step's spawn + fix-loop wiring, or the orchestrator never runs it. **For
+registration in that step's spawn + fix-loop wiring, or the orchestrator never runs it. **Each
+such PR pastes the `EVIDENCE (read before judging):` marker into one more `.md`, so it MUST also
+bump *N* in `assert-evidence-paths.sh` and run `make assert-evidence-paths` before landing** —
+Phase 2 step 7's `== N` guard (which counts *every* marker-carrying `.md`, companion-less
+included) turns a forgotten bump into a red build only if the target actually runs, and since no
+CI runs the harness yet this is a required per-PR checklist step, not an automatic one. Omitting
+it lets the marker count drift silently past the expected *N*. **For
 `rebase-completeness` this means adding step-1 wiring that Phase 2 deliberately left out** (see
 "Step 1 is out of scope" — step 1 has no companion today, so Phase 2 wired nothing for it). Do
 not read the Phase-2 wiring as already covering step 1: authoring `rebase-completeness.sh` in
