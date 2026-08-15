@@ -468,8 +468,8 @@ mechanical, but parts (b)/(c) change crash *semantics*: today a crashed companio
 (`report_has_verdict` accepts `FAIL`) and skips the subagent; after (b) it writes a
 **`.crash` breadcrumb and no report**, so `cmd_gates` emits PENDING and the subagent runs
 and judges (defer-not-fail). Treat these as load-bearing, not cosmetic.
-**The evidence-transport lib API is NOT installed here — it lands in Phase 2.** The
-transport functions
+**The evidence-transport lib API is NOT installed here — each `finish_*` lands with its
+first caller.** The transport functions
 (`_head_sha`/`_write_evidence`/`finish_evidence`/`finish_filter`/`finish_deterministic`/`finish_info`)
 exist nowhere today (`grep -rn
 'finish_evidence\|finish_filter\|finish_deterministic\|_write_evidence' scripts/ gates/`
@@ -477,13 +477,14 @@ is empty; live `gate-script-lib.sh` defines only
 `_gate_trap`/`init_gate`/`base_file_has`/`finish_gate`) and **nothing in Phase 0 calls
 them.** Landing them here would be dead code with no caller to review it against — and the
 Phase-1 decision gate may legitimately **STOP after Phase 0** (see Phase 1), in which case
-the transport never ships at all. So they are added in Phase 2 as its *first* sub-step,
-introduced together with the callers Phase 2 converts (a normal atomic add-with-caller);
-that ordering also forecloses the hazard that a literal Phase-2 execution would call an
-undefined `finish_evidence` → `set -euo pipefail` abort → `_gate_trap` fires → facts-free
-judge. (The requirement that each new `finish_*` end with `trap - EXIT; exit 0` travels
-with them to Phase 2.) **Phase 0's only lib edits are the `inc` guard (a) and the
-`_gate_trap` rewrite (b).**
+the transport never ships at all. So `finish_evidence` is added in **Phase 2** as its
+*first* sub-step, together with the first companion it converts (a real add-with-caller);
+`finish_filter`/`finish_deterministic` follow in **Phase 4** with their promotions, and
+`finish_info` is never added (no `info` gate has a companion to call it). That ordering also
+forecloses the hazard that a literal Phase-2 execution would call an undefined
+`finish_evidence` → `set -euo pipefail` abort → `_gate_trap` fires → facts-free judge. (The
+requirement that each new `finish_*` end with `trap - EXIT; exit 0` travels with each.)
+**Phase 0's only lib edits are the `inc` guard (a) and the `_gate_trap` rewrite (b).**
 (a) `inc` guard — defensive, currently unreached (the **4 lib-sourcing** companions —
 `build-vet`, `version-consistency`, `major-version-imports`, `go-version-check` —
 guard `((n++))` with `|| true`; `crd-validation`/`patterns-completeness` source no lib
@@ -623,11 +624,17 @@ full N-run mean±CI is impractical — each matrix run is a large AI fan-out —
 confirm-by-rerun + per-repo is the right-sized variance control.)
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
-Phase 1 binds. **First sub-step — install the transport lib API** (deferred from Phase 0,
-where it would be dead code): add
-`_head_sha`/`_write_evidence`/`finish_evidence`/`finish_filter`/`finish_deterministic`/`finish_info`
-to `gate-script-lib.sh` alongside the retained `finish_gate`, in the same PR as the first
-caller conversion below. **Each new `finish_*` MUST end with `trap - EXIT; exit 0`, exactly
+Phase 1 binds. **First sub-step — install the evidence transport, exercised on landing**
+(deferred from Phase 0, where it would be dead code): add `_head_sha`/`_write_evidence`/
+`finish_evidence` to `gate-script-lib.sh` alongside the retained `finish_gate`, **in the
+same PR that converts the first companion below** — so CI exercises the new functions
+immediately. "Atomic" here means API-and-caller *together*: an API-only PR would just
+relocate the Phase-0 dead code into Phase 2. Add only what Phase 2 actually calls —
+`finish_evidence` — since Phase 2 converts every companion to it; `finish_filter` and
+`finish_deterministic` land in **Phase 4** with their first promotion, and `finish_info`
+is omitted entirely (no `info` gate has a companion, so it would never be exercised). Same
+introduce-with-caller rule, applied per shape. **Each new `finish_*` MUST end with `trap -
+EXIT; exit 0`, exactly
 as `finish_gate` (lib:75-76).** The `_gate_trap` guard is nonzero-only (`[[ $exit_code -ne
 0 ]]`, lib:19-20), so a clean `exit 0` never trips it; the risk is a `finish_*` that
 *neither* `exit 0`s *nor* clears the trap and falls off the end with its last command's
@@ -733,7 +740,9 @@ must span the corpus, not one repo.
 This is the unconditional precondition for *any* autonomous verdict — a
 `deterministic` FAIL/PASS *and* a `filter` clean-PASS. Only now may `build-vet` etc.
 adopt `finish_filter`, and `major-version-imports`/`go-version-check` adopt
-`finish_deterministic`; expect few to qualify. A gate that can't prove its predicate
+`finish_deterministic` — **adding those two functions to `gate-script-lib.sh` in the same
+PR as the first promotion** (deferred from Phase 2 for the same no-dead-code reason:
+nothing calls them until a gate is promoted); expect few to qualify. A gate that can't prove its predicate
 stays `evidence`. Two fixtures are mandatory for the promotions this phase gates:
 (a) a **killed-tool** case for `build-vet` (SIGKILL/timeout a
 `go build` mid-run) — the promoted `filter` must **defer, not PASS and not FAIL**
