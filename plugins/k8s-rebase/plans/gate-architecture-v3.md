@@ -714,11 +714,23 @@ to the aggregate false-FAIL metric (a still-bypassing court just reads noisier, 
 `check-phase1-baseline` cannot distinguish from "fix not applied"), the verification cannot
 remain prose. **Ship a concrete harness assertion as a Phase-1 deliverable:**
 `test/assert-court-permissions.sh` (or a `cmd_assert_court_permissions` in `test-skill.sh`)
-that launches a minimal role with the *new* flags and asserts a `git checkout`/write attempt
-exits nonzero (denied) while a `git show` is allowed — a direct, mode-agnostic probe that
-fails loudly if a future edit reverts to a bypassing mode. Wire it to a k8s-rebase Makefile
-target and add it to the same pre-Phase-2 checklist as `check-phase1-baseline`, so the court
-fix is proven effective *before* any baseline is measured against it.
+that launches a minimal role with the *new* flags and asserts the role's `git checkout`/write
+attempt is **blocked by the permission layer** while a `git show` in the same role *is* allowed.
+Assert on the **permission decision, not the git command's exit code**: a bare `git checkout`
+exits nonzero for many non-permission reasons (not a repo, missing ref, dirty tree, nothing to
+check out), so an exit-code test would green-pass a wide-open court whenever the checkout happens
+to fail for an ordinary reason — exactly masking the regression the probe exists to catch. Check
+instead that the harness recorded the `Bash(git checkout …)` tool call as denied (e.g.
+`--output-format json`, assert the tool was never executed) **or** that the scratch repo is
+**unmutated** after the attempt (no new branch created, HEAD unchanged) — either cleanly
+separates "denied, no effect" from "executed but failed." Caveat — this is a **live-model
+integration check, not a unit test**: it spawns a real `claude -p` session (Vertex creds,
+network, latency) against a scratch git repo and must reliably *induce* the role to attempt the
+denied op to get a signal, so it is a heavier deliverable than the pure-bash
+`check-phase1-baseline`, and a model-unavailable run must read as INCONCLUSIVE (re-run required),
+never PASS. Wire it to a k8s-rebase Makefile target and add it to the same pre-Phase-2 checklist
+as `check-phase1-baseline`, so the court fix is proven effective *before* any baseline is
+measured against it.
 **(c) Anchor the base authoritatively:** the result branch is *definitionally* built from
 config `from_commit` (`cmd_run --from-commit`, `:480`), so `from_commit` — **not**
 `merge-base` — is the result's true pre-rebase base; pass it into `cmd_court` as a new
@@ -873,8 +885,21 @@ awk -F'\t' '
           d[repo[k]]++; tot++
           if (cv[k]=="PASS") { ff[repo[k]]++; num++ } }                            # court says good -> false-FAIL
         for (r in d) printf "%s\t%d/%d\n", r, ff[r], d[r]
-        printf "AGGREGATE\t%d/%d\n", num, tot }' test/court-history.tsv
+        printf "AGGREGATE\t%d/%d\n", num, tot }' test/court-history.tsv \
+  | LC_ALL=C sort
 ```
+
+**Emit a canonical (sorted) order — the re-derivation check in (iv) below depends on it.**
+`for (r in d)` iterates awk associative-array keys in *unspecified* order (hash order; varies
+by awk build, version, and key-insertion history), so two runs of the raw awk on the *same*
+`court-history.tsv` can print the per-repo lines in different orders. A byte-for-byte
+comparison of two such runs would then fail *spuriously* on an honest, unchanged log. Piping
+through `LC_ALL=C sort` (locale pinned so ordering is stable across machines) gives one
+deterministic order; `cmd_court_metrics` always ends with that pipe, so the committed snapshot
+*is* the sorted form and step (iv)'s exact comparison is order-stable. (The counts themselves
+are already deterministic — pure `%d` integers, no timestamps/floats/locale grouping — so only
+the *line order* needed pinning. `AGGREGATE` sorts among the repo lines under `LC_ALL=C`; the
+checker locates it by key, not by position, so its placement does not matter.)
 
 Commit its output to `test/metrics/court-baseline.tsv` (tracked): that pinned snapshot, not
 the live gitignored state, is the go/no-go input. All three — the `:1340`-filter drop,
@@ -893,8 +918,9 @@ log, not just the summary, is what makes step (iv) reproducible in review); (ii)
 when the rate still exceeds the boundary, `stop-after-phase0` when it does not; and (iv) the
 target **re-derives the snapshot from the raw log** — re-runs `cmd_court_metrics` on
 `test/court-history.tsv` and asserts its output equals the committed `court-baseline.tsv`
-exactly, then reads the rates *from that re-derived output* (not from the committed file) for
-the (iii) check. Recomputing from the *committed snapshot* alone (an earlier draft of this
+exactly (a valid equality only because `cmd_court_metrics` emits the canonical `LC_ALL=C sort`
+order above — without that pin the check would flake on nondeterministic line ordering), then
+reads the rates *from that re-derived output* (not from the committed file) for the (iii) check. Recomputing from the *committed snapshot* alone (an earlier draft of this
 spec) would be circular: a fabricated `court-baseline.tsv` + a matching `phase1-decision.txt`
 would pass. Re-deriving from `court-history.tsv` means faking the decision requires forging the
 entire per-run log consistently — far harder than editing two summary numbers. (It is not
@@ -1038,9 +1064,12 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    subagent not to judge in exactly the gates re-classified to keep the judge — the
    principle-7 accelerant. (Pulled forward from Phase 3.)
 4. Drop *only* the FIRST STEP block. In the 3 companion gates that also carry a
-   base-filter block (`major-version-imports.md:22`, `patterns-completeness.md:48`,
+   base-filter block (`major-version-imports.md:42-47`, `patterns-completeness.md:48`,
    `go-version-check.md:43`), delete the FIRST STEP block surgically and preserve the
-   base-filter. **Also remove the P0a crash-safe fallback *trigger* in the *same* edit —
+   base-filter. (For `major-version-imports.md` the base-filter is the "For each finding,
+   check the base branch … report as INFO but do NOT count toward FAIL" block at `:42-47` —
+   **not** the "MANDATORY first action" klog grep at `:22`, which is a flag-*everything* rule,
+   the opposite of a pre-existing filter; do not mistake `:22` for the filter to keep.) **Also remove the P0a crash-safe fallback *trigger* in the *same* edit —
    do not retarget it to a second copy of the evidence-miss condition.** P0a widened four
    companion `.md` triggers to "if the companion script is not found, crashes, or emits no
    `NEW_ISSUES` line" and added an equivalent branch to `crd-validation`/`patterns-completeness`
@@ -1060,6 +1089,21 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    template points to — keep them, just drop the now-redundant "if the companion script is not
    found, fall back to …" lead-in. One trigger (shared, verbatim), one per-gate check body, no
    duplicated condition to drift. Bundle the deletion with this file's atomic conversion.
+   **This clean "delete the lead-in, keep the body" shape holds only for the 3 gates whose
+   manual body is self-contained from-scratch prose** — `build-vet` (`:20-44`),
+   `version-consistency` (`:19-37`), `go-version-check` (`:18-56`). The other two need more than
+   a sentence deletion, because their check bodies are *gated on companion-script output* that
+   no longer exists once the FIRST STEP block is gone: `crd-validation.md`'s checks select "CRDs
+   the script marked CHANGED-VALIDATION or ALL-NEW" (RULE 2, `:13-19`) and
+   `patterns-completeness.md`'s run under `PATH B — Script says BUILD-FAIL or NEW_ISSUES>0`
+   (`:14-18`). For these two, "the checks below" the template's judge-from-scratch branch points
+   to must be the **from-scratch variant P0a already added** (the new crash branch that runs the
+   manual checks against `git show $BASE:` without any script marking — Phase 0(b) group (ii),
+   lines 507-516), and the script-marking selectors (`crd-validation` RULE 2; `patterns-completeness`
+   PATH A/B lead-ins) are dropped together with the FIRST STEP block, not preserved as "the body."
+   So step 4 is a two-shape operation: a lead-in deletion for the 3 self-contained gates, and a
+   selector-plus-lead-in removal that promotes the P0a from-scratch body for
+   `crd-validation`/`patterns-completeness`.
 
 **Per-step wiring (lands ONCE per step, in the LAST companion-conversion PR for that
 step — NOT per gate).** Two step-level edits must not land until every companion in that
@@ -1117,8 +1161,14 @@ step has had its FIRST STEP block removed (steps 1-4 above):
    `.md` files yet carry a named evidence path, so a bare "check every named path" assertion
    passes by checking nothing — add an **exact-count** assertion: the script must find the
    `EVIDENCE (read before judging):` marker (and its named path) in *exactly N* `.md` files,
-   where *N* is the number of companions converted so far (2 after step 2 lands, 6 after all
-   Phase-2 conversions, growing in Phase 3). Record the expected *N* in the script. Use `== N`,
+   where *N* is the number of gate `.md` files that carry the template so far — **not** the count
+   of companions (which caps at 6). It is 2 after step 2 lands, 6 after all Phase-2 companion
+   conversions, then **> 6** in Phase 3 as the same verbatim template is pasted into each
+   companion-*less* gate (`type-conversions`, `rebase-completeness`, `feature-gates` — see
+   "Per companion-less gate" in Phase 3, which adds the marker too). Defining *N* as "companions"
+   would make `== N` red-build every valid Phase-3 companion-less conversion (marker count
+   `7 != 6`); count every `.md` carrying the marker, and bump *N* on companion-*less* additions
+   too. Record the expected *N* in the script. Use `== N`,
    **not `>= N`**: with `>= N`, a conversion PR that adds the block but forgets to bump *N*
    still passes (count `N+1 >= N`), and a later accidental removal back to *N* also passes
    (`N >= N`) — a permanent silent blind spot. With `== N`, the forgotten-bump PR produces
