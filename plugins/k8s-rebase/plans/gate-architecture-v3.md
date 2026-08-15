@@ -479,9 +479,13 @@ they ship now: it makes Phase 2 a pure *caller-swap* rather than an add-and-call
 this step a literal Phase-2 execution calls an undefined `finish_evidence`, which under
 `set -euo pipefail` aborts, fires `_gate_trap`, and degrades every converted companion to a
 facts-free judge. **Each new `finish_*` MUST end with `trap - EXIT; exit 0`, exactly as
-`finish_gate` does (lib:75-76): once (b) rewrites `_gate_trap` to drop a `.crash`
-breadcrumb, any `finish_*` that forgets to clear the trap fires it on *normal* completion
-and self-reports a phantom crash on every converted gate.** The `inc` guard (a) and
+`finish_gate` does (lib:75-76).** The `_gate_trap` guard is nonzero-only (`[[ $exit_code
+-ne 0 ]]`, lib:19-20), so a clean `exit 0` never trips it; the risk is narrower: a
+`finish_*` that *neither* `exit 0`s *nor* clears the trap falls off the end with the exit
+status of its last command, and on the found-issues path that last command is a failing
+test (`[[ "$issues" -gt 0 ]]` → rc 1) — a nonzero exit that, once (b) rewrites `_gate_trap`
+to drop a `.crash` breadcrumb, self-reports a phantom crash. The explicit `exit 0`
+forecloses this on every path; clearing the trap is belt-and-suspenders. The `inc` guard (a) and
 `_gate_trap` rewrite (b) are the only *other* lib edits.
 (a) `inc` guard — defensive, currently unreached (the **4 lib-sourcing** companions —
 `build-vet`, `version-consistency`, `major-version-imports`, `go-version-check` —
@@ -495,16 +499,23 @@ and increment via `$((new+1))`, so the trap/`inc`/counter guarantees here scope 
 So the in-script trap (keys off `$GATE_NAME`), the orchestrator (keys off
 `${sd%-*}-${gate_name}`), `cmd_init` (globs `*.crash`), and the harness reader (keys off
 `${gate}.crash`) all resolve the same file; a mismatch here silently loses crashes or
-never cleans them. This identity holds only because every step dir has exactly one hyphen
-(`${sd%-*}` strips the single suffix segment) — a multi-hyphen step dir would break it, so
-keep step-dir names single-hyphen or move both sites to the `grep -oE '^step[0-9]+'` form.
+never cleans them. This identity holds only because every step dir has exactly one hyphen: `init_gate`
+already extracts the prefix with `grep -oE '^step[0-9]+'` (lib:37, hyphen-immune), while
+the orchestrator's `${sd%-*}` sites (`report_path`:108, `count_reports`:97, and the new
+`.crash` writer) strip only the last suffix segment — so on a multi-hyphen dir they would
+*diverge* (`step2-compile-vet` → grep `step2` vs `%-*` `step2-compile`), not both break the
+same way. Keep step-dir names single-hyphen, or move the orchestrator `${sd%-*}` sites to
+the same `grep -oE '^step[0-9]+'` form (`init_gate` needs no change).
 Being gate-name-prefixed, a stale crash on gate A cannot mask a real one on gate B; its
 only impact is false-positive crash-count noise. **And** the orchestrator writes the
 breadcrumb when the child exits `124` (timeout — the dominant crash) or `>128`
-(signal-killed, e.g. `137`): an untrapped SIGTERM/SIGKILL terminates `bash` *without*
-running its EXIT trap, so these never reach the in-script trap and the orchestrator must
-own them. (Prefer `timeout --kill-after`/`-s KILL` so a companion that swallows SIGTERM
-still dies with a capturable code; confirm the exact code empirically.) The live `cmd_gates` runs the
+(signal-killed, e.g. `137`): on the common `timeout` SIGTERM the in-script EXIT trap *does*
+run but observes `$? = 0` (verified empirically — bash runs the EXIT trap on an untrapped
+SIGTERM), so the nonzero-guarded trap writes nothing while `timeout` still surfaces `124`
+to the orchestrator; only SIGKILL skips the trap entirely (`137`). Either way the in-script
+trap records no crash for the timeout/kill class, so the orchestrator must own `>=124`.
+(Prefer `timeout --kill-after`/`-s KILL` so a companion that swallows SIGTERM still dies
+with a capturable code; confirm the exact code empirically.) The live `cmd_gates` runs the
 companion as `if output=$(timeout … bash "$companion" …); then` (`orchestrator.sh:203`),
 which **discards** the child exit code — so this patch must restructure that line to
 capture it: `rc=0; output=$(timeout "$GATE_OUTER_TIMEOUT" bash "$companion" "$repo" 2>&1)
