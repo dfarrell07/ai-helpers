@@ -598,17 +598,40 @@ base `a32f6388` (= `merge-base(known_good, bump1.34)` = config `from_commit`): `
 a32f6388 bump1.34 -- go-controller/pkg/cni/cni.go` is **0 lines** and `go build ./...`
 exits 0 — the rebase correctly left the file untouched. The juror `BASE_REF` didn't save
 it: the jurors were flooded by the pros/def/judge briefs already anchored on `f261`, and
-their required `VERIFIED:` lines cite `@f261f146c`, not `BASE_REF`. **Fix:** hoist
-`base_ref=$(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo
-"$known_good")` once after `:1111`, inject it into `$preexisting` (which flows to **all
-four** prompts) with an explicit rule — *"BASE_REF=<sha> is the only pre-rebase base;
-check pre-existence with `git show BASE_REF:<path>` ONLY; NEVER use HEAD or the current
-checkout — the repo may be parked at an unrelated commit"* — and dedupe the juror `:1233`
-line to reuse the var. `merge-base` is checkout-independent, so this closes the hole
-regardless of ambient HEAD; belt-and-suspenders, assert `HEAD == from_commit` before
-running court. This is sequenced **first** because it directly deflates the very metric
-below — a base-misidentified court manufactures false-FAILs, so measuring reliability
-before fixing it measures the court's bug, not the subagents'.
+their required `VERIFIED:` lines cite `@f261f146c`, not `BASE_REF`. Generality: re-diffed
+against the true base, **every** flagged count collapses — `cni.go`/`egressip.go`/
+`kind-common` are 0-line diffs (pure phantoms), and the only real rebase changes
+(`e2e-kind.sh` `v1.33`→`v1.34`, `conformance/go.mod` k8s dep bumps) match the human's or
+are minor version skew, never a regression vs base — so a correct anchor repairs the whole
+verdict, not just one file. **Fix (enforcement, not instruction — the prior design already
+*gave* jurors a correct `BASE_REF` at `:1233` and they were still swayed, so more prose
+won't hold).** Four parts. **(a) Cut the HEAD-leak vector at its source:** prosecution/
+defense/judge reason purely over the in-prompt diff and need *no* git — today they inherit
+`bypassPermissions` (all tools), which is how `f261` entered as "evidence." Run them with
+tools disabled (no `Bash`/`Read`) so an arguer can only cite the provided diff and can no
+longer manufacture a phantom `@f261f146c` file-read for the jury to follow. **(b) Bind the
+jurors' tools:** jurors *do* need git to verify, but their `--allowedTools` allow-list
+(`:1230`) is a **no-op under `bypassPermissions`** — drop bypass for them so the read-only
+list (`git show/diff/log`, `Read`) actually binds and `git checkout/reset` is impossible.
+**(c) Anchor the base authoritatively:** the result branch is *definitionally* built from
+config `from_commit` (`cmd_run --from-commit`, `:480`), so `from_commit` — **not**
+`merge-base` — is the result's true pre-rebase base; pass it into `cmd_court` (resolved in
+`cmd_court_all`'s per-version config context, `:1328-1364`; `merge-base(known_good,result)`
+only as the fallback for a manual `make court` with no config). Guard with `git merge-base
+--is-ancestor "$base_ref" "$result_branch"` (and `… "$known_good"`) → INCONCLUSIVE on
+failure: that single check deterministically rejects a parked/misconfigured base (`f261`
+is *not* an ancestor of `bump1.34`) instead of silently judging against a future tree. Do
+**not** gate on `merge-base == from_commit` equality — human and AI legitimately rebase
+from different bases, and that would false-INCONCLUSIVE good runs, eroding the coverage
+metric below. **(d) Thread the ref into every prompt AND the prose:** inject `BASE_REF`/
+`RESULT_REF` into the prosecution/defense/judge prompts (which today get neither) *and*
+rewire the PASS/FAIL prose (`:1160-1167`) — it still says "the base branch" abstractly —
+to read *"base = `BASE_REF`; test pre-existence via `git show BASE_REF:<path>` only."* Drop
+the earlier detached-checkout idea: the `running/` marker is version-scoped (`:1341`) so
+cross-version courts would race the shared clone, and it would put the *result* tree at
+HEAD (the wrong tree for the "did it pre-exist?" question) — part (a) makes it unnecessary.
+This is sequenced **first** because a base-misidentified court manufactures false-FAILs,
+so measuring reliability before fixing it measures the court's bug, not the subagents'.
 *(metric)* the go/no-go for the rollout is **court verdict / false-FAIL rate on the
 post-`pr-feedback-resolution` stripping baseline**, plus per-gate latency (so the cost
 of adding scripts is visible) — NOT subagent count, which measures cost not the
@@ -873,7 +896,7 @@ orthogonal to the steps-1-4 gate redesign.
 | Runtime module-classification fetch fails (GOPROXY offline / target tag unpublished) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
 | Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb when the child exits `124` (timeout) or `>128` (signal). Breadcrumb + harness reader ship together (Phase 0). NB: force-advance does **not** rescue this in production — `INCOMPLETE` is write-only (see "Execution model"); the human-facing surfacing is the deferred gap in "Production backstop". |
 | `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Med | Accepted trade; Phase 1 records per-gate latency so cost is visible. |
-| Court false-FAIL from base misidentification (corrupts the Phase-1 go/no-go metric) | High | Pros/def/judge prompts pin no base → default to ambient `HEAD` (stale shared checkout, e.g. 1546 commits off). Phase-1 fix injects `merge-base(known_good,result)` as `BASE_REF` into all four prompts, forbids HEAD, asserts `HEAD==from_commit`. Verified case: `ovn-org/ovn-kubernetes` 1.34.1 false-FAIL on a 0-diff-from-base `cni.go`. Do before measuring. |
+| Court false-FAIL from base misidentification (corrupts the Phase-1 go/no-go metric) | High | Pros/def/judge prompts pin no base and inherit `bypassPermissions` (all tools) → default to ambient `HEAD` (stale shared checkout, e.g. 1546 commits off). Phase-1 fix is *enforcement*: disable git for pros/def/judge (they only need the in-prompt diff), bind jurors' read-only allow-list by dropping bypass, anchor `BASE_REF` to config `from_commit` (authoritative; merge-base fallback) with an `--is-ancestor` guard → INCONCLUSIVE, and thread `BASE_REF` into all prompts + the PASS/FAIL prose. Verified case: `ovn-org/ovn-kubernetes` 1.34.1 false-FAIL where every flagged file is 0-diff-from-base or minor scope skew. Do before measuring. |
 | Cross-plan collision (count; module-class helper; test-skill.sh regions) | Medium | Reconcile in Phase 5 against live state; one sourced classification helper; Phase 1 court edit is a different region than pr-feedback's stripping edit but runs against the post-stripping baseline. |
 
 ## Success criteria
