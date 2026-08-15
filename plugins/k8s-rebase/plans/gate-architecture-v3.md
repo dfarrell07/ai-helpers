@@ -477,11 +477,19 @@ likely **PASS**, inverting today's crash→FAIL→block (`_gate_trap` today writ
 report, `gate-script-lib.sh:21-25`). This regression opens the moment (b) lands: the
 `_gate_trap` rewrite is shared code, so it drops the crash→FAIL backstop for every
 in-subagent companion run (steps 1-3) at once, and the orchestrator `.crash` change drops
-it for the already-orchestrated step 4 — both in (b). Fix in the (b) PR: widen every
-companion `.md`'s fallback trigger from "if the companion script is not found" to "if the
-companion script is not found, **crashes, or emits no `NEW_ISSUES` line**" → the subagent
-runs its manual checks (real judgment from the diff), never a blind PASS. That lands the
-semantic change and its consumer-side handling together, so no interval opens.
+it for the already-orchestrated step 4 — both in (b). Fix in the (b) PR: give **every**
+companion `.md` a crash-safe fallback so a crash routes to manual checks (real judgment from
+the diff), never a blind PASS. This is **not** a uniform substitution — the six companion
+`.md` files fall into three shapes, so the (b) PR must touch each accordingly: (i) the four
+that carry the standard trigger — `build-vet.md:17`, `version-consistency.md:17`,
+`major-version-imports.md:16`, `go-version-check.md:16` — widen "if the companion script is
+not found" to "if the companion script is not found, **crashes, or emits no `NEW_ISSUES`
+line**"; (ii) `patterns-completeness.md:42` phrases it differently ("If not found, rely on
+steps 1-3 above") — widen that same clause; (iii) `crd-validation.md` has **no fallback
+block at all** (MANDATORY → RULE 1 → RULE 2 → checks) — **add** an explicit "if the
+companion script is not found, crashes, or emits no `NEW_ISSUES` line, judge from the diff"
+branch. Landing all three shapes in the (b) PR keeps the semantic change and its
+consumer-side handling together, so no interval opens.
 **The evidence-transport lib API is NOT installed here — each `finish_*` lands with its
 first caller.** The transport functions
 (`_head_sha`/`_write_evidence`/`finish_evidence`/`finish_filter`/`finish_deterministic`/`finish_info`)
@@ -668,20 +676,26 @@ post-`pr-feedback-resolution` stripping baseline**, plus per-gate latency (so th
 of adding scripts is visible) — NOT subagent count, which measures cost not the
 reliability at issue. **Source precisely:** the court verdict is **not** in
 `results.tsv` — that file's col-5 is the *gate-completion* verdict from `_tally_gates`
-(`test-skill.sh:1013/1079`); the court verdict is written separately to
-`court/${VERSION}_${repo_key}` (`:1585`) and `rm`'d on record (`:1016`). So the
-committed metrics snapshot must **join** the `results.tsv` row with the court verdict
-(and a recomputed known-good hunk count) per repo/version — **but that join is
-unbuildable against live code and is a required first sub-step (code, before any
-measurement):** `record()` deletes `court/${VERSION}_${repo_key}` at `:1016` immediately
-after appending the `results.tsv` row (`:1013`), and `_results_for_version` reads that
-same live file (`:1615`), so it returns `-` for every already-recorded run — the verdict
-is erased before it can be captured. Fix: in `record()`, persist the court verdict
-*before* the `rm -f` by appending to a **parallel court-history file**
-(`${version}\t${repo}\t${verdict}\t${ts}`) — additive, breaking no existing `results.tsv`
-reader, the same rationale that makes Phase 0 prefer a parallel `.crash` scan over
-re-arity-ing `_tally_gates` (widening `results.tsv` to a 7th column would touch its three
-readers). Commit the baseline snapshot from that history file; only then are the numbers
+(`test-skill.sh:1013/1079`). The court runs **on demand, on a path separate from record**:
+`cmd_court_all` writes the fresh verdict at `:1374` and `_results_one` (the `make results
+--court` display path) writes it at `:1586`, each into a single point-in-time file
+`court/${VERSION}_${repo_key}`. So the committed metrics snapshot must **join** the
+`results.tsv` row with the court verdict (and a recomputed known-good hunk count) per
+repo/version — **but that join is unbuildable against live code and is a required first
+sub-step (code, before any measurement):** that point-in-time file is a *cache*, not a
+journal — `_do_record_one` `rm`s it at `:1016` (and the Phase-3 retry loop `rm`s it at
+`:1792`/`:1808`) to invalidate it before the next run/court-retry — and the court verdict
+of the run just recorded **does not exist at record time** (the court hasn't run yet), so
+persisting "in `record()` before the rm" would capture only a stale prior verdict or
+nothing. `_results_for_version` reads that same live cache (`:1615`) and shows `-`/`pending`
+for any run whose on-demand court hasn't (re)run — the verdict is never journaled. Fix at
+the **write** sites, not the record path: at both `cmd_court_all:1374` and
+`_results_one:1586`, in addition to the point-in-time write, **append** the fresh verdict to
+an append-only **court-history file** (`${version}\t${repo}\t${verdict}\t${ts}`). Leave the
+point-in-time file and its `rm`s alone (they are the cache). The history file is additive,
+breaking no existing `results.tsv` reader — the same rationale that makes Phase 0 prefer a
+parallel `.crash` scan over re-arity-ing `_tally_gates` (widening `results.tsv` to a 7th
+column would touch its three readers). Commit the baseline snapshot from that history file; only then are the numbers
 below a real go/no-go input rather than a self-erasing artifact. Define false-FAIL
 concretely: *known-good input (court says good) but a blocking non-`info` gate FAILed*
 — explicitly **excluding** infra fails (stale/no-branch, missing gates,
@@ -975,7 +989,7 @@ orthogonal to the steps-1-4 gate redesign.
 | Freshness oversold — HEAD drifts during step-4's concurrent lint commits | Medium | **Decided (not Open):** keep the deliberate 4a‖4b concurrency — drift degrades safely (consumer judges from scratch, and `report_is_fresh:122-133` already forces a re-run so no autonomous verdict is ever stale). Extend the per-iteration evidence regeneration mandated for steps 1-3 (Phase 2) to step 4's fix loop so evidence-in *value* survives re-runs, and gate `filter`/`verdict` **promotions** on a settled HEAD (`--no-test` exit 0). This is churn-avoidance + documentation, not a new correctness backstop; do **not** blanket-serialize step-4 consumption. |
 | Runtime module-classification fetch fails (GOPROXY offline / target tag unpublished) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
 | Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb when the child exits `124` (timeout) or `>128` (signal). Breadcrumb + harness reader ship together (Phase 0). NB: force-advance does **not** rescue this in production — `INCOMPLETE` is write-only (see "Execution model"); the human-facing surfacing is the deferred gap in "Production backstop". |
-| Crash-semantics regression window (Phase 0(b) drops crash→FAIL before consumers handle crash→judge) | Medium | Bounded to a **single PR, not the Phase 0→Phase 2 interval**: the (b) `_gate_trap` rewrite and the companion `.md` fallback-widening (trigger fires on not-found **or crash/no-`NEW_ISSUES`-line**) land together, so no interval opens where a crash routes to a subagent whose rules only cover successful runs. Without the co-landing a crash would flip from today's blocking FAIL to a likely blind PASS. See Phase 0(b). |
+| Crash-semantics regression window (Phase 0(b) drops crash→FAIL before consumers handle crash→judge) | Medium | Bounded to a **single PR, not the Phase 0→Phase 2 interval**: the (b) `_gate_trap` rewrite and the per-file companion `.md` crash-safe fallbacks (widen the 4 standard triggers + `patterns-completeness`'s variant; **add** one to `crd-validation`, which has none) land together, so no interval opens where a crash routes to a subagent whose rules only cover successful runs. Without the co-landing a crash would flip from today's blocking FAIL to a likely blind PASS. See Phase 0(b). |
 | `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Med | Accepted trade; Phase 1 records per-gate latency so cost is visible. |
 | Court false-FAIL from base misidentification (corrupts the Phase-1 go/no-go metric) | High | Pros/def/judge prompts pin no base and inherit `bypassPermissions` (all tools) → default to ambient `HEAD` (stale shared checkout, e.g. 1546 commits off). Phase-1 fix is *enforcement*: disable git for pros/def/judge (they only need the in-prompt diff), bind jurors' read-only allow-list by dropping bypass, anchor `BASE_REF` to config `from_commit` (authoritative; merge-base fallback) with an `--is-ancestor` guard → INCONCLUSIVE, and thread `BASE_REF` into all prompts + the PASS/FAIL prose. Verified case: `ovn-org/ovn-kubernetes` 1.34.1 false-FAIL where every flagged file is 0-diff-from-base or minor scope skew. Do before measuring. |
 | Cross-plan collision (count; module-class helper; test-skill.sh regions) | Medium | Reconcile in Phase 5 against live state; one sourced classification helper; Phase 1 court edit is a different region than pr-feedback's stripping edit but runs against the post-stripping baseline. |
