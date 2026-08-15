@@ -702,9 +702,11 @@ only as subordinate clauses, so they are collected here as a checklist):
    step; the base-anchoring subsection below marks it "do first.")
 2. Ship `assert-court-permissions.sh` and confirm it writes `PASS` to
    `test/metrics/assert-court-permissions-result.txt`. **Must precede step 4** — a baseline
-   measured against a still-wide-open court is meaningless. If it returns `INCONCLUSIVE` 3×
-   running, **stop and debug the probe** (creds / transcript / prompt, per its spec above) —
-   never proceed on an unresolved or non-`PASS` result, and never hand-edit the file to `PASS`.
+   measured against a still-wide-open court is meaningless. If the durable streak counter reaches
+   3 consecutive `INCONCLUSIVE` runs the probe writes `PROBE-BROKEN` to that file (per its spec
+   above) — **stop and debug the probe** (creds / transcript / prompt) rather than proceed. Any
+   non-`PASS` value blocks; never proceed on an unresolved result, and never hand-edit the file to
+   `PASS`.
 3. Drop the `cmd_court_all:1340` PASS-only filter (so gate-FAIL rows are courted and the
    false-FAIL numerator is non-empty) and make the per-spec court-history writes + the analyzer.
    **Must precede step 4** — courts run before the filter drop produce a structural 0% history
@@ -808,12 +810,16 @@ stream-json transcript — an empty tool record (auth failure, network timeout, 
 the model declining in plain text without calling Bash) means the probe never exercised the
 permission layer and MUST read as **INCONCLUSIVE (re-run required), never PASS**; only a
 *present-and-denied* event is a PASS. **Bound the re-run loop so it cannot spin forever:** the
-script keeps a **durable streak counter** `test/metrics/probe-inconclusive-streak.txt` —
+script keeps a **durable streak counter** `test/.matrix-state/probe-inconclusive-streak.txt`
+(local bookkeeping — that path is gitignored, so the counter persists on disk across invocations
+without being committed; only the result file's verdict is the committed cross-session signal) —
 incremented on every `INCONCLUSIVE` run, reset to `0` on any conclusive `PASS`/`FAIL` — so the
 "consecutive" count survives across separate invocations at this Phase-1 boundary instead of living
 only in the operator's memory. INCONCLUSIVE stays blocking and is *never* auto-converted to PASS,
-but when the streak reaches **3** the script stops treating it as transient and writes a distinct
-fourth verdict, **`PROBE-BROKEN`**, to the result file (not another `INCONCLUSIVE`), and emits a
+but once the streak reaches **3 or more** the script stops treating it as transient and writes a
+distinct fourth verdict, **`PROBE-BROKEN`**, to the result file (not another `INCONCLUSIVE`) — the
+counter keeps climbing past 3 and the verdict stays `PROBE-BROKEN`, never flapping back to
+`INCONCLUSIVE` — and emits a
 diagnostic directing the operator to (1) check Vertex creds / network reachability, (2) inspect the
 stream-json transcript to tell a prose-decline (the model never emitted the `git checkout -b`
 `tool_use` at all) apart from an auth/transport abort, and (3) adjust the probe prompt if the model
@@ -1153,7 +1159,7 @@ boundary and never rewritten, is what every later phase's rate-regression compar
 rolling one advances by one target: add `make commit-court-baseline` (a
 `cmd_commit_court_baseline`) that (0) **rejects a pre-staged index up front** —
 `git diff --cached --quiet || { echo 'ERROR: index has pre-staged changes; stash or commit them
-first'; exit 1; }` — so the commit contains *exactly* the two court files and nothing a prior
+first'; return 1; }` — so the commit contains *exactly* the two court files and nothing a prior
 `git add` left staged; (1) re-derives `test/metrics/court-baseline.tsv` from the current
 working-tree `test/court-history.tsv` via `cmd_court_metrics`; and (2) stages **and commits** the
 log and the re-derived `court-baseline.tsv` together in one commit (never one without the other, so
@@ -1190,7 +1196,9 @@ per-repo regression:
 ```bash
 cmd_court_regression() {                       # exit 0 = clean, 1 = regression, 2 = error
   local base="test/metrics/court-baseline-phase1.tsv"
-  [[ -f "$base" ]] || { echo "ERROR: frozen anchor $base missing"; return 2; }
+  [[ -s "$base" ]] || { echo "ERROR: frozen anchor $base missing or empty"; return 2; }
+  # -s (not -f): a 0-byte anchor would pass -f but then FNR==NR stays true across the whole
+  # fresh file, folding the fresh snapshot into b[] and reporting every repo backwards as MISSING.
   # fresh snapshot = cmd_court_metrics over the current (matrix-appended) working-tree log,
   # emitted in the same canonical LC_ALL=C order, so both sides key on the repo column.
   awk -F'\t' '
@@ -1201,6 +1209,10 @@ cmd_court_regression() {                       # exit 0 = clean, 1 = regression,
       for (r in b) {
         if (!(r in f)) { printf "MISSING\t%s\t(in anchor, absent fresh)\n", r; rc=2; continue }
         split(b[r], bp, "/"); split(f[r], fp, "/")            # [1]=false-FAILs, [2]=denominator
+        if (bp[2]+0 == 0) {                                   # anchor rate undefined (0 denominator):
+          if (fp[1]+0 > 0) {                                  # a bare cross-multiply would mask it as 0>0
+            printf "REGRESSION\t%s\tanchor=%s fresh=%s (anchor denom 0)\n", r, b[r], f[r]; if (rc < 1) rc = 1 }
+          continue }
         # false-FAIL rate rose iff  fp_ff/fp_den > bp_ff/bp_den  — cross-multiply, integer-safe,
         # denominator-independent (fresh and anchor need not share a court count)
         if (fp[1]*bp[2] > bp[1]*fp[2]) {
@@ -1223,6 +1235,31 @@ on the **intersection** — a repo flagged `REGRESSION` in *both* runs (a `MISSI
 blocks on *either*, since a dropped repo is not variance). A regression seen in only one run is
 logged and re-run, never blocks. The exit-code contract is stated exactly as
 `check-phase1-baseline`'s: nonzero blocks the phase, and nothing is re-committed on a block.
+
+The intersection itself needs the same concrete shape as the single-run diff, not just prose —
+`make court-regression` maps to the wrapper `cmd_court_regression_confirmed`, which takes two
+independent samples and applies the block rule mechanically:
+
+```bash
+cmd_court_regression_confirmed() {             # `make court-regression`; exit 0 = phase may land, 1 = block
+  local reg1 reg2 rc1 rc2
+  cmd_matrix all                               # sample 1: re-run spec=all (Phase 1 wires courting into the
+  reg1="$(cmd_court_regression)"; rc1=$?       #           run, so it appends fresh court rows to the log)
+  cmd_matrix all                               # sample 2: an independent re-run — latest-row-wins in
+  reg2="$(cmd_court_regression)"; rc2=$?       #           cmd_court_metrics makes this a distinct draw
+  if (( rc1 == 2 || rc2 == 2 )); then          # MISSING / error on EITHER sample blocks: a dropped repo
+    printf '%s\n%s\nBLOCK: missing repo or error (see above)\n' "$reg1" "$reg2"; return 1
+  fi                                           # is not AI variance, so one occurrence is enough to block
+  # REGRESSION blocks ONLY on the intersection — a repo flagged in *both* samples:
+  if comm -12 \
+       <(printf '%s\n' "$reg1" | awk -F'\t' '$1=="REGRESSION"{print $2}' | LC_ALL=C sort -u) \
+       <(printf '%s\n' "$reg2" | awk -F'\t' '$1=="REGRESSION"{print $2}' | LC_ALL=C sort -u) \
+     | grep -q .; then
+    echo "BLOCK: false-FAIL regression confirmed on both runs"; return 1
+  fi
+  return 0                                      # clean — a one-run-only flag is logged, not blocking
+}
+```
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. **First sub-step — install the evidence transport, exercised on landing**
