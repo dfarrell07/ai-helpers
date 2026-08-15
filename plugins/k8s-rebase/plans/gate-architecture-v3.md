@@ -293,6 +293,24 @@ actually bind on evidence (as `report_is_fresh` already does for reports). That 
 is fully determined by repo root + gate name (nothing to look up), so the subagent
 needs nothing relayed from the main agent.
 
+This is the **single authoritative template** — paste it verbatim into each converted gate
+`.md` (Phase 2 step 2, Phase 3 for companion-less gates), substituting only the literal
+`<prefix>-<gate>` for that gate; do not re-word it per file, or the freshness phrasing and
+fallback drift across the 6+ gates that carry it:
+
+```markdown
+EVIDENCE (read before judging): if `.rebase-tmp/gates/<prefix>-<gate>.evidence` exists,
+run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+- Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
+- Differ (HEAD drifted since it was written) or file absent: the evidence is stale/missing —
+  ignore it and judge this gate from scratch using the checks below. Do NOT PASS on the
+  strength of absent or stale evidence.
+```
+
+The step-7 lint (below) additionally greps each converted `.md` for the literal marker
+`EVIDENCE (read before judging):` so a file where the block was accidentally omitted fails
+the build, not just one whose path drifted.
+
 One hazard the convention introduces: the `<prefix>-<gate>` string now has **three
 independent producers** that must agree byte-for-byte — the writer (`GATE_NAME`, built
 in `init_gate` via `grep -oE '^step[0-9]+'`, `gate-script-lib.sh:37`), the orchestrator
@@ -302,10 +320,16 @@ strip); they happen to agree for today's `stepN-name` dirs, but that is a coinci
 not a guarantee — so this plan does **not** claim they are "identical." Phase 2 must
 either route all three through **one sourced helper** (`gate_artifact_prefix`) or add a
 test asserting the three agree for every step dir. And the read-evidence instruction
-must **fail loud** on a miss: if the `.md`'s named path does not exist, the subagent
-judges from scratch *and* the gate drops an `EVIDENCE_MISSING` breadcrumb (surfaced by
-the Phase-0 harness reader), so a silent prefix drift shows up as a diagnostic instead
-of a facts-free judgment that looks normal.
+must **degrade safely** on a miss: if the `.md`'s named path does not exist, the subagent
+judges from scratch (no verdict is fabricated — the always-safe default). The failure this
+guards against — a silent `<prefix>-<gate>` drift so the subagent reads a path the
+orchestrator never wrote — is caught at **build time** by the Phase-2 step-7 lint assertion
+(which proves the three producers agree for every step dir), not by a runtime breadcrumb: the
+lint makes a drift a red build before it can ship, so no `EVIDENCE_MISSING` runtime artifact
+(with its own path/writer/reader to specify and keep consistent) is added. The only other
+miss cause — a companion crash, or a not-yet-authored companion — is already surfaced by the
+`.crash` breadcrumb or is the expected companion-less PENDING path, both of which correctly
+route to judge-from-scratch.
 
 This is what closes the transport gap **without** the single point of failure the
 alternative would create. The alternative — have the main agent paste each PENDING
@@ -563,9 +587,19 @@ here, since nothing writes `.evidence` until then.) (d) **sub-tool timeout captu
 (`build-vet.sh:23-24`, per module), and that inner `|| true` swallows a timeout-kill
 (exit `124`) → empty output → 0 counted error lines → autonomous PASS: a **live**
 false-PASS today, acute once build-vet is promoted to `filter`. Fix: capture each inner
-tool's exit code *before* `|| true` — errexit-safe: `build_rc=0; build_out=$(timeout
-"${GATE_TIMEOUT:-300}" go build ./... 2>&1) || build_rc=$?; (( build_rc >= 124 )) && {
-drop .crash; trap - EXIT; exit 0; }` (defer, **never FAIL** — a FAIL from a
+tool's exit code *before* `|| true` — errexit-safe, with the `.crash` write spelled out
+(the canonical path from Phase 0(b), keyed off `$GATE_NAME`), not pseudocode:
+
+```bash
+build_rc=0; build_out=$(timeout "${GATE_TIMEOUT:-300}" go build ./... 2>&1) || build_rc=$?
+if (( build_rc >= 124 )); then
+  mkdir -p "$REPO/.rebase-tmp/gates"
+  printf 'CRASH: exit %s (inner-tool kill)\n' "$build_rc" > "$REPO/.rebase-tmp/gates/${GATE_NAME}.crash"
+  trap - EXIT; exit 0                       # defer — NO report written
+fi
+```
+
+(defer, **never FAIL** — a FAIL from a
 would-compile build breaks `filter`'s cannot-false-FAIL invariant), leaving the normal
 nonzero+error-line path untouched. **The other two `|| true` go-tool sites do NOT need
 this fix.** `grep` finds three swallow sites total — `build-vet.sh:23-24`,
@@ -661,28 +695,54 @@ verdict, not just one file. **Fix (enforcement, not instruction — the prior de
 won't hold).** Four parts. **(a) Cut the HEAD-leak vector at its source:** prosecution/
 defense/judge reason purely over the in-prompt diff and need *no* git — today they inherit
 `bypassPermissions` (all tools), which is how `f261` entered as "evidence." Run them with
-tools disabled (no `Bash`/`Read`) so an arguer can only cite the provided diff and can no
-longer manufacture a phantom `@f261f146c` file-read for the jury to follow. **(b) Bind the
-jurors' tools:** jurors *do* need git to verify, but their `--allowedTools` allow-list
-(`:1230`) is a **no-op under `bypassPermissions`** — drop bypass for them so the read-only
-list (`git show/diff/log`, `Read`) actually binds and `git checkout/reset` is impossible.
+tools disabled so an arguer can only cite the provided diff and can no longer manufacture a
+phantom `@f261f146c` file-read for the jury to follow. **Exact substitution** (do not leave
+"tools disabled" as prose — `PERMISSION_MODE` is a *global* at `:17`, so each role must pass a
+literal, not inherit it): replace `--permission-mode "$PERMISSION_MODE"` on the prosecution
+(`:1188`), defense (`:1194`), and judge (`:1209`) invocations with `--permission-mode default
+--disallowedTools 'Bash,Read,Edit,Write,Glob,Grep,WebFetch,WebSearch'` — under
+`--permission-mode default` (not bypass) an explicit disallow blocks the tool outright, and a
+headless `-p` run has no prompt to fall back to. (Removing `--allowedTools` alone would be a
+no-op, and merely omitting `--permission-mode` still inherits nothing safe; name the flags.)
+**(b) Bind the jurors' tools:** jurors *do* need git to verify, but their `--allowedTools`
+allow-list (`:1230`) is a **no-op under `bypassPermissions`** — replace the juror's
+`--permission-mode "$PERMISSION_MODE"` (`:1229`) with the literal `--permission-mode default`
+so the existing read-only `--allowedTools` (`git show/diff/log`, `Read`) actually binds and
+`git checkout/reset/commit/push` is impossible. A developer who only edits `--allowedTools`,
+or substitutes another still-bypassing mode, ships a no-op — verify empirically that a
+juror's `git checkout` is denied after the change.
 **(c) Anchor the base authoritatively:** the result branch is *definitionally* built from
 config `from_commit` (`cmd_run --from-commit`, `:480`), so `from_commit` — **not**
 `merge-base` — is the result's true pre-rebase base; pass it into `cmd_court` as a new
 optional trailing arg: `cmd_court <result_branch> <known_good> <repo> [base_ref]`, where a
 supplied `base_ref` wins and an empty one falls back to `merge-base(known_good,result)`
-inside `cmd_court`. Update **both** call sites: `cmd_court_all:1364` (which has `from_commit`
-in its per-version config context, `:1328-1364`) passes it; `_results_one:1577` (the `make
-results --court` path) either resolves `from_commit` from `CONFIG_FILE` and passes it or
+inside `cmd_court`. Update **both** call sites: `cmd_court_all:1364` passes it — but note `from_commit` is **not**
+a standing variable in that loop (the loop resolves `short`/`kg`/`branch`, not `from_commit`),
+so a developer must first add `local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")`
+inside the per-repo loop (the exact `_config_val` extraction pattern already at `:830`/`:882`)
+and pass `"$_fc"` as the trailing arg; passing an undeclared `$from_commit` would silently send
+empty string and degrade to the merge-base fallback. `_results_one:1577` (the `make
+results --court` path) likewise resolves `from_commit` from `CONFIG_FILE` and passes it or
 passes empty — an untouched `_results_one` degrades to the `merge-base` fallback (still
 checkout-independent, **not** ambient-HEAD), so the consequence there is bounded. `merge-base`
 remains the fallback for a manual `make court` with no config. Guard with `git merge-base
---is-ancestor "$base_ref" "$result_branch"` (and `… "$known_good"`) → INCONCLUSIVE on
-failure: that single check deterministically rejects a parked/misconfigured base (`f261`
-is *not* an ancestor of `bump1.34`) instead of silently judging against a future tree. Do
-**not** gate on `merge-base == from_commit` equality — human and AI legitimately rebase
-from different bases, and that would false-INCONCLUSIVE good runs, eroding the coverage
-metric below. **(d) Thread the ref into every prompt AND the prose:** inject `BASE_REF`/
+--is-ancestor "$base_ref" "$result_branch"` **only** → INCONCLUSIVE on failure: this is the
+definitional relationship (the result was built via `cmd_run --from-commit base_ref`, so
+`base_ref` *is* an ancestor of `result_branch`), and it deterministically rejects a
+parked/misconfigured base (`f261` is *not* an ancestor of `bump1.34`) instead of silently
+judging against a future tree. **Do NOT also require `base_ref` to be an ancestor of
+`known_good`.** `known_good` is the human's independently-rebased branch; the plan already
+states human and AI legitimately rebase from *different* bases, so `base_ref` need not lie on
+`known_good`'s history at all — ANDing `--is-ancestor "$base_ref" "$known_good"` would
+false-INCONCLUSIVE exactly the divergent-base runs where coverage matters most. The court
+compares `result` vs `known_good` by two-way diff (`:1111`), which needs no shared ancestry;
+pre-existence is tested via `git show BASE_REF:<path>`, which needs only `base_ref` on
+`result`'s history — the check above. Likewise do **not** gate on `merge-base == from_commit`
+equality (same divergent-base reason). INCONCLUSIVE here is a genuine misconfiguration
+signal, so it is **excluded from the false-FAIL denominator** (like the other infra states)
+rather than degraded — a base that is not an ancestor of its own result cannot be measured
+against, and silently falling back to `merge-base(known_good, result)` would resurrect the
+ambient-base ambiguity this fix removes. **(d) Thread the ref into every prompt AND the prose:** inject `BASE_REF`/
 `RESULT_REF` into the prosecution/defense/judge prompts (which today get neither) *and*
 rewire the PASS/FAIL prose (`:1160-1167`) — it still says "the base branch" abstractly —
 to read *"base = `BASE_REF`; test pre-existence via `git show BASE_REF:<path>` only."* Drop
@@ -699,36 +759,104 @@ reliability at issue. **Source precisely:** the court verdict is **not** in
 (`test-skill.sh:1013/1079`). The court runs **on demand, on a path separate from record**:
 `cmd_court_all` writes the fresh verdict at `:1374` and `_results_one` (the `make results
 --court` display path) writes it at `:1586`, each into a single point-in-time file
-`court/${VERSION}_${repo_key}`. So the committed metrics snapshot must **join** the
-`results.tsv` row with the court verdict (and a recomputed known-good hunk count) per
-repo/version — **but that join is unbuildable against live code and is a required first
-sub-step (code, before any measurement):** that point-in-time file is a *cache*, not a
+`court/${VERSION}_${repo_key}`. So the committed metrics snapshot needs the court verdict
+paired with the courted run's gate verdict per repo/version/spec — **but that pairing is
+unbuildable against live code and is a required first sub-step (code, before any
+measurement):** that point-in-time file is a *cache*, not a
 journal — `_do_record_one` `rm`s it at `:1016` (and the Phase-3 retry loop `rm`s it at
 `:1792`/`:1808`) to invalidate it before the next run/court-retry — and the court verdict
 of the run just recorded **does not exist at record time** (the court hasn't run yet), so
 persisting "in `record()` before the rm" would capture only a stale prior verdict or
 nothing. `_results_for_version` reads that same live cache (`:1615`) and shows `-`/`pending`
-for any run whose on-demand court hasn't (re)run — the verdict is never journaled. Fix at
-the **write** sites, not the record path: at both `cmd_court_all:1374` and
-`_results_one:1586`, in addition to the point-in-time write, **append** the fresh verdict to
-an append-only **court-history file** at `test/court-history.tsv`
-(`${version}\t${repo}\t${verdict}\t${ts}`). The path is deliberate: everything under
-`test/.matrix-state/` is unconditionally gitignored (`.matrix-state/.gitignore` is `*` plus
-`!.gitignore`), so a history file placed there could never be committed — put it one level
-up under `test/` (add an explicit `test/.gitignore` negation, or a top-level allow, so it is
-tracked). Leave the point-in-time file and its `rm`s alone (they are the cache). The history
-file is additive, breaking no existing `results.tsv` reader — the same rationale that makes
-Phase 0 prefer a parallel `.crash` scan over re-arity-ing `_tally_gates` (widening
-`results.tsv` to a 7th column would touch its three readers). **Analyzer + snapshot (the
-second half of this sub-step — data alone is not the metric):** add a `make court-metrics`
-target (a `cmd_court_metrics` in `test-skill.sh`, ~20 lines of `awk`) that joins
-`court-history.tsv` with `results.tsv` on `(version, repo)` — taking the latest row per key
-by `ts` — filters to rows where the court said `PASS` but a blocking non-`info` gate FAILed
-(the false-FAIL definition below), and emits aggregate and per-repo false-FAIL rates plus a
-summary table. Commit its output to `test/metrics/court-baseline.tsv` (tracked): that pinned
-snapshot, not the live gitignored state, is the go/no-go input. Both the history-file writes
-and the analyzer are the "required first sub-step (code, before any measurement)" — without
-the analyzer the ≤5%/≤10% boundary below is uncomputable. Define false-FAIL
+for any run whose on-demand court hasn't (re)run — the verdict is never journaled.
+
+**Court the FAILs, not just the PASSes — the numerator lives in the gate-FAIL rows.** The
+false-FAIL definition below is *court=PASS but a blocking gate FAILed*, so the numerator rows
+are exactly the **gate-FAIL** runs. But `cmd_court_all:1340` (`[[ "$verdict" != "PASS" ]] &&
+continue`) skips every gate-FAIL row before the court invocation at `:1364` — it courts only
+gate-**PASS** results (historically, to double-check successes for false-*PASS*). So the
+automated path structurally **cannot produce a single false-FAIL row**, and `make court-all`
+would always report 0% — a vacuous signal. Fix: drop that `:1340` PASS-only filter so
+`cmd_court_all` courts **every** resolvable row (both PASS and FAIL); this makes the
+false-FAIL numerator *and* the false-PASS signal computable from one pass. The extra court
+cost (≈2× the AI calls, since gate-FAIL rows are now courted too) is **inherent** to measuring
+false-FAIL — there is no way to measure it without courting the FAILs. (Alternatively, keep
+`:1340` and require a manual `make results repo=X --court` loop over each gate-FAIL repo — the
+`_results_one:1577` path has no PASS filter and *does* court a FAIL repo — but name the exact
+per-repo invocation as a required Phase-1 sub-step so the developer populates the history
+correctly. The drop-the-filter option is preferred: it is automated and leaves no manual
+step to skip.)
+
+**Court per-`(version, repo, spec)`, and record the spec + gate verdict in the row.** A
+single `(version, repo)` pair has **multiple** `results.tsv` rows — one per spec (col-3,
+`:1013`) — and `cmd_court_all:1337` (`$3~/^all/ || $3=="none"`, `tail -1`) collapses them to
+the single latest across *both* specs. A later spec-blind `(version, repo)` join would then
+pair a spec=all court verdict with a spec=none results row from a different run, manufacturing
+a spurious entry (the baseline's 71% spec=all vs 51% spec=none gap makes cross-spec
+contamination common). Two coupled changes remove the join hazard at the source: (i) court
+per-spec — include spec in both the court-cache key (`:1335`, today `${VERSION}_$_rk`) and the
+latest-row selection (`:1337`), so each spec run is courted and cached independently; (ii)
+have the court **record what it courted** — do not reconstruct it later. Fix at the **write**
+sites, not the record path: at both `cmd_court_all:1374` and `_results_one:1586`, in addition
+to the point-in-time write, **append** a row to an append-only **court-history file** at
+`test/court-history.tsv`, carrying the courted run's own spec, gate verdict, **and detail**:
+`${version}\t${repo}\t${spec}\t${gate_verdict}\t${detail}\t${court_verdict}\t${ts}`. All are
+already in scope at those sites (`cmd_court_all` has `latest_line`'s col-3 spec, col-5 verdict,
+col-6 detail at `:1337-1339`; `_results_one` has them in the same display context). The
+**detail** column is load-bearing for the infra exclusion below: the recorded gate verdict is
+only `PASS`/`FAIL` (`:944/:958`), so a `missing-gates`/`session-ended` infra fail is a `FAIL`
+distinguishable from a real gate FAIL *only* by its detail string — without the detail the
+analyzer would miscount infra fails whose diff the court happens to PASS as false-FAILs.
+(`cmd_court_all` already skips the no-branch/unresolvable/no-known-good infra cases before
+courting at `:1341-1348`, so those never reach the history; the detail column catches the
+residual infra FAILs that *do* get courted.) The
+path is deliberate: everything under `test/.matrix-state/` is unconditionally gitignored
+(`.matrix-state/.gitignore` is `*` plus `!.gitignore`), so a history file placed there could
+never be committed — put it one level up under `test/` (add an explicit `test/.gitignore`
+negation, or a top-level allow, so it is tracked). Leave the point-in-time file and its `rm`s
+alone (they are the cache). The history file is additive, breaking no existing `results.tsv`
+reader — the same rationale that makes Phase 0 prefer a parallel `.crash` scan over
+re-arity-ing `_tally_gates`.
+
+**Analyzer + snapshot (the second half of this sub-step — data alone is not the metric):**
+add a `make court-metrics` target (a `cmd_court_metrics` in `test-skill.sh`, ~20 lines of
+`awk`) that reads `court-history.tsv` **directly** — no fragile join with `results.tsv`,
+because each row already carries the spec and gate verdict of the run it courted. Keyed on
+`(version, repo, spec)` it takes the latest row per key by `ts`, filters to rows where
+`court_verdict==PASS && gate_verdict==FAIL` **and** the gate FAIL is not infra (stale /
+no-branch / missing-gates / session-ended, classified from the detail captured at court time
+— the same exclusions as the false-FAIL definition below), and emits aggregate and per-repo
+false-FAIL rates plus a summary table. The go/no-go measurement filters to **spec=all** rows
+(the primary metric); it MAY additionally print the per-spec rate. Concretely:
+
+```awk
+# court-history.tsv: version \t repo \t spec \t gate_verdict \t detail \t court_verdict \t ts
+# latest row per (version,repo,spec) by ts; false-FAIL = court PASS but gate FAIL (non-infra)
+awk -F'\t' '
+  $3 ~ /^all/ {                                   # spec=all only for the go/no-go metric
+    k=$1 SUBSEP $2 SUBSEP $3
+    if ($7 >= ts[k]) { ts[k]=$7; gv[k]=$4; det[k]=$5; cv[k]=$6; repo[k]=$2 } }
+  END { for (k in gv) {
+          if (gv[k]!="FAIL") continue
+          if (det[k] ~ /stale|no branch|missing gate|session[- ]ended/) continue   # infra, not a gate FAIL
+          d[repo[k]]++; tot++
+          if (cv[k]=="PASS") { ff[repo[k]]++; num++ } }                            # court says good -> false-FAIL
+        for (r in d) printf "%s\t%d/%d\n", r, ff[r], d[r]
+        printf "AGGREGATE\t%d/%d\n", num, tot }' test/court-history.tsv
+```
+
+Commit its output to `test/metrics/court-baseline.tsv` (tracked): that pinned snapshot, not
+the live gitignored state, is the go/no-go input. All three — the `:1340`-filter drop,
+the per-spec court-history writes, and the analyzer — are the "required first sub-step (code,
+before any measurement)"; without them the ≤5%/≤10% boundary below is uncomputable or reads
+a structural 0%. **Make the Phase-1→Phase-2 boundary a red build, not prose.** "Only if
+Phase 1 binds" (Phase 2's opening) is unenforceable text today — nothing stops an implementer
+skipping the court fix, measuring with the broken court, and proceeding. Add a `make
+check-phase1-baseline` target (a `cmd_check_phase1_baseline`) that exits non-zero with a
+descriptive error unless **both** `test/metrics/court-baseline.tsv` exists (committed) **and**
+`cmd_court_metrics` is defined (`declare -F cmd_court_metrics`). Document it as a required
+precondition for opening any Phase-2 PR; wiring it into `make lint` (or a CI check) converts
+the go/no-go from a promise into a gate a Phase-2 PR cannot bypass. Define false-FAIL
 concretely: *known-good input (court says good) but a blocking non-`info` gate FAILed*
 — explicitly **excluding** infra fails (stale/no-branch, missing gates,
 session-ended), which are not reliability signals. *(court juror tool use)* jurors are
@@ -834,11 +962,12 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    form callable without importing lib-level `set -e`. `patterns-completeness.sh`
    already `|| true`s its risky commands, so it is safe once sourced; `crd-validation`
    is not.
-2. Add the `.md`'s read-your-evidence-file instruction (the fixed
-   `.rebase-tmp/gates/<prefix>-<gate>.evidence` path) *while keeping* the FIRST STEP
-   block; verify the deferred subagent receives identical facts via the file. (The
-   per-**step** `orchestrator gates <step>` launch is *not* added here — it is a
-   cross-gate change; see "Per-step wiring" below.)
+2. Add the `.md`'s read-your-evidence-file instruction by pasting the **verbatim template**
+   from "Execution model" (substituting only this gate's literal `<prefix>-<gate>` path)
+   *while keeping* the FIRST STEP block; verify the deferred subagent receives identical facts
+   via the file. Do not re-word the template per gate. (The per-**step** `orchestrator gates
+   <step>` launch is *not* added here — it is a cross-gate change; see "Per-step wiring"
+   below.)
 3. Remove the `NEW_ISSUES`/RULE-1 fast-path prose in the *same* edit — once the
    in-subagent run is gone, a RULE 1 that reads `NEW_ISSUES` references a value the
    orchestrator no longer surfaces to the subagent. The identical "set verdict=PASS
@@ -853,7 +982,17 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
 4. Drop *only* the FIRST STEP block. In the 3 companion gates that also carry a
    base-filter block (`major-version-imports.md:22`, `patterns-completeness.md:48`,
    `go-version-check.md:43`), delete the FIRST STEP block surgically and preserve the
-   base-filter.
+   base-filter. **Also retarget the P0a crash-safe fallback trigger in the *same* edit.** P0a
+   widened four companion `.md` triggers to "if the companion script is not found, crashes, or
+   emits no `NEW_ISSUES` line" and added an equivalent branch to `crd-validation`/
+   `patterns-completeness` — but once the FIRST STEP block is gone the subagent no longer runs
+   the companion, so "crashes / no `NEW_ISSUES` line" is vacuously true on every invocation and
+   the wording misleads. Rewrite that trigger to key off the evidence file instead: *"if
+   `<prefix>-<gate>.evidence` is missing or its `HEAD:` line does not match `git rev-parse
+   HEAD`, run the manual checks and judge from the diff."* This is the same condition the
+   verbatim template's stale/missing branch already states, so the fallback and the
+   read-evidence block now describe one behavior. Bundle it with this file's atomic
+   conversion so no PR leaves the two out of sync.
 
 **Per-step wiring (lands ONCE per step, in the LAST companion-conversion PR for that
 step — NOT per gate).** Two step-level edits must not land until every companion in that
@@ -903,7 +1042,16 @@ step has had its FIRST STEP block removed (steps 1-4 above):
    byte-identical and match every `.md`'s named evidence path — landing it as a test file
    under `test/` (e.g. `test/assert-evidence-paths.sh`, invoked by the linter). This lands
    once in Phase 2, independent of the per-gate conversions, and turns a silent prefix drift
-   into a red build.
+   into a red build. **Two guards against a vacuous pass:** (i) at Phase-2 landing **zero**
+   `.md` files yet carry a named evidence path, so a bare "check every named path" assertion
+   passes by checking nothing — add a **minimum-count** assertion: the script must find the
+   `EVIDENCE (read before judging):` marker (and its named path) in at least *N* `.md` files,
+   where *N* is the number of companions converted so far (2 after step 2 lands, 6 after all
+   Phase-2 conversions, growing in Phase 3). Record the expected *N* in a comment so it is
+   bumped as each conversion lands; a converted companion that forgot its block then drops the
+   count below *N* and fails the build. (ii) The prefix-agreement check must run per converted
+   `.md`, not only where a path happens to exist, so a file with the marker but a *drifted*
+   path still fails.
 
 **Step 1 is out of scope for this per-step wiring.** `gates/step1-rebase/` holds a single
 gate (`rebase-completeness.md`) and **zero companion scripts**, so there is no
@@ -934,11 +1082,20 @@ every `SUMMARY:` neutral. Keep full judgment prose in each `.md` (the subagent
 still reads it, for the crash fallback and the dirty path).
 
 Per companion-less gate, authoring evidence is more than dropping a `.sh` in place:
-each also needs its `.md`'s read-your-evidence + HEAD-freshness block (with the
-`EVIDENCE_MISSING` breadcrumb on a path miss) **and** registration in the step-1-3
-spawn + fix-loop wiring (Phase 2), or the orchestrator never runs it. And the facts
-differ per gate: `rebase-completeness` → its five existing counts;
-`type-conversions` → the changed conversion sites + the vendor struct's field list
+each also needs its `.md`'s read-your-evidence + HEAD-freshness block (paste the verbatim
+template from "Execution model"; the subagent judges from scratch on a miss) **and**
+registration in that step's spawn + fix-loop wiring, or the orchestrator never runs it. **For
+`rebase-completeness` this means adding step-1 wiring that Phase 2 deliberately left out** (see
+"Step 1 is out of scope" — step 1 has no companion today, so Phase 2 wired nothing for it). Do
+not read the Phase-2 wiring as already covering step 1: authoring `rebase-completeness.sh` in
+this phase must, **in the same PR**, apply the step-2/3 items 5a/5b/6 to step 1 — (5a) prepend
+`orchestrator gates 1` to `step1-rebase.md` (it has no such call today), (5b) replace its
+unconditional gate launch with "Launch subagents only for PENDING gates," and (6) re-invoke
+`orchestrator gates 1` in the `step1-rebase.md:91-99` fix loop before re-launching — plus the
+Phase-2 step-7 evidence-path lint already covers `step1-rebase/` since it globs every
+`gates/step*/` dir. Omit these and the companion exists but the orchestrator never runs it,
+with no error signal. And the facts differ per gate: `rebase-completeness` → its five existing
+counts; `type-conversions` → the changed conversion sites + the vendor struct's field list
 (*not* a scalar count — a count is the exact proxy §4 rejected). **`fix-correctness`
 is the exception: its predicate ("is each applied fix semantically correct?") has no
 sound deterministic value a script can compute, so it stays a pure-judgment
