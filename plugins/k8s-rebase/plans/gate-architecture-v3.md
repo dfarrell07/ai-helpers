@@ -807,25 +807,31 @@ result is only conclusive if the `git checkout -b` `tool_use` event is **present
 stream-json transcript — an empty tool record (auth failure, network timeout, no Vertex creds, or
 the model declining in plain text without calling Bash) means the probe never exercised the
 permission layer and MUST read as **INCONCLUSIVE (re-run required), never PASS**; only a
-*present-and-denied* event is a PASS. **Bound the re-run loop so it cannot spin forever:**
-INCONCLUSIVE stays blocking and is *never* auto-converted to PASS, but after **3 consecutive
-INCONCLUSIVE** results (counted across successive re-runs at this same Phase-1 boundary — any
-conclusive `PASS`/`FAIL` resets the count) stop treating it as transient and declare the *probe
-itself* broken —
-emit a `probe-broken` diagnostic directing the operator to (1) check Vertex creds / network
-reachability, (2) inspect the stream-json transcript to tell a prose-decline (the model never
-emitted the `git checkout -b` `tool_use` at all) apart from an auth/transport abort, and (3)
-adjust the probe prompt if the model keeps declining without attempting the op. The exit
+*present-and-denied* event is a PASS. **Bound the re-run loop so it cannot spin forever:** the
+script keeps a **durable streak counter** `test/metrics/probe-inconclusive-streak.txt` —
+incremented on every `INCONCLUSIVE` run, reset to `0` on any conclusive `PASS`/`FAIL` — so the
+"consecutive" count survives across separate invocations at this Phase-1 boundary instead of living
+only in the operator's memory. INCONCLUSIVE stays blocking and is *never* auto-converted to PASS,
+but when the streak reaches **3** the script stops treating it as transient and writes a distinct
+fourth verdict, **`PROBE-BROKEN`**, to the result file (not another `INCONCLUSIVE`), and emits a
+diagnostic directing the operator to (1) check Vertex creds / network reachability, (2) inspect the
+stream-json transcript to tell a prose-decline (the model never emitted the `git checkout -b`
+`tool_use` at all) apart from an auth/transport abort, and (3) adjust the probe prompt if the model
+keeps declining without attempting the op. The exit
 criterion is **fix the probe, not lower the bar** — and *only* a conclusive `PASS` advances:
 Phase 1 does not proceed until the probe returns `PASS`. A conclusive `FAIL` is **not** an exit —
 it means court permission enforcement is genuinely broken (the court fix is unproven), so Phase 1
-stays blocked per condition (vi) until the **court** is fixed, exactly as INCONCLUSIVE / `probe-broken`
+stays blocked per condition (vi) until the **court** is fixed, exactly as INCONCLUSIVE / `PROBE-BROKEN`
 block until the **probe** is fixed. Condition (vi) enforces this mechanically — it reads *exactly*
 `PASS` — so a `FAIL` can never be mistaken for an exit. This is a heavier deliverable than the pure-bash
 `check-phase1-baseline`. **Persist its verdict** to a committed
-`test/metrics/assert-court-permissions-result.txt` (`PASS`/`FAIL`/`INCONCLUSIVE`) — that file is
-what `check-phase1-baseline` condition (vi) reads, so an INCONCLUSIVE or absent result
-mechanically blocks baseline measurement, not just a checklist reminder. Wire it to a k8s-rebase
+`test/metrics/assert-court-permissions-result.txt` (`PASS`/`FAIL`/`INCONCLUSIVE`/`PROBE-BROKEN`) —
+that file is what `check-phase1-baseline` condition (vi) reads, so any value other than `PASS`
+(`FAIL`, `INCONCLUSIVE`, `PROBE-BROKEN`, or absent) mechanically blocks baseline measurement, not
+just a checklist reminder. The `PROBE-BROKEN` value is what makes a *systematically* broken probe
+distinguishable, hours later, from a single transient `INCONCLUSIVE`: a reviewer (or condition
+(vi)) reading the committed file sees "debug the probe" versus "just re-run" without needing the
+operator's live count. Wire it to a k8s-rebase
 Makefile target and add it to the same pre-Phase-2 checklist
 as `check-phase1-baseline`, so the court fix is proven effective *before* any baseline is
 measured against it.
@@ -1049,8 +1055,9 @@ script output), so the trigger is the only new prose. For **`crd-validation.md`*
 its empty-BASE guard, neither of which a trigger grep detects — so condition (v) is a **three-part
 flattened check there, all required:** (a) the trigger `grep -q 'not found, crashes, or emits no'`;
 (b) the from-scratch scope `grep -q 'for each CRD schema file in the repository'`; and (c) the
-empty-BASE guard `grep -q 'self-comparison'` (the distinctive token of "never PASS on a
-self-comparison"). A
+empty-BASE guard `grep -q 'PASS on a self-comparison'` (a strict substring of the required
+"never PASS on a self-comparison" phrase — long enough that an incidental comment mentioning
+"self-comparison" cannot satisfy it, unlike the bare 15-character token). A
 developer who writes only the five-word trigger passes a naive single-grep but leaves
 `crd-validation.md` — once Phase 2 step 4 deletes its FIRST STEP block — with *nothing* behind
 the evidence template's judge-from-scratch branch: a silent false-PASS on a repo with real CRD
@@ -1059,8 +1066,9 @@ three phrases **verbatim** (they double as the human-readable crash body and as 
 sentinels — see the P0a spec above). Finally, **(vi)**
 a committed `test/metrics/assert-court-permissions-result.txt` reads exactly `PASS` (the court
 permission fix was proven effective *before* the baseline was measured against it — an
-`INCONCLUSIVE` or absent result must block, since a measurement taken against a still-wide-open
-court is meaningless). Note (vi) is, unlike (i)-(iv), a **pure file-content check with no
+`INCONCLUSIVE`, `PROBE-BROKEN`, `FAIL`, or absent result must block, since a measurement taken
+against a still-wide-open or unverified court is meaningless; a `PROBE-BROKEN` value additionally
+tells the reviewer the probe is *systematically* failing and needs debugging, not another re-run). Note (vi) is, unlike (i)-(iv), a **pure file-content check with no
 re-derivation** — it trusts that the probe (a live-model integration check, un-recomputable in
 pure bash) was run honestly, so it is a discipline arm consistent with the whole
 `check-phase1-baseline` target's status as a reviewer-run gate, not a corpus-forgery barrier. Two temporal caveats: check (v) is a **pre-Phase-2 precondition**, and the whole
@@ -1143,14 +1151,20 @@ over the current committed log, so step (iv) stays reproducible as the log grows
 regression anchor `test/metrics/court-baseline-phase1.tsv`, committed **once** at the Phase-1
 boundary and never rewritten, is what every later phase's rate-regression compares against. The
 rolling one advances by one target: add `make commit-court-baseline` (a
-`cmd_commit_court_baseline`) that (1) re-derives `test/metrics/court-baseline.tsv` from the
-current working-tree `test/court-history.tsv` via `cmd_court_metrics`, and (2) stages **and
-commits** the log and the re-derived `court-baseline.tsv` together in one commit (never one
-without the other, so step (iv) stays consistent — the target *commits*, matching its name and
-Implementation-Sequence step 5, it does not merely `git add`) — staging **only those two explicit
-paths** (`git add <log> <baseline>`, never `git commit -a`/`-am`, so a concurrently-edited frozen
-anchor or unrelated worktree change can never be swept into the roll), and it **never** touches the
-frozen `court-baseline-phase1.tsv`. The
+`cmd_commit_court_baseline`) that (0) **rejects a pre-staged index up front** —
+`git diff --cached --quiet || { echo 'ERROR: index has pre-staged changes; stash or commit them
+first'; exit 1; }` — so the commit contains *exactly* the two court files and nothing a prior
+`git add` left staged; (1) re-derives `test/metrics/court-baseline.tsv` from the current
+working-tree `test/court-history.tsv` via `cmd_court_metrics`; and (2) stages **and commits** the
+log and the re-derived `court-baseline.tsv` together in one commit (never one without the other, so
+step (iv) stays consistent — the target *commits*, matching its name and Implementation-Sequence
+step 5, it does not merely `git add`) — staging **only those two explicit paths** (`git add <log>
+<baseline>`, never `git commit -a`/`-am`). The `-a`/`-am` exclusion alone stops only working-tree
+auto-staging; the step-(0) index guard closes the other vector — a plain `git commit` after a
+target's `git add` would otherwise commit *anything already in the index*, including a
+developer's pre-staged work-in-progress or even a pre-staged `court-baseline-phase1.tsv`. Between
+the two, nothing but the two court files enters the roll, and the target **never** rewrites the
+frozen anchor. The
 per-phase flow is: after Phase 2 (and again after Phase 3) **re-run the matrix** — appending its
 courts to the working-tree log — then run a **standalone** `cmd_court_metrics` comparison (a
 `make court-regression`, *not* a re-invocation of `check-phase1-baseline`): compare the **fresh**
@@ -1168,6 +1182,47 @@ trigger that Phase 2 step 4 deliberately deletes, so re-running the whole target
 would fail (v) permanently. Later-phase regression is the standalone rate comparison above, which
 touches neither (v) nor the step-(iv) equality. This keeps **one** comparison logic reused at
 every boundary — not a `check-phase2-baseline`/`check-phase3-baseline` family.
+
+That comparison needs the same concrete contract as `cmd_court_metrics`, not just prose intent.
+`cmd_court_regression` diffs the frozen anchor against a fresh snapshot and exits nonzero on a
+per-repo regression:
+
+```bash
+cmd_court_regression() {                       # exit 0 = clean, 1 = regression, 2 = error
+  local base="test/metrics/court-baseline-phase1.tsv"
+  [[ -f "$base" ]] || { echo "ERROR: frozen anchor $base missing"; return 2; }
+  # fresh snapshot = cmd_court_metrics over the current (matrix-appended) working-tree log,
+  # emitted in the same canonical LC_ALL=C order, so both sides key on the repo column.
+  awk -F'\t' '
+    FNR==NR { b[$1]=$2; next }                 # frozen anchor:  repo -> ff/den (incl. AGGREGATE)
+    { f[$1]=$2 }                               # fresh snapshot: repo -> ff/den
+    END {
+      rc=0
+      for (r in b) {
+        if (!(r in f)) { printf "MISSING\t%s\t(in anchor, absent fresh)\n", r; rc=2; continue }
+        split(b[r], bp, "/"); split(f[r], fp, "/")            # [1]=false-FAILs, [2]=denominator
+        # false-FAIL rate rose iff  fp_ff/fp_den > bp_ff/bp_den  — cross-multiply, integer-safe,
+        # denominator-independent (fresh and anchor need not share a court count)
+        if (fp[1]*bp[2] > bp[1]*fp[2]) {
+          printf "REGRESSION\t%s\tanchor=%s fresh=%s\n", r, b[r], f[r]; if (rc < 1) rc = 1 }
+      }
+      exit rc
+    }' "$base" <(cmd_court_metrics) | LC_ALL=C sort
+  return "${PIPESTATUS[0]}"                     # awk's exit status, not sort's
+}
+```
+
+The `AGGREGATE` row is compared like any other key, so an aggregate false-FAIL climb blocks too —
+that is the "no pass-rate regression" arm. A repo present in the anchor but **absent** from the
+fresh run is an **error** (exit 2), never a silent pass: a dropped repo must be investigated, not
+read as "no regression." A repo absent from the anchor (a newly-added target) is out-of-scope and
+simply not iterated. **`confirm-by-rerun` is the wrapping `make court-regression` contract, not the
+awk:** because a single matrix run carries the ~50-point AI variance the no-regression gate already
+has to absorb, the target runs *matrix + `cmd_court_regression`* **twice** and blocks the phase only
+on the **intersection** — a repo flagged `REGRESSION` in *both* runs (a `MISSING`/error result
+blocks on *either*, since a dropped repo is not variance). A regression seen in only one run is
+logged and re-run, never blocks. The exit-code contract is stated exactly as
+`check-phase1-baseline`'s: nonzero blocks the phase, and nothing is re-committed on a block.
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. **First sub-step — install the evidence transport, exercised on landing**
@@ -1298,10 +1353,13 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    supplies the replacement "for each CRD schema file in the repository" scope), whereas
    `patterns-completeness` has **no** authored from-scratch body — dropping its PATH A/B selectors
    simply exposes checks 1-4, which are already self-contained, so nothing is promoted, only
-   uncovered. (Dropping the PATH A/B selectors must also rewrite the surviving checks header
-   `patterns-completeness.md:18` — "Checks (PATH B only — skip entirely if PATH A applies)" — to an
-   unconditional "Checks", or checks 1-4 read as skipped once PATH A/B are gone: the same
-   dangling-reference hazard the `crd-validation` "each CRD" swap avoids.)
+   uncovered. **This carries one explicit, easily-missed sub-step — promoted here out of a
+   parenthetical for the same reason as fix-loop item 6 below:** dropping `patterns-completeness`'s
+   PATH A/B selectors must **also rewrite the surviving checks header** at
+   `patterns-completeness.md:18`, whose verbatim text is `--- Checks (PATH B only — skip entirely
+   if PATH A applies) ---` (with `---` decorators on both sides), replacing it with an unconditional
+   `--- Checks ---`. Skip this and checks 1-4 read as conditionally-skipped once PATH A/B are gone —
+   the same dangling-reference hazard the `crd-validation` "each CRD" swap avoids.
 
 **Per-step wiring (lands ONCE per step, in the LAST companion-conversion PR for that
 step — NOT per gate).** Two step-level edits must not land until every companion in that
