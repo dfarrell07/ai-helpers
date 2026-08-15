@@ -529,7 +529,10 @@ scripts do (principle 6, `:454-470`): when `$BASE` is empty, `git show $BASE:<pa
 tree) and would compare each file to itself — finding nothing and PASSing silently, the worst
 outcome. So the branch must instruct: if `$BASE` is empty (no merge-base), do not diff against
 the base at all; judge every CRD's validation surface unfiltered and defer — never PASS on a
-self-comparison.** (`patterns-completeness.md`'s checks 1-4 are *already*
+self-comparison.** These three clauses — the trigger ("not found, crashes, or emits no"), the
+from-scratch scope ("for each CRD schema file in the repository"), and the empty-BASE guard
+("never PASS on a self-comparison") — are the **verbatim sentinels** `check-phase1-baseline`
+condition (v) greps for, so author them literally, not paraphrased. (`patterns-completeness.md`'s checks 1-4 are *already*
 self-contained — check 1 finds modules and runs `go build`, checks 2-4 use `git
 diff`/`merge-base`, none reads script output — so its new branch may point at "run checks 1-4"
 with no rewrite; **only `crd-validation` needs the authored from-scratch scope.**) This is the
@@ -694,7 +697,9 @@ only as subordinate clauses, so they are collected here as a checklist):
    step; the base-anchoring subsection below marks it "do first.")
 2. Ship `assert-court-permissions.sh` and confirm it writes `PASS` to
    `test/metrics/assert-court-permissions-result.txt`. **Must precede step 4** — a baseline
-   measured against a still-wide-open court is meaningless.
+   measured against a still-wide-open court is meaningless. If it returns `INCONCLUSIVE` 3×
+   running, **stop and debug the probe** (creds / transcript / prompt, per its spec above) —
+   never proceed on an unresolved or non-`PASS` result, and never hand-edit the file to `PASS`.
 3. Drop the `cmd_court_all:1340` PASS-only filter (so gate-FAIL rows are courted and the
    false-FAIL numerator is non-empty) and make the per-spec court-history writes + the analyzer.
    **Must precede step 4** — courts run before the filter drop produce a structural 0% history
@@ -797,7 +802,15 @@ result is only conclusive if the `git checkout -b` `tool_use` event is **present
 stream-json transcript — an empty tool record (auth failure, network timeout, no Vertex creds, or
 the model declining in plain text without calling Bash) means the probe never exercised the
 permission layer and MUST read as **INCONCLUSIVE (re-run required), never PASS**; only a
-*present-and-denied* event is a PASS. This is a heavier deliverable than the pure-bash
+*present-and-denied* event is a PASS. **Bound the re-run loop so it cannot spin forever:**
+INCONCLUSIVE stays blocking and is *never* auto-converted to PASS, but after **3 consecutive
+INCONCLUSIVE** results stop treating it as transient and declare the *probe itself* broken —
+emit a `probe-broken` diagnostic directing the operator to (1) check Vertex creds / network
+reachability, (2) inspect the stream-json transcript to tell a prose-decline (the model never
+emitted the `git checkout -b` `tool_use` at all) apart from an auth/transport abort, and (3)
+adjust the probe prompt if the model keeps declining without attempting the op. The exit
+criterion is **fix the probe, not lower the bar**: Phase 1 does not proceed until the probe
+returns a conclusive `PASS`/`FAIL`. This is a heavier deliverable than the pure-bash
 `check-phase1-baseline`. **Persist its verdict** to a committed
 `test/metrics/assert-court-permissions-result.txt` (`PASS`/`FAIL`/`INCONCLUSIVE`) — that file is
 what `check-phase1-baseline` condition (vi) reads, so an INCONCLUSIVE or absent result
@@ -1008,14 +1021,33 @@ target **re-derives the snapshot from the *committed* raw log** — re-runs `cmd
 exactly (a valid equality only because `cmd_court_metrics` emits the canonical `LC_ALL=C sort`
 order above — without that pin the check would flake on nondeterministic line ordering), then
 reads the rates *from that re-derived output* (not from the committed file) for the (iii) check;
-**(v)** P0a's crash-safe fallback is present — `grep -q 'not found, crashes, or emits no'` in
-**both** `gates/step3-autofix/crd-validation.md` and `gates/step3-autofix/patterns-completeness.md`
-(the two group-(ii) gates that have *no* other fallback, so their absence is the silent-false-PASS
-hole Phase 2 step 4 opens if it deletes RULE 2 / PATH-B with no P0a body behind it); and **(vi)**
+**(v)** P0a's crash-safe fallback is present in **both** group-(ii) gates
+(`gates/step3-autofix/crd-validation.md`, `gates/step3-autofix/patterns-completeness.md` — the two
+with *no* other fallback, so their absence is the silent-false-PASS hole Phase 2 step 4 opens if
+it deletes RULE 2 / PATH-B with no P0a body behind it) — but the two need **different** checks,
+because trigger-presence is a proxy for crash-branch completeness only where the check body
+*pre-exists*. For **`patterns-completeness.md`** a single grep for the trigger suffices
+(`grep -q 'not found, crashes, or emits no'`) — its checks 1-4 are already self-contained
+(`go build` / `git diff` / `merge-base`, none reads script output), so the trigger is the only
+new prose. For **`crd-validation.md`** the trigger is **not** a proxy for body presence — P0a
+must additionally author a from-scratch check body *and* its empty-BASE guard, neither of which
+a trigger grep detects — so condition (v) is a **three-part check there, all required:**
+(a) the trigger `grep -q 'not found, crashes, or emits no'`; (b) the from-scratch scope
+`grep -q 'for each CRD schema file in the repository'`; and (c) the empty-BASE guard
+`grep -q 'self-comparison'` (the distinctive token of "never PASS on a self-comparison"). A
+developer who writes only the five-word trigger passes a naive single-grep but leaves
+`crd-validation.md` — once Phase 2 step 4 deletes its FIRST STEP block — with *nothing* behind
+the evidence template's judge-from-scratch branch: a silent false-PASS on a repo with real CRD
+regressions, and an unenforced empty-BASE self-compare on top of it. P0a therefore authors those
+three phrases **verbatim** (they double as the human-readable crash body and as condition-(v)
+sentinels — see the P0a spec above). Finally, **(vi)**
 a committed `test/metrics/assert-court-permissions-result.txt` reads exactly `PASS` (the court
 permission fix was proven effective *before* the baseline was measured against it — an
 `INCONCLUSIVE` or absent result must block, since a measurement taken against a still-wide-open
-court is meaningless). Two temporal caveats: check (v) is a **pre-Phase-2 precondition**, and the whole
+court is meaningless). Note (vi) is, unlike (i)-(iv), a **pure file-content check with no
+re-derivation** — it trusts that the probe (a live-model integration check, un-recomputable in
+pure bash) was run honestly, so it is a discipline arm consistent with the whole
+`check-phase1-baseline` target's status as a reviewer-run gate, not a corpus-forgery barrier. Two temporal caveats: check (v) is a **pre-Phase-2 precondition**, and the whole
 `check-phase1-baseline` target (conditions i–vi) runs **once**, at the Phase-1→Phase-2 boundary —
 *before* Phase 2 step 4 legitimately deletes that trigger sentence. It is **not** re-invoked at
 later boundaries; the later-phase *regression* is a standalone `cmd_court_metrics` rate comparison
@@ -1096,9 +1128,11 @@ regression anchor `test/metrics/court-baseline-phase1.tsv`, committed **once** a
 boundary and never rewritten, is what every later phase's rate-regression compares against. The
 rolling one advances by one target: add `make commit-court-baseline` (a
 `cmd_commit_court_baseline`) that (1) re-derives `test/metrics/court-baseline.tsv` from the
-current working-tree `test/court-history.tsv` via `cmd_court_metrics`, and (2) stages the log and
-the re-derived `court-baseline.tsv` for commit together (never one without the other, so step (iv)
-stays consistent) — it **never** touches the frozen `court-baseline-phase1.tsv`. The
+current working-tree `test/court-history.tsv` via `cmd_court_metrics`, and (2) stages **and
+commits** the log and the re-derived `court-baseline.tsv` together in one commit (never one
+without the other, so step (iv) stays consistent — the target *commits*, matching its name and
+Implementation-Sequence step 5, it does not merely `git add`) — it **never** touches the frozen
+`court-baseline-phase1.tsv`. The
 per-phase flow is: after Phase 2 (and again after Phase 3) **re-run the matrix** — appending its
 courts to the working-tree log — then run a **standalone** `cmd_court_metrics` comparison (a
 `make court-regression`, *not* a re-invocation of `check-phase1-baseline`): compare the **fresh**
