@@ -462,7 +462,12 @@ the evidence transport in Phase 0 and unified execution last — inverted, since
 transport is inert until execution is unified. Bump `plugin.json` + `make lint &&
 make update` once per landed PR.
 
-**Phase 0 — Mechanical patch (ship first; independent of everything below).**
+**Phase 0 — Foundation patch (ship first; independent of everything below).** Mostly
+mechanical, but parts (b)/(c) change crash *semantics*: today a crashed companion's
+`_gate_trap` writes a **FAIL report**, which `cmd_gates` then treats as a cached verdict
+(`report_has_verdict` accepts `FAIL`) and skips the subagent; after (b) it writes a
+**`.crash` breadcrumb and no report**, so `cmd_gates` emits PENDING and the subagent runs
+and judges (defer-not-fail). Treat these as load-bearing, not cosmetic.
 **(0) Install the evidence-transport lib API first — the entire design depends on it.** Add
 `_head_sha`/`_write_evidence`/`finish_evidence`/`finish_filter`/`finish_deterministic` (and
 `finish_info`, **forward-looking** — no `info` gate has a companion `.sh` today) to
@@ -473,15 +478,33 @@ is empty). Landing them here is **inert** — nothing calls them until Phase 2 �
 they ship now: it makes Phase 2 a pure *caller-swap* rather than an add-and-call in one PR. Without
 this step a literal Phase-2 execution calls an undefined `finish_evidence`, which under
 `set -euo pipefail` aborts, fires `_gate_trap`, and degrades every converted companion to a
-facts-free judge. The `inc` guard (a) and `_gate_trap` rewrite (b) are the only *other* lib edits.
+facts-free judge. **Each new `finish_*` MUST end with `trap - EXIT; exit 0`, exactly as
+`finish_gate` does (lib:75-76): once (b) rewrites `_gate_trap` to drop a `.crash`
+breadcrumb, any `finish_*` that forgets to clear the trap fires it on *normal* completion
+and self-reports a phantom crash on every converted gate.** The `inc` guard (a) and
+`_gate_trap` rewrite (b) are the only *other* lib edits.
 (a) `inc` guard — defensive, currently unreached (the **4 lib-sourcing** companions —
 `build-vet`, `version-consistency`, `major-version-imports`, `go-version-check` —
 guard `((n++))` with `|| true`; `crd-validation`/`patterns-completeness` source no lib
 and increment via `$((new+1))`, so the trap/`inc`/counter guarantees here scope to the
-4, not all 6). (b) `_gate_trap` → `.crash` breadcrumb (ordinary nonzero exits only), no FAIL report;
-**and** the orchestrator writes the breadcrumb when the child exits `124` (timeout —
-the dominant crash) or `>128` (signal-killed, e.g. `137` SIGKILL), both invisible to
-the in-script trap (SIGTERM → exit 0, SIGKILL → no trap). The live `cmd_gates` runs the
+4, not all 6). (b) `_gate_trap` → `.crash` breadcrumb (ordinary nonzero exits only), no FAIL report.
+**Canonical `.crash` path — one convention shared by all four writers/readers:**
+`$repo/.rebase-tmp/gates/${prefix}-${gate}.crash`, where `${prefix}-${gate}` is
+`init_gate`'s step-prefixed `GATE_NAME` (lib:33-38) and is identical to `report_path`'s
+`${sd%-*}-${gate_name}` (orchestrator:106-110) — verified equal for all four step dirs.
+So the in-script trap (keys off `$GATE_NAME`), the orchestrator (keys off
+`${sd%-*}-${gate_name}`), `cmd_init` (globs `*.crash`), and the harness reader (keys off
+`${gate}.crash`) all resolve the same file; a mismatch here silently loses crashes or
+never cleans them. This identity holds only because every step dir has exactly one hyphen
+(`${sd%-*}` strips the single suffix segment) — a multi-hyphen step dir would break it, so
+keep step-dir names single-hyphen or move both sites to the `grep -oE '^step[0-9]+'` form.
+Being gate-name-prefixed, a stale crash on gate A cannot mask a real one on gate B; its
+only impact is false-positive crash-count noise. **And** the orchestrator writes the
+breadcrumb when the child exits `124` (timeout — the dominant crash) or `>128`
+(signal-killed, e.g. `137`): an untrapped SIGTERM/SIGKILL terminates `bash` *without*
+running its EXIT trap, so these never reach the in-script trap and the orchestrator must
+own them. (Prefer `timeout --kill-after`/`-s KILL` so a companion that swallows SIGTERM
+still dies with a capturable code; confirm the exact code empirically.) The live `cmd_gates` runs the
 companion as `if output=$(timeout … bash "$companion" …); then` (`orchestrator.sh:203`),
 which **discards** the child exit code — so this patch must restructure that line to
 capture it: `rc=0; output=$(timeout "$GATE_OUTER_TIMEOUT" bash "$companion" "$repo" 2>&1)
@@ -490,7 +513,7 @@ existing `NEW_ISSUES=0` grep branch on `$output` (this is the same restructure t
 Execution-model snippet shows; Phase 0 lands only the rc-capture + `.crash` write, not the
 evidence transport). Plus the harness reader, keyed off *both* breadcrumb
 sources: `_tally_gates` returns a fixed 4-field string (`test-skill.sh:129`) read at
-three sites (`:948/:1450/:1517`), so surfacing crashes "distinct from missing" means
+three sites (`:948/:1451/:1518`), so surfacing crashes "distinct from missing" means
 widening that arity (or a parallel `.crash` scan), filtering crashed gates from the
 missing-names loop (`:979-992`), and the cross-worktree fan-out reports get
 (`_collect_gate_dirs:66-75`) — budget it as a real change, shipped in the same PR as
@@ -510,8 +533,14 @@ true`, not one:** `build-vet.sh:23-24` (`go build`/`go vet`),
 verify`) — grep-verified. build-vet is the promotion candidate so it gets the
 defer-on-kill treatment; the other two are `evidence` gates that already defer, but they
 get the same capture so a killed tool cannot masquerade as *clean evidence* (empty output
-→ 0 errors → a false "BUILD-OK" the subagent then trusts). (`test-compilation`/`build-vet-recheck`
-have no script.) This fixes a **live** false-PASS (a killed
+→ 0 errors → a false "BUILD-OK" the subagent then trusts). **Caveat:
+`patterns-completeness.sh` sources no lib** — no EXIT trap and no lib `.crash` writer — so
+its variant only captures the inner rc and, on `≥124`, skips the `NEW_ISSUES=0` echo
+before `exit 0` so the orchestrator records PENDING (defer). It gets **no** `trap -`/`.crash`
+line (both are lib-only), so inner-tool-kill breadcrumbs exist for the two lib companions
+(`build-vet`, `version-consistency`) while the NOLIB one degrades to a silent defer — still
+no false-PASS. Phase 2's `finish_evidence` conversion unifies it.
+(`test-compilation`/`build-vet-recheck` have no script.) This fixes a **live** false-PASS (a killed
 `go build` today counts 0 errors → PASS) before build-vet is ever promoted to
 `filter`; the normal build-failure path (nonzero + error lines → `NEW_ISSUES>0` →
 already defers) is untouched, so there is no regression. (e) **tier the timeouts.**
@@ -526,6 +555,17 @@ give the orchestrator its own `GATE_OUTER_TIMEOUT` computed as
 `2 × GATE_TIMEOUT × (module-count)` (count non-vendor `go.mod` at spawn time), not a
 fixed default — a fixed `900` is only a single-module floor. Small change, but it
 prevents the whole crash/defer machinery from firing on slow-but-fine multi-module repos.
+
+*Landing order within Phase 0 (three independently-verifiable groups):* **P0a** — the
+inert `finish_*`/`_write_evidence` additions (0) (plus the defensive, currently-unreached
+`inc` guard (a), which may be deferred): pure additions with no caller; `bash -n` the lib
+and re-run the 4 lib companions to confirm zero regression. **P0b** — crash detection: the
+trap rewrite (b), orchestrator rc-capture + `.crash` write (b), companion sub-tool capture
+(d), `cmd_init` cleanup (c), and the **test-only** harness reader (b) (`test-skill.sh`; no
+production impact, separately testable). **P0c** — timeout tiering (e). No strict ordering
+*within* Phase 0 (nothing calls the new `finish_*` until Phase 2), but both P0a's
+trap-clear and P0b's trap rewrite MUST be present before Phase 2's first `finish_evidence`
+call. Three PRs beat one reviewer-hostile bundle.
 
 **Phase 1 — Fix the court, then measure (decision gate).** Two separable pieces:
 *(metric)* the go/no-go for the rollout is **court verdict / false-FAIL rate on the
