@@ -709,8 +709,16 @@ allow-list (`:1230`) is a **no-op under `bypassPermissions`** — replace the ju
 `--permission-mode "$PERMISSION_MODE"` (`:1229`) with the literal `--permission-mode default`
 so the existing read-only `--allowedTools` (`git show/diff/log`, `Read`) actually binds and
 `git checkout/reset/commit/push` is impossible. A developer who only edits `--allowedTools`,
-or substitutes another still-bypassing mode, ships a no-op — verify empirically that a
-juror's `git checkout` is denied after the change.
+or substitutes another still-bypassing mode, ships a no-op — and because the fix is invisible
+to the aggregate false-FAIL metric (a still-bypassing court just reads noisier, which
+`check-phase1-baseline` cannot distinguish from "fix not applied"), the verification cannot
+remain prose. **Ship a concrete harness assertion as a Phase-1 deliverable:**
+`test/assert-court-permissions.sh` (or a `cmd_assert_court_permissions` in `test-skill.sh`)
+that launches a minimal role with the *new* flags and asserts a `git checkout`/write attempt
+exits nonzero (denied) while a `git show` is allowed — a direct, mode-agnostic probe that
+fails loudly if a future edit reverts to a bypassing mode. Wire it to a k8s-rebase Makefile
+target and add it to the same pre-Phase-2 checklist as `check-phase1-baseline`, so the court
+fix is proven effective *before* any baseline is measured against it.
 **(c) Anchor the base authoritatively:** the result branch is *definitionally* built from
 config `from_commit` (`cmd_run --from-commit`, `:480`), so `from_commit` — **not**
 `merge-base` — is the result's true pre-rebase base; pass it into `cmd_court` as a new
@@ -803,7 +811,10 @@ to the point-in-time write, **append** a row to an append-only **court-history f
 `test/court-history.tsv`, carrying the courted run's own spec, gate verdict, **and detail**:
 `${version}\t${repo}\t${spec}\t${gate_verdict}\t${detail}\t${court_verdict}\t${ts}`. The two
 sites differ in what is in scope. `cmd_court_all` already has the courted run's `latest_line`
-(col-3 spec, col-5 verdict, col-6 detail at `:1337-1339`) in scope — append directly there.
+in scope (`:1337`), but note only `verdict` is pre-extracted into a variable (`cut -f5`,
+`:1339`) — the append must additionally pull `spec=$(echo "$latest_line" | cut -f3)` and
+`detail=$(echo "$latest_line" | cut -f6)` before writing the row, or those columns land empty
+and the infra-exclusion filter breaks. With those two `cut`s added, append directly there.
 `_results_one`, however, does **not**: at `:1586` the court write precedes the `:1594` display
 loop, whose `spec`/`verdict`/`detail` are loop-locals bound *after* the write and iterated over
 the last-5 rows across *all* specs — there is no single courted-run spec/verdict/detail in scope
@@ -821,9 +832,15 @@ courting at `:1341-1348`, so those never reach the history; the detail column ca
 residual infra FAILs that *do* get courted.) The
 path is deliberate: everything under `test/.matrix-state/` is unconditionally gitignored
 (`.matrix-state/.gitignore` is `*` plus `!.gitignore`), so a history file placed there could
-never be committed — put it one level up under `test/` (add an explicit `test/.gitignore`
-negation, or a top-level allow, so it is tracked). Leave the point-in-time file and its `rm`s
-alone (they are the cache). The history file is additive, breaking no existing `results.tsv`
+never be committed — put it one level up, **directly at `test/court-history.tsv`**. That path
+is **not** covered by any `.gitignore` (verified: `git check-ignore test/court-history.tsv`
+exits 1; the only `.gitignore`s under `test/` are scoped to `test/.matrix-state/` and
+`test/.repos/`), so it is immediately trackable. **Do NOT add a `test/.gitignore`** — a
+`test/.gitignore` would need a `*`+negation catch-all to work, which would silently ignore
+every *other* file the plan places under `test/` (`test/metrics/court-baseline.tsv`,
+`test/assert-evidence-paths.sh`, `test/assert-court-permissions.sh`). Same for the pinned
+snapshot at `test/metrics/court-baseline.tsv` (also `git check-ignore` rc=1). Leave the
+point-in-time file and its `rm`s alone (they are the cache). The history file is additive, breaking no existing `results.tsv`
 reader — the same rationale that makes Phase 0 prefer a parallel `.crash` scan over
 re-arity-ing `_tally_gates`.
 
@@ -867,13 +884,23 @@ a structural 0%. **Make the Phase-1→Phase-2 boundary check the *decision*, not
 artifacts.** "Only if Phase 1 binds" (Phase 2's opening) is unenforceable text today — nothing
 stops an implementer skipping the court fix, measuring with the broken court, and proceeding.
 Add a `make check-phase1-baseline` target (a `cmd_check_phase1_baseline`) that exits non-zero
-with a descriptive error unless: (i) `test/metrics/court-baseline.tsv` exists and is committed;
-(ii) a committed `test/metrics/phase1-decision.txt` records the chosen branch (`stop-after-phase0`
-or `proceed-to-phase2`) together with the measured aggregate and worst per-repo false-FAIL
-rates; and (iii) the target **recomputes** the rates from `court-baseline.tsv` and asserts the
-recorded decision is *consistent with the ≤5%/≤10% rule* — `proceed-to-phase2` only when the
-rate still exceeds the boundary, `stop-after-phase0` when it does not — and that the recorded
-rates match the recomputed ones (catches a stale, hand-edited baseline). Checking that the
+with a descriptive error unless: (i) **both** the raw `test/court-history.tsv` **and** its
+derived snapshot `test/metrics/court-baseline.tsv` exist and are committed (committing the raw
+log, not just the summary, is what makes step (iv) reproducible in review); (ii) a committed
+`test/metrics/phase1-decision.txt` records the chosen branch (`stop-after-phase0` or
+`proceed-to-phase2`) together with the measured aggregate and worst per-repo false-FAIL rates;
+(iii) the recorded decision is *consistent with the ≤5%/≤10% rule* — `proceed-to-phase2` only
+when the rate still exceeds the boundary, `stop-after-phase0` when it does not; and (iv) the
+target **re-derives the snapshot from the raw log** — re-runs `cmd_court_metrics` on
+`test/court-history.tsv` and asserts its output equals the committed `court-baseline.tsv`
+exactly, then reads the rates *from that re-derived output* (not from the committed file) for
+the (iii) check. Recomputing from the *committed snapshot* alone (an earlier draft of this
+spec) would be circular: a fabricated `court-baseline.tsv` + a matching `phase1-decision.txt`
+would pass. Re-deriving from `court-history.tsv` means faking the decision requires forging the
+entire per-run log consistently — far harder than editing two summary numbers. (It is not
+tamper-*proof* — a determined editor could rewrite the log too — but it raises the bar from
+"edit two numbers" to "forge the corpus," which is the realistic threat for an honest-mistake /
+stale-snapshot slip.) Checking that the
 recorded decision obeys the rule is the point; merely asserting the analyzer function is
 defined (`declare -F cmd_court_metrics`) is near-tautological (analyzer and checker land in the
 same `test-skill.sh`) and is at most a cheap sanity arm, not the gate. **Enforcement hook —
@@ -1013,17 +1040,26 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
 4. Drop *only* the FIRST STEP block. In the 3 companion gates that also carry a
    base-filter block (`major-version-imports.md:22`, `patterns-completeness.md:48`,
    `go-version-check.md:43`), delete the FIRST STEP block surgically and preserve the
-   base-filter. **Also retarget the P0a crash-safe fallback trigger in the *same* edit.** P0a
-   widened four companion `.md` triggers to "if the companion script is not found, crashes, or
-   emits no `NEW_ISSUES` line" and added an equivalent branch to `crd-validation`/
-   `patterns-completeness` — but once the FIRST STEP block is gone the subagent no longer runs
-   the companion, so "crashes / no `NEW_ISSUES` line" is vacuously true on every invocation and
-   the wording misleads. Rewrite that trigger to key off the evidence file instead: *"if
-   `<prefix>-<gate>.evidence` is missing or its `HEAD:` line does not match `git rev-parse
-   HEAD`, run the manual checks and judge from the diff."* This is the same condition the
-   verbatim template's stale/missing branch already states, so the fallback and the
-   read-evidence block now describe one behavior. Bundle it with this file's atomic
-   conversion so no PR leaves the two out of sync.
+   base-filter. **Also remove the P0a crash-safe fallback *trigger* in the *same* edit —
+   do not retarget it to a second copy of the evidence-miss condition.** P0a widened four
+   companion `.md` triggers to "if the companion script is not found, crashes, or emits no
+   `NEW_ISSUES` line" and added an equivalent branch to `crd-validation`/`patterns-completeness`
+   — but once the FIRST STEP block is gone the subagent no longer runs the companion, so
+   "crashes / no `NEW_ISSUES` line" is vacuously true on every invocation and the wording
+   misleads. The naive fix — rewrite the trigger to *"if `<prefix>-<gate>.evidence` is missing
+   or its `HEAD:` line does not match `git rev-parse HEAD` …"* — would restate the **exact
+   condition the verbatim template's stale/missing branch already owns**, creating two prose
+   blocks that describe one behavior and can drift independently on any later edit (the
+   "bundle with the atomic conversion" mitigation only covers the initial conversion, not
+   post-landing edits — and it violates this plan's own "do not re-word the template per file"
+   principle). Consolidate instead: **delete the standalone fallback trigger sentence
+   entirely**; the template's stale/missing branch ("…the evidence is stale/missing — ignore
+   it and judge this gate from scratch using the checks below") is the single trigger. What
+   stays is the gate-specific **manual-check body** that trigger used to gate (e.g. build-vet's
+   `go build`/`go vet` module loop, `build-vet.md:20-44`): those become "the checks below" the
+   template points to — keep them, just drop the now-redundant "if the companion script is not
+   found, fall back to …" lead-in. One trigger (shared, verbatim), one per-gate check body, no
+   duplicated condition to drift. Bundle the deletion with this file's atomic conversion.
 
 **Per-step wiring (lands ONCE per step, in the LAST companion-conversion PR for that
 step — NOT per gate).** Two step-level edits must not land until every companion in that
@@ -1079,12 +1115,17 @@ step has had its FIRST STEP block removed (steps 1-4 above):
    lands once in Phase 2, independent of the per-gate conversions, and turns a silent prefix
    drift into a red build wherever that harness check runs. **Two guards against a vacuous pass:** (i) at Phase-2 landing **zero**
    `.md` files yet carry a named evidence path, so a bare "check every named path" assertion
-   passes by checking nothing — add a **minimum-count** assertion: the script must find the
-   `EVIDENCE (read before judging):` marker (and its named path) in at least *N* `.md` files,
+   passes by checking nothing — add an **exact-count** assertion: the script must find the
+   `EVIDENCE (read before judging):` marker (and its named path) in *exactly N* `.md` files,
    where *N* is the number of companions converted so far (2 after step 2 lands, 6 after all
-   Phase-2 conversions, growing in Phase 3). Record the expected *N* in a comment so it is
-   bumped as each conversion lands; a converted companion that forgot its block then drops the
-   count below *N* and fails the build. (ii) The prefix-agreement check must run per converted
+   Phase-2 conversions, growing in Phase 3). Record the expected *N* in the script. Use `== N`,
+   **not `>= N`**: with `>= N`, a conversion PR that adds the block but forgets to bump *N*
+   still passes (count `N+1 >= N`), and a later accidental removal back to *N* also passes
+   (`N >= N`) — a permanent silent blind spot. With `== N`, the forgotten-bump PR produces
+   `count = N+1 != N` and fails the build immediately, forcing the *N*-bump into the same PR as
+   the block; a later removal then fails against the now-current expected count. (Optionally
+   also print `grep -c 'EVIDENCE (read before judging)' gates/**/*.md` in the PR diff so author
+   and reviewer see the actual count against the expected *N*.) (ii) The prefix-agreement check must run per converted
    `.md`, not only where a path happens to exist, so a file with the marker but a *drifted*
    path still fails.
 
