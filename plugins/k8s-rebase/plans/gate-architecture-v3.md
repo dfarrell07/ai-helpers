@@ -864,7 +864,9 @@ step has had its FIRST STEP block removed (steps 1-4 above):
    **(5b)** replace that step's *unconditional* launch instruction — `step2-compilation.md:150-151`
    ("Do not skip, batch, or defer any gate — launch all 6 in a single message") and
    `step3-autofix.md:65` ("launch all 11 in a single message") — with "Launch subagents only
-   for PENDING gates" (verbatim from `step4-verification.md:60`). Without 5b the subagents
+   for PENDING gates" (verbatim from `step4-verification.md:60`). Replace **only** that
+   clause: `step2-compilation.md:150` co-locates "Do NOT cat the gate files yourself." on the
+   same line, which must survive — don't blind-replace the whole `:150-151` range. Without 5b the subagents
    fire for every gate regardless of the orchestrator's PASS resolution, so the fast-path
    saves nothing and re-opens HEAD-drift on already-resolved gates — 5a is inert without 5b.
    This is a cross-gate change: `step2-compilation` has **two** companions (`build-vet`,
