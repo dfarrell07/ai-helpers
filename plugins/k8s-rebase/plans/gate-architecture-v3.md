@@ -1231,17 +1231,35 @@ that is the "no pass-rate regression" arm. A repo absent from the anchor (a newl
 out-of-scope and simply not iterated. **`confirm-by-rerun` is the wrapping `make court-regression`
 contract, not the awk:** because a single matrix run carries the ~50-point AI variance the
 no-regression gate has to absorb, the target runs *matrix + `cmd_court_regression`* **twice** and
-blocks the phase only on the **intersection** — a repo flagged in *both* runs. This applies to
-**both** flag kinds: a `REGRESSION` and a `MISSING` (a repo present in the anchor but absent from
-the fresh snapshot) each block only when confirmed in both samples. `MISSING` is deliberately *not*
-a block-on-either signal: `cmd_court_metrics` drops a repo whose latest spec=all row is a transient
-infra failure (`session ended`, a rate-limited/aborted court, …) because that row is excluded from
-the denominator, so a **one-run** absence is variance, not a dropped repo — only a *persistent*
-court failure or an *intentional* removal from the test set shows up in **both** snapshots. The one
-exception is a **hard error** — a missing or empty frozen anchor — which exits 2 with *no* per-repo
-`MISSING` line and blocks immediately on either run, since it is a configuration fault, not variance.
-A flag seen in only one run is logged and re-run, never blocks. The exit-code contract is stated
-exactly as `check-phase1-baseline`'s: nonzero blocks the phase, and nothing is re-committed on a block.
+applies the confirm rule **per repo**. The two flag kinds are *not* symmetric, because they mean
+different things:
+
+- A **`REGRESSION`** (present in both anchor and fresh, higher false-FAIL rate) is the signal the
+  gate exists to catch. It is cleared as AI variance *only* when the **other** run **cleanly
+  measured that repo and did not flag it** — a genuine "second opinion." A run in which the repo is
+  `MISSING` is **not** a clean measurement (it produced no rate at all), so it can neither confirm
+  nor refute: a `REGRESSION` paired with a `MISSING` in the other run is *unconfirmable* and
+  **blocks**. A `REGRESSION` in both runs blocks (confirmed). A `REGRESSION` in one run and a clean
+  no-flag measurement in the other lands (refuted as variance). This closes the cross-kind gap — a
+  real regression can no longer hide behind a one-run infra flake in its confirming sample.
+
+- A **`MISSING`** (present in the anchor, absent from the fresh snapshot) is **never**, on its own,
+  a block — it is not a false-FAIL rate *increase*. `cmd_court_metrics` counts only latest
+  spec=all rows whose gate verdict is a non-infra `FAIL`, so a repo drops out of the fresh snapshot
+  for exactly two reasons, **both benign to this gate**: (1) the gate now **passes cleanly** — the
+  success path of a rebase fix, the outcome we *want*; or (2) a **gate-level** infra flake in that
+  run (`session ended`, `stale branch`, …) excludes the row. Note what `MISSING` is **not**: a
+  transient **court** failure keeps the repo *present* (it still writes a gate-`FAIL` row, counted
+  as `0/den`, not dropped); and an **intentional removal** is *invisible* here — the append-only log
+  with latest-row-per-key means the repo's stale anchor-era row persists as its latest, so it stays
+  present and never reports `MISSING`. Dropped coverage must therefore be caught with a config diff,
+  not this gate. `MISSING` with no `REGRESSION` in either run is emitted as a **`WARN`** (so a
+  drop-out is never silent) and lands.
+
+The one exception is a **hard error** — a missing or empty frozen anchor — which exits 2 with *no*
+per-repo `MISSING` line and blocks immediately on either run, since it is a configuration fault, not
+variance. The exit-code contract is stated exactly as `check-phase1-baseline`'s: nonzero blocks the
+phase, and nothing is re-committed on a block.
 
 The intersection itself needs the same concrete shape as the single-run diff, not just prose —
 `make court-regression` maps to the wrapper `cmd_court_regression_confirmed`, which takes two
@@ -1249,7 +1267,7 @@ independent samples and applies the block rule mechanically:
 
 ```bash
 cmd_court_regression_confirmed() {             # `make court-regression`; exit 0 = phase may land, 1 = block
-  local reg1 reg2 rc1 rc2 kind blocked=0
+  local reg1 reg2 rc1 rc2
   cmd_matrix all                               # sample 1: re-run spec=all (Phase 1 wires courting into the
   reg1="$(cmd_court_regression)"; rc1=$?       #           run, so it appends fresh court rows to the log)
   cmd_matrix all                               # sample 2: an independent re-run — latest-row-wins in
@@ -1260,19 +1278,29 @@ cmd_court_regression_confirmed() {             # `make court-regression`; exit 0
      { (( rc2 == 2 )) && ! grep -q '^MISSING' <<<"$reg2"; }; then
     printf '%s\n%s\nBLOCK: court-regression hard error (see above)\n' "$reg1" "$reg2"; return 1
   fi
-  # Both REGRESSION and MISSING pass through the SAME two-run intersection: a transient court/infra
-  # failure drops a repo from ONE snapshot (variance); a persistent failure or intentional removal
-  # drops it from BOTH. Block only on the intersection of each kind.
-  for kind in REGRESSION MISSING; do
-    if comm -12 \
-         <(printf '%s\n' "$reg1" | awk -F'\t' -v k="$kind" '$1==k{print $2}' | LC_ALL=C sort -u) \
-         <(printf '%s\n' "$reg2" | awk -F'\t' -v k="$kind" '$1==k{print $2}' | LC_ALL=C sort -u) \
-       | grep -q .; then
-      echo "BLOCK: $kind confirmed in both runs"; blocked=1
-    fi
-  done
-  (( blocked )) && { printf '%s\n%s\n' "$reg1" "$reg2"; return 1; }
-  return 0                                      # clean — a one-run-only flag is logged, not blocking
+  # Per-repo confirm-by-rerun. A REGRESSION is cleared as AI variance ONLY when the other run cleanly
+  # measured that repo and left it unflagged; a run where the repo is MISSING is not a clean
+  # measurement, so it can neither confirm nor refute. MISSING with no REGRESSION either run is a
+  # WARN, not a block — the repo now passes cleanly (the success path) or hit a gate-infra flake;
+  # neither is a rate increase (an intentional removal is invisible here — use a config diff).
+  awk -F'\t' '
+    FNR==NR { if ($1=="REGRESSION") r1[$2]=1; else if ($1=="MISSING") m1[$2]=1; next }
+            { if ($1=="REGRESSION") r2[$2]=1; else if ($1=="MISSING") m2[$2]=1 }
+    END {
+      block=0
+      for (x in r1) reg[x]=1; for (x in r2) reg[x]=1     # every repo regressed in either run
+      for (x in reg) {
+        in1=(x in r1); in2=(x in r2)
+        if (in1 && in2) { printf "BLOCK: %s regression confirmed in both runs\n", x; block=1; continue }
+        other_missing = (in1 ? (x in m2) : (x in m1))    # regressed in exactly one run
+        if (other_missing) { printf "BLOCK: %s regressed one run, unmeasurable (MISSING) in the other\n", x; block=1 }
+        else               { printf "INFO: %s regressed one run only, clean in the other -> variance\n", x }
+      }
+      for (x in m1) if (!(x in r1) && !(x in r2)) warn[x]=1
+      for (x in m2) if (!(x in r1) && !(x in r2)) warn[x]=1
+      for (x in warn) printf "WARN: %s absent from a fresh snapshot (now passes cleanly, or a gate-infra flake)\n", x
+      exit block                                          # 0 = phase may land, 1 = block
+    }' <(printf '%s\n' "$reg1") <(printf '%s\n' "$reg2")  # awk's exit is the function's return
 }
 ```
 
@@ -1407,8 +1435,8 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    simply exposes checks 1-4, which are already self-contained, so nothing is promoted, only
    uncovered. **For `patterns-completeness` this step is two labeled edits — do both in the one
    atomic edit (per the "in one edit" contract above) or neither:**
-   - **(4a)** Drop the PATH A/B selectors (and, for the 3 self-contained gates, the FIRST STEP
-     block) as described above.
+   - **(4a)** Drop `patterns-completeness`'s PATH A/B selectors, exposing checks 1-4 (the
+     3 self-contained gates' lead-in deletion is the separate shape described above).
    - **(4b) — MANDATORY, same atomic edit:** rewrite the surviving checks header at
      `patterns-completeness.md:18`, whose verbatim text is `--- Checks (PATH B only — skip entirely
      if PATH A applies) ---` (with `---` decorators on both sides), to an unconditional
