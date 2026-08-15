@@ -467,7 +467,21 @@ mechanical, but parts (b)/(c) change crash *semantics*: today a crashed companio
 `_gate_trap` writes a **FAIL report**, which `cmd_gates` then treats as a cached verdict
 (`report_has_verdict` accepts `FAIL`) and skips the subagent; after (b) it writes a
 **`.crash` breadcrumb and no report**, so `cmd_gates` emits PENDING and the subagent runs
-and judges (defer-not-fail). Treat these as load-bearing, not cosmetic.
+and judges (defer-not-fail). Treat these as load-bearing, not cosmetic. **Window hazard —
+close it atomically in the same PR as (b):** during the Phase 0→Phase 2 interval the
+companion `.md` FIRST STEP blocks are still live, so a post-(b) crash routes to a subagent
+that re-runs the still-crashing companion via its MANDATORY block, then finds **no matching
+rule** — RULE 1 needs `NEW_ISSUES=0`, RULE 2 needs flagged issues, and the fallback fires
+only "if the companion script is **not found**" (a crash is neither) — so it improvises,
+likely **PASS**, inverting today's crash→FAIL→block (`_gate_trap` today writes a FAIL
+report, `gate-script-lib.sh:21-25`). This regression opens the moment (b) lands: the
+`_gate_trap` rewrite is shared code, so it drops the crash→FAIL backstop for every
+in-subagent companion run (steps 1-3) at once, and the orchestrator `.crash` change drops
+it for the already-orchestrated step 4 — both in (b). Fix in the (b) PR: widen every
+companion `.md`'s fallback trigger from "if the companion script is not found" to "if the
+companion script is not found, **crashes, or emits no `NEW_ISSUES` line**" → the subagent
+runs its manual checks (real judgment from the diff), never a blind PASS. That lands the
+semantic change and its consumer-side handling together, so no interval opens.
 **The evidence-transport lib API is NOT installed here — each `finish_*` lands with its
 first caller.** The transport functions
 (`_head_sha`/`_write_evidence`/`finish_evidence`/`finish_filter`/`finish_deterministic`/`finish_info`)
@@ -561,11 +575,28 @@ companion that itself `timeout`s each inner tool at the *same* `GATE_TIMEOUT`
 every non-vendor `go.mod`), so the true inner sum is `2 × GATE_TIMEOUT × module-count`.
 `ovn-kubernetes` has 3 modules → up to `2×300×3 = 1800s`, which blows past any fixed
 outer bound and makes the orchestrator SIGTERM a *healthy* companion, forging a
-spurious `.crash`/defer. The outer bound must exceed the sum of the inner bounds:
-give the orchestrator its own `GATE_OUTER_TIMEOUT` computed as
-`2 × GATE_TIMEOUT × (module-count)` (count non-vendor `go.mod` at spawn time), not a
-fixed default — a fixed `900` is only a single-module floor. Small change, but it
-prevents the whole crash/defer machinery from firing on slow-but-fine multi-module repos.
+spurious `.crash`/defer. The outer bound must exceed the sum of the inner bounds: give the orchestrator its own
+`GATE_OUTER_TIMEOUT` computed as `2 × GATE_TIMEOUT × module-count`, not a fixed default —
+a fixed `900` is only a single-module floor. Count modules **exactly as `build-vet.sh`
+iterates them** (`build-vet.sh:14`, `find . -name go.mod -not -path '*/vendor/*'`), so the
+bound tracks whatever build-vet will actually loop over (e.g. a repo with a `.claude/`
+worktree present exposes more `go.mod` than the 3 canonical ones). Apply the bound
+uniformly — a non-build-vet companion doesn't loop per module, so `2 × GATE_TIMEOUT × N`
+is simply a harmless-larger ceiling for it; no per-companion detection needed. Concretely,
+in `cmd_gates`, before the `timeout … bash "$companion"` call:
+
+```bash
+# Outer bound must exceed build-vet's inner sum (2 tools × GATE_TIMEOUT × modules).
+# Count modules the SAME way build-vet.sh:14 does, so the bound tracks its real loop.
+local _mods; _mods=$(find "$repo" -name go.mod -not -path '*/vendor/*' 2>/dev/null | wc -l)
+(( _mods < 1 )) && _mods=1
+local GATE_OUTER_TIMEOUT=$(( 2 * ${GATE_TIMEOUT:-300} * _mods ))
+rc=0; output=$(timeout "$GATE_OUTER_TIMEOUT" bash "$companion" "$repo" 2>&1) || rc=$?
+(( rc >= 124 )) && printf 'CRASH: exit %s\n' "$rc" > "$crash"
+```
+
+Small change, but it prevents the whole crash/defer machinery from firing on
+slow-but-fine multi-module repos.
 
 *Landing order within Phase 0 (two crash-detection PRs plus optional housekeeping):*
 **P0a** — crash detection: the `_gate_trap` rewrite (b), orchestrator rc-capture + `.crash`
@@ -640,7 +671,18 @@ reliability at issue. **Source precisely:** the court verdict is **not** in
 (`test-skill.sh:1013/1079`); the court verdict is written separately to
 `court/${VERSION}_${repo_key}` (`:1585`) and `rm`'d on record (`:1016`). So the
 committed metrics snapshot must **join** the `results.tsv` row with the court verdict
-(and a recomputed known-good hunk count) per repo/version. Define false-FAIL
+(and a recomputed known-good hunk count) per repo/version — **but that join is
+unbuildable against live code and is a required first sub-step (code, before any
+measurement):** `record()` deletes `court/${VERSION}_${repo_key}` at `:1016` immediately
+after appending the `results.tsv` row (`:1013`), and `_results_for_version` reads that
+same live file (`:1615`), so it returns `-` for every already-recorded run — the verdict
+is erased before it can be captured. Fix: in `record()`, persist the court verdict
+*before* the `rm -f` by appending to a **parallel court-history file**
+(`${version}\t${repo}\t${verdict}\t${ts}`) — additive, breaking no existing `results.tsv`
+reader, the same rationale that makes Phase 0 prefer a parallel `.crash` scan over
+re-arity-ing `_tally_gates` (widening `results.tsv` to a 7th column would touch its three
+readers). Commit the baseline snapshot from that history file; only then are the numbers
+below a real go/no-go input rather than a self-erasing artifact. Define false-FAIL
 concretely: *known-good input (court says good) but a blocking non-`info` gate FAILed*
 — explicitly **excluding** infra fails (stale/no-branch, missing gates,
 session-ended), which are not reliability signals. *(court juror tool use)* jurors are
@@ -656,7 +698,14 @@ healthier — last 21 spec=all 20/21 (95%), last 24 spec=all 23/24. 1.35.3/spec=
 session-ended — and 9/10 in the last 10 runs), *not* the regression an earlier draft's
 "12%" implied (that was the spec=none PASS *count*, 12/24, misread as a percent). The
 true low-water slice is `ovn-org/ovn-kubernetes` at 16/36 (44%, all specs). Mixed, not
-solved. **If it no longer binds, stop after Phase 0.**
+solved. **Concrete decision boundary (record before measuring, so the same numbers can't
+be read two ways):** on the committed post-stripping baseline, over the fixed
+repo/version set, **stop after Phase 0 if the court false-FAIL rate is ≤ 5% aggregate AND
+no single repo exceeds 10%, confirmed across ≥ 2 re-runs** (the variance control below);
+otherwise subagent reliability still binds and Phases 2–5 proceed. The 5%/10% figures are
+the initial team-settable boundary — adjust with the maintainers, but the values must be
+written down here before the baseline is measured, or the gate provides no decision
+discipline. **If it no longer binds, stop after Phase 0.**
 
 *(checkpoint, not a one-shot)* This same measurement is the **regression gate for
 every later phase**, not just the go/no-go. Re-run the matrix after Phase 2 (execution
@@ -706,12 +755,17 @@ which today "rm the report and re-launch the subagent." With the in-subagent
 companion run removed, a bare re-launch would judge with **stale** evidence — so the
 re-run must re-invoke `orchestrator gates <step>` to regenerate evidence at the fixed
 HEAD before re-launching. Miss this and the fix loop silently re-judges old facts.
-Step 4's own gate-fix loop (`step4-verification.md:71-76`) already routes through
-`orchestrator gates 4` (it is the reference the steps-1-3 wiring mirrors), so its
-correctness is already protected by the consumer freshness check; add a one-line note
-that after its fix commit it must re-invoke `orchestrator gates 4` too — a
-**value/consistency** touch (so the re-judged gate keeps its evidence instead of
-degrading to judge-from-scratch), not a correctness fix.
+Step 4's own gate-fix loop does **not** currently re-invoke the orchestrator (verified
+against live code): its "Gate-fix loop" section — after the *initial* `orchestrator gates
+4` launch at `step4-verification.md:56-58` — says only "triage (check base branch), fix +
+commit, delete old report, re-validate with `--no-test`, re-run gate." The sole
+orchestrator call is the initial launch, not the fix loop. So step 4 carries the **same**
+stale-evidence bug as steps 1-3: after a fix commit it re-launches the gate subagent
+without regenerating evidence at the new HEAD. Apply the identical requirement — the
+step-4 fix loop must re-invoke `orchestrator gates 4` before re-launching — and treat it
+as a **correctness** fix, not a value/consistency touch: the fix loop is where evidence
+freshness matters most, because it decides whether a developer's fix actually cleared a
+FAIL.
 
 Atomic per companion gate, in one edit so no intermediate state strands it:
 1. Convert its companion `finish_gate` → `finish_evidence` (for `crd-validation`/
@@ -734,9 +788,11 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    form callable without importing lib-level `set -e`. `patterns-completeness.sh`
    already `|| true`s its risky commands, so it is safe once sourced; `crd-validation`
    is not.
-2. Add the `gates` call + add the `.md`'s read-your-evidence-file instruction (the
-   fixed `.rebase-tmp/gates/<prefix>-<gate>.evidence` path) *while keeping* the FIRST
-   STEP block; verify the deferred subagent receives identical facts via the file.
+2. Add the `.md`'s read-your-evidence-file instruction (the fixed
+   `.rebase-tmp/gates/<prefix>-<gate>.evidence` path) *while keeping* the FIRST STEP
+   block; verify the deferred subagent receives identical facts via the file. (The
+   per-**step** `orchestrator gates <step>` launch is *not* added here — it is a
+   cross-gate change; see "Per-step wiring" below.)
 3. Remove the `NEW_ISSUES`/RULE-1 fast-path prose in the *same* edit — once the
    in-subagent run is gone, a RULE 1 that reads `NEW_ISSUES` references a value the
    orchestrator no longer surfaces to the subagent. The identical "set verdict=PASS
@@ -752,6 +808,30 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    base-filter block (`major-version-imports.md:22`, `patterns-completeness.md:48`,
    `go-version-check.md:43`), delete the FIRST STEP block surgically and preserve the
    base-filter.
+
+**Per-step wiring (lands ONCE per step, in the LAST companion-conversion PR for that
+step — NOT per gate).** Two step-level edits must not land until every companion in that
+step has had its FIRST STEP block removed (steps 1-4 above):
+5. **Add the `orchestrator gates <step>` launch to the step `.md`** (mirroring
+   `step4-verification.md:56-58`). This is a cross-gate change: `step2-compilation` has
+   **two** companions (`build-vet`, `version-consistency`) and `step3-autofix` has
+   **three** (`crd-validation`, `major-version-imports`, `patterns-completeness`). If the
+   launch lands with the *first* companion's PR while a sibling's FIRST STEP block is
+   still live, the orchestrator runs that sibling (→ PENDING) *and* the spawned subagent
+   re-runs it via its MANDATORY block — double execution (for `build-vet` across 3
+   modules on a dirty tree, up to ~30 min of extra `go build`/`go vet` per cycle). So the
+   launch lands in the **last** companion-conversion PR for the step, after all that
+   step's FIRST STEP blocks are gone. (Step 4 already has the launch, so only its fix
+   loop, item 6, needs touching.)
+6. **Update the step's gate-fix re-run loop** (`step1-rebase.md:96-99`,
+   `step2-compilation.md:177-180`, `step3-autofix.md:102-108`, **and**
+   `step4-verification.md`'s "Gate-fix loop" — see the F3 correction above) to re-invoke
+   `orchestrator gates <step>` *before* deleting the old report and re-launching the
+   subagent. With the in-subagent companion run removed, a bare re-launch judges with
+   **stale** evidence; regenerating it at the fixed HEAD is a **correctness** requirement,
+   not optional polish. This is the same requirement stated in the prose above, promoted
+   here to an explicit numbered sub-step so it is not missed by a developer following only
+   the list.
 
 So Phase 2 carries the baseline `finish_gate`→`finish_evidence` conversion for the 6
 companions (not "no new content"), and turns on the fast-path everywhere (fixing the
@@ -895,6 +975,7 @@ orthogonal to the steps-1-4 gate redesign.
 | Freshness oversold — HEAD drifts during step-4's concurrent lint commits | Medium | **Decided (not Open):** keep the deliberate 4a‖4b concurrency — drift degrades safely (consumer judges from scratch, and `report_is_fresh:122-133` already forces a re-run so no autonomous verdict is ever stale). Extend the per-iteration evidence regeneration mandated for steps 1-3 (Phase 2) to step 4's fix loop so evidence-in *value* survives re-runs, and gate `filter`/`verdict` **promotions** on a settled HEAD (`--no-test` exit 0). This is churn-avoidance + documentation, not a new correctness backstop; do **not** blanket-serialize step-4 consumption. |
 | Runtime module-classification fetch fails (GOPROXY offline / target tag unpublished) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
 | Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb when the child exits `124` (timeout) or `>128` (signal). Breadcrumb + harness reader ship together (Phase 0). NB: force-advance does **not** rescue this in production — `INCOMPLETE` is write-only (see "Execution model"); the human-facing surfacing is the deferred gap in "Production backstop". |
+| Crash-semantics regression window (Phase 0(b) drops crash→FAIL before consumers handle crash→judge) | Medium | Bounded to a **single PR, not the Phase 0→Phase 2 interval**: the (b) `_gate_trap` rewrite and the companion `.md` fallback-widening (trigger fires on not-found **or crash/no-`NEW_ISSUES`-line**) land together, so no interval opens where a crash routes to a subagent whose rules only cover successful runs. Without the co-landing a crash would flip from today's blocking FAIL to a likely blind PASS. See Phase 0(b). |
 | `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Med | Accepted trade; Phase 1 records per-gate latency so cost is visible. |
 | Court false-FAIL from base misidentification (corrupts the Phase-1 go/no-go metric) | High | Pros/def/judge prompts pin no base and inherit `bypassPermissions` (all tools) → default to ambient `HEAD` (stale shared checkout, e.g. 1546 commits off). Phase-1 fix is *enforcement*: disable git for pros/def/judge (they only need the in-prompt diff), bind jurors' read-only allow-list by dropping bypass, anchor `BASE_REF` to config `from_commit` (authoritative; merge-base fallback) with an `--is-ancestor` guard → INCONCLUSIVE, and thread `BASE_REF` into all prompts + the PASS/FAIL prose. Verified case: `ovn-org/ovn-kubernetes` 1.34.1 false-FAIL where every flagged file is 0-diff-from-base or minor scope skew. Do before measuring. |
 | Cross-plan collision (count; module-class helper; test-skill.sh regions) | Medium | Reconcile in Phase 5 against live state; one sourced classification helper; Phase 1 court edit is a different region than pr-feedback's stripping edit but runs against the post-stripping baseline. |
