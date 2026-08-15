@@ -779,7 +779,8 @@ automated path structurally **cannot produce a single false-FAIL row**, and `mak
 would always report 0% — a vacuous signal. Fix: drop that `:1340` PASS-only filter so
 `cmd_court_all` courts **every** resolvable row (both PASS and FAIL); this makes the
 false-FAIL numerator *and* the false-PASS signal computable from one pass. The extra court
-cost (≈2× the AI calls, since gate-FAIL rows are now courted too) is **inherent** to measuring
+cost scales with the FAIL rate (gate-FAIL rows are now courted too): ≈1.4× the AI calls at the
+spec=all baseline (~71% pass), up to ≈2× at spec=none (~51% pass). That cost is **inherent** to measuring
 false-FAIL — there is no way to measure it without courting the FAILs. (Alternatively, keep
 `:1340` and require a manual `make results repo=X --court` loop over each gate-FAIL repo — the
 `_results_one:1577` path has no PASS filter and *does* court a FAIL repo — but name the exact
@@ -800,9 +801,17 @@ have the court **record what it courted** — do not reconstruct it later. Fix a
 sites, not the record path: at both `cmd_court_all:1374` and `_results_one:1586`, in addition
 to the point-in-time write, **append** a row to an append-only **court-history file** at
 `test/court-history.tsv`, carrying the courted run's own spec, gate verdict, **and detail**:
-`${version}\t${repo}\t${spec}\t${gate_verdict}\t${detail}\t${court_verdict}\t${ts}`. All are
-already in scope at those sites (`cmd_court_all` has `latest_line`'s col-3 spec, col-5 verdict,
-col-6 detail at `:1337-1339`; `_results_one` has them in the same display context). The
+`${version}\t${repo}\t${spec}\t${gate_verdict}\t${detail}\t${court_verdict}\t${ts}`. The two
+sites differ in what is in scope. `cmd_court_all` already has the courted run's `latest_line`
+(col-3 spec, col-5 verdict, col-6 detail at `:1337-1339`) in scope — append directly there.
+`_results_one`, however, does **not**: at `:1586` the court write precedes the `:1594` display
+loop, whose `spec`/`verdict`/`detail` are loop-locals bound *after* the write and iterated over
+the last-5 rows across *all* specs — there is no single courted-run spec/verdict/detail in scope
+at `:1586`. So the `_results_one` append must first recover them by reading back the latest
+`results.tsv` row for its own `(VERSION, short)` (the same `awk -F'\t' … tail -1` shape as
+`cmd_court_all:1337`) immediately before the append. (Factor both appends through one
+`_append_court_history version repo spec gate_verdict detail court_verdict` helper so the row
+format lives in one place; each caller passes what it has resolved.) The
 **detail** column is load-bearing for the infra exclusion below: the recorded gate verdict is
 only `PASS`/`FAIL` (`:944/:958`), so a `missing-gates`/`session-ended` infra fail is a `FAIL`
 distinguishable from a real gate FAIL *only* by its detail string — without the detail the
@@ -824,8 +833,10 @@ add a `make court-metrics` target (a `cmd_court_metrics` in `test-skill.sh`, ~20
 because each row already carries the spec and gate verdict of the run it courted. Keyed on
 `(version, repo, spec)` it takes the latest row per key by `ts`, filters to rows where
 `court_verdict==PASS && gate_verdict==FAIL` **and** the gate FAIL is not infra (stale /
-no-branch / missing-gates / session-ended, classified from the detail captured at court time
-— the same exclusions as the false-FAIL definition below), and emits aggregate and per-repo
+no-branch / no-commits / missing-gates / session-ended, classified from the detail captured
+at court time — the same exclusions as the false-FAIL definition below, and matched against
+the harness's *literal* detail strings, e.g. `missing N of M gates` at `:993`, not the
+substring `missing gate`), and emits aggregate and per-repo
 false-FAIL rates plus a summary table. The go/no-go measurement filters to **spec=all** rows
 (the primary metric); it MAY additionally print the per-spec rate. Concretely:
 
@@ -838,7 +849,10 @@ awk -F'\t' '
     if ($7 >= ts[k]) { ts[k]=$7; gv[k]=$4; det[k]=$5; cv[k]=$6; repo[k]=$2 } }
   END { for (k in gv) {
           if (gv[k]!="FAIL") continue
-          if (det[k] ~ /stale|no branch|missing gate|session[- ]ended/) continue   # infra, not a gate FAIL
+          # infra, not a gate FAIL — match the harness's literal detail strings:
+          # "stale branch" (:937), "no branch found" (:931), "no commits (no-op)" (:941),
+          # "missing N of M gates" (:993), "session ended without result" (:1077).
+          if (det[k] ~ /stale branch|no branch|no commits|missing [0-9]+ of|session ended/) continue
           d[repo[k]]++; tot++
           if (cv[k]=="PASS") { ff[repo[k]]++; num++ } }                            # court says good -> false-FAIL
         for (r in d) printf "%s\t%d/%d\n", r, ff[r], d[r]
@@ -849,14 +863,31 @@ Commit its output to `test/metrics/court-baseline.tsv` (tracked): that pinned sn
 the live gitignored state, is the go/no-go input. All three — the `:1340`-filter drop,
 the per-spec court-history writes, and the analyzer — are the "required first sub-step (code,
 before any measurement)"; without them the ≤5%/≤10% boundary below is uncomputable or reads
-a structural 0%. **Make the Phase-1→Phase-2 boundary a red build, not prose.** "Only if
-Phase 1 binds" (Phase 2's opening) is unenforceable text today — nothing stops an implementer
-skipping the court fix, measuring with the broken court, and proceeding. Add a `make
-check-phase1-baseline` target (a `cmd_check_phase1_baseline`) that exits non-zero with a
-descriptive error unless **both** `test/metrics/court-baseline.tsv` exists (committed) **and**
-`cmd_court_metrics` is defined (`declare -F cmd_court_metrics`). Document it as a required
-precondition for opening any Phase-2 PR; wiring it into `make lint` (or a CI check) converts
-the go/no-go from a promise into a gate a Phase-2 PR cannot bypass. Define false-FAIL
+a structural 0%. **Make the Phase-1→Phase-2 boundary check the *decision*, not just the
+artifacts.** "Only if Phase 1 binds" (Phase 2's opening) is unenforceable text today — nothing
+stops an implementer skipping the court fix, measuring with the broken court, and proceeding.
+Add a `make check-phase1-baseline` target (a `cmd_check_phase1_baseline`) that exits non-zero
+with a descriptive error unless: (i) `test/metrics/court-baseline.tsv` exists and is committed;
+(ii) a committed `test/metrics/phase1-decision.txt` records the chosen branch (`stop-after-phase0`
+or `proceed-to-phase2`) together with the measured aggregate and worst per-repo false-FAIL
+rates; and (iii) the target **recomputes** the rates from `court-baseline.tsv` and asserts the
+recorded decision is *consistent with the ≤5%/≤10% rule* — `proceed-to-phase2` only when the
+rate still exceeds the boundary, `stop-after-phase0` when it does not — and that the recorded
+rates match the recomputed ones (catches a stale, hand-edited baseline). Checking that the
+recorded decision obeys the rule is the point; merely asserting the analyzer function is
+defined (`declare -F cmd_court_metrics`) is near-tautological (analyzer and checker land in the
+same `test-skill.sh`) and is at most a cheap sanity arm, not the gate. **Enforcement hook —
+be honest about where it runs.** Root `make lint` (ai-helpers `Makefile:38`) is the *structural
+plugin linter*; it validates `plugin.json`/marketplace registration and never sources or runs
+`test/test-skill.sh`, and the k8s-rebase Makefile has no `lint` target at all — so
+`check-phase1-baseline` cannot be "wired into `make lint`." It lives with the harness: add it
+as a target in the **k8s-rebase Makefile** (alongside `test`/`court`/`results`) and make it a
+**required, documented pre-Phase-2-PR checklist item** enforced in review. No existing CI job
+runs the harness, so until one is added this is a discipline gate (a self-checking target a
+reviewer runs), not an automated red build; if/when a harness CI job exists, gate there. That
+is still a real improvement over prose — the target mechanically rejects an inconsistent or
+absent decision — but the plan must not claim a Phase-2 PR "cannot bypass" it when no
+automated hook yet runs it. Define false-FAIL
 concretely: *known-good input (court says good) but a blocking non-`info` gate FAILed*
 — explicitly **excluding** infra fails (stale/no-branch, missing gates,
 session-ended), which are not reliability signals. *(court juror tool use)* jurors are
@@ -1036,13 +1067,17 @@ step has had its FIRST STEP block removed (steps 1-4 above):
    `<prefix>-<gate>` string is derived three ways that only *coincidentally* agree today (the
    writer's `GATE_NAME` grep, the orchestrator's `${sd%-*}` suffix-strip, and the literal
    path in each `.md` — see "Execution model"). Resolve the prose "either a sourced helper or
-   a test" into a concrete deliverable: **add a `make lint` assertion** (recommended over the
-   `gate_artifact_prefix` helper, which doesn't exist and would touch three call sites) that,
-   for every `gates/step*/` dir, the writer-derived and orchestrator-derived prefixes are
-   byte-identical and match every `.md`'s named evidence path — landing it as a test file
-   under `test/` (e.g. `test/assert-evidence-paths.sh`, invoked by the linter). This lands
-   once in Phase 2, independent of the per-gate conversions, and turns a silent prefix drift
-   into a red build. **Two guards against a vacuous pass:** (i) at Phase-2 landing **zero**
+   a test" into a concrete deliverable: **add a k8s-rebase harness assertion** (recommended
+   over the `gate_artifact_prefix` helper, which doesn't exist and would touch three call
+   sites) that, for every `gates/step*/` dir, the writer-derived and orchestrator-derived
+   prefixes are byte-identical and match every `.md`'s named evidence path — landing it as a
+   test script under `test/` (e.g. `test/assert-evidence-paths.sh`) wired to a k8s-rebase
+   Makefile target and the same pre-Phase-2 checklist/CI hook as `check-phase1-baseline`.
+   (Note: the root `make lint` is the skillsaw structural plugin linter — a fixed container
+   image over `plugin.json`/skill structure — and cannot run a custom harness script, so this
+   assertion is *not* a `make lint` rule; see the enforcement-hook note under Phase 1.) This
+   lands once in Phase 2, independent of the per-gate conversions, and turns a silent prefix
+   drift into a red build wherever that harness check runs. **Two guards against a vacuous pass:** (i) at Phase-2 landing **zero**
    `.md` files yet carry a named evidence path, so a bare "check every named path" assertion
    passes by checking nothing — add a **minimum-count** assertion: the script must find the
    `EVIDENCE (read before judging):` marker (and its named path) in at least *N* `.md` files,
