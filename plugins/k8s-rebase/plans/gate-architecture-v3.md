@@ -578,7 +578,37 @@ re-run the 4 lib companions after any lib edit to confirm zero regression. P0a's
 (so converted gates inherit the `.crash`-not-FAIL semantics). Separate PRs beat one
 reviewer-hostile bundle.
 
-**Phase 1 — Fix the court, then measure (decision gate).** Two separable pieces:
+**Phase 1 — Fix the court, then measure (decision gate).** Three separable pieces:
+*(base anchoring — the load-bearing court fix, do first)* the court decides "is this a
+regression vs the **base**?", but only the **juror** prompt pins the base:
+`cmd_court` computes `BASE_REF: $(git merge-base "$known_good" "$result_branch")`
+(`test-skill.sh:1233`) — the *correct*, checkout-independent base — yet the
+**prosecution/defense/judge** prompts (`:1188-1223`) receive only the two-way diff
+(`:1111`) and the `$direction`/`$preexisting` prose (`:1126-1171`), which *name* "the
+base branch" (`:1161`) but pin no ref. Those three roles have shell access, so they
+default to the repo's ambient `HEAD` — **shared mutable state the court never resets per
+version/repo.** Verified false-FAIL (`ovn-org/ovn-kubernetes` 1.34.1, branch `bump1.34`,
+96 hunks — the best result ever produced, gate-completion PASS, court FAIL, 2026-08-15):
+the repo was parked at `HEAD=f261f146c` (a stale `_test-from-f261f146` checkout, **1546
+commits / ~8 months AFTER** the true base and **not an ancestor** of `bump1.34`). Against
+that future tree `cni.go` carried an `apierrors` import + a richer `cmdDel` the true base
+lacked, so all six roles "confirmed" phantom removals — a nonexistent `undefined:
+apierrors` compile break and a DPU-cleanup "regression." Ground truth against the true
+base `a32f6388` (= `merge-base(known_good, bump1.34)` = config `from_commit`): `git diff
+a32f6388 bump1.34 -- go-controller/pkg/cni/cni.go` is **0 lines** and `go build ./...`
+exits 0 — the rebase correctly left the file untouched. The juror `BASE_REF` didn't save
+it: the jurors were flooded by the pros/def/judge briefs already anchored on `f261`, and
+their required `VERIFIED:` lines cite `@f261f146c`, not `BASE_REF`. **Fix:** hoist
+`base_ref=$(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo
+"$known_good")` once after `:1111`, inject it into `$preexisting` (which flows to **all
+four** prompts) with an explicit rule — *"BASE_REF=<sha> is the only pre-rebase base;
+check pre-existence with `git show BASE_REF:<path>` ONLY; NEVER use HEAD or the current
+checkout — the repo may be parked at an unrelated commit"* — and dedupe the juror `:1233`
+line to reuse the var. `merge-base` is checkout-independent, so this closes the hole
+regardless of ambient HEAD; belt-and-suspenders, assert `HEAD == from_commit` before
+running court. This is sequenced **first** because it directly deflates the very metric
+below — a base-misidentified court manufactures false-FAILs, so measuring reliability
+before fixing it measures the court's bug, not the subagents'.
 *(metric)* the go/no-go for the rollout is **court verdict / false-FAIL rate on the
 post-`pr-feedback-resolution` stripping baseline**, plus per-gate latency (so the cost
 of adding scripts is visible) — NOT subagent count, which measures cost not the
@@ -843,6 +873,7 @@ orthogonal to the steps-1-4 gate redesign.
 | Runtime module-classification fetch fails (GOPROXY offline / target tag unpublished) | Medium | Degrade to raw module/version evidence + `SUMMARY:` noting unavailable, defer; never a stale table or flag-everything. |
 | Crash hides as "missing" | Medium | The in-script trap covers ordinary nonzero exits; the dominant `timeout -s TERM`/SIGKILL crash is invisible to it (exit 0 / no trap), so the *orchestrator* writes the `.crash` breadcrumb when the child exits `124` (timeout) or `>128` (signal). Breadcrumb + harness reader ship together (Phase 0). NB: force-advance does **not** rescue this in production — `INCOMPLETE` is write-only (see "Execution model"); the human-facing surfacing is the deferred gap in "Production backstop". |
 | `evidence` shape raises wall-clock (adds a script, never drops the subagent) | Low-Med | Accepted trade; Phase 1 records per-gate latency so cost is visible. |
+| Court false-FAIL from base misidentification (corrupts the Phase-1 go/no-go metric) | High | Pros/def/judge prompts pin no base → default to ambient `HEAD` (stale shared checkout, e.g. 1546 commits off). Phase-1 fix injects `merge-base(known_good,result)` as `BASE_REF` into all four prompts, forbids HEAD, asserts `HEAD==from_commit`. Verified case: `ovn-org/ovn-kubernetes` 1.34.1 false-FAIL on a 0-diff-from-base `cni.go`. Do before measuring. |
 | Cross-plan collision (count; module-class helper; test-skill.sh regions) | Medium | Reconcile in Phase 5 against live state; one sourced classification helper; Phase 1 court edit is a different region than pr-feedback's stripping edit but runs against the post-stripping baseline. |
 
 ## Success criteria
