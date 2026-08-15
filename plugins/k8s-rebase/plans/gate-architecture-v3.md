@@ -523,7 +523,13 @@ lead-in (`crd-validation.md:19`), a selector that does not exist when the script
 So P0a authors, in that branch, a script-marking-independent scope: "**for each CRD schema file
 in the repository, compare `git show $BASE:<path>` against the working copy** and flag any newly
 removed/weakened validation constraint" — a body that stands on its own once the crash fires,
-not one gated on script output. (`patterns-completeness.md`'s checks 1-4 are *already*
+not one gated on script output. **That authored body must carry the same empty-`BASE` guard the
+scripts do (principle 6, `:454-470`): when `$BASE` is empty, `git show $BASE:<path>` degrades to
+`git show :<path>`, which resolves to the *git index* (≈ the working copy in a rebase-result
+tree) and would compare each file to itself — finding nothing and PASSing silently, the worst
+outcome. So the branch must instruct: if `$BASE` is empty (no merge-base), do not diff against
+the base at all; judge every CRD's validation surface unfiltered and defer — never PASS on a
+self-comparison.** (`patterns-completeness.md`'s checks 1-4 are *already*
 self-contained — check 1 finds modules and runs `go build`, checks 2-4 use `git
 diff`/`merge-base`, none reads script output — so its new branch may point at "run checks 1-4"
 with no rewrite; **only `crd-validation` needs the authored from-scratch scope.**) This is the
@@ -684,7 +690,8 @@ ordering constraints below are load-bearing, not stylistic — the prose that fo
 only as subordinate clauses, so they are collected here as a checklist):
 1. Implement the court fix, all four parts — (a) disable tools for prosecution/defense/judge,
    (b) bind the jurors' allow-list, (c) anchor `BASE_REF` to `from_commit`, (d) thread the ref
-   into every prompt + the prose.
+   into every prompt + the prose. (Part (c) is the load-bearing fix — land it first within this
+   step; the base-anchoring subsection below marks it "do first.")
 2. Ship `assert-court-permissions.sh` and confirm it writes `PASS` to
    `test/metrics/assert-court-permissions-result.txt`. **Must precede step 4** — a baseline
    measured against a still-wide-open court is meaningless.
@@ -694,7 +701,10 @@ only as subordinate clauses, so they are collected here as a checklist):
    that `check-phase1-baseline`'s consistency math still passes, silently.
 4. Run the courts (the matrix), populating `test/court-history.tsv`.
 5. `make court-metrics`, then `make commit-court-baseline` to commit the raw log +
-   `test/metrics/court-baseline.tsv` together.
+   `test/metrics/court-baseline.tsv` together. Also snapshot the **frozen** regression anchor
+   once here: copy this Phase-1 `court-baseline.tsv` to `test/metrics/court-baseline-phase1.tsv`
+   and commit it — later phases compare against this fixed file and `commit-court-baseline` never
+   rewrites it.
 6. Record and commit `test/metrics/phase1-decision.txt` (chosen branch + measured rates).
 7. Run `make check-phase1-baseline` — the mechanical gate over steps 2/5/6 (conditions i–vi).
 
@@ -752,28 +762,42 @@ Assert on the **permission decision, not the git command's exit code**: a bare `
 exits nonzero for many non-permission reasons (not a repo, missing ref, dirty tree, nothing to
 check out), so an exit-code test would green-pass a wide-open court whenever the checkout happens
 to fail for an ordinary reason — exactly masking the regression the probe exists to catch. The
-**primary and sufficient** assertion is a **two-part check on the `--output-format json` tool
-record: the denied op was *attempted* (a `Bash(git checkout …)` tool-use event is present) AND
-it was *denied* (that event is marked denied / not executed).** Both parts are load-bearing:
-"attempted" alone can't distinguish denial from success, and "denied" without "attempted" passes
-vacuously when the model never tried. **Do NOT rely on an unmutated-repo fallback as the
+**primary and sufficient** assertion is a **two-part check on a `--output-format stream-json
+--verbose` transcript: the denied op was *attempted* (a `Bash(git checkout …)` `tool_use` event
+is present) AND it was *denied* (its paired `tool_result` is `is_error` carrying the
+permission-denial text — not executed).** Both parts are load-bearing: "attempted" alone can't
+distinguish denial from success, and "denied" without "attempted" passes vacuously when the model
+never tried. **Name the format precisely:** plain `--output-format json` emits only a *single
+result object* (no per-tool events — `claude --help`: `"json (single result)"`), so the probe
+must use `stream-json --verbose`, which streams the `tool_use`/`tool_result` pair; denial surfaces
+there as an errored `tool_result` on the git `tool_use`, **not** a dedicated boolean, so parse for
+that errored pairing, not for a "denied" flag. **The probe must also run under the *fixed* role
+flags, never the harness default:** `PERMISSION_MODE` is `bypassPermissions` at `:17`, and under
+bypass the permission layer denies nothing — so the probe launches its role with a literal
+`--permission-mode default --disallowedTools 'Bash,…'` (the same substitution (a) makes) and must
+not inherit `$PERMISSION_MODE`, or it green-passes a wide-open court and can *never* emit a denied
+event. **Do NOT rely on an unmutated-repo fallback as the
 decision** — it carries the *same* exit-code ambiguity this spec already rejects: `git checkout
 -b <name>` that the permission layer *blocks* leaves the repo unmutated, but so does a `git
 checkout <nonexistent-ref>` that *executed* and merely failed — the two are indistinguishable by
 repo state. "No new branch created" is at most a secondary sanity arm, never the assertion.
 **Specify the probe concretely so "attempted" is unambiguous:** instruct the role to run `git
-checkout -b <unique-name>` (a unique branch name, e.g. suffixed by the version/repo under test) —
-a mutating op with no benign failure mode on a valid scratch repo, so a *present-and-denied*
-tool event is the only clean signal, and a *present-and-executed* event (new branch exists) is an
-unambiguous FAIL (permissions not enforced). Caveat — this is a **live-model
+checkout -b <name>` — a mutating op. But read "executed vs denied" from the `tool_result`
+(errored-with-permission-text = denied; success = executed), **not** from whether the branch
+exists: a name collision on a persistent scratch repo fails benignly (branch already exists,
+nonzero, no mutation) and would masquerade as "not executed." Two guards keep the signal clean —
+create the probe's scratch repo **fresh per invocation** (`mktemp -d`; `git init`; one throwaway
+commit) so `git checkout -b` can never collide, and take the verdict from the paired
+`tool_result`. A *present-and-denied* `tool_result` is the only clean signal, and a
+*present-and-executed* one is an unambiguous FAIL (permissions not enforced). Caveat — this is a **live-model
 integration check, not a unit test**: it spawns a real `claude -p` session (Vertex creds,
 network, latency) against a scratch git repo and must reliably *induce* the role to attempt the
 denied op to get a signal. **Distinguish "denied" from "the session never got that far":** a
-result is only conclusive if the `git checkout -b` tool event is **present** in the JSON — an
-empty tool record (auth failure, network timeout, no Vertex creds, or the model declining in
-plain text without calling Bash) means the probe never exercised the permission layer and MUST
-read as **INCONCLUSIVE (re-run required), never PASS**; only a *present-and-denied* event is a
-PASS. This is a heavier deliverable than the pure-bash
+result is only conclusive if the `git checkout -b` `tool_use` event is **present** in the
+stream-json transcript — an empty tool record (auth failure, network timeout, no Vertex creds, or
+the model declining in plain text without calling Bash) means the probe never exercised the
+permission layer and MUST read as **INCONCLUSIVE (re-run required), never PASS**; only a
+*present-and-denied* event is a PASS. This is a heavier deliverable than the pure-bash
 `check-phase1-baseline`. **Persist its verdict** to a committed
 `test/metrics/assert-court-permissions-result.txt` (`PASS`/`FAIL`/`INCONCLUSIVE`) — that file is
 what `check-phase1-baseline` condition (vi) reads, so an INCONCLUSIVE or absent result
@@ -991,11 +1015,13 @@ hole Phase 2 step 4 opens if it deletes RULE 2 / PATH-B with no P0a body behind 
 a committed `test/metrics/assert-court-permissions-result.txt` reads exactly `PASS` (the court
 permission fix was proven effective *before* the baseline was measured against it — an
 `INCONCLUSIVE` or absent result must block, since a measurement taken against a still-wide-open
-court is meaningless). Two temporal caveats: check (v) is a **pre-Phase-2 precondition** —
-it is sound because `check-phase1-baseline` runs at the Phase-1→Phase-2 boundary, *before* Phase
-2 step 4 legitimately deletes that trigger sentence; the later-phase *regression* re-runs
-(below) gate on rates via step (iv), not on re-grepping (v). And step (iv) reads `git show HEAD:`
-precisely so it stays stable across those later re-runs even as the working-tree log grows.
+court is meaningless). Two temporal caveats: check (v) is a **pre-Phase-2 precondition**, and the whole
+`check-phase1-baseline` target (conditions i–vi) runs **once**, at the Phase-1→Phase-2 boundary —
+*before* Phase 2 step 4 legitimately deletes that trigger sentence. It is **not** re-invoked at
+later boundaries; the later-phase *regression* is a standalone `cmd_court_metrics` rate comparison
+(the baseline-update protocol below), so (v) is never re-grepped after step 4 removes its target.
+And step (iv) reads `git show HEAD:` so the one-time check is reproducible in review
+(committed-to-committed), independent of the working-tree log.
 Recomputing from the *committed snapshot* alone (an earlier draft of this
 spec) would be circular: a fabricated `court-baseline.tsv` + a matching `phase1-decision.txt`
 would pass. Re-deriving from `court-history.tsv` means faking the decision requires forging the
@@ -1062,21 +1088,34 @@ confirm-by-rerun + per-repo is the right-sized variance control.)
 *(baseline-update protocol — how the regression gate advances across phases)* "Against the
 committed baseline" needs a concrete mechanism, or the checkpoint is unrunnable after Phase 1:
 step (iv)'s equality check is committed-to-committed and would break the moment a later matrix
-run grows the log unless the committed pair advances with it. So the baseline is **rolling, not
-frozen**, and it advances by one target: add `make commit-court-baseline` (a
+run grows the log unless the committed pair advances with it. Two artifacts with **opposite**
+update rules resolve this cleanly — do not overload one file for both jobs: (A) the *consistency*
+baseline `test/metrics/court-baseline.tsv` is **rolling** — it must always equal `cmd_court_metrics`
+over the current committed log, so step (iv) stays reproducible as the log grows; (B) a **frozen**
+regression anchor `test/metrics/court-baseline-phase1.tsv`, committed **once** at the Phase-1
+boundary and never rewritten, is what every later phase's rate-regression compares against. The
+rolling one advances by one target: add `make commit-court-baseline` (a
 `cmd_commit_court_baseline`) that (1) re-derives `test/metrics/court-baseline.tsv` from the
-current working-tree `test/court-history.tsv` via `cmd_court_metrics`, and (2) stages **both**
-files for commit together (never one without the other, so step (iv) stays consistent). The
+current working-tree `test/court-history.tsv` via `cmd_court_metrics`, and (2) stages the log and
+the re-derived `court-baseline.tsv` for commit together (never one without the other, so step (iv)
+stays consistent) — it **never** touches the frozen `court-baseline-phase1.tsv`. The
 per-phase flow is: after Phase 2 (and again after Phase 3) **re-run the matrix** — appending its
-courts to the working-tree log — then compare the **fresh** `cmd_court_metrics` output (working
-tree) against the **prior committed** `court-baseline.tsv`; require no pass-rate regression and
-no new false-FAIL (confirm-by-rerun, per-repo). *Only if that comparison passes* does the phase
-land: run `make commit-court-baseline` to roll the committed pair forward to include the new
-rows, so `check-phase1-baseline` step (iv) again re-derives cleanly at the new HEAD and the next
-phase compares against the now-current reference. A failing comparison blocks the phase and
-nothing is re-committed (the baseline stays at the last-good phase). This is deliberately **one**
-target reused at every boundary — not a `check-phase2-baseline`/`check-phase3-baseline` family
-— because the comparison logic is identical; only the committed reference moves.
+courts to the working-tree log — then run a **standalone** `cmd_court_metrics` comparison (a
+`make court-regression`, *not* a re-invocation of `check-phase1-baseline`): compare the **fresh**
+`cmd_court_metrics` output (working tree) against the **frozen** `court-baseline-phase1.tsv` and
+require no pass-rate regression and no new false-FAIL (confirm-by-rerun, per-repo). Anchoring to
+the frozen Phase-1 file — not the immediately-prior phase — is deliberate: a rolling anchor
+re-baselines each hop, so a real-but-sub-noise decay spread across Phase 2 → Phase 3 (each hop
+inside the confirm-by-rerun band) would never accumulate against a fixed reference and would ship
+undetected. *Only if that comparison passes* does the phase land: run `make commit-court-baseline`
+to roll the **consistency** pair (log + `court-baseline.tsv`) forward to include the new rows; the
+frozen `court-baseline-phase1.tsv` stays put. A failing comparison blocks the phase and nothing is
+re-committed. **Do not re-run the full `check-phase1-baseline` target at later boundaries** — its
+conditions (i)–(vi) are a *one-time* Phase-1→Phase-2 gate: (v) greps for the crash-fallback
+trigger that Phase 2 step 4 deliberately deletes, so re-running the whole target after Phase 2
+would fail (v) permanently. Later-phase regression is the standalone rate comparison above, which
+touches neither (v) nor the step-(iv) equality. This keeps **one** comparison logic reused at
+every boundary — not a `check-phase2-baseline`/`check-phase3-baseline` family.
 
 **Phase 2 — Unify execution + wire the single transport (the foundation).** Only if
 Phase 1 binds. **First sub-step — install the evidence transport, exercised on landing**
@@ -1202,8 +1241,12 @@ Atomic per companion gate, in one edit so no intermediate state strands it:
    dangling "each CRD" antecedent. Removing RULE 2 is therefore a *swap* (script-marked scope →
    from-scratch scope), not a bare deletion; do not drop the lead-in without landing the P0a body.
    So step 4 is a two-shape operation: a lead-in deletion for the 3 self-contained gates, and a
-   selector-plus-lead-in removal that promotes the P0a from-scratch body for
-   `crd-validation`/`patterns-completeness`.
+   selector-plus-lead-in removal for `crd-validation`/`patterns-completeness`. Those two are not
+   symmetric under the swap: `crd-validation` *promotes the authored P0a from-scratch body* (it
+   supplies the replacement "for each CRD schema file in the repository" scope), whereas
+   `patterns-completeness` has **no** authored from-scratch body — dropping its PATH A/B selectors
+   simply exposes checks 1-4, which are already self-contained, so nothing is promoted, only
+   uncovered.
 
 **Per-step wiring (lands ONCE per step, in the LAST companion-conversion PR for that
 step — NOT per gate).** Two step-level edits must not land until every companion in that
