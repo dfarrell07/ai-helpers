@@ -20,7 +20,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
   echo "CHECK $mod_dir"
   pushd "$mod_dir" >/dev/null
 
-  local build_rc=0
+  build_rc=0
   build_out=$(timeout "${GATE_TIMEOUT:-300}" go build ./... 2>&1) || build_rc=$?
   if (( build_rc >= 124 )); then
     # Timeout or signal-kill: tool never completed. Write crash and defer —
@@ -28,15 +28,17 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     mkdir -p "$REPO/.rebase-tmp/gates"
     printf 'CRASH: exit %s (inner go build kill)\n' "$build_rc" \
       > "$REPO/.rebase-tmp/gates/${GATE_NAME}.crash"
+    echo "CRASH: ${GATE_NAME} — go build killed (exit ${build_rc}); no verdict; deferring to subagent"
     trap - EXIT; exit 0
   fi
 
-  local vet_rc=0
+  vet_rc=0
   vet_out=$(timeout "${GATE_TIMEOUT:-300}" go vet ./... 2>&1) || vet_rc=$?
   if (( vet_rc >= 124 )); then
     mkdir -p "$REPO/.rebase-tmp/gates"
     printf 'CRASH: exit %s (inner go vet kill)\n' "$vet_rc" \
       > "$REPO/.rebase-tmp/gates/${GATE_NAME}.crash"
+    echo "CRASH: ${GATE_NAME} — go vet killed (exit ${vet_rc}); no verdict; deferring to subagent"
     trap - EXIT; exit 0
   fi
 
