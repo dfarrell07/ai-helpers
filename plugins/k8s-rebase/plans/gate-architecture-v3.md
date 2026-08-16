@@ -723,8 +723,10 @@ only as subordinate clauses, so they are collected here as a checklist):
    not a pure-data mechanical barrier: court rows carry no phase tag, so no check can distinguish a
    Phase-1 court from a Phase-2 one (see the baseline-update protocol below). The once-only anchor
    guard and `check-phase1-baseline` (iii-b) are the backstops.**
-6. Record and commit `test/metrics/phase1-decision.txt` (chosen branch + measured rates).
-7. Run `make check-phase1-baseline` — the mechanical gate over steps 2/5/6 (conditions i–vi).
+6. Record and commit `test/metrics/phase1-decision.txt` — line 1 = the bare decision token
+   (`stop-after-phase0` or `proceed-to-phase2`), line 2 = `agg=<decimal> worst=<decimal>`
+   (informational). See condition (ii) below for the exact format the (iii-a) reader depends on.
+7. Run `make check-phase1-baseline` — the mechanical gate over steps 2/5/6 (conditions i–vii).
 
 *(base anchoring — the load-bearing court fix, do first)* the court decides "is this a
 regression vs the **base**?", but only the **juror** prompt pins the base:
@@ -1115,18 +1117,48 @@ with a descriptive error unless: (i) **both** the raw `test/court-history.tsv` *
 derived snapshot `test/metrics/court-baseline.tsv` exist and are committed (committing the raw
 log, not just the summary, is what makes step (iv) reproducible in review); (ii) a committed
 `test/metrics/phase1-decision.txt` records the chosen branch (`stop-after-phase0` or
-`proceed-to-phase2`) together with the measured aggregate and worst per-repo false-FAIL rates;
+`proceed-to-phase2`) together with the measured aggregate and worst per-repo false-FAIL rates, in a
+fixed two-line format so the step-6 writer and the (iii-a) reader cannot silently diverge: **line 1**
+is exactly one of the two bare decision tokens — no key, no surrounding whitespace, case-sensitive —
+and **line 2** is `agg=<decimal> worst=<decimal>` (informational/provenance only; **never**
+machine-read, because (iv) re-derives the rates from the committed log). Condition (iii-a) reads the
+token with `head -1 test/metrics/phase1-decision.txt | tr -d '[:space:]'` and accepts only those two
+values (any third value is an error);
 (iii) — split into **two independent code paths, both required** (they are separate greps, not one
 check; an implementer who writes only the rate comparison silently omits the INCON scan, so they are
 enumerated as distinct deliverables rather than a parenthetical): **(iii-a) rate-boundary
 consistency** — the recorded decision is *consistent with the ≤5%/≤10% rule*: `proceed-to-phase2`
-only when the rate still exceeds the boundary, `stop-after-phase0` when it does not (the
-worst-per-repo scan reads only `repo\tff/den` rate lines — it must skip the `AGGREGATE`, `MEASURED`,
-and `INCON` keys, which are not per-repo rates, using the same skip pattern as `cmd_court_regression`
-and condition (iv): `awk -F'\t' '$1=="AGGREGATE"||$1=="MEASURED"||$1=="INCON"{next} {split($2,p,"/");
-if (p[2]>0 && p[1]/p[2] > worst) worst=p[1]/p[2]} END{...}'` — the `AGGREGATE` skip is load-bearing,
-since its `ff/den` value is format-indistinguishable from a per-repo rate and a naive scan would
-compare the *pooled* rate against the per-repo boundary and reach the wrong proceed/stop verdict).
+is correct only when a false-FAIL rate **still exceeds its boundary** (the *aggregate* rate > 5%
+**or** any *per-repo* rate > 10%), and `stop-after-phase0` only when **neither** does. Because the
+aggregate (5%) and per-repo (10%) boundaries live on different rows of the re-derived snapshot —
+and the per-repo scan must skip the `AGGREGATE`, `MEASURED`, and `INCON` keys, which are not
+per-repo rates — this is a **deliberate two-pass computation over the same `$flat`**, not one awk
+pass: pass 1 finds the worst per-repo rate (skipping those three keys, the same skip pattern as
+`cmd_court_regression` and condition (iv)); pass 2 reads the single `AGGREGATE` line pass 1 skipped.
+Collapsing them into one pass is the trap the `AGGREGATE` skip creates — a scan that does *not* skip
+`AGGREGATE` compares the *pooled* rate against the per-repo boundary and reaches the wrong verdict,
+while a scan that skips it silently discards the aggregate check entirely. The complete condition
+(iii-a):
+
+```bash
+flat=$(cmd_court_metrics <(git show HEAD:test/court-history.tsv))          # committed log, canonical LC_ALL=C sort
+worst=$(awk -F'\t' '$1=="AGGREGATE"||$1=="MEASURED"||$1=="INCON"{next}
+                    {split($2,p,"/"); if (p[2]>0 && p[1]/p[2] > w) w=p[1]/p[2]}
+                    END{print w+0}' <<<"$flat")                            # pass 1: worst per-repo rate (0 if none)
+agg=$(awk -F'\t' '$1=="AGGREGATE"{split($2,p,"/"); if (p[2]>0) a=p[1]/p[2]}
+                  END{print a+0}' <<<"$flat")                             # pass 2: aggregate rate (0 if absent/den=0)
+decision=$(head -1 test/metrics/phase1-decision.txt | tr -d '[:space:]')  # bare token, per (ii)
+binds=$(awk -v a="$agg" -v w="$worst" 'BEGIN{print (a>0.05 || w>0.10) ? 1 : 0}')  # float compare in awk, not bash
+case "$decision" in
+  proceed-to-phase2) [[ "$binds" == 1 ]] || { echo "ERROR: decision 'proceed-to-phase2' but rates are within bounds (agg=$agg worst=$worst)"; return 1; } ;;
+  stop-after-phase0) [[ "$binds" == 0 ]] || { echo "ERROR: decision 'stop-after-phase0' but a rate exceeds bounds (agg=$agg worst=$worst)"; return 1; } ;;
+  *) echo "ERROR: phase1-decision.txt line 1 must be 'stop-after-phase0' or 'proceed-to-phase2', got '$decision'"; return 1 ;;
+esac
+```
+
+The `p[2]>0` and `+0` guards keep a degenerate `AGGREGATE⇥0/0` (or an absent aggregate line) from a
+divide-by-zero and read it as 0% instead of crashing the gate; the float comparison runs in an
+`awk BEGIN` block because bash cannot compare decimals.
 **(iii-b) INCON-absent** — **any `INCON` marker in
 the derived snapshot is a hard FAIL of this condition** (`flat=$(cmd_court_metrics <(git show
 HEAD:test/court-history.tsv)); grep -q '^INCON' <<<"$flat" && return 1` — `return 1`, not `exit 1`,
@@ -1139,8 +1171,11 @@ configuration fault, so the operator must either re-court the `INCON` repo to a 
 explicitly and visibly remove it from the test set, then re-freeze the anchor — a baseline containing
 any `INCON` repo must never be frozen. This is the **second** enforcement of the INCON-absent
 invariant: `make freeze-court-anchor` (step 5) refuses to *create* an INCON anchor, and (iii-b)
-re-verifies at the boundary that the frozen anchor is clean — defense in depth, since nothing forces
-the discipline-gate `check-phase1-baseline` to run before the freeze. (iv) the
+re-verifies at the boundary that the re-derived snapshot is INCON-free — defense in depth, since
+nothing forces the discipline-gate `check-phase1-baseline` to run before the freeze. Note (iii-b)
+re-derives from the *committed `court-history.tsv`* and never reads `court-baseline-phase1.tsv`
+itself: it catches INCON in an anchor frozen from that same log, but an anchor that was never frozen
+is invisible to it — condition (vii) below closes that gap. (iv) the
 target **re-derives the snapshot from the *committed* raw log** — re-runs `cmd_court_metrics
 <(git show HEAD:test/court-history.tsv)` (the committed log, **not** the working-tree
 `test/court-history.tsv`) and asserts its output equals the committed `court-baseline.tsv`
@@ -1180,8 +1215,20 @@ against a still-wide-open or unverified court is meaningless; a `PROBE-BROKEN` v
 tells the reviewer the probe is *systematically* failing and needs debugging, not another re-run). Note (vi) is, unlike (i)-(iv), a **pure file-content check with no
 re-derivation** — it trusts that the probe (a live-model integration check, un-recomputable in
 pure bash) was run honestly, so it is a discipline arm consistent with the whole
-`check-phase1-baseline` target's status as a reviewer-run gate, not a corpus-forgery barrier. Two temporal caveats: check (v) is a **pre-Phase-2 precondition**, and the whole
-`check-phase1-baseline` target (conditions i–vi) runs **once**, at the Phase-1→Phase-2 boundary —
+`check-phase1-baseline` target's status as a reviewer-run gate, not a corpus-forgery barrier.
+Finally, **(vii)** the frozen regression anchor `test/metrics/court-baseline-phase1.tsv` **exists
+and is committed** — `git show HEAD:test/metrics/court-baseline-phase1.tsv >/dev/null 2>&1 || { echo
+'ERROR: court-baseline-phase1.tsv not committed — run make freeze-court-anchor'; return 1; }`. Though
+listed last, the target evaluates (vii) *first*, as a cheap fail-fast precondition: an operator who
+skips step 5's `make freeze-court-anchor` otherwise satisfies (i)-(vi) and enters Phase 2 with **no
+anchor**, at which point every `make court-regression` hard-errors on `cmd_court_regression`'s
+anchor-missing guard (`[[ -s "$base" ]] || { … return 2; }`) — but only *after* Phase-2 courts have
+appended rows to `court-history.tsv`, making a clean Phase-1-only re-freeze unrecoverable. (vii)
+converts that late, unrecoverable failure into an early, actionable one at the boundary; it is the
+symmetric complement of the once-only `[[ -f "$anchor" ]]` guard (which prevents a *double* freeze) —
+(vii) checks the freeze happened *at all*. Two temporal caveats: check (v) is a **pre-Phase-2
+precondition**, and the whole
+`check-phase1-baseline` target (conditions i–vii) runs **once**, at the Phase-1→Phase-2 boundary —
 *before* Phase 2 step 4 legitimately deletes that trigger sentence. It is **not** re-invoked at
 later boundaries; the later-phase *regression* is a standalone `cmd_court_metrics` rate comparison
 (the baseline-update protocol below), so (v) is never re-grepped after step 4 removes its target.
@@ -1265,9 +1312,10 @@ rolling one advances by one target: add `make commit-court-baseline` (a
 first'; return 1; }` — so the commit contains *exactly* the two court files and nothing a prior
 `git add` left staged; (1) re-derives the fresh `test/metrics/court-baseline.tsv` from the current
 working-tree `test/court-history.tsv` via `cmd_court_metrics`; and (2) stages **and commits** the
-log and the re-derived `court-baseline.tsv` together in one commit (never one without the other, so
-step (iv) stays consistent — the target *commits*, matching its name and Implementation-Sequence
-step 5, it does not merely `git add`) — staging **only those two explicit paths** (`git add <log> <baseline>`, never `git commit -a`/`-am`). The `-a`/`-am` exclusion alone stops only working-tree
+log and the re-derived `court-baseline.tsv` together in one commit (with `git commit -s`, per this
+repo's DCO sign-off enforcement — matching `cmd_freeze_court_anchor` below) — never one without the
+other, so step (iv) stays consistent — the target *commits*, matching its name and
+Implementation-Sequence step 5, it does not merely `git add`) — staging **only those two explicit paths** (`git add <log> <baseline>`, never `git commit -a`/`-am`). The `-a`/`-am` exclusion alone stops only working-tree
 auto-staging; the step-(0) index guard closes the other vector — a plain `git commit` after a
 target's `git add` would otherwise commit *anything already in the index*, including a
 developer's pre-staged work-in-progress or even a pre-staged `court-baseline-phase1.tsv`. Between
@@ -1295,11 +1343,15 @@ establishing commit is then polluted with no committed baseline to diff against 
 because it would reject the documented INCON-remediation re-commit (re-court the `INCON` repo →
 re-run `commit-court-baseline` → freeze, described in `cmd_freeze_court_anchor` below) and any
 legitimate multi-batch Phase-1 accumulation. The invariant is therefore enforced the way
-`check-phase1-baseline` itself is — an operator discipline gate, reinforced by three real
-safeguards: the numbered Implementation Sequence (freeze is step 5, before any Phase-2 run), the
-`[[ -f "$anchor" ]]` guard that makes the freeze **once-only** (no silent re-baseline), and
-`check-phase1-baseline` (iii-b), which re-derives from the committed log and hard-fails on any
-`INCON` in the frozen anchor. Full mechanization would require phase-tagging court rows (or a
+`check-phase1-baseline` itself is — an operator discipline gate, reinforced by four real
+safeguards: the numbered Implementation Sequence (freeze is step 5, before any Phase-2 run); the
+`[[ -f "$anchor" ]]` guard that makes the freeze **once-only** (no silent re-baseline);
+`check-phase1-baseline` (vii), which hard-fails when the frozen anchor was **never committed** (the
+skip-the-freeze case); and `check-phase1-baseline` (iii-b), which re-derives from the committed log
+and hard-fails on any `INCON` in that derivation — a proxy for the anchor's cleanliness that catches
+INCON in an *existing* anchor but, reading the derived snapshot rather than the anchor file, not an
+*absent* one (which is why (vii) is needed). Full mechanization would require phase-tagging court
+rows (or a
 physically separate Phase-1 court log) — a schema change deferred unless this discipline proves
 insufficient in practice.
 
