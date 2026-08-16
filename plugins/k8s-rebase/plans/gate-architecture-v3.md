@@ -946,7 +946,16 @@ at `:1586`. So the `_results_one` append must first recover them by reading back
 `results.tsv` row for its own `(VERSION, short)` (the same `awk -F'\t' … tail -1` shape as
 `cmd_court_all:1337`) immediately before the append. (Factor both appends through one
 `_append_court_history version repo spec gate_verdict detail court_verdict` helper so the row
-format lives in one place; each caller passes what it has resolved. The helper must emit each row
+format lives in one place; each caller passes what it has resolved. **`court_verdict` must record all
+three court outcomes — `PASS`, `FAIL`, and `INCONCLUSIVE`** (cmd_court exit 0/1/2 respectively): the
+history is a journal, not the point-in-time *cache*, so it does **not** reuse the cache's drop-on-
+INCONCLUSIVE guard (`_results_one:1584`'s `[[ -n "$_court_verdict" ]]`, which leaves an INCONCLUSIVE
+row unwritten). Recording `INCONCLUSIVE` is load-bearing for the analyzer's all-inconclusive detection
+below — an unrecorded INCONCLUSIVE would let the repo's stale prior row stand as its latest and mask
+the "unmeasurable this run" signal. `cmd_court_all:1365-1370` already resolves the verdict including
+`INCONCLUSIVE`; `_results_one` must capture it the same way (map cmd_court exit 2 → `INCONCLUSIVE`)
+for its append rather than skipping. (Only a true infra error where *no* verdict is producible is
+excluded — those cases are already filtered upstream before courting, `:1341-1348`.) The helper must emit each row
 as a **single atomic `printf '…\n' … >> file`** — one write syscall — because `cmd_court_all`
 courts in concurrent background subshells (`) &` at `:1375`, throttled to
 `MAX_COURT_CONCURRENT`) that each append: a lone `printf >>` under the row's ~sub-512-byte size
@@ -989,10 +998,16 @@ false-FAIL rates plus a summary table. The go/no-go measurement filters to **spe
 
 ```awk
 # court-history.tsv: version \t repo \t spec \t gate_verdict \t detail \t court_verdict \t ts
-# latest row per (version,repo,spec) by ts; false-FAIL = court PASS but gate FAIL (non-infra)
+# court_verdict is one of PASS / FAIL / INCONCLUSIVE (cmd_court_all:1365-1370 records all three;
+# exit 2+ from cmd_court -> INCONCLUSIVE). false-FAIL = court PASS but gate FAIL (non-infra).
 awk -F'\t' '
   $3 ~ /^all/ {                                   # spec=all only for the go/no-go metric
     k=$1 SUBSEP $2 SUBSEP $3
+    # latest row per (version,repo,spec) by ts. NOTE: latest-row-wins means a gate-infra row (below)
+    # permanently shadows any earlier valid court row for the same key — a repo whose most recent
+    # spec=all draw was a gate-infra flake reads as MISSING even if a prior draw measured it. The
+    # two-sample wrapper absorbs this: an isolated infra draw becomes a per-repo MISSING (WARN, or
+    # BLOCK if the other run flags a REGRESSION), never a silent rate drop.
     if ($7 >= ts[k]) { ts[k]=$7; gv[k]=$4; det[k]=$5; cv[k]=$6; repo[k]=$2 } }
   END { for (k in gv) {
           if (gv[k]!="FAIL") continue
@@ -1000,9 +1015,19 @@ awk -F'\t' '
           # "stale branch" (:937), "no branch found" (:931), "no commits (no-op)" (:941),
           # "missing N of M gates" (:993), "session ended without result" (:1077).
           if (det[k] ~ /stale branch|no branch|no commits|missing [0-9]+ of|session ended/) continue
-          d[repo[k]]++; tot++
-          if (cv[k]=="PASS") { ff[repo[k]]++; num++ } }                            # court says good -> false-FAIL
-        for (r in d) printf "%s\t%d/%d\n", r, ff[r], d[r]
+          d[repo[k]]++                                                             # every courted gate-FAIL row
+          if (cv[k]=="PASS") ff[repo[k]]++                                         # court says good -> false-FAIL
+          else if (cv[k]=="INCONCLUSIVE") inc[repo[k]]++ }                         # court could not decide -> no signal
+        # A repo whose EVERY courted gate-FAIL was INCONCLUSIVE has NO usable false-FAIL measurement:
+        # emit a distinct INCON marker (the regression gate consumes it exactly like MISSING) and drop
+        # it from AGGREGATE, so an all-inconclusive draw never masquerades as a clean 0/den rate that
+        # silently refutes a regression. A PARTIALLY-inconclusive repo keeps its ff/den rate — the
+        # INCONCLUSIVE rows stay in the denominator (conservatively counted as not-a-false-FAIL),
+        # because one conclusive court is still a real measurement.
+        num=0; tot=0
+        for (r in d) {
+          if (inc[r]==d[r]) { printf "INCON\t%s\t0/%d\n", r, d[r]; continue }
+          printf "%s\t%d/%d\n", r, ff[r], d[r]; num+=ff[r]; tot+=d[r] }
         printf "AGGREGATE\t%d/%d\n", num, tot }' "${1:-test/court-history.tsv}" \
   | LC_ALL=C sort
 ```
@@ -1039,7 +1064,11 @@ log, not just the summary, is what makes step (iv) reproducible in review); (ii)
 `test/metrics/phase1-decision.txt` records the chosen branch (`stop-after-phase0` or
 `proceed-to-phase2`) together with the measured aggregate and worst per-repo false-FAIL rates;
 (iii) the recorded decision is *consistent with the ≤5%/≤10% rule* — `proceed-to-phase2` only
-when the rate still exceeds the boundary, `stop-after-phase0` when it does not; (iv) the
+when the rate still exceeds the boundary, `stop-after-phase0` when it does not (the worst-per-repo
+scan reads only `repo\tff/den` rate lines and **skips any `INCON` marker** — those carry no rate;
+a repo that is `INCON` at the Phase-1 baseline has no frozen anchor rate and is silently *unmonitored*
+for later regression, so the checker must surface it and the operator re-run it to a conclusive
+baseline before relying on the anchor); (iv) the
 target **re-derives the snapshot from the *committed* raw log** — re-runs `cmd_court_metrics
 <(git show HEAD:test/court-history.tsv)` (the committed log, **not** the working-tree
 `test/court-history.tsv`) and asserts its output equals the committed `court-baseline.tsv`
@@ -1204,11 +1233,15 @@ cmd_court_regression() {                       # exit 0 = clean, 1 = regression,
   # fresh snapshot = cmd_court_metrics over the current (matrix-appended) working-tree log,
   # emitted in the same canonical LC_ALL=C order, so both sides key on the repo column.
   awk -F'\t' '
-    FNR==NR { b[$1]=$2; next }                 # frozen anchor:  repo -> ff/den (incl. AGGREGATE)
-    { f[$1]=$2 }                               # fresh snapshot: repo -> ff/den
+    FNR==NR { if ($1=="INCON") next; b[$1]=$2; next }         # frozen anchor: repo -> ff/den (incl. AGGREGATE);
+                                                              # an INCON anchor line = no Phase-1 rate to compare -> skip
+    { if ($1=="INCON") { finc[$2]=1; next } f[$1]=$2 }        # fresh: INCON repos tracked apart from ff/den rates
     END {
       rc=0
       for (r in b) {
+        # fresh run was ALL-inconclusive for r: unmeasurable, not a clean refutation — flag INCON, not
+        # MISSING, so the wrapper distinguishes "court could not decide" from "absent / now passes".
+        if (r in finc) { printf "INCON\t%s\t(in anchor, fresh all-inconclusive)\n", r; rc=2; continue }
         if (!(r in f)) { printf "MISSING\t%s\t(in anchor, absent fresh)\n", r; rc=2; continue }
         split(b[r], bp, "/"); split(f[r], fp, "/")            # [1]=false-FAILs, [2]=denominator
         if (bp[2]+0 == 0) {                                   # anchor rate undefined (0 denominator):
@@ -1237,29 +1270,40 @@ different things:
 - A **`REGRESSION`** (present in both anchor and fresh, higher false-FAIL rate) is the signal the
   gate exists to catch. It is cleared as AI variance *only* when the **other** run **cleanly
   measured that repo and did not flag it** — a genuine "second opinion." A run in which the repo is
-  `MISSING` is **not** a clean measurement (it produced no rate at all), so it can neither confirm
-  nor refute: a `REGRESSION` paired with a `MISSING` in the other run is *unconfirmable* and
-  **blocks**. A `REGRESSION` in both runs blocks (confirmed). A `REGRESSION` in one run and a clean
-  no-flag measurement in the other lands (refuted as variance). This closes the cross-kind gap — a
-  real regression can no longer hide behind a one-run infra flake in its confirming sample.
+  **unmeasurable** — `MISSING` (no rate at all) or `INCON` (a rate the courts could not decide) — is
+  **not** a clean measurement, so it can neither confirm nor refute: a `REGRESSION` paired with a
+  `MISSING` *or* an `INCON` in the other run is *unconfirmable* and **blocks**. A `REGRESSION` in
+  both runs blocks (confirmed). A `REGRESSION` in one run and a clean no-flag measurement in the
+  other lands (refuted as variance). This closes the cross-kind gap — a real regression can no
+  longer hide behind a one-run infra flake *or* an all-inconclusive court draw in its confirming
+  sample.
 
-- A **`MISSING`** (present in the anchor, absent from the fresh snapshot) is **never**, on its own,
+- **`MISSING`** (present in the anchor, absent from the fresh snapshot) is **never**, on its own,
   a block — it is not a false-FAIL rate *increase*. `cmd_court_metrics` counts only latest
   spec=all rows whose gate verdict is a non-infra `FAIL`, so a repo drops out of the fresh snapshot
   for exactly two reasons, **both benign to this gate**: (1) the gate now **passes cleanly** — the
   success path of a rebase fix, the outcome we *want*; or (2) a **gate-level** infra flake in that
   run (`session ended`, `stale branch`, …) excludes the row. Note what `MISSING` is **not**: a
-  transient **court** failure keeps the repo *present* (it still writes a gate-`FAIL` row, counted
-  as `0/den`, not dropped); and an **intentional removal** is *invisible* here — the append-only log
-  with latest-row-per-key means the repo's stale anchor-era row persists as its latest, so it stays
-  present and never reports `MISSING`. Dropped coverage must therefore be caught with a config diff,
-  not this gate. `MISSING` with no `REGRESSION` in either run is emitted as a **`WARN`** (so a
-  drop-out is never silent) and lands.
+  court **FAIL** verdict keeps the repo *present* (it still writes a gate-`FAIL` row with `cv=FAIL`,
+  counted in the denominator as not-a-false-FAIL, not dropped); and an **intentional removal** is
+  *invisible* here — the append-only log with latest-row-per-key means the repo's stale anchor-era
+  row persists as its latest, so it stays present and never reports `MISSING`. Dropped coverage must
+  therefore be caught with a config diff, not this gate.
 
-The one exception is a **hard error** — a missing or empty frozen anchor — which exits 2 with *no*
-per-repo `MISSING` line and blocks immediately on either run, since it is a configuration fault, not
-variance. The exit-code contract is stated exactly as `check-phase1-baseline`'s: nonzero blocks the
-phase, and nothing is re-committed on a block.
+- **`INCON`** (present in the anchor; in the fresh snapshot **every** courted gate-FAIL was
+  `INCONCLUSIVE`) is the *other* unmeasurable kind. Without it, an all-inconclusive draw would land
+  in `cmd_court_metrics` as a clean `0/den` rate — present, no rate increase — and would silently
+  **refute** a genuine `REGRESSION` seen in the other sample (an inconclusive court is *not* evidence
+  of a low false-FAIL rate). `cmd_court_metrics` therefore emits a distinct `INCON` marker for such
+  a repo and drops it from `AGGREGATE`; the regression gate treats `INCON` exactly like `MISSING`.
+  (A *partially*-inconclusive repo is still measured — one conclusive court is a real signal — so it
+  keeps its `ff/den` rate, with the inconclusive rows conservatively left in the denominator.)
+
+`MISSING` or `INCON` with no `REGRESSION` in either run is emitted as a **`WARN`** (so an
+unmeasurable repo is never silent) and lands. The one exception is a **hard error** — a missing or
+empty frozen anchor — which exits 2 with *no* per-repo `MISSING`/`INCON` line and blocks immediately
+on either run, since it is a configuration fault, not variance. The exit-code contract is stated
+exactly as `check-phase1-baseline`'s: nonzero blocks the phase, and nothing is re-committed on a block.
 
 The intersection itself needs the same concrete shape as the single-run diff, not just prose —
 `make court-regression` maps to the wrapper `cmd_court_regression_confirmed`, which takes two
@@ -1272,33 +1316,39 @@ cmd_court_regression_confirmed() {             # `make court-regression`; exit 0
   reg1="$(cmd_court_regression)"; rc1=$?       #           run, so it appends fresh court rows to the log)
   cmd_matrix all                               # sample 2: an independent re-run — latest-row-wins in
   reg2="$(cmd_court_regression)"; rc2=$?       #           cmd_court_metrics makes this a distinct draw
-  # A hard error (missing/empty frozen anchor) exits 2 but emits NO per-repo MISSING line — block now,
-  # it is a configuration fault, not variance:
-  if { (( rc1 == 2 )) && ! grep -q '^MISSING' <<<"$reg1"; } ||
-     { (( rc2 == 2 )) && ! grep -q '^MISSING' <<<"$reg2"; }; then
+  # A hard error (missing/empty frozen anchor) exits 2 but emits NO per-repo MISSING/INCON line —
+  # block now, it is a configuration fault, not variance:
+  if { (( rc1 == 2 )) && ! grep -qE '^(MISSING|INCON)' <<<"$reg1"; } ||
+     { (( rc2 == 2 )) && ! grep -qE '^(MISSING|INCON)' <<<"$reg2"; }; then
     printf '%s\n%s\nBLOCK: court-regression hard error (see above)\n' "$reg1" "$reg2"; return 1
   fi
   # Per-repo confirm-by-rerun. A REGRESSION is cleared as AI variance ONLY when the other run cleanly
-  # measured that repo and left it unflagged; a run where the repo is MISSING is not a clean
-  # measurement, so it can neither confirm nor refute. MISSING with no REGRESSION either run is a
-  # WARN, not a block — the repo now passes cleanly (the success path) or hit a gate-infra flake;
-  # neither is a rate increase (an intentional removal is invisible here — use a config diff).
+  # measured that repo and left it unflagged. A run where the repo is UNMEASURABLE — MISSING (no rate)
+  # or INCON (all courts inconclusive) — is not a clean measurement, so it can neither confirm nor
+  # refute; a REGRESSION paired with either in the other run blocks. MISSING/INCON with no REGRESSION
+  # either run is a WARN, not a block (a fixed repo, an infra flake, or an inconclusive court draw —
+  # none is a rate increase; an intentional removal is invisible here, use a config diff).
   awk -F'\t' '
-    FNR==NR { if ($1=="REGRESSION") r1[$2]=1; else if ($1=="MISSING") m1[$2]=1; next }
-            { if ($1=="REGRESSION") r2[$2]=1; else if ($1=="MISSING") m2[$2]=1 }
+    FNR==NR { if ($1=="REGRESSION") r1[$2]=1
+              else if ($1=="MISSING") u1[$2]="MISSING"
+              else if ($1=="INCON")   u1[$2]="INCON"; next }        # u* = unmeasurable, with the reason
+            { if ($1=="REGRESSION") r2[$2]=1
+              else if ($1=="MISSING") u2[$2]="MISSING"
+              else if ($1=="INCON")   u2[$2]="INCON" }
     END {
       block=0
       for (x in r1) reg[x]=1; for (x in r2) reg[x]=1     # every repo regressed in either run
       for (x in reg) {
         in1=(x in r1); in2=(x in r2)
         if (in1 && in2) { printf "BLOCK: %s regression confirmed in both runs\n", x; block=1; continue }
-        other_missing = (in1 ? (x in m2) : (x in m1))    # regressed in exactly one run
-        if (other_missing) { printf "BLOCK: %s regressed one run, unmeasurable (MISSING) in the other\n", x; block=1 }
-        else               { printf "INFO: %s regressed one run only, clean in the other -> variance\n", x }
+        if (in1) other = (x in u2) ? u2[x] : ""          # regressed in exactly one run; is the OTHER
+        else     other = (x in u1) ? u1[x] : ""          # run a clean measurement, or unmeasurable?
+        if (other != "") { printf "BLOCK: %s regressed one run, unmeasurable (%s) in the other\n", x, other; block=1 }
+        else             { printf "INFO: %s regressed one run only, clean in the other -> variance\n", x }
       }
-      for (x in m1) if (!(x in r1) && !(x in r2)) warn[x]=1
-      for (x in m2) if (!(x in r1) && !(x in r2)) warn[x]=1
-      for (x in warn) printf "WARN: %s absent from a fresh snapshot (now passes cleanly, or a gate-infra flake)\n", x
+      for (x in u1) if (!(x in r1) && !(x in r2)) warn[x]=u1[x]
+      for (x in u2) if (!(x in r1) && !(x in r2)) warn[x]=u2[x]
+      for (x in warn) printf "WARN: %s unmeasurable in a run (%s) — not a rate increase\n", x, warn[x]
       exit block                                          # 0 = phase may land, 1 = block
     }' <(printf '%s\n' "$reg1") <(printf '%s\n' "$reg2")  # awk's exit is the function's return
 }
