@@ -174,7 +174,12 @@ echo "PENDING: $gate_name"; ((pending++)) || true
   `patterns-completeness`, `rebase-completeness`, `type-conversions`, `fix-correctness`,
   `correctness`, `deprecated-calls`, `deprecated-api-remnants`, `deprecated-imports`,
   `gomod-diff-analysis`, `ci-prediction`, `k8s-changelog`, `logical-consistency`,
-  `autofix-diff-review`, `version-completeness`, `e2e-infra`, `dep-release-notes`
+  `autofix-diff-review`, `version-completeness`, `e2e-infra`, `dep-release-notes`,
+  `diff-scope` (extension allow-list unsound — stays evidence), `cleanliness`
+  (environment-dependent — stays evidence), `autofix-result` (git-log judgment —
+  permanently evidence), `test-compilation` (compile-only predicate, filter-eligible
+  once a companion exists), `build-vet-recheck` (same, but companion must carry the
+  base-branch pre-existing-error exclusion `build-vet.sh` lacks — not a naive symlink)
 - **filter (today runs as evidence until Phase-4 fixture):** `build-vet` only —
   "`go build`/`go vet` exits 0" is the sole provably-sound clean predicate today.
 - **info:** `dep-cve-check`, `maintainer-review`, `skill-improvement`, `commit-messages`
@@ -195,8 +200,16 @@ Bump `plugin.json` + `make lint && make update` once per landed PR.
 Five concrete bug fixes in two PRs. Phase 0 is the only phase that cannot wait — it
 fixes live bugs that affect every rebase today.
 
+**(a) `inc` guard** — `printf -v "$var" '%d' "$(( ${!var:-0} + 1 ))"` — one-liner,
+defensive, adds nothing to existing `|| true` guards but closes the `set -e` edge case
+for any future companion that forgets them. Fold into P0a.
+
 **(b) `_gate_trap` crash-semantics fix** — co-land with the companion `.md`
-crash-safe fallbacks in one PR (P0a):
+crash-safe fallbacks and the **harness `.crash` reader** in one PR (P0a). The
+harness reader: add a parallel `*.crash` scan to `_collect_gate_dirs` results in
+`test-skill.sh` so a crashed gate reads as "infra failure" not "missing gate" in
+`make results` output — a separate additive scan over `_GATE_DIRS[@]`, not a widening
+of `_tally_gates`' 4-field string (which would touch its three call sites):
 
 The trap currently writes `VERDICT: FAIL` on any nonzero exit, so a crashed companion
 blocks a good rebase. Replace: write a `.crash` breadcrumb and NO report, so the gate
@@ -275,8 +288,9 @@ No formal measurement gate. The test harness already surfaces pass/fail counts v
 
 Only if the Phase-1 baseline shows reliability gaps worth closing.
 
-**First:** install `finish_evidence` (add to `gate-script-lib.sh` alongside `finish_gate`
-in the same PR that converts the first companion — API-only PR would be dead code).
+**First:** install `finish_evidence` alongside the retained `finish_gate` in `gate-script-lib.sh`,
+in the same PR that converts the first companion (API-only PR would be dead code). `finish_gate`
+stays until all 6 companions are converted — unconverted ones still call it.
 
 **Per companion gate, one atomic edit:**
 
@@ -292,11 +306,16 @@ in the same PR that converts the first companion — API-only PR would be dead c
    judge in exactly the gates being reclassified to keep the judge.
 
 4. Drop the FIRST STEP block. For the 3 companion gates that also carry a base-filter
-   block, delete only the FIRST STEP block surgically. For `patterns-completeness`:
-   also rewrite the surviving checks header at `:18` from
-   `--- Checks (PATH B only — skip entirely if PATH A applies) ---`
-   to `--- Checks ---` (same atomic edit — omitting this leaves a dangling conditional
-   that tells subagents to skip the checks).
+   block (`major-version-imports.md:42-47`, `patterns-completeness.md:48`,
+   `go-version-check.md:43`), delete only the FIRST STEP block surgically and preserve
+   the base-filter. For `patterns-completeness`: also rewrite the surviving checks
+   header at `:18` from `--- Checks (PATH B only — skip entirely if PATH A applies) ---`
+   to `--- Checks ---` (same atomic edit — omitting this leaves a dangling conditional).
+   For `crd-validation`: dropping RULE 2 (the script-marking selector) is a **swap, not
+   a bare deletion** — RULE 2's `For each CRD the script marked CHANGED-VALIDATION or
+   ALL-NEW:` is the only scope for checks 1-2. The P0a crash branch added
+   "for each CRD schema file in the repository" as a self-contained replacement scope;
+   promote that body when RULE 2 is dropped, or checks 1-2 lose their antecedent.
 
 **Per-step wiring** (last companion-conversion PR for that step):
 
@@ -308,7 +327,8 @@ in the same PR that converts the first companion — API-only PR would be dead c
 
 6. Update the step's gate-fix re-run loop to re-invoke `orchestrator gates <step>`
    before deleting the old report and re-launching — otherwise re-launch judges with
-   stale evidence.
+   stale evidence. Also extend `cmd_init`'s FRESH-branch cleanup to include `*.evidence`
+   (evidence files don't exist until Phase 2, so this is Phase-2 work, not Phase 0).
 
 7. **(One-time)** Pin the three evidence-path producers: `GATE_NAME` (grep prefix),
    `${sd%-*}` (orchestrator suffix-strip), and the literal path in each `.md`. Add a
