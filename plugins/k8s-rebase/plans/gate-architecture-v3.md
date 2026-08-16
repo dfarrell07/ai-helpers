@@ -1428,8 +1428,10 @@ unmeasurable repo is never silent) and lands — including the all-repos-**fixed
 every gate now PASSes, no false-FAIL rate line is emitted, and every anchor repo reads `MISSING`
 (that outcome must land, not block; it is the goal). The hard errors — which exit 2 with *no*
 per-repo `MISSING`/`INCON` line and block immediately on either run as configuration faults, not
-variance — are two: (1) a **missing or empty frozen anchor**; and (2) an **all-infra fresh run**
-where the fresh snapshot measured **zero** repos (`MEASURED 0`, no rate and no `INCON` lines). Case
+variance — are two kinds: (1) a **defective frozen anchor** — missing or empty (`[[ -s ]]`), *or*
+non-empty but with no per-repo rate line to compare (the awk `length(b)==0` guard, e.g. an anchor of
+only `AGGREGATE`/`MEASURED` lines); and (2) an **all-infra fresh run** where the fresh snapshot
+measured **zero** repos (`MEASURED 0`, no rate and no `INCON` lines). Case
 (2) must be told apart from the success case above — both have zero rate lines — by the `MEASURED`
 coverage count: `MEASURED 0` means the whole matrix run was gate-infra failures (nothing was
 courted), so "phase may land" would be a false green over no measurement, whereas the success case
