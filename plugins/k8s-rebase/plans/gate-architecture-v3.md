@@ -950,11 +950,18 @@ format lives in one place; each caller passes what it has resolved. **`court_ver
 three court outcomes — `PASS`, `FAIL`, and `INCONCLUSIVE`** (cmd_court exit 0/1/2 respectively): the
 history is a journal, not the point-in-time *cache*, so it does **not** reuse the cache's drop-on-
 INCONCLUSIVE guard (`_results_one:1584`'s `[[ -n "$_court_verdict" ]]`, which leaves an INCONCLUSIVE
-row unwritten). Recording `INCONCLUSIVE` is load-bearing for the analyzer's all-inconclusive detection
+row unwritten). Recording `INCONCLUSIVE` is load-bearing for the analyzer's unmeasurable-draw detection
 below — an unrecorded INCONCLUSIVE would let the repo's stale prior row stand as its latest and mask
 the "unmeasurable this run" signal. `cmd_court_all:1365-1370` already resolves the verdict including
 `INCONCLUSIVE`; `_results_one` must capture it the same way (map cmd_court exit 2 → `INCONCLUSIVE`)
-for its append rather than skipping. (Only a true infra error where *no* verdict is producible is
+for its append rather than skipping. The same `INCONCLUSIVE` must also be written to the point-in-time
+**cache** — `_results_one:1585-1588` today guards the cache write with the same `-n` filter and so
+leaves a *stale conclusive* verdict there. This matters because `cmd_court_all` writes `INCONCLUSIVE`
+to the cache at `:1370-1374` and re-courts a repo (`:1336`) only when its cache reads `INCONCLUSIVE`
+or is absent: a journal that says `INCONCLUSIVE` while the cache still reads a stale `PASS` would
+strand the repo as `INCON` in the metric with **no path back to a fresh court** through the matrix
+flow. Record `INCONCLUSIVE` to **both** the journal and the cache, exactly as `cmd_court_all` does.
+(Only a true infra error where *no* verdict is producible is
 excluded — those cases are already filtered upstream before courting, `:1341-1348`.) The helper must emit each row
 as a **single atomic `printf '…\n' … >> file`** — one write syscall — because `cmd_court_all`
 courts in concurrent background subshells (`) &` at `:1375`, throttled to
@@ -1015,20 +1022,23 @@ awk -F'\t' '
           # "stale branch" (:937), "no branch found" (:931), "no commits (no-op)" (:941),
           # "missing N of M gates" (:993), "session ended without result" (:1077).
           if (det[k] ~ /stale branch|no branch|no commits|missing [0-9]+ of|session ended/) continue
-          d[repo[k]]++                                                             # every courted gate-FAIL row
-          if (cv[k]=="PASS") ff[repo[k]]++                                         # court says good -> false-FAIL
-          else if (cv[k]=="INCONCLUSIVE") inc[repo[k]]++ }                         # court could not decide -> no signal
-        # A repo whose EVERY courted gate-FAIL was INCONCLUSIVE has NO usable false-FAIL measurement:
-        # emit a distinct INCON marker (the regression gate consumes it exactly like MISSING) and drop
-        # it from AGGREGATE, so an all-inconclusive draw never masquerades as a clean 0/den rate that
-        # silently refutes a regression. A PARTIALLY-inconclusive repo keeps its ff/den rate — the
-        # INCONCLUSIVE rows stay in the denominator (conservatively counted as not-a-false-FAIL),
-        # because one conclusive court is still a real measurement.
-        num=0; tot=0
-        for (r in d) {
-          if (inc[r]==d[r]) { printf "INCON\t%s\t0/%d\n", r, d[r]; continue }
-          printf "%s\t%d/%d\n", r, ff[r], d[r]; num+=ff[r]; tot+=d[r] }
-        printf "AGGREGATE\t%d/%d\n", num, tot }' "${1:-test/court-history.tsv}" \
+          tot[repo[k]]++                                                           # every courted gate-FAIL version
+          if (cv[k]=="PASS")              { ff[repo[k]]++; conc[repo[k]]++ }       # court says good -> false-FAIL (conclusive)
+          else if (cv[k]=="FAIL")         conc[repo[k]]++                          # court agrees FAIL (conclusive, not a false-FAIL)
+          else if (cv[k]=="INCONCLUSIVE") inc[repo[k]]++ }                         # court could not decide -> NOT a measurement
+        # The denominator is the CONCLUSIVE court count (PASS+FAIL), never the raw row count: an
+        # INCONCLUSIVE court is a non-measurement, excluded from BOTH numerator and denominator.
+        # Leaving it in the denominator would DILUTE the rate and let a mostly-inconclusive draw
+        # silently refute a real regression (an inconclusive court is NOT evidence of a low false-FAIL
+        # rate). A repo is measurable ONLY when conclusive courts OUTNUMBER inconclusive ones
+        # (conc > inc); below that floor — including the all-inconclusive extreme (conc==0) — it has
+        # no trustworthy rate and is emitted as a distinct INCON marker (dropped from AGGREGATE; the
+        # regression gate consumes it exactly like MISSING).
+        num=0; den=0
+        for (r in tot) {
+          if (conc[r] <= inc[r]) { printf "INCON\t%s\t%d conclusive of %d\n", r, conc[r], tot[r]; continue }
+          printf "%s\t%d/%d\n", r, ff[r], conc[r]; num+=ff[r]; den+=conc[r] }
+        printf "AGGREGATE\t%d/%d\n", num, den }' "${1:-test/court-history.tsv}" \
   | LC_ALL=C sort
 ```
 
@@ -1065,10 +1075,13 @@ log, not just the summary, is what makes step (iv) reproducible in review); (ii)
 `proceed-to-phase2`) together with the measured aggregate and worst per-repo false-FAIL rates;
 (iii) the recorded decision is *consistent with the ≤5%/≤10% rule* — `proceed-to-phase2` only
 when the rate still exceeds the boundary, `stop-after-phase0` when it does not (the worst-per-repo
-scan reads only `repo\tff/den` rate lines and **skips any `INCON` marker** — those carry no rate;
-a repo that is `INCON` at the Phase-1 baseline has no frozen anchor rate and is silently *unmonitored*
-for later regression, so the checker must surface it and the operator re-run it to a conclusive
-baseline before relying on the anchor); (iv) the
+scan reads only `repo\tff/den` rate lines, and **any `INCON` marker in the derived snapshot is a hard
+FAIL of this condition, not a skip**: a repo that is `INCON` at the Phase-1 baseline has no frozen
+anchor rate, and because `cmd_court_regression` iterates anchor keys only (`for (r in b)`) such a
+repo would be *permanently unmonitored* for later regression — a silent blind spot precisely on the
+repos hardest to court. An incomplete baseline is a configuration fault, so the operator must either
+re-court the `INCON` repo to a conclusive rate or explicitly and visibly remove it from the test set,
+then re-freeze the anchor — a baseline containing any `INCON` repo must never be frozen); (iv) the
 target **re-derives the snapshot from the *committed* raw log** — re-runs `cmd_court_metrics
 <(git show HEAD:test/court-history.tsv)` (the committed log, **not** the working-tree
 `test/court-history.tsv`) and asserts its output equals the committed `court-baseline.tsv`
@@ -1233,15 +1246,17 @@ cmd_court_regression() {                       # exit 0 = clean, 1 = regression,
   # fresh snapshot = cmd_court_metrics over the current (matrix-appended) working-tree log,
   # emitted in the same canonical LC_ALL=C order, so both sides key on the repo column.
   awk -F'\t' '
-    FNR==NR { if ($1=="INCON") next; b[$1]=$2; next }         # frozen anchor: repo -> ff/den (incl. AGGREGATE);
-                                                              # an INCON anchor line = no Phase-1 rate to compare -> skip
-    { if ($1=="INCON") { finc[$2]=1; next } f[$1]=$2 }        # fresh: INCON repos tracked apart from ff/den rates
+    FNR==NR { if ($1=="AGGREGATE" || $1=="INCON") next; b[$1]=$2; next }   # frozen anchor: repo -> ff/den, PER-REPO ONLY.
+                                                              # AGGREGATE is deliberately NOT compared across time (see
+                                                              # below); an INCON anchor line = no Phase-1 rate to compare ->
+                                                              # skip (the baseline freeze rejects INCON, so this is defensive).
+    { if ($1=="AGGREGATE") next; if ($1=="INCON") { finc[$2]=1; next } f[$1]=$2 }   # fresh: skip AGGREGATE; INCON apart
     END {
       rc=0
       for (r in b) {
         # fresh run was ALL-inconclusive for r: unmeasurable, not a clean refutation — flag INCON, not
         # MISSING, so the wrapper distinguishes "court could not decide" from "absent / now passes".
-        if (r in finc) { printf "INCON\t%s\t(in anchor, fresh all-inconclusive)\n", r; rc=2; continue }
+        if (r in finc) { printf "INCON\t%s\t(in anchor, fresh unmeasurable)\n", r; rc=2; continue }
         if (!(r in f)) { printf "MISSING\t%s\t(in anchor, absent fresh)\n", r; rc=2; continue }
         split(b[r], bp, "/"); split(f[r], fp, "/")            # [1]=false-FAILs, [2]=denominator
         if (bp[2]+0 == 0) {                                   # anchor rate undefined (0 denominator):
@@ -1259,9 +1274,15 @@ cmd_court_regression() {                       # exit 0 = clean, 1 = regression,
 }
 ```
 
-The `AGGREGATE` row is compared like any other key, so an aggregate false-FAIL climb blocks too —
-that is the "no pass-rate regression" arm. A repo absent from the anchor (a newly-added target) is
-out-of-scope and simply not iterated. **`confirm-by-rerun` is the wrapping `make court-regression`
+The `AGGREGATE` row is deliberately **not** compared across time. Regression detection is strictly
+**per-repo**, which fully subsumes any *meaningful* aggregate climb: an aggregate rate cannot rise
+unless some individual repo's rate rises — the only other way is the measurable-repo *set* changing
+(e.g. a repo going `INCON`), which makes the fresh and frozen aggregates incommensurable and would
+manufacture a **false** regression from an unchanged corpus (fresh `AGGREGATE` over the surviving
+set vs a frozen `AGGREGATE` over the full Phase-1 set). The point-in-time aggregate go/no-go
+(≤5%/≤10%) belongs to `check-phase1-baseline`; cross-time it carries no signal the per-repo scan
+does not already carry, so both reads skip it. A repo absent from the anchor (a newly-added target)
+is out-of-scope and simply not iterated. **`confirm-by-rerun` is the wrapping `make court-regression`
 contract, not the awk:** because a single matrix run carries the ~50-point AI variance the
 no-regression gate has to absorb, the target runs *matrix + `cmd_court_regression`* **twice** and
 applies the confirm rule **per repo**. The two flag kinds are *not* symmetric, because they mean
@@ -1275,7 +1296,7 @@ different things:
   `MISSING` *or* an `INCON` in the other run is *unconfirmable* and **blocks**. A `REGRESSION` in
   both runs blocks (confirmed). A `REGRESSION` in one run and a clean no-flag measurement in the
   other lands (refuted as variance). This closes the cross-kind gap — a real regression can no
-  longer hide behind a one-run infra flake *or* an all-inconclusive court draw in its confirming
+  longer hide behind a one-run infra flake *or* an inconclusive-majority court draw in its confirming
   sample.
 
 - **`MISSING`** (present in the anchor, absent from the fresh snapshot) is **never**, on its own,
@@ -1290,14 +1311,15 @@ different things:
   row persists as its latest, so it stays present and never reports `MISSING`. Dropped coverage must
   therefore be caught with a config diff, not this gate.
 
-- **`INCON`** (present in the anchor; in the fresh snapshot **every** courted gate-FAIL was
-  `INCONCLUSIVE`) is the *other* unmeasurable kind. Without it, an all-inconclusive draw would land
-  in `cmd_court_metrics` as a clean `0/den` rate — present, no rate increase — and would silently
-  **refute** a genuine `REGRESSION` seen in the other sample (an inconclusive court is *not* evidence
-  of a low false-FAIL rate). `cmd_court_metrics` therefore emits a distinct `INCON` marker for such
-  a repo and drops it from `AGGREGATE`; the regression gate treats `INCON` exactly like `MISSING`.
-  (A *partially*-inconclusive repo is still measured — one conclusive court is a real signal — so it
-  keeps its `ff/den` rate, with the inconclusive rows conservatively left in the denominator.)
+- **`INCON`** (present in the anchor; in the fresh snapshot the courts could not conclusively measure
+  the repo — inconclusive courts *outnumber* conclusive ones) is the *other* unmeasurable kind.
+  `cmd_court_metrics` excludes inconclusive courts from the denominator entirely (they are non-
+  measurements, not low-rate evidence), so the rate reflects only conclusive courts; a repo whose
+  conclusive courts do not outnumber its inconclusive ones (including the all-inconclusive extreme,
+  `conc==0`) has no trustworthy rate and is emitted as a distinct `INCON` marker rather than a diluted
+  `ff/den`. Without this, a mostly-inconclusive draw would land as an artificially low rate — present,
+  no increase — and silently **refute** a genuine `REGRESSION` seen in the other sample. `INCON`
+  repos are dropped from `AGGREGATE`, and the regression gate treats `INCON` exactly like `MISSING`.
 
 `MISSING` or `INCON` with no `REGRESSION` in either run is emitted as a **`WARN`** (so an
 unmeasurable repo is never silent) and lands. The one exception is a **hard error** — a missing or
@@ -1312,10 +1334,21 @@ independent samples and applies the block rule mechanically:
 ```bash
 cmd_court_regression_confirmed() {             # `make court-regression`; exit 0 = phase may land, 1 = block
   local reg1 reg2 rc1 rc2
-  cmd_matrix all                               # sample 1: re-run spec=all (Phase 1 wires courting into the
-  reg1="$(cmd_court_regression)"; rc1=$?       #           run, so it appends fresh court rows to the log)
-  cmd_matrix all                               # sample 2: an independent re-run — latest-row-wins in
-  reg2="$(cmd_court_regression)"; rc2=$?       #           cmd_court_metrics makes this a distinct draw
+  # Two GENUINELY independent samples. cmd_court_all skips re-courting any repo whose court cache is
+  # already conclusive (test-skill.sh:1336 — a non-INCONCLUSIVE cache short-circuits the re-court),
+  # and cmd_matrix never clears that cache, so WITHOUT the clears below a conclusive repo is courted
+  # once and both samples re-read the SAME cached verdict — one draw wearing two hats, not two, which
+  # would defeat confirm-by-rerun (a one-off flake reappears identically and false-blocks; the
+  # REGRESSION-in-one/INCON-in-other case never arises). Clear ONLY the point-in-time court cache
+  # before each matrix run (the durable signal is the appended court-history.tsv journal, untouched)
+  # so each sample re-courts and appends fresh rows, and the two cmd_court_metrics reads land on
+  # genuinely distinct draws (latest-row-per-key by ts).
+  rm -rf "$PLUGIN_DIR/test/.matrix-state/court"/* 2>/dev/null   # sample 1: force a fresh court draw
+  cmd_matrix all
+  reg1="$(cmd_court_regression)"; rc1=$?
+  rm -rf "$PLUGIN_DIR/test/.matrix-state/court"/* 2>/dev/null   # sample 2: force an INDEPENDENT court draw
+  cmd_matrix all
+  reg2="$(cmd_court_regression)"; rc2=$?
   # A hard error (missing/empty frozen anchor) exits 2 but emits NO per-repo MISSING/INCON line —
   # block now, it is a configuration fault, not variance:
   if { (( rc1 == 2 )) && ! grep -qE '^(MISSING|INCON)' <<<"$reg1"; } ||
@@ -1324,7 +1357,7 @@ cmd_court_regression_confirmed() {             # `make court-regression`; exit 0
   fi
   # Per-repo confirm-by-rerun. A REGRESSION is cleared as AI variance ONLY when the other run cleanly
   # measured that repo and left it unflagged. A run where the repo is UNMEASURABLE — MISSING (no rate)
-  # or INCON (all courts inconclusive) — is not a clean measurement, so it can neither confirm nor
+  # or INCON (inconclusive courts outnumber conclusive) — is not a clean measurement, so it can neither confirm nor
   # refute; a REGRESSION paired with either in the other run blocks. MISSING/INCON with no REGRESSION
   # either run is a WARN, not a block (a fixed repo, an infra flake, or an inconclusive court draw —
   # none is a rate increase; an intentional removal is invisible here, use a config diff).
