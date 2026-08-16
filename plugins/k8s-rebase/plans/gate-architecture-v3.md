@@ -719,9 +719,10 @@ only as subordinate clauses, so they are collected here as a checklist):
    unmonitored) or to overwrite an existing anchor, then copies this Phase-1 `court-baseline.tsv` to
    `test/metrics/court-baseline-phase1.tsv` and commits it. Later phases compare against this fixed
    file and `commit-court-baseline` never rewrites it. **Freeze here, before any Phase-2 matrix run
-   — a late freeze would capture Phase-2-polluted data; the roll-forward guard in
-   `commit-court-baseline` (step (2) above) mechanically enforces this by refusing to advance the
-   baseline while the anchor is still absent.**
+   — a late freeze would capture Phase-2-polluted data. This is an operator sequencing discipline,
+   not a pure-data mechanical barrier: court rows carry no phase tag, so no check can distinguish a
+   Phase-1 court from a Phase-2 one (see the baseline-update protocol below). The once-only anchor
+   guard and `check-phase1-baseline` (iii-b) are the backstops.**
 6. Record and commit `test/metrics/phase1-decision.txt` (chosen branch + measured rates).
 7. Run `make check-phase1-baseline` — the mechanical gate over steps 2/5/6 (conditions i–vi).
 
@@ -1262,43 +1263,45 @@ rolling one advances by one target: add `make commit-court-baseline` (a
 `cmd_commit_court_baseline`) that (0) **rejects a pre-staged index up front** —
 `git diff --cached --quiet || { echo 'ERROR: index has pre-staged changes; stash or commit them
 first'; return 1; }` — so the commit contains *exactly* the two court files and nothing a prior
-`git add` left staged; (1) **computes** the fresh `test/metrics/court-baseline.tsv` from the current
-working-tree `test/court-history.tsv` via `cmd_court_metrics` into a temporary file — **not yet
-overwriting the committed one**; (2) **refuses to roll the baseline forward while the frozen anchor
-is still absent** — if `HEAD:test/metrics/court-baseline.tsv` is already committed *and* the
-freshly-computed snapshot differs from it *and* `test/metrics/court-baseline-phase1.tsv` does
-**not** exist, it aborts (`return 1`, leaving the working tree untouched) with an error directing
-the operator to `make freeze-court-anchor` first; and (3) installs the temp over
-`court-baseline.tsv`, then stages **and commits** the log and the re-derived `court-baseline.tsv`
-together in one commit (never one without the other, so step (iv) stays consistent — the target
-*commits*, matching its name and Implementation-Sequence step 5, it does not merely `git add`) —
-staging **only those two explicit paths** (`git add <log> <baseline>`, never `git commit -a`/`-am`). The `-a`/`-am` exclusion alone stops only working-tree
+`git add` left staged; (1) re-derives the fresh `test/metrics/court-baseline.tsv` from the current
+working-tree `test/court-history.tsv` via `cmd_court_metrics`; and (2) stages **and commits** the
+log and the re-derived `court-baseline.tsv` together in one commit (never one without the other, so
+step (iv) stays consistent — the target *commits*, matching its name and Implementation-Sequence
+step 5, it does not merely `git add`) — staging **only those two explicit paths** (`git add <log> <baseline>`, never `git commit -a`/`-am`). The `-a`/`-am` exclusion alone stops only working-tree
 auto-staging; the step-(0) index guard closes the other vector — a plain `git commit` after a
 target's `git add` would otherwise commit *anything already in the index*, including a
 developer's pre-staged work-in-progress or even a pre-staged `court-baseline-phase1.tsv`. Between
 the two, nothing but the two court files enters the roll, and the target **never** rewrites the
 frozen anchor.
 
-**Why the roll-forward guard (step 2) matters — and why a Phase-1 sentinel would not.** The frozen
+**Phase-1 purity of the frozen anchor is a sequencing discipline, not a data barrier.** The frozen
 anchor's whole job is cross-phase regression detection, so it must capture *Phase-1-only* court
-data. Nothing in `court-history.tsv` tags a row with its phase, so **no purely-data check can tell
-a Phase-1 court from a Phase-2 one**. Without step (2) an operator who skips the Phase-1 freeze,
-runs Phase-2 courts, rolls the baseline forward, and only *then* runs `make freeze-court-anchor`
-would silently freeze a Phase-1+Phase-2 baseline — every later `make court-regression` would then
-compare against a polluted denominator and mask exactly the Phase-2 regressions the anchor exists
-to catch (a silent defeat of the entire cross-phase regression mechanism). Step (2) closes that
-window *at its source*: the only route to a polluted anchor is to roll the baseline forward while
-the anchor is still absent, and that roll is now refused. A sentinel written by
-`commit-court-baseline` "at Phase-1 time" — the natural first instinct — **cannot** work:
-`commit-court-baseline` runs at *every* phase boundary and has no phase-awareness to know which run
-is Phase 1, and a timestamp/count sentinel merely relocates the same trust to another
-operator-timed action. Gating the roll on **anchor-presence** needs no phase-awareness and has no
-false-block on the documented single-matrix flow: the first *establishing* commit is allowed
-because `HEAD` carries no committed baseline yet, and every legitimate *later* roll is allowed
-because the anchor exists by then; only rolling the baseline forward *between* the first commit and
-the freeze is refused — the exact pollution precondition. (An operator still accumulating Phase-1
-courts should keep them in the working-tree log and run `commit-court-baseline` once at the Phase-1
-boundary, then freeze — not commit the baseline mid-accumulation.)
+data: `make freeze-court-anchor` **must** run at the Phase-1 boundary — immediately after the first
+`make commit-court-baseline` and *before any Phase-2 matrix run*. An operator who instead skips the
+Phase-1 freeze, runs Phase-2 courts, rolls the baseline forward, and only *then* freezes would
+silently capture a Phase-1+Phase-2 anchor; every later `make court-regression` would compare against
+a polluted denominator and mask exactly the Phase-2 regressions the anchor exists to catch. This
+invariant **cannot be made a pure-data mechanical barrier**, and it is important to say so plainly
+rather than to ship a guard that only looks like one. Nothing in `court-history.tsv` tags a row with
+its phase — the schema is `version⇥repo⇥spec⇥gate_verdict⇥detail⇥court_verdict⇥ts`, no phase column
+— so no check inside `commit-court-baseline` or `freeze-court-anchor` can distinguish a Phase-1
+court from a Phase-2 one. This is the same root reason the tempting *sentinel* fix fails: a sentinel
+written by `commit-court-baseline` "at Phase-1 time" cannot know *which* run is Phase 1 (the target
+runs at every phase boundary), and a timestamp/count sentinel merely relocates the same trust to
+another operator-timed action. A `commit-court-baseline` "refuse to roll forward while the anchor is
+absent" guard is likewise **both incomplete and harmful**: incomplete because it cannot stop an
+operator from courting Phase-2 repos *before the very first* `commit-court-baseline` — that
+establishing commit is then polluted with no committed baseline to diff against — and harmful
+because it would reject the documented INCON-remediation re-commit (re-court the `INCON` repo →
+re-run `commit-court-baseline` → freeze, described in `cmd_freeze_court_anchor` below) and any
+legitimate multi-batch Phase-1 accumulation. The invariant is therefore enforced the way
+`check-phase1-baseline` itself is — an operator discipline gate, reinforced by three real
+safeguards: the numbered Implementation Sequence (freeze is step 5, before any Phase-2 run), the
+`[[ -f "$anchor" ]]` guard that makes the freeze **once-only** (no silent re-baseline), and
+`check-phase1-baseline` (iii-b), which re-derives from the committed log and hard-fails on any
+`INCON` in the frozen anchor. Full mechanization would require phase-tagging court rows (or a
+physically separate Phase-1 court log) — a schema change deferred unless this discipline proves
+insufficient in practice.
 
 The frozen anchor is created by a **separate one-time target**, `make freeze-court-anchor` (a
 `cmd_freeze_court_anchor`) — **not** a manual `cp`, so the freeze cannot skip its guards:
