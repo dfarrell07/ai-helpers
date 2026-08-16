@@ -208,8 +208,15 @@ cmd_gates() {
     if [[ -x "$companion" ]]; then
       info "Running companion: $(basename "$companion")"
       local crash_path="$repo/.rebase-tmp/gates/${sd%-*}-${gate_name}.crash"
+      # build-vet loops per module: 2 tools × GATE_TIMEOUT × module-count.
+      # A fixed outer would SIGTERM a healthy companion on multi-module repos
+      # (ovn-kubernetes: 3 modules → 1800s inner vs 300s outer). Count the
+      # same way build-vet.sh:14 does so the bound tracks its real loop.
+      local _mods; _mods=$(find "$repo" -name go.mod -not -path '*/vendor/*' 2>/dev/null | wc -l)
+      (( _mods < 1 )) && _mods=1
+      local GATE_OUTER_TIMEOUT=$(( 2 * ${GATE_TIMEOUT:-300} * _mods ))
       local output rc=0
-      output=$(timeout "${GATE_TIMEOUT:-300}" bash "$companion" "$repo" 2>&1) || rc=$?
+      output=$(timeout "$GATE_OUTER_TIMEOUT" bash "$companion" "$repo" 2>&1) || rc=$?
       # rc≥124: timeout (SIGTERM→companion saw exit 0, so _gate_trap wrote nothing)
       # or signal-kill (SIGKILL→no trap at all). Write the breadcrumb here.
       if (( rc >= 124 )); then
