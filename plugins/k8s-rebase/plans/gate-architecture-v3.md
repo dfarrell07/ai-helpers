@@ -1397,7 +1397,7 @@ undetected. *Only if that comparison passes* does the phase land: run `make comm
 to roll the **consistency** pair (log + `court-baseline.tsv`) forward to include the new rows; the
 frozen `court-baseline-phase1.tsv` stays put. A failing comparison blocks the phase and nothing is
 re-committed. **Do not re-run the full `check-phase1-baseline` target at later boundaries** — its
-conditions (i)–(vi) are a *one-time* Phase-1→Phase-2 gate: (v) greps for the crash-fallback
+conditions (i)–(vii) are a *one-time* Phase-1→Phase-2 gate: (v) greps for the crash-fallback
 trigger that Phase 2 step 4 deliberately deletes, so re-running the whole target after Phase 2
 would fail (v) permanently. Later-phase regression is the standalone rate comparison above, which
 touches neither (v) nor the step-(iv) equality. This keeps **one** comparison logic reused at
