@@ -1151,6 +1151,8 @@ worst=$(awk -F'\t' '$1=="AGGREGATE"||$1=="MEASURED"||$1=="INCON"{next}
                     END{print w+0}' <<<"$flat")                            # pass 1: worst per-repo rate (0 if none)
 agg=$(awk -F'\t' '$1=="AGGREGATE"{split($2,p,"/"); if (p[2]>0) a=p[1]/p[2]}
                   END{print a+0}' <<<"$flat")                             # pass 2: aggregate rate (0 if absent/den=0)
+git show HEAD:test/metrics/phase1-decision.txt >/dev/null 2>&1 \
+  || { echo "ERROR: phase1-decision.txt not committed — record and commit it per step 6 (condition ii)"; return 1; }  # (ii) enforced in code, not prose
 decision=$(git show HEAD:test/metrics/phase1-decision.txt | head -1 | tr -d '[:space:]')  # committed token, per (ii); line 2 is provenance ONLY — never parse it, (iv) re-derives rates
 binds=$(awk -v a="$agg" -v w="$worst" 'BEGIN{print (a>0.05 || w>0.10) ? 1 : 0}')  # float compare in awk, not bash
 case "$decision" in
@@ -1188,13 +1190,17 @@ order above — without that pin the check would flake on nondeterministic line 
 reads the rates *from that re-derived output* (not from the committed file) for the (iii) check.
 This equality assertion is the load-bearing anti-fabrication backstop — it raises the forging bar
 from *edit two numbers in the committed summary* to *forge the entire per-run log consistently* — so
-it is a concrete check, not prose. It **reuses `$flat`** from (iii-a) (the identical committed-log
-re-derivation), so the whole target derives the snapshot once, not three times:
+it is a concrete check, not prose. It is **self-contained** — it re-derives the snapshot from the
+*committed* log itself (exactly as (iii-b) does), so it never depends on whether (iii-a) ran first:
+the target hoists (vii) ahead of the numbered conditions, so under `set -u` no cross-condition
+variable (`$flat`) can be assumed already-bound when (iv) runs:
 
 ```bash
-# (iv): the re-derived snapshot must byte-match the committed summary (reuses $flat from (iii-a),
-# valid only because cmd_court_metrics emits the canonical LC_ALL=C sort order):
-[[ "$flat" == "$(git show HEAD:test/metrics/court-baseline.tsv)" ]] \
+# (iv): the re-derived snapshot must byte-match the committed summary. Self-contained — re-derives
+# from the committed log (like (iii-b)), so it never assumes (iii-a) already bound $flat; valid as
+# an equality only because cmd_court_metrics emits the canonical LC_ALL=C sort order:
+fresh=$(cmd_court_metrics <(git show HEAD:test/court-history.tsv))
+[[ "$fresh" == "$(git show HEAD:test/metrics/court-baseline.tsv)" ]] \
   || { echo "ERROR: re-derived snapshot != committed court-baseline.tsv — raw log and summary out of sync"; return 1; }
 ```
 
@@ -1228,7 +1234,7 @@ a committed `test/metrics/assert-court-permissions-result.txt` reads exactly `PA
 permission fix was proven effective *before* the baseline was measured against it — an
 `INCONCLUSIVE`, `PROBE-BROKEN`, `FAIL`, or absent result must block, since a measurement taken
 against a still-wide-open or unverified court is meaningless; a `PROBE-BROKEN` value additionally
-tells the reviewer the probe is *systematically* failing and needs debugging, not another re-run). Note (vi) is, unlike (i)-(iv), a **pure file-content check with no
+tells the reviewer the probe is *systematically* failing and needs debugging, not another re-run). Note (vi) is, unlike (iii)-(iv), a **pure file-content check with no
 re-derivation** — it trusts that the probe (a live-model integration check, un-recomputable in
 pure bash) was run honestly, so it is a discipline arm consistent with the whole
 `check-phase1-baseline` target's status as a reviewer-run gate, not a corpus-forgery barrier.
