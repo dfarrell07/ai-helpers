@@ -1018,7 +1018,7 @@ awk -F'\t' '
     if ($7 >= ts[k]) { ts[k]=$7; gv[k]=$4; det[k]=$5; cv[k]=$6; repo[k]=$2 } }
   END { for (k in gv) {
           if (gv[k]!="FAIL") continue
-          # infra, not a gate FAIL — match the harness's literal detail strings:
+          # infra, not a gate FAIL — match the literal detail strings the harness emits:
           # "stale branch" (:937), "no branch found" (:931), "no commits (no-op)" (:941),
           # "missing N of M gates" (:993), "session ended without result" (:1077).
           if (det[k] ~ /stale branch|no branch|no commits|missing [0-9]+ of|session ended/) continue
@@ -1030,13 +1030,20 @@ awk -F'\t' '
         # INCONCLUSIVE court is a non-measurement, excluded from BOTH numerator and denominator.
         # Leaving it in the denominator would DILUTE the rate and let a mostly-inconclusive draw
         # silently refute a real regression (an inconclusive court is NOT evidence of a low false-FAIL
-        # rate). A repo is measurable ONLY when conclusive courts OUTNUMBER inconclusive ones
-        # (conc > inc); below that floor — including the all-inconclusive extreme (conc==0) — it has
-        # no trustworthy rate and is emitted as a distinct INCON marker (dropped from AGGREGATE; the
-        # regression gate consumes it exactly like MISSING).
+        # rate). Measurability is a COVERAGE test, not a sample-size test — the right axis for a
+        # rate-over-versions metric: a repo that gate-FAILed on 2 versions, both conclusively courted,
+        # is FULLY measured (n is small but coverage is 100%), while 2 conclusive of 10 is poorly
+        # measured. A repo is measurable when its conclusive courts are NOT a strict minority
+        # (conc >= inc — at least half the courts decided); only when inconclusive courts strictly
+        # OUTNUMBER conclusive ones (conc < inc, including the all-inconclusive extreme conc==0) is the
+        # rate untrustworthy — emit a distinct INCON marker (dropped from AGGREGATE; the regression gate
+        # consumes it exactly like MISSING). NOTE the boundary is `<`, not `<=`: an exactly-even split
+        # (conc==inc) stays measured, so a genuine regression at 50% coverage still FLAGS rather than
+        # being silently downgraded to a WARN. A repo that is inconclusive-majority across BOTH full
+        # re-court passes is itself a court-health signal (investigate the court), not a phase blocker.
         num=0; den=0
         for (r in tot) {
-          if (conc[r] <= inc[r]) { printf "INCON\t%s\t%d conclusive of %d\n", r, conc[r], tot[r]; continue }
+          if (conc[r] < inc[r]) { printf "INCON\t%s\t%d conclusive of %d\n", r, conc[r], tot[r]; continue }
           printf "%s\t%d/%d\n", r, ff[r], conc[r]; num+=ff[r]; den+=conc[r] }
         printf "AGGREGATE\t%d/%d\n", num, den }' "${1:-test/court-history.tsv}" \
   | LC_ALL=C sort
@@ -1252,6 +1259,11 @@ cmd_court_regression() {                       # exit 0 = clean, 1 = regression,
                                                               # skip (the baseline freeze rejects INCON, so this is defensive).
     { if ($1=="AGGREGATE") next; if ($1=="INCON") { finc[$2]=1; next } f[$1]=$2 }   # fresh: skip AGGREGATE; INCON apart
     END {
+      # A non-empty but degenerate anchor (only AGGREGATE / only INCON lines, no per-repo rate) would
+      # leave b[] empty, and `for (r in b)` would iterate nothing -> a silent rc=0 PASS that monitors
+      # NOTHING. Since AGGREGATE is no longer a compared key, assert at least one per-repo rate exists;
+      # exit 2 with no MISSING/INCON line so the wrapper hard-error guard blocks it as a config fault.
+      if (length(b) == 0) { print "ERROR: frozen anchor has no per-repo rate lines to compare"; exit 2 }
       rc=0
       for (r in b) {
         # fresh run was ALL-inconclusive for r: unmeasurable, not a clean refutation — flag INCON, not
@@ -1275,14 +1287,17 @@ cmd_court_regression() {                       # exit 0 = clean, 1 = regression,
 ```
 
 The `AGGREGATE` row is deliberately **not** compared across time. Regression detection is strictly
-**per-repo**, which fully subsumes any *meaningful* aggregate climb: an aggregate rate cannot rise
-unless some individual repo's rate rises — the only other way is the measurable-repo *set* changing
-(e.g. a repo going `INCON`), which makes the fresh and frozen aggregates incommensurable and would
-manufacture a **false** regression from an unchanged corpus (fresh `AGGREGATE` over the surviving
-set vs a frozen `AGGREGATE` over the full Phase-1 set). The point-in-time aggregate go/no-go
-(≤5%/≤10%) belongs to `check-phase1-baseline`; cross-time it carries no signal the per-repo scan
-does not already carry, so both reads skip it. A repo absent from the anchor (a newly-added target)
-is out-of-scope and simply not iterated. **`confirm-by-rerun` is the wrapping `make court-regression`
+**per-repo**, which catches every *genuine* false-FAIL increase (a real rise always shows up as some
+individual repo's rate climbing). A pooled `AGGREGATE` rate, by contrast, can climb across time with
+**no** per-repo rate rising at all — Simpson's paradox: it is a ratio of sums (Σff/Σconc), so merely
+*reweighting* the denominators (a repo's conclusive-court count shrinking, or a low-rate repo dropping
+to `INCON` and leaving the pool) shifts the pooled number while every per-repo rate stays flat. Those
+cross-time aggregate climbs are reweighting artifacts, not regressions, so comparing `AGGREGATE`
+across time would manufacture **false** blocks from an unchanged corpus while adding no true signal
+the per-repo scan lacks. The point-in-time aggregate go/no-go (≤5%/≤10%) still belongs to
+`check-phase1-baseline` (a single-snapshot read, where the paradox does not bite); cross-time both
+reads skip it. A repo absent from the anchor (a newly-added target) is out-of-scope and simply not
+iterated. **`confirm-by-rerun` is the wrapping `make court-regression`
 contract, not the awk:** because a single matrix run carries the ~50-point AI variance the
 no-regression gate has to absorb, the target runs *matrix + `cmd_court_regression`* **twice** and
 applies the confirm rule **per repo**. The two flag kinds are *not* symmetric, because they mean
