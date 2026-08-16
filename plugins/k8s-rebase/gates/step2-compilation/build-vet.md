@@ -14,8 +14,8 @@ RULE 2 — PER-ISSUE FILTER (when NEW_ISSUES>0): Only analyze issues
 the script marked as "NEW". Ignore "PRE-EXISTING" lines. For each
 NEW issue, determine if it is a real problem or a false positive.
 
-If the companion script is not found, fall back to running the
-checks manually:
+If the companion script is not found, crashes, or emits no NEW_ISSUES line,
+fall back to running the checks manually:
 
 Run `go build ./...` and `go vet ./...` in each module.
 Use this exact loop to find modules and skip gitignored vendors:

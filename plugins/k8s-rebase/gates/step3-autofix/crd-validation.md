@@ -5,7 +5,17 @@ GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/st
 bash "$GATE_DIR/crd-validation.sh" "$(pwd)"
 ```
 
-Read the output carefully. Apply these rules in order:
+If the companion script is not found, crashes, or emits no NEW_ISSUES line:
+run the manual checks below for each CRD schema file in the repository.
+Find CRD files: `find . -name '*.yaml' -not -path '*/vendor/*' | xargs grep -l 'kind: CustomResourceDefinition' 2>/dev/null`
+For each CRD, compare `git show $BASE:<path>` against the working copy and
+flag any newly removed or weakened validation constraint (deleted pattern,
+format, minimum/maximum, enum, or required entries, or relaxed values).
+If $BASE is empty, do not compare — defer without a self-comparison; never
+PASS on a self-comparison. Never PASS on unexamined output.
+
+If the companion script ran successfully, read the output carefully and
+apply these rules in order:
 
 RULE 1 — FAST-PATH: If NEW_ISSUES=0, set verdict=PASS immediately.
 Write the PASS report and stop. Do NOT run checks 1-2 below.

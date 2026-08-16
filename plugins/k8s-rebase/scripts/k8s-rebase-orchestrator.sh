@@ -146,9 +146,17 @@ cmd_init() {
     step=$(get_step "$repo")
     info "Resuming at step $step (state.json exists)"
     echo "ORCHESTRATOR_INIT: RESUME"
+    # .crash has no HEAD stamp — freshness cannot invalidate a stale one.
+    # Clean on both FRESH and RESUME or a prior-run crash reads as current.
+    rm -f "$repo/.rebase-tmp/gates/"*.crash 2>/dev/null || true
   else
     mkdir -p "$repo/.rebase-tmp/gates"
     rm -f "$repo/.rebase-tmp/gates/"*.report 2>/dev/null || true
+    rm -f "$repo/.rebase-tmp/gates/"*.crash  2>/dev/null || true
+    # Stale advance-attempts counter survives re-init and triggers premature
+    # force-advance (cmd_advance fires at attempts≥3).
+    rm -f "$repo/.rebase-tmp/.advance-attempts-step"* 2>/dev/null || true
+    rm -f "$repo/.rebase-tmp/status/INCOMPLETE"        2>/dev/null || true
     write_state "$repo" 1 "$version"
     info "Fresh start for $version"
     echo "ORCHESTRATOR_INIT: FRESH"
@@ -199,13 +207,22 @@ cmd_gates() {
 
     if [[ -x "$companion" ]]; then
       info "Running companion: $(basename "$companion")"
-      local output
-      if output=$(timeout "${GATE_TIMEOUT:-300}" bash "$companion" "$repo" 2>&1); then
-        if echo "$output" | grep -q 'NEW_ISSUES=0'; then
-          echo "RESOLVED: $gate_name PASS (companion script)"
-          ((resolved++)) || true
-          continue
-        fi
+      local crash_path="$repo/.rebase-tmp/gates/${sd%-*}-${gate_name}.crash"
+      local output rc=0
+      output=$(timeout "${GATE_TIMEOUT:-300}" bash "$companion" "$repo" 2>&1) || rc=$?
+      # rc≥124: timeout (SIGTERM→companion saw exit 0, so _gate_trap wrote nothing)
+      # or signal-kill (SIGKILL→no trap at all). Write the breadcrumb here.
+      if (( rc >= 124 )); then
+        printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" > "$crash_path"
+        echo "$output"
+        echo "PENDING: $gate_name (companion crashed — deferring to subagent)"
+        ((pending++)) || true
+        continue
+      fi
+      if echo "$output" | grep -q 'NEW_ISSUES=0'; then
+        echo "RESOLVED: $gate_name PASS (companion script)"
+        ((resolved++)) || true
+        continue
       fi
       echo "$output"
       echo "PENDING: $gate_name (companion found issues)"

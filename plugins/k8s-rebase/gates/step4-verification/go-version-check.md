@@ -13,7 +13,8 @@ Write the PASS report and stop. Do NOT run the checks below.
 RULE 2 — PER-ISSUE FILTER (when NEW_ISSUES>0): Only analyze issues
 the script marked as "NEW". Ignore "PRE-EXISTING" lines.
 
-If the companion script is not found, fall back to manual checks:
+If the companion script is not found, crashes, or emits no NEW_ISSUES line,
+fall back to manual checks:
 
 The rebase bumped the Go version. Verify consistency across
 the repo and check for implications.

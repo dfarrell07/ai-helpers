@@ -975,22 +975,29 @@ _do_record_one() {
   if [[ "$gtotal" -eq 0 ]]; then
     detail="no gates ran (bug)"
   elif [[ "$gtotal" -lt "$EXPECTED_GATES" ]]; then
-    local _gmiss_names=""
+    local _gmiss_names="" _gcrash_names=""
     for _gmd in "$PLUGIN_DIR/gates"/step*/*.md; do
       [[ -f "$_gmd" ]] || continue
       local _gdir_name=$(basename "$(dirname "$_gmd")")
       local _gstep="${_gdir_name%%-*}"
       local _gbase=$(basename "$_gmd" .md)
       local _gexpected="${_gstep}-${_gbase}"
-      local _found_gate=false
+      local _found_gate=false _found_crash=false
       for _gd in "${_GATE_DIRS[@]}"; do
         [[ -f "$_gd/${_gexpected}.report" ]] && { _found_gate=true; break; }
+        [[ -f "$_gd/${_gexpected}.crash"  ]] && _found_crash=true
       done
       if ! $_found_gate; then
-        _gmiss_names="${_gmiss_names:+$_gmiss_names, }${_gexpected}"
+        if $_found_crash; then
+          _gcrash_names="${_gcrash_names:+$_gcrash_names, }${_gexpected}(crashed)"
+        else
+          _gmiss_names="${_gmiss_names:+$_gmiss_names, }${_gexpected}"
+        fi
       fi
     done
-    detail="missing $((EXPECTED_GATES - gtotal)) of $EXPECTED_GATES gates [${_gmiss_names}]"
+    local _crash_suffix=""
+    [[ -n "$_gcrash_names" ]] && _crash_suffix=", crashed: ${_gcrash_names}"
+    detail="missing $((EXPECTED_GATES - gtotal)) of $EXPECTED_GATES gates [${_gmiss_names}]${_crash_suffix}"
     [[ "$gfail" -gt 0 ]] && detail="$detail, $gfail failed [${gfail_names//,/, }]"
     [[ "$gskip" -gt 0 ]] && detail="$detail$_gate_suffix"
   elif [[ "$gfail" -gt 0 ]]; then

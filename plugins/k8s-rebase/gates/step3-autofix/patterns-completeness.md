@@ -5,7 +5,10 @@ GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/st
 bash "$GATE_DIR/patterns-completeness.sh" "$(pwd)"
 ```
 
-Read the output. Two paths — follow EXACTLY ONE:
+If the companion script is not found, crashes, or emits no NEW_ISSUES line:
+proceed directly to checks 1-4 below (PATH B). Never PASS on unexamined output.
+
+If the companion script ran successfully, read the output. Two paths — follow EXACTLY ONE:
 
 PATH A — Script says NEW_ISSUES=0 AND BUILD-OK for all modules:
   Verdict is PASS. Write PASS report and stop. Do NOT run checks

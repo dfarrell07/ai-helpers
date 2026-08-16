@@ -15,14 +15,25 @@ set -euo pipefail
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 WRITE_REPORT="$SCRIPT_DIR/write-gate-report.sh"
 
+inc() {
+  # Safe counter: 0→1 returns rc=1 under set -e without this guard.
+  local var="${1:-NEW_ISSUES}"
+  printf -v "$var" '%d' "$(( ${!var:-0} + 1 ))"
+}
+
 _gate_trap() {
+  # Nonzero exit → .crash breadcrumb, NO verdict. Gate falls through to
+  # PENDING → subagent, same as a companion-less gate. SIGTERM (exit 0)
+  # and SIGKILL (no trap) are handled by the orchestrator; this covers
+  # ordinary nonzero exits only.
   local exit_code=$?
-  if [[ $exit_code -ne 0 && -n "${REPO:-}" && -n "${GATE_NAME:-}" ]]; then
-    bash "$WRITE_REPORT" "$REPO" "$GATE_NAME" FAIL 1 \
-      "Companion script crashed (exit $exit_code)" \
-      "Script: ${BASH_SOURCE[1]:-unknown}" \
-      "Last command exit code: $exit_code"
+  [[ $exit_code -eq 0 ]] && return 0
+  if [[ -n "${REPO:-}" && -n "${GATE_NAME:-}" ]]; then
+    mkdir -p "$REPO/.rebase-tmp/gates"
+    printf 'CRASH: exit %s at %s\n' "$exit_code" "${BASH_SOURCE[1]:-unknown}" \
+      > "$REPO/.rebase-tmp/gates/${GATE_NAME}.crash"
   fi
+  echo "CRASH: ${GATE_NAME:-?} (exit $exit_code) — no report; deferring to subagent"
 }
 trap _gate_trap EXIT
 

@@ -14,7 +14,8 @@ RULE 2 — PER-ISSUE FILTER (when NEW_ISSUES>0): Only analyze issues
 the script flagged as "MISMATCH" or "VENDOR-DRIFT". Determine if
 each is a real problem requiring investigation.
 
-If the companion script is not found, fall back to manual checks:
+If the companion script is not found, crashes, or emits no NEW_ISSUES line,
+fall back to manual checks:
 
 Count go.mod files where k8s.io/* dependency versions are
 inconsistent (different minor versions across k8s.io packages
