@@ -725,7 +725,9 @@ only as subordinate clauses, so they are collected here as a checklist):
    guard and `check-phase1-baseline` (iii-b) are the backstops.**
 6. Record and commit `test/metrics/phase1-decision.txt` — line 1 = the bare decision token
    (`stop-after-phase0` or `proceed-to-phase2`), line 2 = `agg=<decimal> worst=<decimal>`
-   (informational). See condition (ii) below for the exact format the (iii-a) reader depends on.
+   (informational), e.g. `printf '%s\nagg=%.3f worst=%.3f\n' proceed-to-phase2 "$agg" "$worst" >
+   test/metrics/phase1-decision.txt`. See condition (ii) below for the exact format the (iii-a)
+   reader depends on (the reader takes line 1 from the **committed** file, so this must be committed).
 7. Run `make check-phase1-baseline` — the mechanical gate over steps 2/5/6 (conditions i–vii).
 
 *(base anchoring — the load-bearing court fix, do first)* the court decides "is this a
@@ -1122,8 +1124,10 @@ fixed two-line format so the step-6 writer and the (iii-a) reader cannot silentl
 is exactly one of the two bare decision tokens — no key, no surrounding whitespace, case-sensitive —
 and **line 2** is `agg=<decimal> worst=<decimal>` (informational/provenance only; **never**
 machine-read, because (iv) re-derives the rates from the committed log). Condition (iii-a) reads the
-token with `head -1 test/metrics/phase1-decision.txt | tr -d '[:space:]'` and accepts only those two
-values (any third value is an error);
+token from the **committed** file with `git show HEAD:test/metrics/phase1-decision.txt | head -1 |
+tr -d '[:space:]'` — committed-to-committed like (iv)/(vii), so a working-tree edit cannot fabricate a
+decision the committed file does not carry — and accepts only those two values (any third value is an
+error);
 (iii) — split into **two independent code paths, both required** (they are separate greps, not one
 check; an implementer who writes only the rate comparison silently omits the INCON scan, so they are
 enumerated as distinct deliverables rather than a parenthetical): **(iii-a) rate-boundary
@@ -1147,7 +1151,7 @@ worst=$(awk -F'\t' '$1=="AGGREGATE"||$1=="MEASURED"||$1=="INCON"{next}
                     END{print w+0}' <<<"$flat")                            # pass 1: worst per-repo rate (0 if none)
 agg=$(awk -F'\t' '$1=="AGGREGATE"{split($2,p,"/"); if (p[2]>0) a=p[1]/p[2]}
                   END{print a+0}' <<<"$flat")                             # pass 2: aggregate rate (0 if absent/den=0)
-decision=$(head -1 test/metrics/phase1-decision.txt | tr -d '[:space:]')  # bare token, per (ii)
+decision=$(git show HEAD:test/metrics/phase1-decision.txt | head -1 | tr -d '[:space:]')  # committed token, per (ii); line 2 is provenance ONLY — never parse it, (iv) re-derives rates
 binds=$(awk -v a="$agg" -v w="$worst" 'BEGIN{print (a>0.05 || w>0.10) ? 1 : 0}')  # float compare in awk, not bash
 case "$decision" in
   proceed-to-phase2) [[ "$binds" == 1 ]] || { echo "ERROR: decision 'proceed-to-phase2' but rates are within bounds (agg=$agg worst=$worst)"; return 1; } ;;
@@ -1181,7 +1185,19 @@ target **re-derives the snapshot from the *committed* raw log** — re-runs `cmd
 `test/court-history.tsv`) and asserts its output equals the committed `court-baseline.tsv`
 exactly (a valid equality only because `cmd_court_metrics` emits the canonical `LC_ALL=C sort`
 order above — without that pin the check would flake on nondeterministic line ordering), then
-reads the rates *from that re-derived output* (not from the committed file) for the (iii) check;
+reads the rates *from that re-derived output* (not from the committed file) for the (iii) check.
+This equality assertion is the load-bearing anti-fabrication backstop — it raises the forging bar
+from *edit two numbers in the committed summary* to *forge the entire per-run log consistently* — so
+it is a concrete check, not prose. It **reuses `$flat`** from (iii-a) (the identical committed-log
+re-derivation), so the whole target derives the snapshot once, not three times:
+
+```bash
+# (iv): the re-derived snapshot must byte-match the committed summary (reuses $flat from (iii-a),
+# valid only because cmd_court_metrics emits the canonical LC_ALL=C sort order):
+[[ "$flat" == "$(git show HEAD:test/metrics/court-baseline.tsv)" ]] \
+  || { echo "ERROR: re-derived snapshot != committed court-baseline.tsv — raw log and summary out of sync"; return 1; }
+```
+
 **(v)** P0a's crash-safe fallback is present in **both** group-(ii) gates
 (`gates/step3-autofix/crd-validation.md`, `gates/step3-autofix/patterns-completeness.md` — the two
 with *no* other fallback, so their absence is the silent-false-PASS hole Phase 2 step 4 opens if
@@ -1216,16 +1232,19 @@ tells the reviewer the probe is *systematically* failing and needs debugging, no
 re-derivation** — it trusts that the probe (a live-model integration check, un-recomputable in
 pure bash) was run honestly, so it is a discipline arm consistent with the whole
 `check-phase1-baseline` target's status as a reviewer-run gate, not a corpus-forgery barrier.
-Finally, **(vii)** the frozen regression anchor `test/metrics/court-baseline-phase1.tsv` **exists
-and is committed** — `git show HEAD:test/metrics/court-baseline-phase1.tsv >/dev/null 2>&1 || { echo
-'ERROR: court-baseline-phase1.tsv not committed — run make freeze-court-anchor'; return 1; }`. Though
+Finally, **(vii)** the frozen regression anchor `test/metrics/court-baseline-phase1.tsv` **exists,
+is committed, and is non-empty** — `git show HEAD:test/metrics/court-baseline-phase1.tsv >/dev/null 2>&1 || { echo
+'ERROR: court-baseline-phase1.tsv not committed — run make freeze-court-anchor'; return 1; }; [[ -n "$(git show HEAD:test/metrics/court-baseline-phase1.tsv)" ]] || { echo 'ERROR: committed court-baseline-phase1.tsv is empty — re-run make freeze-court-anchor'; return 1; }`
+(a zero-byte committed anchor passes `git show` with rc 0, so without the second arm it would slip
+past (vii) and be caught only later by `cmd_court_regression`'s `[[ -s ]]` guard — after Phase-2
+courts had already made a clean Phase-1-only re-freeze unrecoverable). Though
 listed last, the target evaluates (vii) *first*, as a cheap fail-fast precondition: an operator who
 skips step 5's `make freeze-court-anchor` otherwise satisfies (i)-(vi) and enters Phase 2 with **no
 anchor**, at which point every `make court-regression` hard-errors on `cmd_court_regression`'s
 anchor-missing guard (`[[ -s "$base" ]] || { … return 2; }`) — but only *after* Phase-2 courts have
 appended rows to `court-history.tsv`, making a clean Phase-1-only re-freeze unrecoverable. (vii)
 converts that late, unrecoverable failure into an early, actionable one at the boundary; it is the
-symmetric complement of the once-only `[[ -f "$anchor" ]]` guard (which prevents a *double* freeze) —
+symmetric complement of the once-only `git show HEAD:"$anchor"` guard (which prevents a *double* freeze) —
 (vii) checks the freeze happened *at all*. Two temporal caveats: check (v) is a **pre-Phase-2
 precondition**, and the whole
 `check-phase1-baseline` target (conditions i–vii) runs **once**, at the Phase-1→Phase-2 boundary —
@@ -1345,7 +1364,8 @@ re-run `commit-court-baseline` → freeze, described in `cmd_freeze_court_anchor
 legitimate multi-batch Phase-1 accumulation. The invariant is therefore enforced the way
 `check-phase1-baseline` itself is — an operator discipline gate, reinforced by four real
 safeguards: the numbered Implementation Sequence (freeze is step 5, before any Phase-2 run); the
-`[[ -f "$anchor" ]]` guard that makes the freeze **once-only** (no silent re-baseline);
+`git show HEAD:"$anchor"` guard that makes the freeze **once-only** by refusing to overwrite an
+already-**committed** anchor (a working-tree `rm` cannot defeat it, unlike a disk-only `[[ -f ]]`);
 `check-phase1-baseline` (vii), which hard-fails when the frozen anchor was **never committed** (the
 skip-the-freeze case); and `check-phase1-baseline` (iii-b), which re-derives from the committed log
 and hard-fails on any `INCON` in that derivation — a proxy for the anchor's cleanliness that catches
@@ -1363,7 +1383,7 @@ cmd_freeze_court_anchor() {                     # one-time Phase-1 freeze; exit 
   local roll="test/metrics/court-baseline.tsv"
   local anchor="test/metrics/court-baseline-phase1.tsv"
   git diff --cached --quiet || { echo 'ERROR: index has pre-staged changes; stash or commit them first'; return 1; }
-  [[ -f "$anchor" ]] && { echo "ERROR: $anchor already exists — the freeze is once-only; never silently re-baseline"; return 1; }
+  git show HEAD:"$anchor" >/dev/null 2>&1 && { echo "ERROR: $anchor already committed — the freeze is once-only; never silently re-baseline (a working-tree rm must not defeat the guard)"; return 1; }
   [[ -s "$roll" ]]   || { echo "ERROR: $roll missing/empty — run 'make commit-court-baseline' first"; return 1; }
   # INCON guard lives HERE, at the one-time freeze — NOT in cmd_commit_court_baseline. The anchor must
   # carry a comparable rate for EVERY repo: an INCON repo has no rate, and cmd_court_regression iterates
@@ -1547,6 +1567,8 @@ cmd_court_regression_confirmed() {             # `make court-regression`; exit 0
   # before each matrix run (the durable signal is the appended court-history.tsv journal, untouched)
   # so each sample re-courts and appends fresh rows, and the two cmd_court_metrics reads land on
   # genuinely distinct draws (latest-row-per-key by ts).
+  # PLUGIN_DIR is the harness global defined at test-skill.sh:10; this function must live in test-skill.sh
+  # (relocating it standalone would hit an unbound-variable error under set -u).
   rm -rf "$PLUGIN_DIR/test/.matrix-state/court"/* 2>/dev/null   # sample 1: force a fresh court draw
   cmd_matrix all
   reg1="$(cmd_court_regression)"; rc1=$?
