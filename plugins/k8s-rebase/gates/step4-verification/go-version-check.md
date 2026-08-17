@@ -39,9 +39,12 @@ MANDATORY pre-existing check: For each Makefile/Dockerfile finding,
 check the base branch before counting:
   BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
   modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
-  base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<version-string>')
-  If modified==0 OR base_has>0: PRE-EXISTING — do NOT count.
-  If ALL findings are pre-existing, verdict MUST be PASS with 0 issues.
+  If modified==0: PRE-EXISTING (file not touched by this branch) — do NOT count.
+  If modified>0: NEW (rebase touched this file; any remaining Go version mismatch
+  should have been updated). Do NOT use "version string appears on base" as a
+  pre-existing signal — the old Go version WAS correct on base; its presence there
+  does not make a post-bump mismatch pre-existing.
+  If ALL findings are in unmodified files, verdict MUST be PASS with 0 issues.
 
 VERDICT criteria: FAIL if go.mod files have inconsistent Go
 versions, or Makefiles/Dockerfiles use a Go version that

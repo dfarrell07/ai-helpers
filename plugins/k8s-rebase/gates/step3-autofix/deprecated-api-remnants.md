@@ -37,8 +37,8 @@ MANDATORY pre-existing check — run for EVERY finding:
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 # For each finding at <file> with <symbol>:
-base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<symbol>' || echo 0)
-curr_count=$(grep -c '<symbol>' "<file>" 2>/dev/null || echo 0)
+base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<symbol>')
+curr_count=$(grep -c '<symbol>' "<file>" 2>/dev/null)
 net_new=$(( curr_count > base_count ? curr_count - base_count : 0 ))
 # net_new > 0: that many occurrences are NEW and count toward FAIL
 # net_new == 0: all occurrences are PRE-EXISTING — do NOT count
