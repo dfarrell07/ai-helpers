@@ -7,9 +7,10 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 Read the evidence. If SUMMARY shows 0 inconsistencies, verdict is PASS.
 When NEW_ISSUES > 0: only analyze issues the evidence flagged as
 "MISMATCH" or "VENDOR-DRIFT". Determine if each is a real problem
-requiring investigation. Note: `sigs.k8s.io/*` packages track their
-own versioning independently of k8s minors — a MISMATCH on klog/v2
-or kube-openapi is a false positive; determine from context.
+requiring investigation. Note: `sigs.k8s.io/*` packages (e.g., klog/v2, kube-openapi) often
+have independent versioning from k8s core. A MISMATCH on these may be
+a false positive — check whether the package is expected to track
+the k8s minor version for this specific repo before counting.
 
 If evidence is stale or absent, fall back to manual checks:
 
