@@ -39,15 +39,16 @@ MANDATORY pre-existing check — run for EVERY finding:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-# For each finding at <file> with <version_string>:
-base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<version_string>')
-# If base_has > 0, PRE-EXISTING — do NOT count it
+# For each finding at <file> with a stale version string:
+modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
+# If modified==0: PRE-EXISTING (file not touched by this branch)
+# If modified>0: NEW (rebase touched this file; stale version should have been updated)
 ```
 
-If a version issue exists on the base branch, report as "INFO
-(pre-existing)" and do NOT include in ISSUES. Only issues NOT
-on base are NEW. If ALL findings are pre-existing, verdict MUST
-be PASS.
+Do NOT use "old version string appears on base" as the pre-existing
+signal — the old version WAS correct on base, so it appears in every
+file. Only files MODIFIED by this branch are in scope.
+If ALL findings are in unmodified files, verdict MUST be PASS.
 
 VERDICT: FAIL only if NEW e2e infrastructure issues exist (not
 on base branch). PASS if all issues are pre-existing or all

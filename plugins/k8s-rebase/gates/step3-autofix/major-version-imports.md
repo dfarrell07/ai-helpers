@@ -16,8 +16,8 @@ v2+ — NOT deprecated symbols (those are caught by other gates).
 
 MANDATORY first action — run these before any analysis:
   `grep -rn '"k8s.io/klog"' --include='*.go' . | grep -v vendor/ | grep -v .cache/ | grep -v '/v2'`
-If that produces ANY output, count those as FAIL findings
-immediately (file:line details required). Do NOT skip this step.
+Collect the results. Apply the pre-existing check below before
+counting any as FAIL — klog bare imports may be pre-existing.
 
 Step 1 — Discover major-version modules from go.mod:
   `grep -E '/v[0-9]+' go.mod | grep -v '^//' | sed 's|.*\([a-z].*\/v[0-9]*\).*|\1|' | sort -u`
@@ -34,12 +34,14 @@ Step 2 — Check go.mod require lines:
 Report each stale import with file:line AND the correct
 versioned path (e.g., k8s.io/klog -> k8s.io/klog/v2).
 
-For each finding, check the base branch:
+For each finding, check the base branch — use count delta:
   `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
-  `git show $BASE:<file> 2>/dev/null | grep -c '<bare-import>'`
-If the same stale import exists on the base branch, it is
-pre-existing — report as INFO but do NOT count toward FAIL.
-Only imports introduced by the rebase trigger FAIL.
+  `base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<bare-import>')`
+  `curr_count=$(grep -c '<bare-import>' "<file>" 2>/dev/null)`
+  `net_new=$(( curr_count > base_count ? curr_count - base_count : 0 ))`
+Only net_new > 0 occurrences are NEW and count toward FAIL.
+A file with 3 pre-existing bare imports and 5 on HEAD has 2 NEW ones.
+Do NOT use "base_has > 0" as a simple binary — that marks all as pre-existing.
 
 FAIL if any NEW stale imports remain. PASS if clean or
 only pre-existing. If no major-version deps, PASS.

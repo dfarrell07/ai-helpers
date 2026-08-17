@@ -5,14 +5,20 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   below. Do NOT PASS on the strength of absent or stale evidence.
 
 When evidence is fresh: if SUMMARY shows 0 errors, verdict is PASS. If SUMMARY shows
-errors, analyze each BUILD: or VET: line in the evidence. For each cited file, check
-whether the same error existed on the base branch — pre-existing errors do not count:
+errors, analyze each BUILD: or VET: line in the evidence. For each error, determine
+whether it was introduced by the rebase or was pre-existing:
 
 ```bash
 BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)
-git show "$BASE:<file>" 2>/dev/null  # compare source on base; absent file = NEW error
+# For a compile error referencing <missing_symbol> in a vendored package:
+git show "$BASE:vendor/<pkg>/<file>.go" 2>/dev/null | grep -c '<missing_symbol>'
+# > 0: symbol existed before → rebase removed it → error is NEW
+# == 0: symbol was already absent → error is PRE-EXISTING
 ```
 
+Do NOT treat "source file is present on base" as proof the error is pre-existing.
+A dependency API removal breaks unmodified source files — the source file exists on
+base but the vendored API it calls was removed by the bump. Check vendor, not source.
 Count only errors newly introduced by the rebase. Pre-existing errors: report as
 INFO (pre-existing) and do NOT count toward FAIL.
 

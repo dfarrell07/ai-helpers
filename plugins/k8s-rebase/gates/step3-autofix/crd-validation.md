@@ -31,9 +31,9 @@ For each CRD the evidence marked "CHANGED-VALIDATION" or "ALL-NEW"
    format doesn't match the range (e.g., format: int32 with a
    maximum exceeding 2^31-1, which needs format: int64).
 
-VERDICT: FAIL if any NEW issue found (not in the PRE-EXISTING
-output). PASS if all issues are pre-existing or no CRDs exist.
-SKIP if no CRDs in repo.
+VERDICT: FAIL if any NEW issue found. PASS if at least one CRD was
+examined and all issues are pre-existing. SKIP if no CRDs exist in
+the repo (gate does not apply).
 
 Count ONLY new issues in your ISSUES field. Pre-existing issues
 go in DETAILS as "INFO (pre-existing):" entries.

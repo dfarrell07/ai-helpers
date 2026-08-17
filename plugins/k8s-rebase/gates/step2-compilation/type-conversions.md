@@ -2,7 +2,7 @@ Run this check FIRST to decide if this gate applies:
 ```bash
 REPO="<the repo path from the first line of your prompt>"
 BASE=$(cd "$REPO" && git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-TYPE_CONV=$(cd "$REPO" && git diff "$BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep -E '^\+.*(\(\w+\)\(|\.(\w+)\{|type assertion|\.\(\*?\w+\))' | head -20)
+TYPE_CONV=$(cd "$REPO" && git diff "$BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep -E '^\+.*(\(\w+\)\(|\.(\w+)\{|type assertion|\.\(\*?[\w.]+\))' | head -20)
 if [ -z "$TYPE_CONV" ]; then
   echo "No type conversions in fix commits — SKIP"
 fi

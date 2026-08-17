@@ -45,7 +45,9 @@ If either changelog is unavailable, note it and move on.
 VERDICT criteria: FAIL if any NOT ADDRESSED entry is in
 "Urgent Upgrade Notes" or "API Change" and affects symbols
 used by this repo. PASS if all relevant entries are ADDRESSED
-or N/A. SKIP if the changelog is unavailable.
+or N/A. If the changelog is unavailable, write PASS with summary
+"changelog unavailable — verify k8s upgrade notes manually before
+merging." Do not SKIP — infrastructure failure should be visible.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

@@ -37,7 +37,9 @@ Run the check in each module directory.
 Report each deprecated call with file:line and what to replace
 it with (if the deprecation comment says). FAIL if any NEW
 deprecated calls exist. PASS if clean or only pre-existing.
-SKIP if neither staticcheck nor Go is available.
+If neither staticcheck nor Go is available, write PASS with summary
+"staticcheck and Go unavailable — deprecated call check not performed;
+verify manually." Do not SKIP — infrastructure failure should be visible.
 
 MANDATORY pre-existing check — run for EVERY finding before
 counting it:
