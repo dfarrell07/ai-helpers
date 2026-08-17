@@ -482,6 +482,59 @@ rebase_module() {
     done <<< "$_self_replaces"
   fi
 
+  # Pre-align: if non-k8s packages (e.g. openshift/client-go) pulled
+  # k8s.io/* staging modules to a newer minor via MVS, find a compatible
+  # version from the local module cache and downgrade before go mod tidy
+  # (which would re-upgrade them otherwise).
+  local _cur_api_minor
+  _cur_api_minor=$(grep -E '^\s+k8s\.io/api\s' go.mod | grep -v "=>" | \
+                   awk '{print $2}' | grep -oE '\.[0-9]+\.' | head -1 | tr -d '.' || true)
+  if [[ -n "$_cur_api_minor" && "$_cur_api_minor" -gt "$K8S_MINOR" ]]; then
+    info "k8s.io/api at v0.${_cur_api_minor}.x (target v0.${K8S_MINOR}.x) — finding compatible openshift packages..."
+    local MODCACHE="${HOME}/go/pkg/mod/cache/download"
+    local _openshift_pkgs
+    _openshift_pkgs=$(grep -E 'github\.com/openshift/(api|client-go|library-go) ' go.mod | \
+                      grep -v "=>" | awk '{print $1}' || true)
+    while IFS= read -r _pkg; do
+      [[ -z "$_pkg" ]] && continue
+      local _cache_dir="${MODCACHE}/${_pkg}/@v"
+      [[ -d "$_cache_dir" ]] || continue
+      local _compat_ver=""
+      while IFS= read -r _mod_file; do
+        local _ver
+        _ver=$(basename "$_mod_file" .mod)
+        # Only consider pseudo-versions (v0.0.0-YYYYMMDDHHMMSS-hash) not retracted tags
+        [[ "$_ver" =~ ^v[0-9]+\.[0-9]+\.[0-9]+-[0-9]{14}- ]] || continue
+        local _pkg_api_minor
+        _pkg_api_minor=$(grep 'k8s\.io/api\b' "$_mod_file" 2>/dev/null | \
+                         awk '{print $2}' | grep -oE '\.[0-9]+\.' | head -1 | tr -d '.' || true)
+        if [[ -n "$_pkg_api_minor" && "$_pkg_api_minor" -le "$K8S_MINOR" ]]; then
+          _compat_ver="$_ver"
+        fi
+      done < <(ls "$_cache_dir"/*.mod 2>/dev/null | sort)
+      if [[ -n "$_compat_ver" ]]; then
+        info "  ${_pkg}@${_compat_ver} (k8s ≤ 1.${K8S_MINOR} compatible)"
+        go get "${_pkg}@${_compat_ver}" >> "$REBASE_TMP/go-get.log" 2>&1 || \
+          info "  WARNING: failed to pin ${_pkg}@${_compat_ver}"
+      fi
+    done <<< "$_openshift_pkgs"
+    # Re-align any still-skewed k8s.io staging modules
+    local _re_skewed
+    _re_skewed=$(grep -E '^\s+k8s\.io/' go.mod | grep -v "=>" | \
+                 grep -E 'v0\.[0-9]+\.[0-9]+' | grep -v "${API_VERSION}" | \
+                 grep -v 'v0\.0\.0' | \
+                 grep -v 'kube-openapi' | grep -v 'k8s\.io/utils' | \
+                 grep -v 'k8s\.io/klog' | grep -v 'k8s\.io/gengo' | \
+                 awk '{print $1}' || true)
+    if [[ -n "$_re_skewed" ]]; then
+      info "  Re-aligning k8s.io staging modules to ${API_VERSION}..."
+      while IFS= read -r _mod; do
+        [[ -z "$_mod" ]] && continue
+        go get "${_mod}@${API_VERSION}" >> "$REBASE_TMP/go-get.log" 2>&1 || true
+      done <<< "$_re_skewed"
+    fi
+  fi
+
   info "Running go mod tidy..."
   # k8s.io/kubernetes uses local replace directives for staging repos.
   # When bumped, go mod tidy may fail with "unknown revision v0.0.0"
