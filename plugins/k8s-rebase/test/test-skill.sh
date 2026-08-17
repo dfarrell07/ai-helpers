@@ -1372,7 +1372,9 @@ cmd_court_all() {
   for cfg in "${configs[@]}"; do
     CONFIG_FILE="$cfg"; _load_config
     local _court_pids=() _court_files=() _court_shorts=()
-    local max_court_concurrent=${MAX_COURT_CONCURRENT:-2}
+    # Court uses no worktrees, no disk space, no go builds — only API calls.
+    # Natural limit is API rate limits, not system resources. Default: all repos at once.
+    local max_court_concurrent=${MAX_COURT_CONCURRENT:-${#DEFAULT_REPOS[@]}}
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short=$(repo_short "$repo")
       local _rk=$(repo_key "$repo")
