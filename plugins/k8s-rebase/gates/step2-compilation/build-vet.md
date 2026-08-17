@@ -5,8 +5,16 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   below. Do NOT PASS on the strength of absent or stale evidence.
 
 When evidence is fresh: if SUMMARY shows 0 errors, verdict is PASS. If SUMMARY shows
-errors, analyze each BUILD: or VET: line in the evidence. Count only errors newly
-introduced by the rebase (not pre-existing on the base branch).
+errors, analyze each BUILD: or VET: line in the evidence. For each cited file, check
+whether the same error existed on the base branch — pre-existing errors do not count:
+
+```bash
+BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)
+git show "$BASE:<file>" 2>/dev/null  # compare source on base; absent file = NEW error
+```
+
+Count only errors newly introduced by the rebase. Pre-existing errors: report as
+INFO (pre-existing) and do NOT count toward FAIL.
 
 If evidence is stale or absent, run these checks manually:
 

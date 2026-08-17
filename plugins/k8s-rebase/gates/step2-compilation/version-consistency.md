@@ -4,9 +4,12 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
 
-Read the evidence. When NEW_ISSUES > 0: only analyze issues the
-script flagged as "MISMATCH" or "VENDOR-DRIFT". Determine if
-each is a real problem requiring investigation.
+Read the evidence. If SUMMARY shows 0 inconsistencies, verdict is PASS.
+When NEW_ISSUES > 0: only analyze issues the evidence flagged as
+"MISMATCH" or "VENDOR-DRIFT". Determine if each is a real problem
+requiring investigation. Note: `sigs.k8s.io/*` packages track their
+own versioning independently of k8s minors — a MISMATCH on klog/v2
+or kube-openapi is a false positive; determine from context.
 
 If evidence is stale or absent, fall back to manual checks:
 

@@ -186,11 +186,13 @@ Count gates must report 0. Judge gates must cite evidence.
 Repeat up to 3 times per gate. If it still fails, report
 remaining issues and proceed.
 
-**You MUST run all 6 step2 gates even if there were zero
+**All 6 step2 gate verdicts are required even if there were zero
 compilation errors.** Gates check more than compilation — they
 verify version consistency, diff scope, and type conversions.
-When all pass, proceed to Step 3 immediately. Do NOT stop —
-Steps 3-5 are mandatory even with zero compilation errors.
+The orchestrator run above identifies which gates need subagents;
+RESOLVED gates are already done. When all 6 have verdicts, proceed
+to Step 3 immediately. Do NOT stop — Steps 3-5 are mandatory even
+with zero compilation errors.
 
 ## Advance
 
