@@ -22,6 +22,16 @@ picks the latest available patch releases. DO flag minor-version
 mismatches (versions from a different minor release than the
 target).
 
+Specific lint-fix check — FAIL if either of these is true:
+1. A commit added more than 5 per-line `//nolint:errcheck` suppressions.
+   Preferred approach: create `.golangci.yml` with `exclude-functions`
+   entries instead. Count with:
+   `git diff <merge-base>..HEAD | grep '^\+.*//nolint:errcheck' | wc -l`
+   If count > 5, flag as FAIL — the diff is polluted with suppression
+   comments that the golangci.yml approach would avoid entirely.
+2. A commit uses `//nolint:staticcheck` broadly instead of selecting
+   specific check IDs in `.golangci.yml` `exclude-rules`.
+
 VERDICT: FAIL if scope creep or inaccurate commit messages are
 CONFIRMED from the diff — demonstrably present, not merely suspected.
 PASS if all changes serve the rebase. Only flag what you can point
