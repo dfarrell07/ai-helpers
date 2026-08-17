@@ -107,5 +107,5 @@ set-from-commit: ## Set pre-merge commit
 stop: ## Stop all sessions
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) stop --all || true
 
-clean: ## Reset everything
-	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean
+clean: ## Reset worktrees, state, temp branches (keeps clones). Use repo= to limit to one repo.
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean $(if $(REPO),$(REPO))
