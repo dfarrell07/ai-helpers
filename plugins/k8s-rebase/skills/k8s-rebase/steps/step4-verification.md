@@ -71,7 +71,8 @@ commit-messages.
 ## Gate-fix loop
 
 If ANY gate reports FAIL: triage (check base branch), fix + commit,
-delete old report, re-validate with `--no-test`, re-run gate.
+re-validate with `--no-test`, re-run the orchestrator gates command
+to refresh evidence, then delete old report and re-run gate.
 Step 4 override: always re-run `validate.sh --no-test` between fix
 and gate re-run (catches regressions from fix commits).
 

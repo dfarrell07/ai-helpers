@@ -56,15 +56,16 @@ cat "${PLUGIN_ROOT}/docs/k8s-rebase-patterns.md"
 
 ## Gates
 
-Launch one subagent per gate file listed below. All in one
-parallel wave. Each subagent prompt: repo path + module safety
-rule (from rules.md) + "Read `<GATE_DIR>/<filename>` and follow
-its instructions." Do NOT Read the gate files yourself -- let the
-subagent Read the gate file.
+Run the orchestrator to collect companion evidence and discover gate state:
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 3
+```
 
-Do not skip, batch, or defer any gate -- launch all 11 in a
-single message. Gate subagents run independently and do not
-consume your context window.
+Then launch one subagent per PENDING gate only. All PENDING gates in one
+parallel wave. Each subagent prompt: repo path + module safety rule (from
+rules.md) + "Read `<GATE_DIR>/<filename>` and follow its instructions."
+Do NOT Read the gate files yourself -- let the subagent Read the gate file.
 
 Gate directory: `${PLUGIN_ROOT}/gates/step3-autofix`
 
@@ -99,13 +100,13 @@ gate with verdict FAIL):
 2. **Fix**: For each NEW finding, fix the cited issue and
    commit.
 
-3. **Re-run** (mandatory -- never skip this step): Delete the
-   old gate report first (`rm .rebase-tmp/gates/<gate>.report`),
-   then re-run the gate (let the subagent Read the gate file and
+3. **Re-run** (mandatory -- never skip this step): Re-run the
+   orchestrator gates command to refresh evidence, then delete
+   the old gate report (`rm .rebase-tmp/gates/<gate>.report`)
+   and re-run the gate (let the subagent Read the gate file and
    follow its instructions). The old report MUST be deleted
-   before re-running -- if the agent fixes code but skips
-   re-running, stale FAIL reports persist and auto-record will
-   report FAIL even though the issue was fixed.
+   before re-running -- stale FAIL reports persist and
+   auto-record will report FAIL even though the issue was fixed.
 
 Repeat up to 3 times per gate. If it still fails after 3
 attempts, report remaining issues and proceed. This loop

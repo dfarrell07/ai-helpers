@@ -1,58 +1,49 @@
 #!/bin/bash
-# Gate script: crd-validation pre-existing filter
-# Run BEFORE the gate subagent. Identifies which CRD issues
-# are pre-existing vs introduced by the rebase.
+# Gate companion: crd-validation — pre-existing CRD validation filter.
+# Identifies which CRD schema issues are pre-existing vs introduced by the rebase.
 # Usage: bash crd-validation.sh <repo-path>
-#
-# Output: for each CRD, lists findings as NEW or PRE-EXISTING.
-# The subagent reads this output to set its verdict correctly.
 
-set -uo pipefail
-repo="${1:-.}"
-cd "$repo" || exit 1
+source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
+init_gate "$@"
 
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main 2>/dev/null)
-if [[ -z "$BASE" ]]; then
-  echo "NO_BASE: cannot determine pre-existing issues"
-  exit 0
-fi
+details=()
+new=0 pre=0
 
 crds=$(git ls-files -- '*.yaml' ':(exclude,glob)**/vendor/**' ':!.claude/' 2>/dev/null \
   | xargs grep -l 'kind: CustomResourceDefinition' 2>/dev/null || true)
 if [[ -z "$crds" ]]; then
-  echo "SKIP: no CRDs found"
-  exit 0
+  finish_evidence "SKIP: no CRDs in repository" "SKIP: no CRD files found"
 fi
 
-new=0 pre=0
+if [[ -z "$BASE" ]]; then
+  finish_evidence "no base branch — CRD comparison impossible" \
+    "NO_BASE: cannot compare CRDs against base branch" \
+    "NEW_ISSUES=0"
+fi
 
 for crd in $crds; do
-  # Check if CRD exists on base branch
-  base_crd=$(git show "$BASE:$crd" 2>/dev/null)
+  base_crd=$(git show "$BASE:$crd" 2>/dev/null) || true
   if [[ -z "$base_crd" ]]; then
-    echo "$crd ALL-NEW (file not on base branch)"
-    new=$((new + 1))
+    details+=("$crd ALL-NEW (file not on base branch)")
+    ((new++)) || true
     continue
   fi
 
-  # Diff the CRD against base — any validation change is a finding
-  crd_diff=$(diff <(echo "$base_crd") "$crd" 2>/dev/null)
+  crd_diff=$(diff <(echo "$base_crd") "$crd" 2>/dev/null) || true
   if [[ -z "$crd_diff" ]]; then
-    echo "$crd IDENTICAL (no changes vs base)"
+    details+=("$crd IDENTICAL (no changes vs base)")
     continue
   fi
 
-  # Count changed lines that affect validation
-  changed=$(echo "$crd_diff" | grep '^[<>]' | grep -cE 'pattern:|format:|minimum:|maximum:|enum:|required:' || true)
+  changed=$(echo "$crd_diff" | grep '^[<>]' \
+    | grep -cE 'pattern:|format:|minimum:|maximum:|enum:|required:' || true)
   if [[ "$changed" -eq 0 ]]; then
-    echo "$crd NO-VALIDATION-CHANGES"
+    details+=("$crd NO-VALIDATION-CHANGES")
   else
-    echo "$crd CHANGED-VALIDATION: $changed validation-related lines differ from base"
-    new=$((new + changed))
+    details+=("$crd CHANGED-VALIDATION: $changed validation-related lines differ from base")
+    new=$(( new + changed ))
   fi
 done
 
-echo ""
-echo "NEW_ISSUES=$new"
-echo "PRE_EXISTING=$pre"
-echo "NOTE: Issues that exist identically on base branch are pre-existing and should not trigger FAIL"
+details+=("NEW_ISSUES=$new" "PRE_EXISTING=$pre")
+finish_evidence "$new CRD validation changes" "${details[@]}"

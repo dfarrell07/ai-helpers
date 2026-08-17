@@ -5,10 +5,11 @@
 #   source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
 #   init_gate "$@"
 #   ... your checks ...
-#   finish_gate "$NEW_ISSUES" "summary" ["detail1" "detail2" ...]
+#   finish_evidence "N-word summary" ["detail1" "detail2" ...]
 #
-# Provides: REPO, BASE, GATE_NAME, WRITE_REPORT, init_gate, base_has, finish_gate
-# Conventions: exit 0 for "nothing to check." Exit 1 for infra failures only.
+# Provides: REPO, BASE, GATE_NAME, WRITE_REPORT, init_gate, base_file_has,
+#           finish_evidence
+# Conventions: exit 0 always (crash writes .crash, not a verdict).
 
 set -euo pipefail
 
@@ -64,25 +65,20 @@ base_file_has() {
   git show "$BASE:$file" 2>/dev/null | grep -qF "$pattern" 2>/dev/null
 }
 
-finish_gate() {
-  local issues="${1:?Missing issue count}"
-  local summary="${2:-"$issues issues found"}"
-  shift 2 2>/dev/null || true
+_head_sha() { git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown; }
 
-  local verdict="PASS"
-  [[ "$issues" -gt 0 ]] && verdict=""
+_write_evidence() {
+  local summary="$1"; shift
+  mkdir -p "$REPO/.rebase-tmp/gates"
+  local ev="$REPO/.rebase-tmp/gates/${GATE_NAME}.evidence"
+  { echo "HEAD: $(_head_sha)"; echo "SUMMARY: $summary"; printf '%s\n' "$@"; } \
+    | tee "$ev.tmp"
+  mv "$ev.tmp" "$ev"
+  echo "PENDING: $GATE_NAME"; echo "EVIDENCE: $ev"
+}
 
-  if [[ "$verdict" == "PASS" ]]; then
-    bash "$WRITE_REPORT" "$REPO" "$GATE_NAME" PASS 0 "$summary" "$@"
-    echo "RESOLVED: $GATE_NAME PASS (companion script)"
-  else
-    echo "NEW_ISSUES=$issues"
-    echo "PENDING: $GATE_NAME ($issues issues need AI judgment)"
-    for detail in "$@"; do
-      echo "  $detail"
-    done
-  fi
-
-  trap - EXIT
-  exit 0
+finish_evidence() {
+  local s="${1:-}"; shift 2>/dev/null || true
+  _write_evidence "$s" "$@"
+  trap - EXIT; exit 0
 }

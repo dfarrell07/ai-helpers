@@ -1,24 +1,17 @@
-MANDATORY FIRST STEP — run the companion gate script:
+EVIDENCE (read before judging): if `.rebase-tmp/gates/step3-patterns-completeness.evidence` exists,
+run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+- Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
+- Differ or file absent: evidence is stale/missing — judge from scratch using the checks
+  below. Do NOT PASS on the strength of absent or stale evidence.
 
-```bash
-GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/step3-autofix" -type d 2>/dev/null | head -1)
-bash "$GATE_DIR/patterns-completeness.sh" "$(pwd)"
-```
+Read the evidence. If SUMMARY shows 0 issues and all modules report
+BUILD-OK, verdict is PASS. If SUMMARY shows issues or any module
+reports BUILD-FAIL, proceed to the checks below using the evidence
+as the source of findings.
 
-If the companion script is not found, crashes, or emits no NEW_ISSUES line:
-proceed directly to checks 1-4 below (PATH B). Never PASS on unexamined output.
+If evidence is stale or absent, run the checks below from scratch.
 
-If the companion script ran successfully, read the output. Two paths — follow EXACTLY ONE:
-
-PATH A — Script says NEW_ISSUES=0 AND BUILD-OK for all modules:
-  Verdict is PASS. Write PASS report and stop. Do NOT run checks
-  1-4 below. No further analysis is needed.
-
-PATH B — Script says BUILD-FAIL or NEW_ISSUES > 0:
-  Run checks 1-4 below, then apply the MANDATORY pre-existing
-  filter to ALL findings before setting verdict.
-
---- Checks (PATH B only — skip entirely if PATH A applies) ---
+--- Checks ---
 
 1. Build verification (primary check):
    Find modules: `find . -name go.mod -not -path '*/vendor/*' -exec dirname {} \;`

@@ -59,4 +59,4 @@ for vmod in $versioned_mods; do
   fi
 done
 
-finish_gate "$NEW_ISSUES" "$NEW_ISSUES stale major-version imports" "${details[@]}"
+finish_evidence "$NEW_ISSUES stale major-version imports" "${details[@]}"

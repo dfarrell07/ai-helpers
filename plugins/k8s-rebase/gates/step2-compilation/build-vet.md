@@ -1,21 +1,14 @@
-MANDATORY FIRST STEP — run the companion gate script:
+EVIDENCE (read before judging): if `.rebase-tmp/gates/step2-build-vet.evidence` exists,
+run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+- Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
+- Differ or file absent: evidence is stale/missing — judge from scratch using the checks
+  below. Do NOT PASS on the strength of absent or stale evidence.
 
-```bash
-GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/step2-compilation" -type d 2>/dev/null | head -1)
-bash "$GATE_DIR/build-vet.sh" "$(pwd)"
-```
+When evidence is fresh: if SUMMARY shows 0 errors, verdict is PASS. If SUMMARY shows
+errors, analyze each BUILD: or VET: line in the evidence. Count only errors newly
+introduced by the rebase (not pre-existing on the base branch).
 
-Read the output carefully. Apply these rules in order:
-
-RULE 1 — FAST-PATH: If NEW_ISSUES=0, set verdict=PASS immediately.
-Write the PASS report and stop. Do NOT run the checks below.
-
-RULE 2 — PER-ISSUE FILTER (when NEW_ISSUES>0): Only analyze issues
-the script marked as "NEW". Ignore "PRE-EXISTING" lines. For each
-NEW issue, determine if it is a real problem or a false positive.
-
-If the companion script is not found, crashes, or emits no NEW_ISSUES line,
-fall back to running the checks manually:
+If evidence is stale or absent, run these checks manually:
 
 Run `go build ./...` and `go vet ./...` in each module.
 Use this exact loop to find modules and skip gitignored vendors:

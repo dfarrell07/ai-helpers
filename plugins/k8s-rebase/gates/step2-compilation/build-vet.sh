@@ -61,4 +61,4 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
   popd >/dev/null
 done
 
-finish_gate "$NEW_ISSUES" "$NEW_ISSUES build/vet errors" "${details[@]}"
+finish_evidence "$NEW_ISSUES build/vet errors" "${details[@]}"

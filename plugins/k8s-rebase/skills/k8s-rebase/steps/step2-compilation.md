@@ -143,12 +143,16 @@ missing from the conversion."
 
 ## Gates
 
-Find the gate prompt directory, then launch one subagent per
-gate file listed below. All in a single parallel wave. Each
-subagent prompt: repo path + module safety rule (from rules.md)
-+ "Read `<GATE_DIR>/<filename>` and follow its instructions."
-Do NOT cat the gate files yourself. Do not skip, batch, or defer
-any gate — launch all 6 in a single message.
+Run the orchestrator to collect companion evidence and discover gate state:
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 2
+```
+
+Then launch one subagent per PENDING gate only. All PENDING gates in a single
+parallel wave. Each subagent prompt: repo path + module safety rule (from
+rules.md) + "Read `<GATE_DIR>/<filename>` and follow its instructions."
+Do NOT cat the gate files yourself.
 
 ```bash
 GATE_DIR="$PLUGIN_ROOT/gates/step2-compilation"
@@ -174,10 +178,11 @@ Count gates must report 0. Judge gates must cite evidence.
    `bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick`
    to confirm build+vet still pass. Fix commits can introduce
    new regressions — catch them here before re-running the gate.
-4. **Re-run** (mandatory — never skip): Delete the old gate report
-   (`rm .rebase-tmp/gates/<gate>.report`), then re-launch the
-   gate subagent with a fresh prompt. Stale FAIL reports cause
-   auto-record to mark the run as failed even if the fix worked.
+4. **Re-run** (mandatory — never skip): Re-run the orchestrator
+   gates command to refresh evidence, then delete the old gate
+   report (`rm .rebase-tmp/gates/<gate>.report`) and re-launch
+   the gate subagent. Stale FAIL reports cause auto-record to
+   mark the run as failed even if the fix worked.
 Repeat up to 3 times per gate. If it still fails, report
 remaining issues and proceed.
 

@@ -1,12 +1,16 @@
-MANDATORY FIRST STEP — run the companion gate script:
+EVIDENCE (read before judging): if `.rebase-tmp/gates/step3-crd-validation.evidence` exists,
+run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+- Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
+- Differ or file absent: evidence is stale/missing — judge from scratch using the checks
+  below. Do NOT PASS on the strength of absent or stale evidence.
 
-```bash
-GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/step3-autofix" -type d 2>/dev/null | head -1)
-bash "$GATE_DIR/crd-validation.sh" "$(pwd)"
-```
+Read the evidence. When NEW_ISSUES > 0: you MUST skip
+CRDs the evidence marked "IDENTICAL" or "NO-VALIDATION-CHANGES".
+Only analyze CRDs the evidence marked "CHANGED-VALIDATION" or
+"ALL-NEW". Do NOT open, read, or analyze any file marked IDENTICAL.
 
-If the companion script is not found, crashes, or emits no NEW_ISSUES line:
-run the manual checks below for each CRD schema file in the repository.
+If evidence is stale or absent, run the manual checks below for
+each CRD schema file in the repository.
 Find CRD files: `find . -name '*.yaml' -not -path '*/vendor/*' | xargs grep -l 'kind: CustomResourceDefinition' 2>/dev/null`
 For each CRD, compare `git show $BASE:<path>` against the working copy and
 flag any newly removed or weakened validation constraint (deleted pattern,
@@ -14,19 +18,8 @@ format, minimum/maximum, enum, or required entries, or relaxed values).
 If $BASE is empty, do not compare — defer without a self-comparison; never
 PASS on a self-comparison. Never PASS on unexamined output.
 
-If the companion script ran successfully, read the output carefully and
-apply these rules in order:
-
-RULE 1 — FAST-PATH: If NEW_ISSUES=0, set verdict=PASS immediately.
-Write the PASS report and stop. Do NOT run checks 1-2 below.
-
-RULE 2 — PER-CRD FILTER (when NEW_ISSUES>0): You MUST still skip
-CRDs the script marked "IDENTICAL" or "NO-VALIDATION-CHANGES".
-Only analyze CRDs the script marked "CHANGED-VALIDATION" or
-"ALL-NEW". This rule applies regardless of NEW_ISSUES count.
-Do NOT open, read, or analyze any file the script marked IDENTICAL.
-
-For each CRD the script marked "CHANGED-VALIDATION" or "ALL-NEW":
+For each CRD the evidence marked "CHANGED-VALIDATION" or "ALL-NEW"
+(or found manually when evidence is absent):
 
 1. Compare each CRD to the base branch version. Use
    `git show $BASE:<path>` to check the original.

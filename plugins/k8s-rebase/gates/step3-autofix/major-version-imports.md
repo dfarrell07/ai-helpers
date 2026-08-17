@@ -1,20 +1,13 @@
-MANDATORY FIRST STEP — run the companion gate script:
+EVIDENCE (read before judging): if `.rebase-tmp/gates/step3-major-version-imports.evidence` exists,
+run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+- Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
+- Differ or file absent: evidence is stale/missing — judge from scratch using the checks
+  below. Do NOT PASS on the strength of absent or stale evidence.
 
-```bash
-GATE_DIR=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/gates/step3-autofix" -type d 2>/dev/null | head -1)
-bash "$GATE_DIR/major-version-imports.sh" "$(pwd)"
-```
+Read the evidence. When NEW_ISSUES > 0: only analyze issues the
+evidence marked as "NEW". Ignore "PRE-EXISTING" lines.
 
-Read the output carefully. Apply these rules in order:
-
-RULE 1 — FAST-PATH: If NEW_ISSUES=0, set verdict=PASS immediately.
-Write the PASS report and stop. Do NOT run the checks below.
-
-RULE 2 — PER-ISSUE FILTER (when NEW_ISSUES>0): Only analyze issues
-the script marked as "NEW". Ignore "PRE-EXISTING" lines.
-
-If the companion script is not found, crashes, or emits no NEW_ISSUES line,
-fall back to manual checks:
+If evidence is stale or absent, fall back to manual checks:
 
 Check for stale major-version Go module imports. These are
 entire module path changes where v1 is abandoned in favor of

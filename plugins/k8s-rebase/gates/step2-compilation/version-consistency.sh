@@ -41,4 +41,4 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
   fi
 done
 
-finish_gate "$NEW_ISSUES" "$NEW_ISSUES version inconsistencies" "${details[@]}"
+finish_evidence "$NEW_ISSUES version inconsistencies" "${details[@]}"

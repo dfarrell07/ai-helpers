@@ -58,4 +58,4 @@ if [[ -n "$expected_go" ]]; then
   done < <(grep -rn 'golang:' --include='Dockerfile*' . 2>/dev/null | grep -v vendor || true)
 fi
 
-finish_gate "$NEW_ISSUES" "$NEW_ISSUES Go version issues" "${details[@]}"
+finish_evidence "$NEW_ISSUES Go version issues" "${details[@]}"

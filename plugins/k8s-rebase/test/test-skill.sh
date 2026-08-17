@@ -139,6 +139,42 @@ _is_stale_fail() {
 EXPECTED_GATES=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
 [[ "$EXPECTED_GATES" -lt 1 ]] && EXPECTED_GATES=33
 
+# Assert evidence-path consistency:
+#   1. Every companion .sh has an EVIDENCE block in its .md with the correct path.
+#   2. The count of EVIDENCE markers equals the count of companions.
+# A mismatch means gate-script-lib.sh, the orchestrator, and a .md are out of sync.
+_check_evidence_paths() {
+  local companions=0 markers=0 mismatches=0
+  for _sh in "$PLUGIN_DIR/gates"/step*/*.sh; do
+    [[ -f "$_sh" ]] || continue
+    companions=$(( companions + 1 ))
+    local _dir_name; _dir_name=$(basename "$(dirname "$_sh")")
+    local _step_prefix="${_dir_name%%-*}"
+    local _gate_name; _gate_name=$(basename "$_sh" .sh)
+    local _expected_path="${_step_prefix}-${_gate_name}.evidence"
+    local _md="${_sh%.sh}.md"
+    if [[ ! -f "$_md" ]]; then
+      warn "evidence-path check: no gate .md for companion $_sh"
+      mismatches=$(( mismatches + 1 ))
+      continue
+    fi
+    if ! grep -qF "EVIDENCE (read before judging):" "$_md"; then
+      warn "evidence-path check: missing EVIDENCE block in $(basename "$_md")"
+      mismatches=$(( mismatches + 1 ))
+    elif ! grep -q "$_expected_path" "$_md"; then
+      warn "evidence-path check: wrong evidence path in $(basename "$_md") (expected $_expected_path)"
+      mismatches=$(( mismatches + 1 ))
+    else
+      markers=$(( markers + 1 ))
+    fi
+  done
+  if [[ "$markers" -ne "$companions" || "$mismatches" -gt 0 ]]; then
+    warn "evidence-path check: $markers/$companions companions have correct EVIDENCE blocks ($mismatches mismatches)"
+  else
+    info "evidence-path check: $companions/$(( companions )) companions wired correctly"
+  fi
+}
+
 # Load config from YAML
 _config_val() { yq ".repos.\"$1\".${2} // \"\"" "$CONFIG_FILE"; }
 
@@ -732,6 +768,7 @@ cmd_test() {
     from_commit=$(_config_val "$(repo_short "$repo")" "from_commit")
   fi
 
+  _check_evidence_paths
   info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
   local mutated
   if [[ "${specs[*]}" == "none" ]]; then

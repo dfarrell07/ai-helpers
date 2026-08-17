@@ -151,8 +151,9 @@ cmd_init() {
     rm -f "$repo/.rebase-tmp/gates/"*.crash 2>/dev/null || true
   else
     mkdir -p "$repo/.rebase-tmp/gates"
-    rm -f "$repo/.rebase-tmp/gates/"*.report 2>/dev/null || true
-    rm -f "$repo/.rebase-tmp/gates/"*.crash  2>/dev/null || true
+    rm -f "$repo/.rebase-tmp/gates/"*.report   2>/dev/null || true
+    rm -f "$repo/.rebase-tmp/gates/"*.crash    2>/dev/null || true
+    rm -f "$repo/.rebase-tmp/gates/"*.evidence 2>/dev/null || true
     # Stale advance-attempts counter survives re-init and triggers premature
     # force-advance (cmd_advance fires at attempts≥3).
     rm -f "$repo/.rebase-tmp/.advance-attempts-step"* 2>/dev/null || true
@@ -189,6 +190,12 @@ cmd_gates() {
 
   local resolved=0 pending=0
 
+  # Outer timeout: build-vet loops per module (2 tools × GATE_TIMEOUT × modules).
+  # Compute once before the gate loop — module count is repo-level, not per-gate.
+  local _mods; _mods=$(find "$repo" -name go.mod -not -path '*/vendor/*' 2>/dev/null | wc -l)
+  (( _mods < 1 )) && _mods=1
+  local GATE_OUTER_TIMEOUT=$(( 2 * ${GATE_TIMEOUT:-300} * _mods ))
+
   while IFS= read -r gate_md; do
     [[ -z "$gate_md" ]] && continue
     local gate_name
@@ -197,6 +204,7 @@ cmd_gates() {
     local rpt
     rpt=$(report_path "$repo" "$sd" "$gate_name")
 
+    # 1. Cache hit — fresh verdict already on disk.
     if [[ -f "$rpt" ]] && report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then
       local verdict
       verdict=$(grep '^VERDICT:' "$rpt" | awk '{print $2}')
@@ -205,39 +213,37 @@ cmd_gates() {
       continue
     fi
 
+    # 2. Run companion exactly once. Companion writes its own .evidence file;
+    #    for filter/verdict gates it may also write a .report directly.
+    local crash_path="$repo/.rebase-tmp/gates/${sd%-*}-${gate_name}.crash"
+    local rc=0
     if [[ -x "$companion" ]]; then
       info "Running companion: $(basename "$companion")"
-      local crash_path="$repo/.rebase-tmp/gates/${sd%-*}-${gate_name}.crash"
-      # build-vet loops per module: 2 tools × GATE_TIMEOUT × module-count.
-      # A fixed outer would SIGTERM a healthy companion on multi-module repos
-      # (ovn-kubernetes: 3 modules → 1800s inner vs 300s outer). Count the
-      # same way build-vet.sh:14 does so the bound tracks its real loop.
-      local _mods; _mods=$(find "$repo" -name go.mod -not -path '*/vendor/*' 2>/dev/null | wc -l)
-      (( _mods < 1 )) && _mods=1
-      local GATE_OUTER_TIMEOUT=$(( 2 * ${GATE_TIMEOUT:-300} * _mods ))
-      local output rc=0
-      output=$(timeout "$GATE_OUTER_TIMEOUT" bash "$companion" "$repo" 2>&1) || rc=$?
-      # rc≥124: timeout (SIGTERM→companion saw exit 0, so _gate_trap wrote nothing)
-      # or signal-kill (SIGKILL→no trap at all). Write the breadcrumb here.
+      timeout "$GATE_OUTER_TIMEOUT" bash "$companion" "$repo" 2>&1 || rc=$?
+      # rc≥124: timeout (SIGTERM→companion saw exit 0 so _gate_trap wrote nothing)
+      # or signal-kill (SIGKILL→no trap). Write the crash breadcrumb here.
       if (( rc >= 124 )); then
         printf 'CRASH: exit %s (orchestrator-detected kill)\n' "$rc" > "$crash_path"
-        echo "$output"
         echo "PENDING: $gate_name (companion crashed — deferring to subagent)"
         ((pending++)) || true
         continue
       fi
-      if echo "$output" | grep -q 'NEW_ISSUES=0'; then
-        echo "RESOLVED: $gate_name PASS (companion script)"
-        ((resolved++)) || true
-        continue
-      fi
-      echo "$output"
-      echo "PENDING: $gate_name (companion found issues)"
-      ((pending++)) || true
-    else
-      echo "PENDING: $gate_name (no companion script)"
-      ((pending++)) || true
     fi
+
+    # 3. Companion wrote a fresh verdict? (filter/verdict clean-path only)
+    if [[ -f "$rpt" ]] && report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then
+      local verdict
+      verdict=$(grep '^VERDICT:' "$rpt" | awk '{print $2}')
+      echo "RESOLVED: $gate_name $verdict (companion)"
+      ((resolved++)) || true
+      continue
+    fi
+
+    # 4. Evidence file is on disk; subagent reads it by convention.
+    #    Gates with no companion land here too (no .evidence; subagent judges
+    #    from scratch).
+    echo "PENDING: $gate_name"
+    ((pending++)) || true
   done < <(list_gate_files "$sd")
 
   echo "---"
