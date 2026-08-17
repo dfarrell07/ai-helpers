@@ -404,7 +404,8 @@ while IFS= read -r gomod; do
         fi
       else
         run_validation "${mod_name}-lint" "make -C $mod_dir $lint_target" || {
-          if grep -qE "Go language version.*lower than the targeted|failed to install golangci-lint" "$REBASE_TMP/${mod_name}-lint.log" 2>/dev/null; then
+          local _lint_log="$REBASE_TMP/${mod_name}-lint.log"
+          if grep -qE "Go language version.*lower than the targeted|failed to install golangci-lint" "$_lint_log" 2>/dev/null; then
             echo "  NOTE: lint version incompatible, installing latest via go install..."
             go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
             if command -v golangci-lint &>/dev/null; then
@@ -413,6 +414,16 @@ while IFS= read -r gomod; do
               run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --max-same-issues 0 $vendor_flag --timeout=15m0s" || step_failed=1
             else
               step_failed=1
+            fi
+          elif grep -qE "short-name resolution|cannot prompt without a TTY|Error.*125|linter can only be run within a container" "$_lint_log" 2>/dev/null; then
+            echo "  NOTE: make lint container pull failed — running golangci-lint directly..."
+            command -v golangci-lint &>/dev/null || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
+            if command -v golangci-lint &>/dev/null; then
+              vendor_flag=""
+              [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && vendor_flag="--modules-download-mode=vendor"
+              run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --max-same-issues 0 $vendor_flag --timeout=15m0s" || step_failed=1
+            else
+              echo "  WARNING: golangci-lint not available and container pull failed — skipping lint"
             fi
           else
             step_failed=1

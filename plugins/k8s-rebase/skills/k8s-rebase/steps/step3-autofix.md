@@ -102,11 +102,14 @@ gate with verdict FAIL):
 
 3. **Re-run** (mandatory -- never skip this step): Re-run the
    orchestrator gates command to refresh evidence, then delete
-   the old gate report (`rm .rebase-tmp/gates/<gate>.report`)
-   and re-run the gate (let the subagent Read the gate file and
-   follow its instructions). The old report MUST be deleted
-   before re-running -- stale FAIL reports persist and
-   auto-record will report FAIL even though the issue was fixed.
+   ONLY the specific failing gate's report file
+   (`rm .rebase-tmp/gates/step3-<gate>.report`) and re-run that
+   gate. **NEVER delete step2-*.report files from step 3** —
+   the orchestrator is forward-only and cannot regenerate step-2
+   reports. If HEAD moves (new commit), step-2 reports remain
+   valid; the orchestrator's own HEAD-stamp check handles
+   staleness automatically. Deleting prior-step reports is
+   permanent data loss.
 
 Repeat up to 3 times per gate. If it still fails after 3
 attempts, report remaining issues and proceed. This loop

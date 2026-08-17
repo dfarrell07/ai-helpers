@@ -83,7 +83,12 @@ commit-messages.
 
 If ANY gate reports FAIL: triage (check base branch), fix + commit,
 re-validate with `--no-test`, re-run the orchestrator gates command
-to refresh evidence, then delete old report and re-run gate.
+to refresh evidence, then delete ONLY that specific gate's report
+(`rm .rebase-tmp/gates/step4-<gate>.report`) and re-run that gate.
+**NEVER delete step2-*.report or step3-*.report from step 4** —
+the orchestrator is forward-only. Prior-step reports cannot be
+regenerated. The orchestrator's own HEAD-stamp check handles
+staleness; you do not need to delete cross-step reports manually.
 Step 4 override: always re-run `validate.sh --no-test` between fix
 and gate re-run (catches regressions from fix commits).
 
