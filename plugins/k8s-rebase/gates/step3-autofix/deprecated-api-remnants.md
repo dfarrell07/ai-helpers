@@ -37,14 +37,17 @@ MANDATORY pre-existing check — run for EVERY finding:
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 # For each finding at <file> with <symbol>:
-base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<symbol>')
-# If base_has > 0, PRE-EXISTING — do NOT count it
+base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<symbol>' || echo 0)
+curr_count=$(grep -c '<symbol>' "<file>" 2>/dev/null || echo 0)
+net_new=$(( curr_count > base_count ? curr_count - base_count : 0 ))
+# net_new > 0: that many occurrences are NEW and count toward FAIL
+# net_new == 0: all occurrences are PRE-EXISTING — do NOT count
 ```
 
-If the symbol exists on the base branch, report as "INFO
-(pre-existing)" and do NOT include in ISSUES. Only symbols
-NOT on base are NEW. If ALL findings are pre-existing, verdict
-MUST be PASS.
+Count the delta: only `curr_count - base_count` net-new occurrences
+count toward FAIL. Do NOT use "base_has > 0" as a simple binary —
+a file with 3 occurrences on base and 5 on HEAD has 2 NEW ones. If
+ALL findings net_new == 0, verdict MUST be PASS.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

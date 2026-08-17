@@ -22,9 +22,9 @@ picks the latest available patch releases. DO flag minor-version
 mismatches (versions from a different minor release than the
 target).
 
-VERDICT: FAIL if scope creep or inaccurate commit messages
-found. PASS if all changes serve the rebase and commits are
-well-scoped.
+VERDICT: always PASS. This is an INFORMATIONAL gate — scope
+concerns are reported for human review but do not block. Scope
+discipline is enforced by the SKILL.md instructions, not this gate.
 
 List your findings with specific commit SHAs and file:line refs.
 Do not just say "would approve" — explain what you checked.

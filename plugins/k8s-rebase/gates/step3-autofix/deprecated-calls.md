@@ -45,15 +45,17 @@ counting it:
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 # For each finding at <file>:<line> with <symbol>:
-base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<symbol>')
-# If base_has > 0, the issue is PRE-EXISTING — do NOT count it
+base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<symbol>' || echo 0)
+curr_count=$(grep -c '<symbol>' "<file>" 2>/dev/null || echo 0)
+net_new=$(( curr_count > base_count ? curr_count - base_count : 0 ))
+# net_new > 0: that many calls are NEW and count toward FAIL
+# net_new == 0: all calls are PRE-EXISTING — do NOT count
 ```
 
-If the deprecated call exists on the base branch, it is
-pre-existing — report as "INFO (pre-existing)" but do NOT
-include in the ISSUES count. Only calls NOT on the base branch
-are NEW and count toward FAIL. If ALL findings are pre-existing,
-verdict MUST be PASS.
+Count the delta: only `curr_count - base_count` net-new calls
+count toward FAIL. Do NOT use "base_has > 0" as a simple binary —
+a file with 2 deprecated calls on base and 4 on HEAD has 2 NEW ones.
+If ALL findings net_new == 0, verdict MUST be PASS.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

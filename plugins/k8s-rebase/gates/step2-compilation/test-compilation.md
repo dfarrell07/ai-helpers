@@ -21,9 +21,23 @@ If Go is unavailable or wrong version, note as SKIPPED.
 
 Report total test compilation errors.
 
-For pre-existing issues: if the base branch also has test
-compilation errors, exclude those from the count. Only report
-NEW test compilation errors introduced by the rebase.
+For pre-existing issues: a test compilation error is NEW if it
+was not present before the rebase. Do NOT use "test file was
+unmodified" as the pre-existing test — dependency API changes
+break unmodified test files. Instead, for each failing symbol
+(e.g., undefined function/type from a vendor package), check
+whether that symbol existed in the vendor on the base branch:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For the failing <symbol> in vendor package at <vendor/pkg/file.go>:
+base_in_vendor=$(git show "$BASE:<vendor/pkg/file.go>" 2>/dev/null | grep -c '<symbol>')
+# base_in_vendor > 0 → symbol existed before, rebase removed it → NEW error
+# base_in_vendor == 0 → symbol was already absent → PRE-EXISTING
+```
+
+Report pre-existing errors as INFO (pre-existing). Only symbols
+removed by the rebase (present on base, absent now) count as NEW.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

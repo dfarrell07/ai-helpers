@@ -25,15 +25,17 @@ MANDATORY pre-existing check — run for EVERY finding:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-# For each finding at <file> with <gate_name>:
-base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<gate_name>')
-# If base_has > 0, PRE-EXISTING — do NOT count it
+# For each gate <gate_name> referenced in source but missing from current vendor:
+base_in_vendor=$(git grep -l "$gate_name" "$BASE" -- 'vendor/k8s.io/' 2>/dev/null | wc -l)
+# base_in_vendor > 0 → gate WAS in vendor before rebase, now removed → NEW
+# base_in_vendor == 0 → gate was also missing from base vendor → PRE-EXISTING
 ```
 
-If the same gate issue exists on base, report as "INFO
-(pre-existing)" and do NOT include in ISSUES. Only gate issues
-NOT on base are NEW. If ALL findings are pre-existing, verdict
-MUST be PASS.
+The correct target is vendor, not the source file. A gate name
+appearing in the source on base says nothing about whether it was
+valid at that time — check whether it existed in the BASE vendor.
+If ALL findings are pre-existing (base_in_vendor == 0 for each),
+verdict MUST be PASS.
 
 VERDICT: FAIL if count of files with missing or stale feature
 gates > 0 (excluding pre-existing). PASS if all feature gates

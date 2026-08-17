@@ -28,18 +28,18 @@ counting it. Skip this check and your verdict is WRONG.
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-# Step 1: Was this file modified by the rebase branch?
+# Was this file modified by the rebase branch?
 modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
-# Step 2: Did the base branch have the same stale ref?
-base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<version-string>')
-# If modified==0 OR base_has>0: PRE-EXISTING — do NOT count
+# If modified==0: PRE-EXISTING (file untouched by this branch; stale ref predates rebase)
+# If modified>0: NEW (rebase touched this file; any remaining stale ref should have been updated)
 ```
 
-A finding is NEW only if BOTH: (a) the file was modified by this
-branch AND (b) the stale ref does NOT exist on the base branch.
-Everything else is pre-existing — report as "INFO (pre-existing)"
-with ISSUES count 0. If ALL findings are pre-existing, verdict
-MUST be PASS with 0 issues.
+A finding is NEW only if the file was modified by this branch.
+Do NOT use "old version string appears on base" as a pre-existing
+signal — on the base branch, the old version WAS the current version
+and was correctly set; its presence there does not make a stale ref
+pre-existing. If ALL findings are in unmodified files, verdict MUST
+be PASS with 0 issues.
 
 For each stale reference, report the file:line and what the
 correct value should be (the target k8s minor version).

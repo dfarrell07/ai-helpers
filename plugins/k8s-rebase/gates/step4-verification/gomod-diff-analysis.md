@@ -24,6 +24,13 @@ pseudo-version without a corresponding k8s.io/* dependency
 requiring it (check require/replace chains). PASS otherwise — flagged
 items in categories 3-5 are informational, not blockers.
 
+"Unexpected" for a major-version jump: the jump is NOT traceable to
+a k8s.io/* transitive requirement. To verify: check whether any
+k8s.io/* dependency in go.mod requires the new major version (via
+require/replace chains). If no k8s dep requires it, the jump is
+independent scope creep and should FAIL. If a k8s dep requires it,
+the jump is forced and expected.
+
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
