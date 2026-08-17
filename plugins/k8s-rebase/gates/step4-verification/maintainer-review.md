@@ -22,28 +22,17 @@ picks the latest available patch releases. DO flag minor-version
 mismatches (versions from a different minor release than the
 target).
 
-Lint-suppression approach check:
-Count all `//nolint:` lines added in the diff:
-  `git diff <merge-base>..HEAD | grep '^\+.*//nolint:' | wc -l`
-
-If count > 5, check if a `.golangci.yml` approach would be cleaner:
-- More than 5 suppressions for the SAME linter (e.g., all `errcheck`,
-  all `gocritic`, all `staticcheck`) → prefer `exclude-functions` or
-  `exclude-rules` in `.golangci.yml` instead of per-line comments
-- More than 10 total `//nolint:` lines added → almost always better
-  expressed as a golangci.yml configuration
-
-This applies to any linter name — not just errcheck or staticcheck.
-The principle: per-line suppression pollutes the diff with noise that
-belongs in configuration. A golangci.yml approach is easier to review,
-easier to revert, and clearly documents the suppression policy.
-
-FAIL if the diff has >10 per-line nolint additions AND no new or updated
-`.golangci.yml` configuration that would cover the same suppressions.
-If a `.golangci.yml` IS present and covers the suppressed linters, the
-per-line annotations are redundant — flag and ask which approach to keep.
-If count ≤ 10 and each suppression is targeted at a specific, documented
-reason, that is acceptable — note as INFO, not FAIL.
+Lint-suppression check — any `//nolint:` annotation that duplicates
+coverage already in `.golangci.yml` is unnecessary noise in the diff.
+FAIL if the diff adds `//nolint:` comments for linters that are also
+suppressed via `.golangci.yml` (exclude-functions, exclude-rules, or
+linter settings). The config is the right place; inline annotations are
+for rare, targeted, one-off exceptions that can't be expressed in config.
+Check:
+  `git diff <merge-base>..HEAD | grep '^\+.*//nolint:'`
+For each hit, verify the suppressed linter is NOT already covered by
+`.golangci.yml`. If it is — FAIL. If the annotation is genuinely
+site-specific with no config equivalent — INFO only.
 
 VERDICT: FAIL if scope creep or inaccurate commit messages are
 CONFIRMED from the diff — demonstrably present, not merely suspected.
