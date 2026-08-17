@@ -175,6 +175,27 @@ Evidence showed 4 CRD validation changes in `bindata/network/frr-k8s/001-crd.yam
 
 **Score: 5/6 court PASS** (ingress-node-firewall was the outlier — fixed)
 
+### Full Court Results (make court run across all versions)
+
+**v1.34.1**: All PASS (ovn-kubernetes, multus-cni, cncc, cno)
+**v1.35.3**: 3/4 PASS, **ovn-org/ovn-kubernetes FAIL 3-0**
+**v1.36.2**: 4/5 PASS, **cluster-network-operator FAIL 2-1** (ingress-node-firewall PASS — gate fix improved lint approach from 3-0 FAIL to PASS)
+
+#### ovn-org/ovn-kubernetes v1.35.3 FAIL 3-0 — root cause
+Confirmed by all 3 jurors reading the actual code:
+1. `go-controller/pkg/ovn/controller/unidling/unidle_test.go:105` — `ctx, _ := context.WithTimeout(...)` discards cancel function → **`go vet lostcancel` hard error that CI would catch**
+2. `golang.org/x/net/context` imported instead of stdlib `context` in a Go 1.26 module — deprecated import
+
+**Gate false-PASSes**: `step2-build-vet` missed the lostcancel error (likely because go-controller vendor was empty in the worktree — go vet may not have run the analyzer properly). `step4-deprecated-imports` missed the golang.org/x/net/context deprecated import.
+
+Note: `golang.org/x/net/context → context (Go 1.7+)` is now in the deprecated-imports.md table — future runs should catch it.
+
+#### openshift/cluster-network-operator v1.36.2 FAIL 2-1 — borderline
+- Bare `nft` commands inside `set -xe` drop-icmp container without `|| true` → CrashLoopBackOff on nodes without nftables in rolling upgrades (confirmed by 2 jurors)
+- Juror 2 voted PASS: nftables standard on RHEL 9
+- Also: getStringList replacing getCIDRList removes CIDR validation from NodePortAddresses
+- This is a 2-1 stochastic borderline — the issue is real but context-dependent
+
 ### Gate Changes Made During Testing
 
 | Commit | Gate | Fix | Triggered by |
@@ -212,6 +233,24 @@ Evidence showed 4 CRD validation changes in `bindata/network/frr-k8s/001-crd.yam
 - v1.35 Firing 13: cno 18/33, mcp 29/33 (3S — almost done), 24G free
 - v1.35 Firing 14: cno 33/33 (4S), mcp 33/33 (4S), both done.
 - v1.35 Firing 15: multus-cni 0/33 (64 hunks), ovn-kubernetes 0/33, 23G free
+- v1.35 Firing 16: multus-cni 1/33 (67 hunks), ovn-kubernetes 0/33 (6717 code hunks — VERY LARGE), **19G free (watch disk)**
+- v1.35 Firing 17: multus-cni 1/33 (rebase phase), ovn-kubernetes 0/33, 18G → cleaned old worktrees → 22G
+- v1.35 Firing 18: multus-cni 7/33, ovn-kubernetes 1/33, 19G (dropped 3G from new worktrees)
+- v1.35 Firing 19: multus-cni 16/33 (1S), ovn-kubernetes 1/33, 17→18G (cleaned old worktrees)
+- v1.35 Firing 20: multus-cni 17/33, ovn-kubernetes 1/33 (new commit: "e2e: fix format string"), 17G
+- v1.35 Firing 21: multus-cni 17/33 (SAME — 10 min at same count, watching for stall), ovn-kubernetes 1/33, 17G
+- v1.35 Firing 22: multus-cni 17/33 **STALLED** (15+ min same count — likely in long containerized lint gate), ovn-kubernetes 1/33 (advancing, new commit), **16G CRITICAL**
+- v1.35 Firing 23: **DISK 14G** — stopped both sessions, `make clean` → 20G freed. ovn-kubernetes worktree was 5.8G (main disk consumer). Removed retained worktrees, restarted both fresh: multus-cni 0/33, ovn-kubernetes 0/33.
+- v1.35 Firing 24: multus-cni 0/33 (rebase commits), ovn-kubernetes 0/33 (rebase commits), 19G free
+- v1.35 Firing 25: multus-cni 2/33 (advancing), ovn-kubernetes 0/33. **STOPPED ovn-k proactively** — disk dropping fast (19→17G in 10 min), ovn-k worktree grows to 5.8G. Will run multus-cni alone, then ovn-k solo after.
+- v1.35 Firing 26: no active tests — multus-cni session terminated at 2/33 (reason unknown). 17G free. Restarted multus-cni solo.
+- v1.35 Firing 27: multus-cni 1/33, advancing, 17G stable (solo run)
+- v1.35 Firing 28: multus-cni 1/33 (SAME — 10 min, approaching stall), 16G (warning). Note: even solo run consuming disk via go build cache.
+- v1.35 Firing 29: multus-cni 1→7/33 (NOT stalled, was running long gate), 16G stable
+- v1.35 Firing 30: multus-cni 7/33 (SAME — 10 min, new commit made, likely long gate), 16G stable
+- v1.35 Firing 31: multus-cni 7→18/33 (was running gates in parallel!), 16G stable
+- v1.35 Firing 32: multus-cni 19/33, advancing, 16G stable
+- **Commits**: 52dada77 (validate.sh regression fix), cc61dc9c (MVS pre-align NEEDS REVIEW), aec488bf (findings log), b52b871c (hook guard for cross-step rm)
   mcp latest: "ci: add golangci-lint v2 confi..." — **validate.sh fallback WORKED**: lint ran via direct golangci-lint, skill correctly added .golangci.yml config (not per-line nolint).
   Court: mcp PASS 3-0 (25 hunks), cno PASS 2-1 (40 hunks). 23G free.
   Launched: multus-cni v1.35 + ovn-org/ovn-kubernetes v1.35
