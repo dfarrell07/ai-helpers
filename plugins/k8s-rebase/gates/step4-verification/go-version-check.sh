@@ -45,7 +45,7 @@ if [[ -n "$expected_go" ]]; then
     echo "  NEW: $match"
     details+=("$match")
     ((NEW_ISSUES++)) || true
-  done < <(grep -rn 'GO_VERSION\|GOLANG_VERSION' --include='Makefile*' . 2>/dev/null | grep -v vendor || true)
+  done < <(grep -rn '\bGO_VERSION\b\|\bGOLANG_VERSION\b' --include='Makefile*' . 2>/dev/null | grep -v vendor | grep -v 'GINKGO_VERSION\|HUGO_VERSION\|CARGO_VERSION\|CARGO_GO\|PROTO_GO\|MOCKGEN_GO\|OPERATOR_GO' || true)
 
   while IFS= read -r match; do
     [[ -z "$match" ]] && continue

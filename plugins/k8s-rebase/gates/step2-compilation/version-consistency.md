@@ -7,10 +7,14 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 Read the evidence. If SUMMARY shows 0 inconsistencies, verdict is PASS.
 When NEW_ISSUES > 0: only analyze issues the evidence flagged as
 "MISMATCH" or "VENDOR-DRIFT". Determine if each is a real problem
-requiring investigation. Note: `sigs.k8s.io/*` packages (e.g., klog/v2, kube-openapi) often
-have independent versioning from k8s core. A MISMATCH on these may be
-a false positive — check whether the package is expected to track
-the k8s minor version for this specific repo before counting.
+requiring investigation. Note: several k8s-ecosystem packages have independent versioning and
+will always appear as MISMATCH — do not count these as issues:
+- `sigs.k8s.io/*` (controller-runtime, yaml, json, kustomize, randfill, etc.)
+- `k8s.io/klog`, `k8s.io/klog/v2` — own major versioning scheme
+- `k8s.io/utils`, `k8s.io/kube-openapi` — pseudo-version or own scheme
+- `k8s.io/kubernetes` — uses v1.x.y (not v0.x.y like k8s.io/api)
+Only `k8s.io/api`, `k8s.io/apimachinery`, `k8s.io/client-go`, and
+their direct sub-packages should match the target k8s minor version.
 
 If evidence is stale or absent, fall back to manual checks:
 
