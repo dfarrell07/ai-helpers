@@ -11,7 +11,9 @@ WRONG (e.g., wrong format verb, missing field, wrong import
 section), not because it's unfamiliar. K8S_VERSION patch-level
 differences between go.mod and KIND/CI tooling are expected —
 the autofix picks the latest available versions. Do not flag
-minor version mismatches as a concern.
+patch-level differences (same major.minor, different patch) as a
+concern. Do flag differences where the major or minor version changed
+unexpectedly.
 
 List each transformation category you checked and your finding.
 

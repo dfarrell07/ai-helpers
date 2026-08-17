@@ -9,6 +9,9 @@ Could any test pass locally but fail in CI due to:
   missing CRDs, stale FRR images, kubeadm format)?
 - Feature gates not disabled in a test package that uses
   informers or watch-based patterns with fake clientsets?
+  (Skip this check for repos whose unit tests use envtest
+  or no informers — the pattern only applies to informer-based
+  unit tests with fake clientsets.)
   Only flag packages that create informers AND lack gate
   setup. Do NOT flag packages that just use fake clientsets
   for simple CRUD operations. Search for test-go.sh at the

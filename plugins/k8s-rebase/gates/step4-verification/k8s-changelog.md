@@ -12,9 +12,12 @@ If the changelog is too large, focus on these sections only:
 - "Deprecation"
 - "API Change"
 
-Filter for entries tagged [SIG Network], [SIG API Machinery],
-or [SIG Node]. Ignore entries about DRA, scheduling, storage,
-windows, auth unless they mention networking, CNI, or pods.
+Filter for entries most relevant to this repo's component. For
+network-focused repos, prioritize [SIG Network], [SIG API Machinery],
+[SIG Node]. Adjust based on what the repo implements — a storage CSI
+driver should focus on [SIG Storage], a scheduler plugin on
+[SIG Scheduling]. Ignore SIGs unrelated to this repo's scope unless
+they mention components this repo depends on directly.
 
 For each relevant entry, check whether the rebase addresses it:
 - grep the repo source (excluding vendor) for affected symbols

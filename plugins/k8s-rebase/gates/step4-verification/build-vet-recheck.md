@@ -22,18 +22,19 @@ non-skipped modules only.
 
 MANDATORY pre-existing check — run for EVERY build/vet error:
 
-```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-# For each file with a build/vet error:
-modified=$(git diff --name-only "$BASE"..HEAD -- '<file>')
-if [ -z "$modified" ]; then
-  echo "PRE-EXISTING: <file> not modified by rebase"
-fi
-```
+In normal workflow, step 2's build-vet gate already passed with 0 new
+errors, meaning the baseline was clean before the autofix ran. Any
+error found here was introduced by the autofix or subsequent fix
+commits and is NEW — report ALL such errors as FAIL.
 
-If the erroring file was NOT modified by the rebase, the error
-is pre-existing. Report pre-existing errors as INFO but do NOT
-count them toward FAIL.
+Do NOT use "was this file modified by the rebase?" as the pre-existing
+test. An unmodified file can still get a new compile error when a
+dependency API it calls is changed or removed — that error is NEW
+even though the file itself was not touched.
+
+If step 2 did not run cleanly: check the step 2 build-vet gate report
+for this same error. If step 2 already reported it as pre-existing,
+mark it INFO here too. If step 2 did not report it, it is NEW.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
