@@ -404,7 +404,7 @@ while IFS= read -r gomod; do
         fi
       else
         run_validation "${mod_name}-lint" "make -C $mod_dir $lint_target" || {
-          local _lint_log="$REBASE_TMP/${mod_name}-lint.log"
+          _lint_log="$REBASE_TMP/${mod_name}-lint.log"
           if grep -qE "Go language version.*lower than the targeted|failed to install golangci-lint" "$_lint_log" 2>/dev/null; then
             echo "  NOTE: lint version incompatible, installing latest via go install..."
             go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
@@ -415,7 +415,7 @@ while IFS= read -r gomod; do
             else
               step_failed=1
             fi
-          elif grep -qE "short-name resolution|cannot prompt without a TTY|Error.*125|linter can only be run within a container" "$_lint_log" 2>/dev/null; then
+          elif grep -qE "short-name resolution|cannot prompt without a TTY|Error[: ]125|linter can only be run within a container" "$_lint_log" 2>/dev/null; then
             echo "  NOTE: make lint container pull failed — running golangci-lint directly..."
             command -v golangci-lint &>/dev/null || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
             if command -v golangci-lint &>/dev/null; then
@@ -524,7 +524,7 @@ if [[ "$MODE" != "quick" ]]; then
     mod_name=$(basename "$mod_dir")
     [[ "$mod_name" == "." ]] && mod_name=$(basename "$REPO_ROOT")
     step_failed=0
-    local _tv_vendor=""
+    _tv_vendor=""
     [[ -d "$mod_dir/vendor" ]] && _tv_vendor="-mod vendor"
     run_validation "${mod_name}-test-vet" "cd $mod_dir && GOMAXPROCS=${GOMAXPROCS:-2} go test $_tv_vendor -run='^$' -count=1 ./..." || step_failed=1
     categorize_errors "$REBASE_TMP/${mod_name}-test-vet.log" "$mod_name test-vet" "$step_failed"
