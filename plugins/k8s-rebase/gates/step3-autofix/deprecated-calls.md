@@ -7,9 +7,9 @@ Step 1 — Try staticcheck (most reliable):
   `staticcheck -checks SA1019 ./... 2>&1`
   (add `-mod=vendor` to go flags if vendor/ exists)
   SA1019 detects calls to functions/types marked `// Deprecated:`
-  in their source. This is the Go ecosystem's standard
-  deprecation checker and catches ALL deprecated API usage
-  including cross-module deprecations in vendor.
+  in their source. This catches standard Go deprecated API usage.
+  Always run Step 2 regardless of staticcheck results — some projects
+  use `// DEPRECATED` (no colon) which SA1019 misses.
 
   If staticcheck is not installed, try:
   `go install honnef.co/go/tools/cmd/staticcheck@latest 2>/dev/null`

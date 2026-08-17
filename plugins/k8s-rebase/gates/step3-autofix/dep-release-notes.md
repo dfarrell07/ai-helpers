@@ -1,6 +1,10 @@
-If the autofix bumped ecosystem dependencies (check git log for
-version changes in kind-common.sh, install-kind.sh, hack/lint.sh),
-read release notes between the old and new versions for each.
+Identify all non-k8s dependencies whose minor version changed in this rebase:
+  `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- go.mod | grep '^[+-]' | grep -v 'k8s.io\|sigs.k8s.io\|^[+-][+-]' | sort`
+For any dep where the minor version changed (e.g., v1.2→v1.4, not v1.2.3→v1.2.5),
+read its release notes. Common examples: KIND, MetalLB, KubeVirt, golangci-lint,
+controller-runtime — apply the same lookup to any dep found by the diff above.
+
+Sources:
 
 Sources by dep:
 - KIND: gh api repos/kubernetes-sigs/kind/releases --paginate (has

@@ -15,11 +15,15 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.cl
     details+=("SKIP $mod_dir (vendor is gitignored)")
     continue
   fi
-  result=$(cd "$mod_dir" && go build ./... 2>&1) || true
+  result=$(cd "$mod_dir" && go build ./... 2>&1); build_rc=$?
   errors=$(echo "$result" | grep -c '^.*\.go:' || true)
   if [[ "$errors" -gt 0 ]]; then
     details+=("BUILD-FAIL $mod_dir: $errors errors")
     new=$(( new + errors ))
+  elif [[ "$build_rc" -ne 0 ]]; then
+    # Non-zero exit with no file:line lines = linker error, permission, or toolchain issue
+    details+=("BUILD-FAIL $mod_dir: non-file-line error (exit $build_rc)")
+    new=$(( new + 1 ))
   else
     details+=("BUILD-OK $mod_dir")
   fi

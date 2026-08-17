@@ -34,9 +34,11 @@ if [[ -n "$expected_go" ]]; then
     [[ -z "$match" ]] && continue
     file=$(echo "$match" | cut -d: -f1)
     if [[ -n "$BASE" ]]; then
-      base_val=$(git show "$BASE:$file" 2>/dev/null | grep -E 'GO_VERSION|GOLANG_VERSION|golang:' || true)
-      if [[ -n "$base_val" ]]; then
-        echo "  PRE-EXISTING: $match"
+      # Old version was correct on base — "appears on base" is always true.
+      # Use modified-file: only files touched by this branch need updating.
+      modified=$(git diff --name-only "$BASE"..HEAD -- "$file" | wc -l)
+      if [[ "$modified" -eq 0 ]]; then
+        echo "  PRE-EXISTING: $match (file not modified by this branch)"
         continue
       fi
     fi
@@ -48,9 +50,12 @@ if [[ -n "$expected_go" ]]; then
   while IFS= read -r match; do
     [[ -z "$match" ]] && continue
     file=$(echo "$match" | cut -d: -f1)
-    if [[ -n "$BASE" ]] && git show "$BASE:$file" 2>/dev/null | grep -q 'golang:'; then
-      echo "  PRE-EXISTING: $match"
-      continue
+    if [[ -n "$BASE" ]]; then
+      modified=$(git diff --name-only "$BASE"..HEAD -- "$file" | wc -l)
+      if [[ "$modified" -eq 0 ]]; then
+        echo "  PRE-EXISTING: $match (file not modified by this branch)"
+        continue
+      fi
     fi
     echo "  NEW: $match"
     details+=("$match")

@@ -25,7 +25,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
 
     if [[ -n "$TARGET" && "$ver" != *"$TARGET"* ]]; then
       echo "  MISMATCH: $mod $ver (expected *$TARGET*)"
-      details+=("$mod_dir: $mod at $ver, expected $TARGET")
+      details+=("MISMATCH: $mod_dir: $mod at $ver, expected $TARGET")
       ((NEW_ISSUES++)) || true
     fi
   done < <(grep 'k8s.io/' "$gomod" | grep -v '^\s*//' | grep -v 'replace' | \
@@ -35,7 +35,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
     verify_out=$(cd "$mod_dir" && go mod verify 2>&1) || true
     if echo "$verify_out" | grep -q "FAIL\|modified"; then
       echo "  VENDOR-DRIFT: $mod_dir"
-      details+=("$mod_dir: vendor drift detected by go mod verify")
+      details+=("VENDOR-DRIFT: $mod_dir: vendor drift detected by go mod verify")
       ((NEW_ISSUES++)) || true
     fi
   fi

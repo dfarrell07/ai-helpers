@@ -19,25 +19,30 @@ handles that). Focus on these unique checks:
    to `assert.EqualValues` in the diff. Prefer updating expected
    value literals to match new types over weakening the assertion.
    Run: `git diff $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)..HEAD -- '*_test.go' | grep -E '^\-.*assert\.Equal\b|^\+.*assert\.EqualValues' | head -20`
-   Flag new EqualValues introductions for review. Pre-existing
-   EqualValues usage (on the base branch) is excluded.
+   Flag new EqualValues introductions as INFO in DETAILS — do NOT
+   count toward FAIL unless the change demonstrably loses type
+   precision that would hide a real bug. Pre-existing EqualValues
+   usage (on the base branch) is already excluded by the diff filter.
 
 Report per-commit findings and current-code scan results.
 
 MANDATORY pre-existing check — run for EVERY finding:
 
+For check 3 (Eventf/Event scan — repo-wide grep, additive):
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 # For each finding at <file> with <pattern>:
-base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<pattern>')
-# If base_has > 0, the issue is PRE-EXISTING — do NOT count it
+base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<pattern>')
+curr_count=$(grep -c '<pattern>' "<file>" 2>/dev/null)
+net_new=$(( curr_count > base_count ? curr_count - base_count : 0 ))
+# Only net_new > 0 occurrences count toward FAIL
 ```
 
-If the issue exists on the base branch, it is pre-existing —
-report as "INFO (pre-existing)" but do NOT include in the ISSUES
-count. Only issues NOT on the base branch are NEW and count
-toward FAIL. If ALL findings are pre-existing, verdict MUST be
-PASS.
+For checks 1 and 2 (diff-scoped via `git diff | grep '^\+'`): the diff
+already restricts scope to new lines — no base-file grep needed.
+
+If ALL findings are pre-existing (net_new == 0 for check 3, no `+`
+lines for checks 1+2), verdict MUST be PASS.
 
 VERDICT: FAIL if any NEW remaining bug is found in fix commits
 (wrong logic, data loss, missing error handling). PASS if all

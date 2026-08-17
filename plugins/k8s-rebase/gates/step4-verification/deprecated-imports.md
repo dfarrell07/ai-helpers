@@ -5,22 +5,26 @@ the entire fix pipeline.
 Promoted x/ packages:
   `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 
-For each hit, check if a stdlib equivalent exists:
+For each hit, check if a stdlib equivalent is available in the Go
+version this repo targets:
+  `GO_MINOR=$(grep '^go ' go.mod | awk '{print $2}' | cut -d. -f2)`
+
+Known stdlib promotions (require GO_MINOR at or above the listed value):
+  golang.org/x/exp/slices → slices    (Go 1.21+)
+  golang.org/x/exp/maps   → maps      (Go 1.21+)
+  golang.org/x/exp/cmp    → cmp       (Go 1.21+)
+  golang.org/x/net/context → context  (Go 1.7+)
 
 k8s ecosystem deprecated packages (also check):
   `grep -rn '"k8s.io/utils/strings/slices"\|"k8s.io/utils/pointer"' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+- `k8s.io/utils/strings/slices` -> stdlib `slices` (requires Go 1.21+)
+- `k8s.io/utils/pointer` -> `k8s.io/utils/ptr` (no Go version floor)
 
-- `k8s.io/utils/strings/slices` -> stdlib `slices` (Go 1.21+)
-- `k8s.io/utils/pointer` -> `k8s.io/utils/ptr`
-
-For each hit, derive the stdlib name and verify with:
-  `go doc <stdlib-name> 2>/dev/null`
-If available in stdlib, the x/ import is a FAIL finding — the
-import must be replaced with the stdlib equivalent.
-
-Ensure local Go matches the `go` directive in go.mod, or use
-a container with the correct version. `go doc` results depend
-on the local Go toolchain — a mismatch produces wrong verdicts.
+If GO_MINOR is below the required floor for a given package, report
+as INFO — the stdlib equivalent is not yet available for this repo's
+Go version. Do NOT use `go doc` to check availability — the local
+toolchain may differ from the go.mod directive and produce wrong verdicts.
+Use the table above instead.
 
 Do NOT re-run build, vet, or the vendor deprecated-symbol scan
 — build-vet-recheck and step3's deprecated-api-remnants gates

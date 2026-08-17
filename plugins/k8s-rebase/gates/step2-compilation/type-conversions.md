@@ -10,10 +10,16 @@ fi
 If no fix commits touch struct conversions or type assertions,
 write a SKIP report and stop immediately.
 
-If type conversions ARE found: for each struct conversion, read
-the FULL struct definition in vendor and list ALL fields.
-Compare against the conversion code. Are any fields silently
-dropped? Could any conversion lose data at runtime?
+If type conversions ARE found: for each struct conversion or type
+assertion, read the FULL struct/interface definition in vendor and
+list ALL fields or methods. Compare against the conversion code.
+Are any fields silently dropped? Could any conversion lose data?
+
+Also scan the diff visually for bare named-type conversions that
+the regex may miss — patterns like `NewType(oldVar)` or
+`TypeName(expr)` where the type name appears at the start of the
+expression. The regex only catches `.Type{...}` and `.(*Type)`
+forms; direct named-type conversions are equally important to check.
 
 List each struct you checked and your finding. Do not just say
 "no issues" -- show your work.

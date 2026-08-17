@@ -22,10 +22,17 @@ Step 2 — Discover deprecated symbols via web search:
 
 Step 3 — Promoted x/ package check:
   `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
-  For each x/ import, derive the stdlib name (e.g.,
-  golang.org/x/exp/slices -> slices) and check:
-  `go doc <stdlib-name> 2>/dev/null`
-  If it exists in stdlib, the x/ import should be migrated.
+  For each x/ import, derive the stdlib name and check whether it is
+  available in the Go version this repo targets. Extract the target:
+  `GO_MINOR=$(grep '^go ' go.mod | awk '{print $2}' | cut -d. -f2)`
+  Known stdlib promotions and their minimum Go minor version:
+    golang.org/x/exp/slices → slices (Go 1.21+)
+    golang.org/x/exp/maps   → maps   (Go 1.21+)
+    golang.org/x/exp/cmp    → cmp    (Go 1.21+)
+    golang.org/x/net/context → context (Go 1.7+)
+  If GO_MINOR is below the required floor, report as INFO, not FAIL —
+  the stdlib equivalent is not yet available for this repo's Go version.
+  Otherwise the x/ import should be migrated (FAIL finding).
 
 Report each finding with file:line AND the recommended fix
 (e.g., math/rand -> math/rand/v2, golang.org/x/exp/slices ->

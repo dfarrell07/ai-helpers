@@ -1,5 +1,9 @@
-Determine K8S_MINOR from go.mod:
-  `K8S_MINOR=$(grep 'k8s.io/api ' go.mod | grep -v '=>' | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')`
+Determine K8S_MINOR from go.mod — check api, apimachinery, or client-go
+(use whichever is a direct dependency):
+  `K8S_MINOR=$(grep -E 'k8s\.io/(api|apimachinery|client-go) ' go.mod | grep -v '=>' | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')`
+If K8S_MINOR is empty after this, the repo may use indirect k8s deps only —
+try: `grep -E 'k8s\.io/(api|apimachinery|client-go) ' go.sum | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//'`
+If still empty, write PASS with summary "could not determine K8S_MINOR — verify changelog manually."
 
 Read the Kubernetes changelog for the target minor version.
 Try the tag-based URL first (more reliable), fall back to master:

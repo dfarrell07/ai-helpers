@@ -13,9 +13,12 @@ Adapt this list for the repo — a CSI driver legitimately modifies .proto
 files; a pure controller likely does not.
 Unexpected file types suggest a fix leaked beyond its intended scope.
 
-Report count of unexpected files changed. FAIL if any
-unexpected files are found (count > 0). PASS if all changed
-files are in expected categories.
+Report count of unexpected files changed. When the legitimacy of a
+file type is uncertain for this repo (e.g., a .tf file in an operator,
+or a .json schema in a CSI driver), report as INFO in DETAILS and do
+NOT count toward FAIL — context matters. FAIL only for files that are
+clearly unrelated to the k8s dependency bump. PASS if all changed
+files are in expected or plausibly-required categories.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

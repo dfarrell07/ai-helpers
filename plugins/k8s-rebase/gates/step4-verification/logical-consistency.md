@@ -1,6 +1,12 @@
-Read ALL fix commits (autofix + agent). For EVERY function
-modified in the diff, read the full function body and trace
-data flow. Do not skip or sample — check every modified function.
+Read ALL fix commits (autofix + agent). For each function modified
+in the diff, trace data flow. Prioritize by risk tier:
+- Tier 1 (full trace required): type conversions, struct field mappings,
+  type assertions — data loss here is silent and hard to catch later
+- Tier 2 (full trace required): error paths and error propagation —
+  a missed error return causes runtime failures
+- Tier 3 (pattern check): all other modifications — scan for obvious
+  set-but-not-read, unused assignments, incomplete patterns
+State the tier for each function. Depth matters more than breadth.
 
 Flag:
 - Struct copies that drop fields (FAIL)

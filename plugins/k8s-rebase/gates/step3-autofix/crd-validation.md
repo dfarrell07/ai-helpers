@@ -4,10 +4,12 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
 
-Read the evidence. When NEW_ISSUES > 0: you MUST skip
-CRDs the evidence marked "IDENTICAL" or "NO-VALIDATION-CHANGES".
-Only analyze CRDs the evidence marked "CHANGED-VALIDATION" or
-"ALL-NEW". Do NOT open, read, or analyze any file marked IDENTICAL.
+Read the evidence. When NEW_ISSUES > 0: focus your analysis on CRDs
+the evidence marked "CHANGED-VALIDATION" or "ALL-NEW". Skip CRDs
+marked "IDENTICAL" or "NO-VALIDATION-CHANGES" — the companion script
+confirmed they are unchanged. If the total CRD count in the evidence
+seems lower than expected for this repo, run the manual checks below
+to ensure nothing was missed.
 
 If evidence is stale or absent, run the manual checks below for
 each CRD schema file in the repository.
