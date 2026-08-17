@@ -16,18 +16,19 @@ fixing any. Group by category and fix each in one commit.
 Key lint guidance:
 - golangci-lint v2 defaults to 3 instances per error type — the
   validate script overrides with `--max-same-issues 0`
-- If lint fails with "UNCLASSIFIED FAILURE (root lint)", a container
-  pull error, or a missing tool (operator-sdk, etc.): lint cannot run
-  in this environment. Accept this condition — do NOT add nolint
-  annotations or golangci.yml suppressions to work around it. The CI
-  system has its own lint environment with proper tooling. Note in the
-  commit what lint checks were skipped.
-- For errcheck: prefer fixing the code over suppressing the linter.
+- Lint runs in a container (the repo's `make lint` uses docker/podman).
+  If the first `--no-test` run produces "UNCLASSIFIED FAILURE (root lint)",
+  check if the container pull is failing. Common fix: re-run once — the
+  first run often pulls the image and the second run succeeds. If a tool
+  is missing (operator-sdk, etc.), that is usually just a warning line
+  in the Makefile — the actual lint result is in the container output.
+  Make lint work; do not skip it or suppress the findings.
+- For errcheck: fix the code, not the linter.
   `defer f.Close()` → `defer func() { _ = f.Close() }()`
-  `fmt.Fprintf(w, ...)` where errors are non-critical → `_, _ = fmt.Fprintf(w, ...)`
+  `fmt.Fprintf(w, ...)` where the error is non-critical → `_, _ = fmt.Fprintf(w, ...)`
   Only use `exclude-functions` in `.golangci.yml` when the same pattern
-  appears 5+ times AND fixing each instance would be noisy without value.
-  Never use per-line `//nolint:errcheck` for patterns covered by golangci.yml.
+  appears many times AND fixing each instance would obscure the real code.
+  Never use per-line `//nolint:errcheck` for patterns that could be fixed in code.
 - Staticcheck deprecated calls: use selective `//nolint:staticcheck`
   or `exclude-rules`, never disable entirely
 - Nilness dead code: remove the entire dead block, do not restructure
