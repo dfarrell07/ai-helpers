@@ -22,9 +22,13 @@ picks the latest available patch releases. DO flag minor-version
 mismatches (versions from a different minor release than the
 target).
 
-VERDICT: always PASS. This is an INFORMATIONAL gate — scope
-concerns are reported for human review but do not block. Scope
-discipline is enforced by the SKILL.md instructions, not this gate.
+VERDICT: FAIL if scope creep or inaccurate commit messages are
+CONFIRMED from the diff — demonstrably present, not merely suspected.
+PASS if all changes serve the rebase. Only flag what you can point
+to with a specific commit SHA and file:line. If you are uncertain
+whether a change is required, note it as INFO and lean toward PASS.
+False FAILs block legitimate rebases; false PASSes are caught by
+human review. Cite your evidence precisely.
 
 List your findings with specific commit SHAs and file:line refs.
 Do not just say "would approve" — explain what you checked.
@@ -50,7 +54,6 @@ bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -p
   "detail line 1" "detail line 2"
 ```
 
-This is an INFORMATIONAL gate — always use PASS. Report scope
-concerns for human review but do not FAIL. Scope discipline is
-enforced by the SKILL.md instructions, not by this gate.
-Replace the summary and details with your actual findings.
+Use PASS, FAIL, or SKIP. Replace the summary and details with
+your actual findings. Cite specific commit SHAs and file:line for
+every FAIL finding — no citations means no FAIL.
