@@ -16,8 +16,18 @@ fixing any. Group by category and fix each in one commit.
 Key lint guidance:
 - golangci-lint v2 defaults to 3 instances per error type — the
   validate script overrides with `--max-same-issues 0`
-- For errcheck: create `.golangci.yml` with `exclude-functions`
-  rather than per-line `//nolint:errcheck`. Use `default: standard`
+- If lint fails with "UNCLASSIFIED FAILURE (root lint)", a container
+  pull error, or a missing tool (operator-sdk, etc.): lint cannot run
+  in this environment. Accept this condition — do NOT add nolint
+  annotations or golangci.yml suppressions to work around it. The CI
+  system has its own lint environment with proper tooling. Note in the
+  commit what lint checks were skipped.
+- For errcheck: prefer fixing the code over suppressing the linter.
+  `defer f.Close()` → `defer func() { _ = f.Close() }()`
+  `fmt.Fprintf(w, ...)` where errors are non-critical → `_, _ = fmt.Fprintf(w, ...)`
+  Only use `exclude-functions` in `.golangci.yml` when the same pattern
+  appears 5+ times AND fixing each instance would be noisy without value.
+  Never use per-line `//nolint:errcheck` for patterns covered by golangci.yml.
 - Staticcheck deprecated calls: use selective `//nolint:staticcheck`
   or `exclude-rules`, never disable entirely
 - Nilness dead code: remove the entire dead block, do not restructure
