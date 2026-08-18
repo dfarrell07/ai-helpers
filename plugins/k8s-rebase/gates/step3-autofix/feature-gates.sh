@@ -42,17 +42,36 @@ wired_l2=$(grep -roh 'KUBE_FEATURE_[A-Za-z0-9_]+' "$PRIMARY_GOMOD_DIR/" \
   | grep -v '/vendor/' | grep -v '/.claude/' \
   | sed 's/KUBE_FEATURE_//' | LC_ALL=C sort -u || true)
 
-# Layer 3: gate names from SetFromMap calls via string(features.<Gate>) pattern
+# Layer 3: gate names from SetFromMap calls.
+# Handles both constant form string(features.Gate) and raw string keys "Gate": bool.
+# Raw string keys are filtered against known_features.go to avoid false positives
+# from non-gate map keys that happen to start with an uppercase letter.
 sfm_files=$(grep -rln 'SetFromMap' "$PRIMARY_GOMOD_DIR/" \
   --include='*.go' 2>/dev/null \
   | grep -v '/vendor/' | grep -v '/.claude/' || true)
 wired_l3=""
 if [[ -n "$sfm_files" ]]; then
-  wired_l3=$(while IFS= read -r f; do
+  # Constant form: string(features.WatchListClient) → WatchListClient
+  from_const=$(while IFS= read -r f; do
     [[ -z "$f" ]] && continue
     grep -Eo 'string\(features\.[A-Za-z0-9]+\)' "$f" 2>/dev/null \
       | grep -oE '[A-Z][A-Za-z0-9]+' || true
-  done <<< "$sfm_files" | LC_ALL=C sort -u || true)
+  done <<< "$sfm_files")
+  # Raw string key form: "WatchListClient": false → WatchListClient
+  # Filter against known_features.go so non-gate uppercase map keys are excluded.
+  from_raw=""
+  if [[ -n "$known_features" ]]; then
+    from_raw=$(while IFS= read -r f; do
+      [[ -z "$f" ]] && continue
+      grep -Eo '"[A-Z][A-Za-z0-9]+"' "$f" 2>/dev/null | tr -d '"' || true
+    done <<< "$sfm_files" \
+    | while IFS= read -r name; do
+        [[ -z "$name" ]] && continue
+        grep -q "\"${name}\"" "$known_features" 2>/dev/null && echo "$name" || true
+      done)
+  fi
+  wired_l3=$(printf '%s\n%s\n' "$from_const" "$from_raw" \
+    | grep -v '^$' | LC_ALL=C sort -u || true)
 fi
 
 all_wired=$(printf '%s\n%s\n%s\n' "$wired_l1" "$wired_l2" "$wired_l3" \
