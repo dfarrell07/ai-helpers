@@ -1246,11 +1246,34 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
 EOF_DEF
   local p2=$!
   wait "$p1" "$p2" 2>/dev/null || true
-  # Strip model-availability warning lines that claude writes to stdout
-  # (e.g. "Warning: Opus 5 not available — using Opus 4.8 for this session")
+
+  # Retry helper: retry a phase if it failed with a transient error
+  # ("Execution error" = claude CLI crash; "Warning:" only = model fallback with no content)
+  _court_phase_ok() {
+    local f="$1"
+    local content; content=$(grep -v '^Warning:' "$f" 2>/dev/null | grep -v '^Execution error' || true)
+    [[ ${#content} -ge 200 ]]
+  }
+  _court_retry() {
+    local f="$1" errf="$2" prompt="$3" role="$4"
+    if ! _court_phase_ok "$f"; then
+      info "  Retrying $role (transient error: $(head -1 "$f" 2>/dev/null | cut -c1-60))..."
+      cat <<<"$prompt" | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" \
+        --permission-mode "$PERMISSION_MODE" --output-format text > "$f" 2>"$errf" || true
+    fi
+  }
+  _court_retry "$cdir/pros.txt" "$cdir/pros.err" \
+    "$context
+
+You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines." "prosecution"
+  _court_retry "$cdir/def.txt" "$cdir/def.err" \
+    "$context
+
+You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines." "defense"
+
   local pros def
-  pros=$(grep -v '^Warning:' "$cdir/pros.txt" 2>/dev/null || true)
-  def=$(grep -v '^Warning:' "$cdir/def.txt" 2>/dev/null || true)
+  pros=$(grep -v '^Warning:' "$cdir/pros.txt" 2>/dev/null | grep -v '^Execution error' || true)
+  def=$(grep -v '^Warning:' "$cdir/def.txt" 2>/dev/null | grep -v '^Execution error' || true)
   if [[ ${#pros} -lt 200 || ${#def} -lt 200 ]]; then
     error "Prosecution/defense too short (${#pros}/${#def} bytes — $(tail -1 "$cdir/pros.err" 2>/dev/null) / $(tail -1 "$cdir/def.err" 2>/dev/null))"
     return 2
