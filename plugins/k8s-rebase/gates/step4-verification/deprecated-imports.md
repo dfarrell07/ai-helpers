@@ -30,30 +30,28 @@ Do NOT re-run build, vet, or the vendor deprecated-symbol scan
 — build-vet-recheck and step3's deprecated-api-remnants gates
 already cover those.
 
-VERDICT IS ABSOLUTE — linters flag deprecated imports in the final
-result regardless of when they were introduced:
+MANDATORY pre-existing check — run for EVERY deprecated import finding:
 
-Check base branch origin for context only:
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 # For each finding at <file> with <import-path>:
 base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<import-path>')
-# base_has > 0 = PRE-EXISTING (report as "PRE-EXISTING (must fix)")
-# base_has == 0 = NEW (report as "NEW")
+was_modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
 ```
 
-Both PRE-EXISTING and NEW deprecated imports count toward FAIL.
-A completed rebase must fix deprecated imports — linters and CI catch
-them regardless of origin. The human's reference rebase always fixes
-pre-existing deprecated imports as part of the rebase cleanup.
+Two tiers:
+1. File WAS modified by the rebase (was_modified > 0): the rebase touched
+   this file — any deprecated import in it must be fixed. Count as FAIL
+   whether it's new (base_has=0) or pre-existing (base_has>0). The rebase
+   was an opportunity to fix it and should have.
+2. File was NOT modified by the rebase (was_modified=0): the deprecated
+   import was there before and the rebase didn't go near it. Count as
+   INFO — out of scope for this rebase.
 
-Report count of ALL x/ imports that have stdlib equivalents (new and
-pre-existing). Cite file:line for each hit.
+If GO_MINOR is below the required floor for a given package: INFO
+regardless of tier (can't migrate if stdlib equivalent doesn't exist yet).
 
-Exception: if a deprecated import is in a file the rebase explicitly
-did NOT need to touch AND fixing it would require significant API
-migration work — note it as INFO but still count toward FAIL with a
-recommended fix command.
+Report count of FAIL-tier findings only. Cite file:line for each hit.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

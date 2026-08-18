@@ -20,23 +20,28 @@ fixes — it catches issues introduced since Step 1. Use
 local Go version is too old. Report total error count from
 non-skipped modules only.
 
-VERDICT IS ABSOLUTE — `go vet` exit code is CI's criterion, not delta:
+VERDICT IS ABSOLUTE for errors where CI enforces go vet exit code:
 
-A completed rebase must deliver a build that CI can vet cleanly.
-`go vet` failures block CI regardless of when they were introduced.
-If a pre-existing `go vet` error was not fixed during the rebase,
-CI will still fail — report it as FAIL, not INFO.
+First, confirm the repo's CI actually runs `go vet` (or a linter that
+catches the same error class). Check `.github/workflows/` or the CI
+config for `go vet`, `golangci-lint`, or the validate script. If CI
+does not run `go vet ./...`, fall back to delta-only for this gate.
 
-For each error, check the from_commit to determine if it is new or
-pre-existing:
+If CI does run `go vet`: a completed rebase must deliver a build that
+CI can vet cleanly. For each vet error, check its origin:
   `BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)`
-  Check whether the same error existed at BASE.
+  For the failing symbol (function/type) in the error, check if it
+  existed in the vendor package on BASE:
+    `git show "$BASE:vendor/<pkg>/<file>.go" 2>/dev/null | grep -c '<symbol>'`
+  >0: symbol existed before, error is NEW (rebase removed or changed it)
+  ==0: error existed before the rebase too (PRE-EXISTING)
 
-Report pre-existing errors as "PRE-EXISTING (must fix)" — they still
-count toward FAIL. Report new errors as "NEW". Both require fixing.
-The step 2 report may note pre-existing errors; step 4's job is to
-confirm the final state is clean regardless of where the errors came
-from.
+Report NEW errors as FAIL. Report PRE-EXISTING errors also as FAIL,
+labeled "PRE-EXISTING (must fix)" — CI will reject them regardless.
+Exception: if the vet error is in auto-generated code (zz_generated_*,
+*.pb.go) or a file where the fix would require a dependency bump outside
+the k8s rebase scope, document it with file:line and a specific fix
+suggestion, mark as FAIL with explanation.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

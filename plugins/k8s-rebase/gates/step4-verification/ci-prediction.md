@@ -20,16 +20,18 @@ Could any test pass locally but fail in CI due to:
   KUBE_FEATURE_* env vars, those cover ALL packages when
   run via `make test` — don't flag packages that are covered
   by test-go.sh exports.
-- Env var → execution boundary gaps? If test scripts export
-  env vars (KUBE_FEATURE_*, KUBECONFIG, etc.) that tests depend
-  on, those vars must cross ALL execution boundaries:
-  `grep -n 'export.*=\|sudo\|exec\|subprocess' hack/test-go.sh`
-  If `export VAR=val` is followed by `sudo binary` (not `sudo -E`),
-  the var is dropped for the sudo'd process. If `exec binary` is
-  used without explicit env passing, same issue. Any test that
-  runs as a separate process must receive the needed env vars.
-  FAIL if an env var critical for test correctness is set but
-  silently dropped at a sudo/exec boundary in the modified scripts.
+- Env var → sudo boundary gaps in modified test scripts?
+  Find test-go.sh (dynamic path, may be under hack/ or go-controller/hack/):
+  `TEST_GO=$(find . -name "test-go.sh" -not -path "*/vendor/*" | head -1)`
+  Only check this file if the rebase diff modified it:
+  `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- "$TEST_GO" | wc -l`
+  If modified, check for the env-var→sudo gap:
+  `grep -n 'export KUBE_FEATURE_\|export.*=.*false\|sudo ' "$TEST_GO"`
+  If `export KUBE_FEATURE_*=val` is set AND `sudo binary` (without -E)
+  appears in the same script, the env var is silently dropped for the
+  sudo'd test binary — FAIL. The fix is `sudo -E binary`.
+  Note: `exec binary` in bash inherits all env vars and does NOT drop
+  them — only `sudo` without `-E` clears env. Do not flag exec calls.
 - Stale codegen output? If hack/update-codegen.sh or a
   Makefile codegen/generate/manifests target exists, check
   that git log shows a codegen commit. If the repo has a
