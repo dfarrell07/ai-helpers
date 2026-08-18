@@ -34,9 +34,8 @@ CURRENT_STEP=$(jq -r '.current_step // empty' "$STATE_FILE" 2>/dev/null)
 # Extract step numbers referenced in the rm command
 BLOCKED=""
 while IFS= read -r token; do
-  [[ -z "$token" ]] && continue
-  step_num=$(echo "$token" | grep -oE '^step([0-9]+)' | grep -oE '[0-9]+' | head -1)
-  [[ -z "$step_num" ]] && continue
+  [[ "$token" =~ ^step([0-9]+) ]] || continue
+  step_num="${BASH_REMATCH[1]}"
   if [[ "$step_num" -lt "$CURRENT_STEP" ]]; then
     BLOCKED="${BLOCKED}step${step_num}-*.report (orchestrator is at step $CURRENT_STEP)\n"
   fi

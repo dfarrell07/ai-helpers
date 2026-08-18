@@ -4,9 +4,9 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
 
-Read the evidence. If SUMMARY shows 0 Go version issues, verdict is PASS.
-When NEW_ISSUES > 0: only analyze issues the evidence marked as "NEW".
-Ignore "PRE-EXISTING" lines.
+When evidence is fresh: if SUMMARY shows 0 Go version issues, skip
+the manual checks below and write PASS. When NEW_ISSUES > 0: only
+analyze issues the evidence marked as "NEW". Ignore "PRE-EXISTING" lines.
 
 If evidence is stale or absent, fall back to manual checks:
 

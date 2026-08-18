@@ -4,14 +4,6 @@ PROGRESS: 40% complete
 
 # Step 2: Fix Compilation Errors
 
-Locate the plugin root (used for all script/gate references):
-```bash
-PLUGIN_ROOT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 \
-  -path "*/k8s-rebase/scripts/k8s-rebase-validate.sh" 2>/dev/null \
-  | head -1 | sed 's|/scripts/.*||')
-echo "PLUGIN_ROOT=$PLUGIN_ROOT"
-```
-
 ## Validate
 
 Use `timeout: 600000` (10 min) for validation commands. If lint

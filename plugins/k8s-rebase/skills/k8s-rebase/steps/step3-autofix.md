@@ -126,4 +126,7 @@ When all step3 gates pass (or remaining issues are reported after
 3 attempts), proceed immediately. Do NOT stop or declare the
 rebase "done" -- Steps 4 and 5 are mandatory.
 
-Run `orchestrator.sh advance` to proceed to Step 4.
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" advance "$REPO_ROOT"
+```

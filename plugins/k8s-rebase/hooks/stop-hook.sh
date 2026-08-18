@@ -22,7 +22,7 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 # Delegate to orchestrator
 STATUS=$(bash "$ORCH" status "$CWD" 2>/dev/null) || true
 
-if echo "$STATUS" | grep -q "DONE: true"; then
+if [[ "$STATUS" == *"DONE: true"* ]]; then
   exit 0
 fi
 

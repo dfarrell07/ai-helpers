@@ -35,6 +35,13 @@ repo_key() { repo_short "$1" | tr '/' '_'; }
 running_key() { echo "${1:?version}_$(repo_key "${2:?repo}")"; }
 repo_key_from_running() { echo "${2#"${1:?version}"_}"; }
 
+_latest_result_line() {
+  # results.tsv cols: 1=ts 2=ver 3=spec 4=repo 5=verdict 6=detail
+  # Returns the most recent line for this repo+version with spec all* or none.
+  local short="$1" ver="$2" tsv="$3"
+  awk -F'\t' -v r="$short" -v v="$ver" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1
+}
+
 _ensure_repo() {
   local name="$1"
   local dest="$REPOS_DIR/$name"
@@ -1487,7 +1494,7 @@ cmd_court_all() {
       local _rk=$(repo_key "$repo")
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
       [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file" 2>/dev/null)" != "INCONCLUSIVE" ]] && continue
-      local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
+      local latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
       [[ -z "$latest_line" ]] && continue
       local verdict=$(echo "$latest_line" | cut -f5)
       [[ "$verdict" != "PASS" ]] && continue
@@ -1601,15 +1608,14 @@ cmd_watch() {
   for running_file in "$state_dir/running"/*; do
     [[ -f "$running_file" ]] || continue
     active=$((active + 1))
-    local _rk=$(basename "$running_file")
+    local _running_key=$(basename "$running_file")
     local _raw=$(cat "$running_file")
-    local _file_version=$(echo "$_raw" | cut -f4)
-    local _file_spec=$(echo "$_raw" | cut -f1)
-    local _bare_rk=$(repo_key_from_running "$_file_version" "$_rk")
+    local _file_spec _f2 _sid _file_version
+    IFS=$'\t' read -r _file_spec _f2 _sid _file_version _ <<< "$_raw"
+    local _bare_rk=$(repo_key_from_running "$_file_version" "$_running_key")
     local short=$(echo "$_bare_rk" | tr '_' '/')
     local repo="$REPOS_DIR/$short"
     [[ -d "$repo" ]] || continue
-    local _sid=$(echo "$_raw" | cut -f3)
     local session_state="gone"
     if [[ -n "$_sid" ]]; then
       local _found_state
@@ -1643,7 +1649,7 @@ cmd_watch() {
     fi
     # Show "needs-court" when session is done, gates complete, no done file yet
     if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
-      local _done_key=$(_done_key "$(echo "$_raw" | cut -f4)" "${_raw%%	*}" "$_bare_rk")
+      local _done_key=$(_done_key "$_file_version" "$_file_spec" "$_bare_rk")
       if [[ "$gc" -ge "$EXPECTED_GATES" && ! -f "$state_dir/done/$_done_key" ]]; then
         session_state="needs-court"
       fi
@@ -1762,6 +1768,7 @@ _results_one() {
       _is_stale_fail "$f" "$_branch_tip_ts" && continue
       echo ""
       echo "FAILED: $_gn"
+      # Indent every line after the DETAILS: header so it reads as a sub-block.
       awk '/^DETAILS:/{d=1; print; next} d{print "  "$0; next} {print}' "$f"
     done
   else
@@ -1813,7 +1820,7 @@ _results_for_version() {
   for repo in "${DEFAULT_REPOS[@]}"; do
     local short=$(repo_short "$repo")
     local _rk=$(repo_key "$repo")
-    local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
+    local latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
     if [[ -n "$latest_line" ]]; then
       local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
       local verdict=$(echo "$latest_line" | cut -f5)
@@ -1963,8 +1970,7 @@ cmd_matrix() {
 
         [[ "$(_config_val "$short" "expected_fail")" == "true" ]] && continue
 
-        local latest_line=$(awk -F'\t' -v r="$short" -v v="$VERSION" \
-          '$4==r && $2==v && ($3~/^all/ || $3=="none")' "$tsv" | tail -1)
+        local latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
         [[ -z "$latest_line" ]] && continue
 
         local verdict=$(echo "$latest_line" | cut -f5)

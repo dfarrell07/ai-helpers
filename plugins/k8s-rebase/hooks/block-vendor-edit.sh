@@ -13,7 +13,7 @@ REPO_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 FILEPATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
 [[ -z "$FILEPATH" ]] && exit 0
 
-if echo "$FILEPATH" | grep -qF '/vendor/'; then
+if [[ "$FILEPATH" == */vendor/* ]]; then
   jq -n --arg reason "$(cat <<'MSG'
 BLOCKED: Direct edits to vendor/ files are forbidden during k8s-rebase.
 Vendor files are managed by go mod vendor inside the rebase scripts.

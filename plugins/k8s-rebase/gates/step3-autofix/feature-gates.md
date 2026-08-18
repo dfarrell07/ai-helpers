@@ -9,15 +9,16 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
 
-Run this check FIRST — if nothing matches, SKIP immediately:
+Run this applicability check first:
 ```bash
 REPO="<the repo path from the first line of your prompt>"
 FG_REFS=$(grep -rn 'KUBE_FEATURE_\|SetFromMap' "$REPO" --include='*.sh' --include='Makefile*' --include='*.go' 2>/dev/null | grep -v vendor/ | head -20)
 if [ -z "$FG_REFS" ]; then
-  echo "No feature gate references found — SKIP"
+  echo "No feature gate references found"
 fi
 ```
-If no SetFromMap or KUBE_FEATURE_ references exist, write a SKIP
+If the applicability check finds no SetFromMap or KUBE_FEATURE_
+references, the gate does not apply to this repo — write a SKIP
 report and stop.
 
 If references ARE found: check if feature gates referenced in
