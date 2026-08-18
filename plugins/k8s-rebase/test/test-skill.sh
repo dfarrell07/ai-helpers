@@ -1552,8 +1552,8 @@ cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   _SESSION_CACHE_AGE=0
   build_session_cache
-  printf "%-36s %-7s %-12s %-14s %-28s %s\n" "REPO" "VER" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
-  printf "%-36s %-7s %-12s %-14s %-28s %s\n" "----" "---" "-------" "-----" "-------------" "-------------"
+  printf "%-36s %-7s %-16s %-14s %-24s %s\n" "REPO" "VER" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
+  printf "%-36s %-7s %-16s %-14s %-24s %s\n" "----" "---" "-------" "-----" "-------------" "-------------"
   local active=0
   for running_file in "$state_dir/running"/*; do
     [[ -f "$running_file" ]] || continue
@@ -1604,12 +1604,28 @@ cmd_watch() {
         session_state="needs-court"
       fi
     fi
+    # Read orchestrator step from state.json — tells user what phase is running
+    # (1=rebase, 2=compile, 3=autofix, 4=lint/test, 5=PR). Only shown when
+    # working/needs-court and a step is active.
+    local _step_info=""
+    if [[ -n "$wt" && "$session_state" =~ ^(working|needs-court)$ ]]; then
+      local _step; _step=$(grep '"current_step"' "$wt/.rebase-tmp/state.json" 2>/dev/null | grep -oE '[0-9]+' | head -1)
+      if [[ -n "$_step" ]]; then
+        # Also show time since state.json was last modified (helps detect stalls)
+        local _state_age=""
+        local _state_ts; _state_ts=$(stat -c '%Y' "$wt/.rebase-tmp/state.json" 2>/dev/null || echo 0)
+        local _now; _now=$(date +%s)
+        local _age=$(( (_now - _state_ts) / 60 ))
+        [[ "$_age" -gt 0 ]] && _state_age="${_age}m"
+        _step_info=" S${_step}${_state_age:+/}${_state_age}"
+      fi
+    fi
     local gate_str="${gc}/${EXPECTED_GATES}"
     local _gsuffix=""
     [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
     [[ "$gs" -gt 0 ]] && _gsuffix="${_gsuffix:+${_gsuffix},}${gs}S"
     [[ -n "$_gsuffix" ]] && gate_str="${gate_str} (${_gsuffix})"
-    printf "%-36s %-7s %-12s %-14s %-28s %s\n" "$short" "${_file_version:-?}" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+    printf "%-36s %-7s %-16s %-14s %-24s %s\n" "$short" "${_file_version:-?}" "${session_state}${_step_info}" "$gate_str" "$commit_msg" "$diff_info"
   done
   [[ "$active" -le 0 ]] && echo "(no active tests)"
   return 0
