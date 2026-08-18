@@ -816,6 +816,7 @@ cmd_test() {
   fi
 
   local _state_dir="$PLUGIN_DIR/test/.matrix-state"
+  local _failures=0
   mkdir -p "$mutated/test/.matrix-state"
 
   for repo_input in "${repos[@]}"; do
@@ -850,7 +851,8 @@ cmd_test() {
         git -C "$repo" branch -D "_test-from-${_from_commit:0:8}" 2>/dev/null || true
         _set_worktree_base "$repo" remove
       fi
-      error "Launch failed for $(repo_short "$repo")"; continue
+      error "Launch failed for $(repo_short "$repo")"
+      _failures=$((_failures + 1)); continue
     fi
 
     local _sid
@@ -861,6 +863,8 @@ cmd_test() {
       info "$(repo_short "$repo") running — 'make watch' to monitor, 'make results' when done"
     fi
   done
+  [[ "$_failures" -gt 0 ]] && return 1
+  return 0
 }
 
 cmd_test_all() {
