@@ -1604,21 +1604,27 @@ cmd_watch() {
         session_state="needs-court"
       fi
     fi
-    # Replace "working" with the human-readable phase name when a step is active.
-    # Reads current_step from state.json; maps to: 1=rebase 2=compile 3=autofix 4=lint 5=pr-review.
-    # Appends minutes since step last advanced so users can distinguish normal-slow from stalled.
+    # Replace "working" with the current phase + time since last activity.
+    # Phase from current_step: 1=rebase 2=compile 3=autofix 4=verify 5=pr-review.
+    # Time is minutes since the most recent file write in .rebase-tmp/ —
+    # this reflects actual agent activity, not just when the step started.
+    # Use: phase means what the step covers; time tells you if it's stalled.
     if [[ -n "$wt" && "$session_state" == "working" ]]; then
       local _step; _step=$(grep '"current_step"' "$wt/.rebase-tmp/state.json" 2>/dev/null | grep -oE '[0-9]+' | head -1)
       if [[ -n "$_step" ]]; then
         local _phase
         case "$_step" in
-          1) _phase="rebase" ;;  2) _phase="compile" ;;
-          3) _phase="autofix" ;; 4) _phase="lint" ;;
+          1) _phase="rebase" ;;   2) _phase="compile" ;;
+          3) _phase="autofix" ;;  4) _phase="verify" ;;
           5) _phase="pr-review" ;; *) _phase="step$_step" ;;
         esac
-        local _state_ts; _state_ts=$(stat -c '%Y' "$wt/.rebase-tmp/state.json" 2>/dev/null || echo 0)
-        local _age=$(( ($(date +%s) - _state_ts) / 60 ))
-        [[ "$_age" -gt 0 ]] && _phase="${_phase} ${_age}m"
+        # Time since last file activity in .rebase-tmp (gates/ excluded — too noisy)
+        local _last_ts; _last_ts=$(find "$wt/.rebase-tmp" -maxdepth 1 -type f \
+          -exec stat -c '%Y' {} \; 2>/dev/null | sort -rn | head -1)
+        if [[ -n "$_last_ts" && "$_last_ts" -gt 0 ]]; then
+          local _idle=$(( ($(date +%s) - _last_ts) / 60 ))
+          [[ "$_idle" -gt 0 ]] && _phase="${_phase} ${_idle}m"
+        fi
         session_state="$_phase"
       fi
     fi
