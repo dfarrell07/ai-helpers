@@ -1333,26 +1333,56 @@ EOF_JURY
   done
 
   info "Jury: $pass PASS, $fail FAIL"
+
+  # Helper: show key findings from FAIL jurors to avoid transcript hunting
+  _show_fail_reasons() {
+    info "Transcript: $cdir"
+    for j in 1 2 3; do
+      local jv; jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null \
+                     | grep -ioE 'PASS|FAIL' | tail -1)
+      [[ "${jv^^}" != "FAIL" ]] && continue
+      local verdict_text; verdict_text=$(grep -m1 'VERDICT:' "$cdir/juror-$j.txt" 2>/dev/null \
+                                         | sed 's/^VERDICT:[* ]*//')
+      local verified_text; verified_text=$(grep 'VERIFIED:' "$cdir/juror-$j.txt" 2>/dev/null \
+                                           | tail -1 | sed 's/^VERIFIED:[[:space:]]*//')
+      info "  Juror $j: $verdict_text"
+      [[ -n "$verified_text" ]] && info "  Evidence: $verified_text"
+    done
+  }
+
   if [[ "$empty_jurors" -gt 1 ]]; then
-    error "INCONCLUSIVE (majority juror failure: $empty_jurors empty)"; return 2
+    error "INCONCLUSIVE (majority juror failure: $empty_jurors empty)"
+    info "Transcript: $cdir — check juror-*.err for details"
+    return 2
   fi
   if [[ "$pass" -eq "$fail" && "$empty_jurors" -gt 0 ]]; then
-    error "INCONCLUSIVE (tied $pass-$fail with $empty_jurors empty juror(s))"; return 2
+    error "INCONCLUSIVE (tied $pass-$fail with $empty_jurors empty juror(s))"
+    _show_fail_reasons
+    return 2
   fi
   local total=$((pass + fail))
   if [[ "$total" -lt 2 ]]; then
     if [[ "$pass" -gt 0 && "$fail" -eq 0 ]]; then
-      info "PASS (no regression found — $pass pass, $fail fail, $((3-total)) abstain)"
+      info "VERDICT: PASS ($pass pass, $((3-total)) abstain)"
       return 0
     else
-      error "INCONCLUSIVE (no quorum — $pass pass, $fail fail, $((3-total)) abstain)"; return 2
+      error "INCONCLUSIVE (no quorum — $pass pass, $fail fail, $((3-total)) abstain)"
+      info "Transcript: $cdir"
+      return 2
     fi
   fi
-  [[ "$pass" -gt "$fail" ]] && { info "VERDICT: PASS ($pass-$fail)"; return 0; }
-  if [[ "$pass" -eq "$fail" ]]; then
-    error "INCONCLUSIVE (tied $pass-$fail)"; return 2
+  if [[ "$pass" -gt "$fail" ]]; then
+    info "VERDICT: PASS ($pass-$fail)"
+    return 0
   fi
-  error "VERDICT: FAIL ($fail-$pass)"; return 1
+  if [[ "$pass" -eq "$fail" ]]; then
+    error "INCONCLUSIVE (tied $pass-$fail)"
+    _show_fail_reasons
+    return 2
+  fi
+  error "VERDICT: FAIL ($fail-$pass)"
+  _show_fail_reasons
+  return 1
 }
 
 cmd_court_all() {
@@ -1456,8 +1486,37 @@ cmd_court_all() {
   echo ""
   if [[ "$run" -eq 0 && "$skipped" -eq 0 ]]; then
     echo "No pending court reviews."
-  else
-    echo "Court complete: $passed passed, $failed failed, $errors errors, $skipped skipped (of $((run + skipped)) pending)"
+    return 0
+  fi
+  echo "Court complete: $passed passed, $failed failed, $errors errors, $skipped skipped (of $((run + skipped)) pending)"
+
+  # Show transcript paths for non-PASS outcomes so users can dig into details
+  if [[ "$((failed + errors))" -gt 0 ]]; then
+    local _court_dir="$PLUGIN_DIR/test/.matrix-state/court"
+    echo ""
+    echo "Non-PASS transcripts (most recent per repo):"
+    for _ci in "${!_court_files[@]}"; do
+      local _cf="${_court_files[$_ci]}" _cs="${_court_shorts[$_ci]}"
+      local _v; _v=$(cat "$_cf" 2>/dev/null || echo "ERROR")
+      [[ "$_v" == "PASS" ]] && continue
+      # Find the most recent court transcript dir for this repo
+      local _rk; _rk=$(echo "$_cs" | tr '/' '_')
+      local _tdir; _tdir=$(ls -td "$_court_dir"/*"_${_rk}" 2>/dev/null | head -1)
+      if [[ -n "$_tdir" ]]; then
+        echo "  [$_v] $_cs ($VERSION): $_tdir"
+        # Show key reason from most recent FAIL juror
+        for j in 1 2 3; do
+          local jv; jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL)' "$_tdir/juror-$j.txt" 2>/dev/null \
+                         | grep -ioE 'PASS|FAIL' | tail -1)
+          [[ "${jv^^}" != "FAIL" ]] && continue
+          local vt; vt=$(grep -m1 'VERDICT:' "$_tdir/juror-$j.txt" 2>/dev/null | sed 's/^VERDICT:[* ]*//')
+          echo "    Juror $j: $vt"
+          break  # Show first FAIL juror only for brevity
+        done
+      else
+        echo "  [$_v] $_cs ($VERSION)"
+      fi
+    done
   fi
 }
 
