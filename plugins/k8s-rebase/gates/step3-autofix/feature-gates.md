@@ -37,24 +37,27 @@ valid at that time — check whether it existed in the BASE vendor.
 If ALL findings are pre-existing (base_in_vendor == 0 for each),
 verdict MUST be PASS.
 
-Also check export completeness: if the rebase adds new
-`export KUBE_FEATURE_*=false` lines to any test script, verify
-those exports actually reach all test invocations:
+Also check export completeness in scripts modified by the rebase:
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-# Find test scripts where the rebase added feature gate exports
-NEW_EXPORTS=$(git diff "$BASE"..HEAD -- '*.sh' 'Makefile*' | grep '^\+.*export KUBE_FEATURE_' | head -10)
+_BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+# For each .sh or Makefile* that the rebase touched:
+for script in $(git diff --name-only "$_BASE"..HEAD -- '*.sh' 'Makefile*'); do
+  # Was a new KUBE_FEATURE_*=false export added to this script?
+  if git diff "$_BASE"..HEAD -- "$script" | grep -q '^\+.*export KUBE_FEATURE_.*=false'; then
+    # Check that all sudo calls in this script pass env vars through
+    if grep -q 'sudo ' "$script" && \
+       ! grep -q 'sudo -E\|sudo --preserve-env' "$script"; then
+      echo "FAIL: $script has new KUBE_FEATURE_*=false export but bare sudo (env dropped)"
+    fi
+  fi
+done
 ```
 
-For each script with a new export, check sudo calls in that script:
-```bash
-grep -n 'sudo ' <script_file>
-```
-If `sudo binary` appears WITHOUT `-E`, FAIL — the exported KUBE_FEATURE_
-env var is silently dropped when the test binary runs as root.
-The fix: `sudo -E binary`. This applies to any feature gate export in
-any test script — not just this k8s version or this specific gate.
+If any script has a newly-added `export KUBE_FEATURE_*=false` AND bare `sudo`
+(not `sudo -E` or `sudo --preserve-env`), FAIL — the env var is silently
+dropped when the test binary runs as root. Fix: `sudo -E binary`.
+If no scripts are modified by the rebase, skip this check entirely.
 
 VERDICT: FAIL if count of files with missing or stale feature
 gates > 0 (excluding pre-existing), OR if any newly-exported
