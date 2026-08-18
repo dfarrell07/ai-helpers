@@ -36,6 +36,7 @@ help: ## Show available targets
 	@echo "  Test (launches skill in background, auto-clones repos on first run)"
 	@echo "    make test                       Run all repos, wait for completion"
 	@echo "    make test repo=<repo>           Run one repo"
+	@echo "    make test repo=\"<r1> <r2>\"       Run multiple repos (same version, same spec)"
 	@echo "    make test spec=all              Blind test — no patterns doc or autofix"
 	@echo "    make test version=1.35          Backtest against an older k8s version"
 	@echo "    spec: none (default), all (blind), fn:<tag>, pattern:<key>"

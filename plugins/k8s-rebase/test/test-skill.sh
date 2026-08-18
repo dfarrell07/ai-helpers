@@ -784,28 +784,22 @@ _repo_from_key() {
 }
 
 cmd_test() {
-  local version="$VERSION" specs=() repo="" from_commit=""
+  local version="$VERSION" specs=() repos=() from_commit=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --version) shift; version="${1:-}"; [[ -z "$version" ]] && die "--version needs value" ;;
       --from-commit) shift; from_commit="${1:-}"; [[ -z "$from_commit" ]] && die "--from-commit needs value" ;;
       none|pattern:*|fn:*|all-patterns|all-fns|all) specs+=("$1") ;;
-      *) repo="$1" ;;
+      *) repos+=("$1") ;;
     esac; shift
   done
   [[ ${#specs[@]} -eq 0 ]] && die "No spec (use: all, fn:<tag>, pattern:<key>)"
-  [[ -z "$repo" ]] && die "No repo path"
-  local repo_input="$repo"
-  _ensure_repo "$(repo_short "$repo_input")"
-  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
-
-  # Read from_commit from config if not passed via CLI
-  if [[ -z "$from_commit" ]]; then
-    from_commit=$(_config_val "$(repo_short "$repo")" "from_commit")
-  fi
+  [[ ${#repos[@]} -eq 0 ]] && die "No repo path"
+  [[ -n "$from_commit" && ${#repos[@]} -gt 1 ]] && die "--from-commit requires exactly one repo"
 
   _check_evidence_paths
-  info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
+
+  # Mutate the plugin once — all repos in this invocation share the same spec.
   local mutated
   if [[ "${specs[*]}" == "none" ]]; then
     mutated="$PLUGIN_DIR"
@@ -821,39 +815,52 @@ cmd_test() {
     fi
   fi
 
-  # Clean stale worktree branches
-  (cd "$repo" && git worktree prune 2>/dev/null || true)
-
-  # Track in running state
   local _state_dir="$PLUGIN_DIR/test/.matrix-state"
-  local _repo_key
-  _repo_key=$(repo_key "$repo")
-  local _running_key=$(running_key "$version" "$repo")
-  mkdir -p "$_state_dir/running" "$_state_dir/done"
-  # Remove old done file so auto_record can re-record this test
-  local _done_key=$(_done_key "$version" "${specs[*]}" "$_repo_key")
-  [[ -f "$_state_dir/done/$_done_key" ]] && rm -f "$_state_dir/done/$_done_key"
-  rm -f "$_state_dir/court/${version}_${_repo_key}"
-  # Launch via session run (subshell to scope PLUGIN_DIR to the mutated copy)
   mkdir -p "$mutated/test/.matrix-state"
-  if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${from_commit:+--from-commit "$from_commit"}); then
-    # Recover repo from temp branch and settings override if from_commit was used
-    if [[ -n "$from_commit" && -d "$repo" ]]; then
-      local _db; _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
-      : "${_db:=main}"
-      git -C "$repo" checkout "$_db" 2>/dev/null || true
-      git -C "$repo" branch -D "_test-from-${from_commit:0:8}" 2>/dev/null || true
-      _set_worktree_base "$repo" remove
+
+  for repo_input in "${repos[@]}"; do
+    _ensure_repo "$(repo_short "$repo_input")"
+    local repo
+    repo=$(resolve_repo "$repo_input") || { error "Not found: $repo_input"; continue; }
+
+    # Read from_commit from config when not passed via CLI (per-repo)
+    local _from_commit="$from_commit"
+    if [[ -z "$_from_commit" ]]; then
+      _from_commit=$(_config_val "$(repo_short "$repo")" "from_commit")
     fi
-    error "Launch failed for $(repo_short "$repo")"; return 1
-  fi
-  # Append session ID to running file for reliable stop
-  local _sid=$(cat "$mutated/test/.matrix-state/.session_id_$_running_key" 2>/dev/null)
-  [[ -n "$_sid" ]] && printf '%s\t%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" "$version" > "$_state_dir/running/$_running_key"
-  rm -f "$mutated/test/.matrix-state/.session_id_$_running_key" 2>/dev/null
-  if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
-    info "$(repo_short "$repo") running — 'make watch' to monitor, 'make results' when done"
-  fi
+
+    info "── Test: ${specs[*]} on $(repo_short "$repo") ──"
+
+    local _repo_key _running_key _done_key
+    _repo_key=$(repo_key "$repo")
+    _running_key=$(running_key "$version" "$repo")
+    _done_key=$(_done_key "$version" "${specs[*]}" "$_repo_key")
+    mkdir -p "$_state_dir/running" "$_state_dir/done"
+    [[ -f "$_state_dir/done/$_done_key" ]] && rm -f "$_state_dir/done/$_done_key"
+    rm -f "$_state_dir/court/${version}_${_repo_key}"
+
+    # Clean stale worktree branches
+    (cd "$repo" && git worktree prune 2>/dev/null || true)
+
+    if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${_from_commit:+--from-commit "$_from_commit"}); then
+      if [[ -n "$_from_commit" && -d "$repo" ]]; then
+        local _db; _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+        : "${_db:=main}"
+        git -C "$repo" checkout "$_db" 2>/dev/null || true
+        git -C "$repo" branch -D "_test-from-${_from_commit:0:8}" 2>/dev/null || true
+        _set_worktree_base "$repo" remove
+      fi
+      error "Launch failed for $(repo_short "$repo")"; continue
+    fi
+
+    local _sid
+    _sid=$(cat "$mutated/test/.matrix-state/.session_id_$_running_key" 2>/dev/null)
+    [[ -n "$_sid" ]] && printf '%s\t%s\t%s\t%s\n' "${specs[*]}" "$(date +%s)" "$_sid" "$version" > "$_state_dir/running/$_running_key"
+    rm -f "$mutated/test/.matrix-state/.session_id_$_running_key" 2>/dev/null
+    if [[ -z "${_SKIP_CONCURRENCY_CHECK:-}" ]]; then
+      info "$(repo_short "$repo") running — 'make watch' to monitor, 'make results' when done"
+    fi
+  done
 }
 
 cmd_test_all() {
@@ -2067,7 +2074,7 @@ Commands:
   matrix [spec]                     Full pipeline: all versions x all repos with retries
   test-all [--version X.Y.Z]        Run core suite (all 6 repos, batches of $MAX_CONCURRENT)
   court-all [--all-versions]        Run adversarial court on all pending repos
-  test <spec> <repo> [--version]    Run specific test case
+  test <spec> <repo> [<repo>...] [--version]    Run specific test case(s)
   results [repo] [--court] [--all-versions]  Show results (all versions by default via make)
   set-known-good <repo> <ref> [--url <url>]  Set known-good reference
   set-from-commit <repo> <commit>   Set pre-merge commit for historical testing
