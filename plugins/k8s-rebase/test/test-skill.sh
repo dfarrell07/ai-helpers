@@ -1242,7 +1242,11 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
 EOF_DEF
   local p2=$!
   wait "$p1" "$p2" 2>/dev/null || true
-  local pros=$(cat "$cdir/pros.txt") def=$(cat "$cdir/def.txt")
+  # Strip model-availability warning lines that claude writes to stdout
+  # (e.g. "Warning: Opus 5 not available — using Opus 4.8 for this session")
+  local pros def
+  pros=$(grep -v '^Warning:' "$cdir/pros.txt" 2>/dev/null || true)
+  def=$(grep -v '^Warning:' "$cdir/def.txt" 2>/dev/null || true)
   if [[ ${#pros} -lt 200 || ${#def} -lt 200 ]]; then
     error "Prosecution/defense too short (${#pros}/${#def} bytes — $(tail -1 "$cdir/pros.err" 2>/dev/null) / $(tail -1 "$cdir/def.err" 2>/dev/null))"
     return 2
@@ -1250,7 +1254,7 @@ EOF_DEF
 
   info "Phase B: Judge..."
   local judge
-  judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err"
+  judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err" | grep -v '^Warning:'
 $direction
 $preexisting
 
