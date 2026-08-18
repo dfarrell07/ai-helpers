@@ -40,4 +40,8 @@ if [[ "$failures" -gt 0 ]]; then
 fi
 
 total=$(find "$GATES_DIR" -name '*.sh' | wc -l | tr -d ' ')
+if [[ "$total" -lt 8 ]]; then
+  echo "FAIL: expected at least 8 companion/template pairs, found $total (mass deletion?)"
+  exit 1
+fi
 echo "OK: $total companion/template pairs verified"

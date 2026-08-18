@@ -11,21 +11,28 @@ details=()
 
 # Check 1: step1-result.txt
 result_file="$REPO/.rebase-tmp/step1-result.txt"
+result_val="MISSING"
 if [[ -f "$result_file" ]]; then
   result_val=$(tr -d '[:space:]' < "$result_file")
   details+=("CHECK1_RESULT_FILE: $result_val")
+  # Valid tokens: EXIT2 (deps bumped) or EXIT0 (already at target).
+  # Any other content means the script exited abnormally.
+  [[ "$result_val" != "EXIT2" && "$result_val" != "EXIT0" ]] && inc NEW_ISSUES
 else
   details+=("CHECK1_RESULT_FILE: MISSING")
   inc NEW_ISSUES
 fi
 
-# Check 2: staged-but-uncommitted go.mod / vendor / generated files
+# Check 2: modified-or-staged uncommitted go.mod / vendor / generated files.
+# Uses git status --short (not diff --cached) to catch both staged and unstaged
+# modifications — go mod tidy may update files on disk without staging them.
 uncommitted_count=0
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   details+=("CHECK2_UNCOMMITTED: $f")
   ((uncommitted_count++)) || true
-done < <(git diff --cached --name-only 2>/dev/null \
+done < <(git status --short 2>/dev/null \
+  | grep -v '^??' | awk '{print $NF}' \
   | grep -E 'go\.mod$|go\.sum$|^vendor/|\.go$' || true)
 details+=("CHECK2_UNCOMMITTED_COUNT: $uncommitted_count")
 [[ "$uncommitted_count" -gt 0 ]] && inc NEW_ISSUES

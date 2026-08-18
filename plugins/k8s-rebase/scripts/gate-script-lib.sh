@@ -46,7 +46,7 @@ init_gate() {
   local step_dir
   step_dir=$(basename "$(dirname "${BASH_SOURCE[1]}")")
   local step_prefix
-  step_prefix=$(echo "$step_dir" | grep -oE '^step[0-9]+')
+  step_prefix=$(echo "$step_dir" | grep -oE '^step[0-9]+' || true)
   GATE_NAME="${step_prefix}-${GATE_NAME}"
 
   BASE=$(git merge-base HEAD main 2>/dev/null \

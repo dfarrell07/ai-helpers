@@ -26,29 +26,37 @@ if ! grep -q 'k8s.io/client-go' "$REPO/go.mod" 2>/dev/null; then
   [[ -n "$found_mod" ]] && PRIMARY_GOMOD_DIR=$(dirname "$found_mod")
 fi
 
-# WIRING-FIRST GATE DISCOVERY: union of 3 layers, excluding vendor and worktrees.
+# Locate known_features.go early — needed for Layer 3 raw-key filtering below.
+known_features=$(find "$PRIMARY_GOMOD_DIR" \
+  -path '*/vendor/k8s.io/*/features/known_features.go' \
+  -not -path '*/.claude/*' 2>/dev/null | head -1)
+
+# WIRING-FIRST GATE DISCOVERY: union of 3 layers.
+# Use --exclude-dir instead of post-hoc grep -v to correctly exclude vendor/
+# paths (grep -h suppresses filenames so grep -v '/vendor/' would filter gate
+# text, not file paths — a silent bug when -h is combined with -r).
 # Only gates with existing wiring are checked — vendor gates with no source refs
 # were intentionally not wired by the autofix.
 
 # Layer 1: KUBE_FEATURE_ in shell scripts and Makefiles
-wired_l1=$(grep -roh 'KUBE_FEATURE_[A-Za-z0-9_]+' "$PRIMARY_GOMOD_DIR/" \
-  --include='*.sh' --include='Makefile*' 2>/dev/null \
-  | grep -v '/vendor/' | grep -v '/.claude/' \
+wired_l1=$(grep -rohE 'KUBE_FEATURE_[A-Za-z0-9_]+' "$PRIMARY_GOMOD_DIR/" \
+  --include='*.sh' --include='Makefile*' \
+  --exclude-dir=vendor --exclude-dir='.claude' 2>/dev/null \
   | sed 's/KUBE_FEATURE_//' | LC_ALL=C sort -u || true)
 
 # Layer 2: KUBE_FEATURE_ in Go source (os.Setenv, t.Setenv, string literals)
-wired_l2=$(grep -roh 'KUBE_FEATURE_[A-Za-z0-9_]+' "$PRIMARY_GOMOD_DIR/" \
-  --include='*.go' 2>/dev/null \
-  | grep -v '/vendor/' | grep -v '/.claude/' \
+wired_l2=$(grep -rohE 'KUBE_FEATURE_[A-Za-z0-9_]+' "$PRIMARY_GOMOD_DIR/" \
+  --include='*.go' \
+  --exclude-dir=vendor --exclude-dir='.claude' 2>/dev/null \
   | sed 's/KUBE_FEATURE_//' | LC_ALL=C sort -u || true)
 
 # Layer 3: gate names from SetFromMap calls.
 # Handles both constant form string(features.Gate) and raw string keys "Gate": bool.
 # Raw string keys are filtered against known_features.go to avoid false positives
 # from non-gate map keys that happen to start with an uppercase letter.
-sfm_files=$(grep -rln 'SetFromMap' "$PRIMARY_GOMOD_DIR/" \
-  --include='*.go' 2>/dev/null \
-  | grep -v '/vendor/' | grep -v '/.claude/' || true)
+sfm_files=$(grep -rlE 'SetFromMap' "$PRIMARY_GOMOD_DIR/" \
+  --include='*.go' \
+  --exclude-dir=vendor --exclude-dir='.claude' 2>/dev/null || true)
 wired_l3=""
 if [[ -n "$sfm_files" ]]; then
   # Constant form: string(features.WatchListClient) → WatchListClient
@@ -83,11 +91,6 @@ if [[ -z "$all_wired" ]]; then
 fi
 
 details+=("WIRED_GATES: $(echo "$all_wired" | tr '\n' ' ' | sed 's/ $//')")
-
-# Locate known_features.go for vendor symbol verification
-known_features=$(find "$PRIMARY_GOMOD_DIR" \
-  -path '*/vendor/k8s.io/*/features/known_features.go' \
-  -not -path '*/.claude/*' 2>/dev/null | head -1)
 
 # Locate hack/test-go.sh (layer 1 canonical location)
 test_go_sh=$(find "$PRIMARY_GOMOD_DIR" -name 'test-go.sh' \

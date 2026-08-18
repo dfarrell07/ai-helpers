@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help matrix test watch results court set-known-good set-from-commit stop clean
+.PHONY: help matrix test watch results court set-known-good set-from-commit stop clean assert-evidence-paths
 
 SCRIPT := test/test-skill.sh
 SPEC ?= $(if $(spec),$(spec),none)
@@ -108,6 +108,9 @@ set-from-commit: ## Set pre-merge commit
 
 stop: ## Stop all sessions
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) stop --all || true
+
+assert-evidence-paths: ## Verify all companion .sh files have matching EVIDENCE templates
+	@bash test/assert-evidence-paths.sh
 
 clean: ## Reset worktrees, state, temp branches (keeps clones). Use repo= and version= to limit scope.
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean $(if $(VER),--version $(VER)) $(if $(REPO),$(REPO))
