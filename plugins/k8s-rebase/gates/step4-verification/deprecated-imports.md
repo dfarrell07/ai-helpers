@@ -40,13 +40,16 @@ was_modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
 ```
 
 Two tiers:
-1. File WAS modified by the rebase (was_modified > 0): the rebase touched
-   this file — any deprecated import in it must be fixed. Count as FAIL
-   whether it's new (base_has=0) or pre-existing (base_has>0). The rebase
-   was an opportunity to fix it and should have.
-2. File was NOT modified by the rebase (was_modified=0): the deprecated
-   import was there before and the rebase didn't go near it. Count as
-   INFO — out of scope for this rebase.
+1. File WAS modified by the rebase (was_modified > 0):
+   - If base_has==0 (import is NEW): FAIL — rebase introduced it
+   - If base_has>0 (import pre-existing): check whether the diff touches
+     the import block specifically (grep the diff for the import path):
+     `git diff "$BASE"..HEAD -- "<file>" | grep '<import-path>'`
+     If the diff shows the import line changed: FAIL (rebase touched the import)
+     If the diff does NOT show the import changed (rebase modified other parts
+     of the file only): INFO — out of scope, the deprecated import was already
+     there and the rebase didn't cause it
+2. File was NOT modified by the rebase (was_modified=0): INFO — out of scope.
 
 If GO_MINOR is below the required floor for a given package: INFO
 regardless of tier (can't migrate if stdlib equivalent doesn't exist yet).

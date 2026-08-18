@@ -26,7 +26,7 @@ Could any test pass locally but fail in CI due to:
   Only check this file if the rebase diff modified it:
   `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- "$TEST_GO" | wc -l`
   If modified, check for the env-var→sudo gap:
-  `grep -n 'export KUBE_FEATURE_\|export.*=.*false\|sudo ' "$TEST_GO"`
+  `grep -n 'export KUBE_FEATURE_\|sudo ' "$TEST_GO"`
   If `export KUBE_FEATURE_*=val` is set AND `sudo binary` (without -E)
   appears in the same script, the env var is silently dropped for the
   sudo'd test binary — FAIL. The fix is `sudo -E binary`.
@@ -66,11 +66,13 @@ base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<pattern>')
 # If base_has > 0, the issue is PRE-EXISTING — do NOT count it
 ```
 
-If the CI issue exists on the base branch and the rebase did not
-modify that file or its dependencies, it is pre-existing — report
-as "INFO (pre-existing)" but do NOT include in the ISSUES count.
-Only issues introduced or exposed by rebase changes are NEW.
-If ALL findings are pre-existing, verdict MUST be PASS.
+If base_has > 0, the issue is PRE-EXISTING. It is still pre-existing
+even if the rebase modified the file — what matters is whether the
+rebase introduced or changed the specific offending pattern. Check the
+diff for the exact line: if the diff shows the offending export or sudo
+line as unchanged (no + or - on that specific line), it is pre-existing
+INFO. If the diff shows the pattern was added or modified, it is NEW FAIL.
+If ALL findings are pre-existing INFO, verdict MUST be PASS.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

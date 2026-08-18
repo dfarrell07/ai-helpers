@@ -20,28 +20,27 @@ fixes — it catches issues introduced since Step 1. Use
 local Go version is too old. Report total error count from
 non-skipped modules only.
 
-VERDICT IS ABSOLUTE for errors where CI enforces go vet exit code:
+VERDICT IS ABSOLUTE — a completed rebase must deliver zero go vet errors:
 
-First, confirm the repo's CI actually runs `go vet` (or a linter that
-catches the same error class). Check `.github/workflows/` or the CI
-config for `go vet`, `golangci-lint`, or the validate script. If CI
-does not run `go vet ./...`, fall back to delta-only for this gate.
-
-If CI does run `go vet`: a completed rebase must deliver a build that
-CI can vet cleanly. For each vet error, check its origin:
+For each vet error, determine origin by checking the SOURCE FILE on base
+(not the vendor — vet errors reflect source patterns, not removed vendor symbols):
   `BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)`
-  For the failing symbol (function/type) in the error, check if it
-  existed in the vendor package on BASE:
-    `git show "$BASE:vendor/<pkg>/<file>.go" 2>/dev/null | grep -c '<symbol>'`
-  >0: symbol existed before, error is NEW (rebase removed or changed it)
-  ==0: error existed before the rebase too (PRE-EXISTING)
+  `git show "$BASE:<file>" 2>/dev/null | grep -c '<error-pattern-from-source>'`
 
-Report NEW errors as FAIL. Report PRE-EXISTING errors also as FAIL,
-labeled "PRE-EXISTING (must fix)" — CI will reject them regardless.
-Exception: if the vet error is in auto-generated code (zz_generated_*,
-*.pb.go) or a file where the fix would require a dependency bump outside
-the k8s rebase scope, document it with file:line and a specific fix
-suggestion, mark as FAIL with explanation.
+Then check if the rebase touched the file:
+  `was_modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)`
+
+Verdict by case:
+- base_count==0 (NEW error): FAIL — rebase introduced it
+- base_count>0, was_modified>0 (PRE-EXISTING, file touched): FAIL — rebase
+  touched this file and should have fixed it; label "PRE-EXISTING (must fix)"
+- base_count>0, was_modified==0 (PRE-EXISTING, file untouched): INFO — out of
+  scope for this rebase, but note it with a fix suggestion
+
+Exception: vet errors in auto-generated code (zz_generated.*.go, *_generated.go,
+*.pb.go, mock_*.go) — document with file:line and the correct fix (e.g., re-run
+codegen), mark as FAIL with explanation rather than asking the subagent to edit
+generated files directly.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
@@ -54,10 +53,9 @@ read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line for any issues.
 
-VERDICT: FAIL if `go vet ./...` or `go build ./...` exits nonzero
-in ANY non-skipped module, regardless of whether the errors existed
-before the rebase. A completed rebase must deliver clean code.
-PASS only when all non-skipped modules build and vet cleanly (zero errors).
+VERDICT: FAIL if any NEW or PRE-EXISTING-touched errors exist.
+PASS only when all non-skipped modules build and vet cleanly (zero FAIL-tier errors).
+INFO items (pre-existing, file untouched) do not block — note them for follow-up.
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:
