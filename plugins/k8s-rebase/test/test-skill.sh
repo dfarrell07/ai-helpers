@@ -1552,8 +1552,8 @@ cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   _SESSION_CACHE_AGE=0
   build_session_cache
-  printf "%-36s %-7s %-13s %-14s %-30s %s\n" "REPO" "VER" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
-  printf "%-36s %-7s %-13s %-14s %-30s %s\n" "----" "---" "------" "-----" "-------------" "-------------"
+  printf "%-36s %-7s %-5s %-13s %-14s %-28s %s\n" "REPO" "VER" "SPEC" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
+  printf "%-36s %-7s %-5s %-13s %-14s %-28s %s\n" "----" "---" "----" "------" "-----" "-------------" "-------------"
   local active=0
   for running_file in "$state_dir/running"/*; do
     [[ -f "$running_file" ]] || continue
@@ -1619,8 +1619,6 @@ cmd_watch() {
           3) _phase="autofix" ;;  4) _phase="verify" ;;
           5) _phase="finishing" ;; *) _phase="step$_step" ;;
         esac
-        # Mark blind (spec=all) so autofix/verify don't look like full mode
-        [[ "$_file_spec" == "all" || "$_file_spec" == *"all-fns"* ]] && _phase="${_phase}*"
         # Time since last file activity in .rebase-tmp (gates/ excluded — too noisy)
         local _last_ts; _last_ts=$(find "$wt/.rebase-tmp" -maxdepth 1 -type f \
           -exec stat -c '%Y' {} \; 2>/dev/null | sort -rn | head -1)
@@ -1636,7 +1634,7 @@ cmd_watch() {
     [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
     [[ "$gs" -gt 0 ]] && _gsuffix="${_gsuffix:+${_gsuffix},}${gs}S"
     [[ -n "$_gsuffix" ]] && gate_str="${gate_str} (${_gsuffix})"
-    printf "%-36s %-7s %-13s %-14s %-30s %s\n" "$short" "${_file_version:-?}" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+    printf "%-36s %-7s %-5s %-13s %-14s %-28s %s\n" "$short" "${_file_version:-?}" "${_file_spec:-?}" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
   done
   [[ "$active" -le 0 ]] && echo "(no active tests)"
   return 0
