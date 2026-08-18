@@ -1552,8 +1552,8 @@ cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   _SESSION_CACHE_AGE=0
   build_session_cache
-  printf "%-36s %-7s %-16s %-14s %-24s %s\n" "REPO" "VER" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
-  printf "%-36s %-7s %-16s %-14s %-24s %s\n" "----" "---" "------" "-----" "-------------" "-------------"
+  printf "%-36s %-7s %-13s %-14s %-30s %s\n" "REPO" "VER" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
+  printf "%-36s %-7s %-13s %-14s %-30s %s\n" "----" "---" "------" "-----" "-------------" "-------------"
   local active=0
   for running_file in "$state_dir/running"/*; do
     [[ -f "$running_file" ]] || continue
@@ -1582,7 +1582,7 @@ cmd_watch() {
       : "${_db:=main}"
       if [[ -n "$_branch" ]]; then
         local n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
-        [[ "$n_commits" -gt 0 ]] && commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 30)
+        [[ "$n_commits" -gt 0 ]] && commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 28)
       fi
       _collect_gate_dirs "$repo"
       if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
@@ -1627,7 +1627,7 @@ cmd_watch() {
     [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
     [[ "$gs" -gt 0 ]] && _gsuffix="${_gsuffix:+${_gsuffix},}${gs}S"
     [[ -n "$_gsuffix" ]] && gate_str="${gate_str} (${_gsuffix})"
-    printf "%-36s %-7s %-16s %-14s %-24s %s\n" "$short" "${_file_version:-?}" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+    printf "%-36s %-7s %-13s %-14s %-30s %s\n" "$short" "${_file_version:-?}" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
   done
   [[ "$active" -le 0 ]] && echo "(no active tests)"
   return 0
