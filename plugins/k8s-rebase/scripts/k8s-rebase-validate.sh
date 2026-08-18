@@ -556,12 +556,16 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
           "$REBASE_TMP/${ci_dir##*/}-gofmt.log" 2>/dev/null; then
         echo "  NOTE: make gofmt container failed — running gofmt directly..."
         step_failed=0
-        _gofmt_unformatted=$(cd "$REPO_ROOT/$ci_dir" && \
-          gofmt -l . 2>/dev/null | grep -v vendor/ | grep -v '.cache/' | head -20 || true)
-        if [[ -n "$_gofmt_unformatted" ]]; then
-          echo "Unformatted files:" >> "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
-          echo "$_gofmt_unformatted" >> "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
-          step_failed=1
+        if command -v gofmt &>/dev/null; then
+          _gofmt_unformatted=$(cd "$REPO_ROOT/$ci_dir" && \
+            gofmt -l . 2>/dev/null | grep -v vendor/ | grep -v '.cache/' | head -20 || true)
+          if [[ -n "$_gofmt_unformatted" ]]; then
+            echo "Unformatted files:" >> "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
+            echo "$_gofmt_unformatted" >> "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
+            step_failed=1
+          fi
+        else
+          echo "  WARNING: gofmt not available and container failed — skipping gofmt check"
         fi
       fi
     fi
