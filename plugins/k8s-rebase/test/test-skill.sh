@@ -1552,8 +1552,8 @@ cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   _SESSION_CACHE_AGE=0
   build_session_cache
-  printf "%-36s %-7s %-13s %-14s %-30s %s\n" "REPO" "VER" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
-  printf "%-36s %-7s %-13s %-14s %-30s %s\n" "----" "---" "------" "-----" "-------------" "-------------"
+  printf "%-36s %-7s %-13s %-14s %-30s %s\n" "REPO" "VER" "STATUS" "GATES" "LATEST COMMIT" "DIFF"
+  printf "%-36s %-7s %-13s %-14s %-30s %s\n" "----" "---" "------" "-----" "-------------" "----"
   local active=0
   for running_file in "$state_dir/running"/*; do
     [[ -f "$running_file" ]] || continue
@@ -1591,11 +1591,23 @@ cmd_watch() {
       fi
     fi
     local kg=$(_resolve_known_good "$short" "$repo")
-    if [[ -n "$kg" && -n "$wt" && -n "$_branch" ]]; then
-      local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-      local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
-      diff_info="${nv} code"
-      [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
+    local _from_commit=$(_config_val "$short" "from_commit")
+    if [[ -n "$wt" && -n "$_branch" ]]; then
+      if [[ "$session_state" == "done" || "$session_state" == "gone" ]] && [[ -n "$kg" ]]; then
+        # Session complete: show diff vs known-good (quality signal — how close to reference)
+        local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+        local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+        diff_info="${nv} code"
+        [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
+      elif [[ -n "$_from_commit" ]]; then
+        # Session active: show diff vs from_commit (progress signal — how much the rebase added)
+        # VS KNOWN-GOOD during WIP is dominated by version resolution differences (e.g. v0.34.1
+        # vs v0.34.3 from MVS), making it a misleading large constant until the very end.
+        local nv=$(git -C "$repo" diff "$_from_commit" "$_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+        local nv_all=$(git -C "$repo" diff "$_from_commit" "$_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+        diff_info="${nv} code from base"
+        [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
+      fi
     fi
     # Show "needs-court" when session is done, gates complete, no done file yet
     if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
