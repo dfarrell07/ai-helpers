@@ -15,6 +15,10 @@ _repos_parent="$(cd "$(dirname "$REPOS_DIR")" 2>/dev/null && pwd)"
 REPOS_DIR="$_repos_parent/$(basename "$REPOS_DIR")"
 REPOS_DIR="${REPOS_DIR%/}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
+# Model for court analysis — set explicitly so court doesn't fall back to
+# an unavailable model (e.g. Opus 5 on Vertex) and produce no output.
+# Override with COURT_MODEL=<model> if needed.
+COURT_MODEL="${COURT_MODEL:-claude-opus-4-8}"
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"
 _MAX_CONCURRENT_FROM_ENV="${MAX_CONCURRENT:-}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
@@ -1229,13 +1233,13 @@ FILES: $diff_stat"
   mkdir -p "$cdir"
 
   info "Phase A: Prosecution + Defense..."
-  cat <<EOF_PROS | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
+  cat <<EOF_PROS | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
 $context
 
 You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.
 EOF_PROS
   local p1=$!
-  cat <<EOF_DEF | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
+  cat <<EOF_DEF | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
 $context
 
 You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.
@@ -1254,7 +1258,7 @@ EOF_DEF
 
   info "Phase B: Judge..."
   local judge
-  judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err" | grep -v '^Warning:'
+  judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err" | grep -v '^Warning:'
 $direction
 $preexisting
 
@@ -1274,7 +1278,7 @@ EOF_JUDGE
 
   info "Phase C: Jury (parallel)..."
   for j in 1 2 3; do
-    cat <<EOF_JURY | timeout 600 claude -p --strict-mcp-config --permission-mode "$PERMISSION_MODE" --output-format text \
+    cat <<EOF_JURY | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text \
       --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
       > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
 REPO: $repo
