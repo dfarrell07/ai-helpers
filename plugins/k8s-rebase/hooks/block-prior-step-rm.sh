@@ -11,7 +11,7 @@
 # Only fires when .rebase-tmp/.session-active exists.
 
 set -euo pipefail
-command -v jq >/dev/null 2>&1 || exit 0
+command -v jq >/dev/null 2>&1 || { printf '{"decision":"block","reason":"jq required by block-prior-step-rm hook"}\n'; exit 0; }
 
 INPUT=$(cat)
 
