@@ -56,9 +56,9 @@ help: ## Show available targets
 	@echo ""
 	@echo "  Manage"
 	@echo "    make stop                       Stop all running test sessions"
-	@echo "    make clean                      Reset worktrees, state, temp branches (keeps clones)
-    make clean repo=<repo>          Clean one repo (all versions)
-    make clean repo=<repo> version=1.34.1  Clean one repo, one version only"
+	@echo "    make clean                      Reset worktrees, state, temp branches (keeps clones)"
+	@echo "    make clean repo=<repo>          Clean one repo (all versions)"
+	@echo "    make clean repo=<repo> version=1.34.1  Clean one repo, one version only"
 	@echo ""
 	@echo "  Config"
 	@echo "    make set-known-good repo=<repo> ref=<sha>            Set known-good to a SHA on main"
