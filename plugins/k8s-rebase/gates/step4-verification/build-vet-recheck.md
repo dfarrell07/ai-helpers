@@ -20,21 +20,23 @@ fixes — it catches issues introduced since Step 1. Use
 local Go version is too old. Report total error count from
 non-skipped modules only.
 
-MANDATORY pre-existing check — run for EVERY build/vet error:
+VERDICT IS ABSOLUTE — `go vet` exit code is CI's criterion, not delta:
 
-In normal workflow, step 2's build-vet gate already passed with 0 new
-errors, meaning the baseline was clean before the autofix ran. Any
-error found here was introduced by the autofix or subsequent fix
-commits and is NEW — report ALL such errors as FAIL.
+A completed rebase must deliver a build that CI can vet cleanly.
+`go vet` failures block CI regardless of when they were introduced.
+If a pre-existing `go vet` error was not fixed during the rebase,
+CI will still fail — report it as FAIL, not INFO.
 
-Do NOT use "was this file modified by the rebase?" as the pre-existing
-test. An unmodified file can still get a new compile error when a
-dependency API it calls is changed or removed — that error is NEW
-even though the file itself was not touched.
+For each error, check the from_commit to determine if it is new or
+pre-existing:
+  `BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)`
+  Check whether the same error existed at BASE.
 
-If step 2 did not run cleanly: check the step 2 build-vet gate report
-for this same error. If step 2 already reported it as pre-existing,
-mark it INFO here too. If step 2 did not report it, it is NEW.
+Report pre-existing errors as "PRE-EXISTING (must fix)" — they still
+count toward FAIL. Report new errors as "NEW". Both require fixing.
+The step 2 report may note pre-existing errors; step 4's job is to
+confirm the final state is clean regardless of where the errors came
+from.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
@@ -47,9 +49,10 @@ read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line for any issues.
 
-VERDICT: FAIL if any NEW (non-pre-existing) build or vet error
-exists in non-skipped modules. PASS if all modules build and
-pass vet cleanly or if all errors are pre-existing.
+VERDICT: FAIL if `go vet ./...` or `go build ./...` exits nonzero
+in ANY non-skipped module, regardless of whether the errors existed
+before the rebase. A completed rebase must deliver clean code.
+PASS only when all non-skipped modules build and vet cleanly (zero errors).
 
 After your analysis, write your report using the helper script.
 The repo path is the first line of your prompt:

@@ -30,23 +30,30 @@ Do NOT re-run build, vet, or the vendor deprecated-symbol scan
 — build-vet-recheck and step3's deprecated-api-remnants gates
 already cover those.
 
-MANDATORY pre-existing check — run for EVERY deprecated import finding:
+VERDICT IS ABSOLUTE — linters flag deprecated imports in the final
+result regardless of when they were introduced:
 
+Check base branch origin for context only:
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 # For each finding at <file> with <import-path>:
 base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<import-path>')
-# If base_has > 0, the x/ import is PRE-EXISTING — do NOT count it
+# base_has > 0 = PRE-EXISTING (report as "PRE-EXISTING (must fix)")
+# base_has == 0 = NEW (report as "NEW")
 ```
 
-If the deprecated import exists on the base branch, it is pre-existing —
-report as "INFO (pre-existing)" but do NOT include in the ISSUES
-count. Only imports NOT on the base branch are NEW and count
-toward FAIL. If ALL findings are pre-existing, verdict MUST be
-PASS.
+Both PRE-EXISTING and NEW deprecated imports count toward FAIL.
+A completed rebase must fix deprecated imports — linters and CI catch
+them regardless of origin. The human's reference rebase always fixes
+pre-existing deprecated imports as part of the rebase cleanup.
 
-Report count of NEW x/ imports that have stdlib equivalents.
-Cite file:line for each hit. Zero new findings means PASS.
+Report count of ALL x/ imports that have stdlib equivalents (new and
+pre-existing). Cite file:line for each hit.
+
+Exception: if a deprecated import is in a file the rebase explicitly
+did NOT need to touch AND fixing it would require significant API
+migration work — note it as INFO but still count toward FAIL with a
+recommended fix command.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
