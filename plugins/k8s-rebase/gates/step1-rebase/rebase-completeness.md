@@ -1,3 +1,14 @@
+EVIDENCE (read before judging): if `.rebase-tmp/gates/step1-rebase-completeness.evidence` exists,
+run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+- Match: Read the file first. `CHECK1_RESULT_FILE`, `CHECK2_UNCOMMITTED_COUNT`, and
+  `CHECK5_CONFLICT_COUNT` are definitive counts — do not re-run those checks.
+  For check 3 (commits), use the `CHECK3_LOG` lines and `CHECK3_*` fields as ground
+  truth; apply the codegen exception logic below. For check 4 (dep versions), use
+  `CHECK4_DEP` lines as ground truth; apply the replace/indirect exception logic below.
+  `NEW_ISSUES` reflects checks 1, 2, and 5 only — checks 3 and 4 require your judgment.
+- Differ or file absent: evidence is stale/missing — judge from scratch using the checks
+  below. Do NOT PASS on the strength of absent or stale evidence.
+
 Verify the deterministic rebase script completed correctly.
 Report a count for each check:
 

@@ -79,8 +79,14 @@ version in `.ci-operator.yaml` and Dockerfiles.
 
 ## Gate
 
-Launch one subagent for the gate file below. The subagent prompt
-must include: repo path, module safety rule (from rules.md), and
+Run the orchestrator to collect companion evidence and discover gate state:
+```bash
+REPO_ROOT=$(git rev-parse --show-toplevel)
+bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 1
+```
+
+Launch subagents only for PENDING gates. The subagent prompt must
+include: repo path, module safety rule (from rules.md), and
 "Read `$PLUGIN_ROOT/gates/step1-rebase/<filename>` and follow
 its instructions." Do NOT cat the gate file yourself — let the
 subagent read it.
@@ -92,9 +98,10 @@ Gate file:
 1. **Fix**: For each failing check (missing codegen, uncommitted
    changes, stale replace directives, wrong dep versions),
    fix the issue and commit.
-2. **Re-run** (mandatory — never skip): Delete the old gate report
-   (`rm .rebase-tmp/gates/step1-rebase-completeness.report`),
-   then re-launch the gate subagent with a fresh prompt. Stale
+2. **Re-run** (mandatory — never skip): Re-run the orchestrator
+   gates command to refresh evidence, then delete the old gate
+   report (`rm .rebase-tmp/gates/step1-rebase-completeness.report`)
+   and re-launch the gate subagent with a fresh prompt. Stale
    FAIL reports cause auto-record to mark the run as failed even
    if the fix worked.
 Repeat up to 3 times. If it still fails, stop and report the
