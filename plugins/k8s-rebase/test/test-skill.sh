@@ -1561,6 +1561,7 @@ cmd_watch() {
     local _rk=$(basename "$running_file")
     local _raw=$(cat "$running_file")
     local _file_version=$(echo "$_raw" | cut -f4)
+    local _file_spec=$(echo "$_raw" | cut -f1)
     local _bare_rk=$(repo_key_from_running "$_file_version" "$_rk")
     local short=$(echo "$_bare_rk" | tr '_' '/')
     local repo="$REPOS_DIR/$short"
@@ -1618,6 +1619,8 @@ cmd_watch() {
           3) _phase="autofix" ;;  4) _phase="verify" ;;
           5) _phase="finishing" ;; *) _phase="step$_step" ;;
         esac
+        # Mark blind (spec=all) so autofix/verify don't look like full mode
+        [[ "$_file_spec" == "all" || "$_file_spec" == *"all-fns"* ]] && _phase="${_phase}*"
         # Time since last file activity in .rebase-tmp (gates/ excluded — too noisy)
         local _last_ts; _last_ts=$(find "$wt/.rebase-tmp" -maxdepth 1 -type f \
           -exec stat -c '%Y' {} \; 2>/dev/null | sort -rn | head -1)
