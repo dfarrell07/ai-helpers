@@ -48,6 +48,9 @@ init_gate() {
   local step_prefix
   step_prefix=$(echo "$step_dir" | grep -oE '^step[0-9]+' || true)
   GATE_NAME="${step_prefix}-${GATE_NAME}"
+  # Clear any stale crash breadcrumb from a prior failed run so a successful
+  # re-run does not leave misleading state alongside the fresh evidence file.
+  rm -f "$REPO/.rebase-tmp/gates/${GATE_NAME}.crash" 2>/dev/null || true
 
   BASE=$(git merge-base HEAD main 2>/dev/null \
       || git merge-base HEAD master 2>/dev/null \
