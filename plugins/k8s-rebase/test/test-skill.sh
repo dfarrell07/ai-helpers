@@ -406,16 +406,20 @@ reset_to_default() {
 }
 
 remove_worktrees() {
-  local repo="$1"
+  local repo="$1" version="${2:-}"
   cd "$repo" 2>/dev/null || return 1
   local wt_lines default_br
   wt_lines=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' || true)
   [[ -z "$wt_lines" ]] && return 0
   default_br=$(default_branch)
+  local ver_prefix=""
+  [[ -n "$version" ]] && ver_prefix="bump${version%.*}-"
   while IFS= read -r line; do
     local wt_path wt_branch commit_count=0
     wt_path=$(echo "$line" | awk '{print $1}')
     wt_branch=$(echo "$line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+    # Version-scoped: skip worktrees that belong to a different version
+    [[ -n "$ver_prefix" && -n "$wt_branch" && "$wt_branch" != "${ver_prefix}"* ]] && continue
     [[ -n "$wt_branch" ]] && commit_count=$(git rev-list --count "$default_br".."$wt_branch" 2>/dev/null || echo 0)
     git worktree unlock "$wt_path" 2>/dev/null || true
     git worktree remove "$wt_path" --force 2>/dev/null \
@@ -433,10 +437,14 @@ remove_worktrees() {
   if [[ -d "$repo/.claude/worktrees" ]]; then
     for orphan in "$repo/.claude/worktrees"/*/; do
       [[ -d "$orphan" ]] || continue
+      local orphan_name
+      orphan_name=$(basename "$orphan")
+      # Version-scoped: skip orphan dirs that belong to a different version
+      [[ -n "$ver_prefix" && "$orphan_name" != "${ver_prefix}"* ]] && continue
       if rm -rf "$orphan"; then
-        info "Removed orphaned worktree dir: $(basename "$orphan")"
+        info "Removed orphaned worktree dir: $orphan_name"
       else
-        warn "Could not remove orphaned worktree dir: $(basename "$orphan")"
+        warn "Could not remove orphaned worktree dir: $orphan_name"
       fi
     done
   fi
@@ -614,8 +622,17 @@ cmd_stop() {
 }
 
 cmd_clean() {
-  local repos=("$@")
+  local repos=()
+  local version=""
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --version) shift; version="${1:-}" ;;
+      *) repos+=("$1") ;;
+    esac; shift
+  done
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
+  local _ver_u=""
+  [[ -n "$version" ]] && _ver_u=$(echo "$version" | tr '.' '_')
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local running_dir="$state_dir/running"
   local cleaned_keys=()
@@ -627,6 +644,8 @@ cmd_clean() {
     if [[ -d "$running_dir" ]]; then
       for rf in "$running_dir"/*"_${_ck}"; do
         [[ -f "$rf" ]] || continue
+        # Version-scoped: skip sessions from other versions
+        [[ -n "$version" && "$(basename "$rf")" != "${version}_${_ck}" ]] && continue
         local _sid=$(cut -f3 "$rf" 2>/dev/null)
         if [[ -n "$_sid" ]]; then
           claude stop "$_sid" 2>/dev/null || true
@@ -638,7 +657,7 @@ cmd_clean() {
     cleaned_keys+=("$_ck")
     cd "$repo" || continue
     git worktree prune 2>/dev/null || true
-    remove_worktrees "$repo"
+    remove_worktrees "$repo" "$version"
     rm -rf "$repo/.rebase-tmp" 2>/dev/null || true
     # Recover to default branch first (so we can delete temp branches)
     local _cur=$(git branch --show-current 2>/dev/null)
@@ -661,12 +680,21 @@ cmd_clean() {
     [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
   fi
   for _ck in "${cleaned_keys[@]}"; do
-    rm -f "$state_dir/done/"*"_${_ck}" 2>/dev/null
-    rm -rf "$state_dir/court/"*"_${_ck}" 2>/dev/null
-    rm -f "$state_dir/running/"*"_${_ck}" 2>/dev/null
+    if [[ -n "$version" ]]; then
+      rm -f "$state_dir/done/${version}_"*"_${_ck}" 2>/dev/null
+      rm -rf "$state_dir/court/${version}_${_ck}" 2>/dev/null
+      rm -f "$state_dir/running/${version}_${_ck}" 2>/dev/null
+      rm -f "$state_dir/.session_id_${version}_${_ck}" 2>/dev/null
+      rm -f "$state_dir/known_good_resolved_${_ck}_${_ver_u}" 2>/dev/null
+    else
+      rm -f "$state_dir/done/"*"_${_ck}" 2>/dev/null
+      rm -rf "$state_dir/court/"*"_${_ck}" 2>/dev/null
+      rm -f "$state_dir/running/"*"_${_ck}" 2>/dev/null
+      rm -f "$state_dir/.session_id_"*"_${_ck}" 2>/dev/null
+      rm -f "$state_dir/known_good_resolved_${_ck}_"* 2>/dev/null
+    fi
   done
   [[ ${#cleaned_keys[@]} -gt 0 ]] && info "Cleared done/court/running state for ${#cleaned_keys[@]} repos"
-  rm -f "$state_dir"/.session_id_* "$state_dir"/from_commit_* "$state_dir"/known_good_* "$state_dir"/expected_fail_* 2>/dev/null
   return 0
 }
 
@@ -2040,7 +2068,7 @@ Commands:
   set-known-good <repo> <ref> [--url <url>]  Set known-good reference
   set-from-commit <repo> <commit>   Set pre-merge commit for historical testing
   stop [repo...|--all]              Stop running test sessions
-  clean [repos...]                  Cleanup worktrees and containers
+  clean [--version X.Y.Z] [repos...]  Cleanup worktrees and state (all versions or one)
 
 Specs: all, all-fns, all-patterns, fn:<tag>, pattern:<key>
 Tags: $(echo "${!TAG_TO_PATTERN[@]}" | tr ' ' ', ')

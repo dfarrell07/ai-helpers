@@ -56,7 +56,9 @@ help: ## Show available targets
 	@echo ""
 	@echo "  Manage"
 	@echo "    make stop                       Stop all running test sessions"
-	@echo "    make clean                      Reset worktrees, state, temp branches (keeps clones)"
+	@echo "    make clean                      Reset worktrees, state, temp branches (keeps clones)
+    make clean repo=<repo>          Clean one repo (all versions)
+    make clean repo=<repo> version=1.34.1  Clean one repo, one version only"
 	@echo ""
 	@echo "  Config"
 	@echo "    make set-known-good repo=<repo> ref=<sha>            Set known-good to a SHA on main"
@@ -107,5 +109,5 @@ set-from-commit: ## Set pre-merge commit
 stop: ## Stop all sessions
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) stop --all || true
 
-clean: ## Reset worktrees, state, temp branches (keeps clones). Use repo= to limit to one repo.
-	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean $(if $(REPO),$(REPO))
+clean: ## Reset worktrees, state, temp branches (keeps clones). Use repo= and version= to limit scope.
+	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean $(if $(VER),--version $(VER)) $(if $(REPO),$(REPO))
