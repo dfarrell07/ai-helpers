@@ -549,6 +549,23 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
     step_failed=0
     run_validation "${ci_dir##*/}-gofmt" "make -C $ci_dir gofmt" || step_failed=1
     if [[ "$step_failed" -eq 1 ]]; then
+      # Container path failure in worktrees (same pattern as lint fallback).
+      # The make gofmt target mounts the parent dir of worktrees, so
+      # hack/verify-gofmt.sh is not found at the expected path inside the container.
+      if grep -qE "not found.*OCI|executable.*not found|No such file.*Error 127|Error[: ]+125|short-name resolution" \
+          "$REBASE_TMP/${ci_dir##*/}-gofmt.log" 2>/dev/null; then
+        echo "  NOTE: make gofmt container failed — running gofmt directly..."
+        step_failed=0
+        _gofmt_unformatted=$(cd "$REPO_ROOT/$ci_dir" && \
+          gofmt -l . 2>/dev/null | grep -v vendor/ | grep -v '.cache/' | head -20 || true)
+        if [[ -n "$_gofmt_unformatted" ]]; then
+          echo "Unformatted files:" >> "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
+          echo "$_gofmt_unformatted" >> "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
+          step_failed=1
+        fi
+      fi
+    fi
+    if [[ "$step_failed" -eq 1 ]]; then
       echo "## GOFMT ERRORS ($ci_dir)" >> "$SUMMARY"
       tail -10 "$REBASE_TMP/${ci_dir##*/}-gofmt.log" >> "$SUMMARY"
       echo "" >> "$SUMMARY"
