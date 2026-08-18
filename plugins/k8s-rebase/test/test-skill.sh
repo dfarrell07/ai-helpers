@@ -1552,8 +1552,8 @@ cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   _SESSION_CACHE_AGE=0
   build_session_cache
-  printf "%-42s %-10s %-8s %-32s %s\n" "REPO" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
-  printf "%-42s %-10s %-8s %-32s %s\n" "----" "-------" "-----" "-------------" "-------------"
+  printf "%-36s %-7s %-12s %-14s %-28s %s\n" "REPO" "VER" "SESSION" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
+  printf "%-36s %-7s %-12s %-14s %-28s %s\n" "----" "---" "-------" "-----" "-------------" "-------------"
   local active=0
   for running_file in "$state_dir/running"/*; do
     [[ -f "$running_file" ]] || continue
@@ -1609,7 +1609,7 @@ cmd_watch() {
     [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
     [[ "$gs" -gt 0 ]] && _gsuffix="${_gsuffix:+${_gsuffix},}${gs}S"
     [[ -n "$_gsuffix" ]] && gate_str="${gate_str} (${_gsuffix})"
-    printf "%-42s %-10s %-8s %-32s %s\n" "$short" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+    printf "%-36s %-7s %-12s %-14s %-28s %s\n" "$short" "${_file_version:-?}" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
   done
   [[ "$active" -le 0 ]] && echo "(no active tests)"
   return 0
