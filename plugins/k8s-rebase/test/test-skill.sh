@@ -631,6 +631,10 @@ cmd_clean() {
     esac; shift
   done
   [[ ${#repos[@]} -eq 0 ]] && repos=("${DEFAULT_REPOS[@]}")
+  if [[ -n "$version" && ! "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+    warn "clean: --version must be X.Y.Z (got: $version) — ignoring version filter"
+    version=""
+  fi
   local _ver_u=""
   [[ -n "$version" ]] && _ver_u=$(echo "$version" | tr '.' '_')
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
