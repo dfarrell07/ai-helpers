@@ -1616,7 +1616,7 @@ cmd_watch() {
         case "$_step" in
           1) _phase="rebase" ;;   2) _phase="compile" ;;
           3) _phase="autofix" ;;  4) _phase="verify" ;;
-          5) _phase="pr-review" ;; *) _phase="step$_step" ;;
+          5) _phase="finishing" ;; *) _phase="step$_step" ;;
         esac
         # Time since last file activity in .rebase-tmp (gates/ excluded — too noisy)
         local _last_ts; _last_ts=$(find "$wt/.rebase-tmp" -maxdepth 1 -type f \
