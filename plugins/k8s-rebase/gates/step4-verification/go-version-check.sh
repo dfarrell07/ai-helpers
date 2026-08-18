@@ -29,13 +29,12 @@ if [[ ${#go_versions[@]} -gt 0 ]]; then
   expected_go=$(printf '%s\n' "${go_versions[@]}" | head -1 | cut -d: -f2)
 fi
 
-if [[ -n "$expected_go" ]]; then
+_check_branch_modified_refs() {
+  # Only flag matches in files touched by this branch; skip pre-existing ones.
   while IFS= read -r match; do
     [[ -z "$match" ]] && continue
     file=$(echo "$match" | cut -d: -f1)
     if [[ -n "$BASE" ]]; then
-      # Old version was correct on base — "appears on base" is always true.
-      # Use modified-file: only files touched by this branch need updating.
       modified=$(git diff --name-only "$BASE"..HEAD -- "$file" | wc -l)
       if [[ "$modified" -eq 0 ]]; then
         echo "  PRE-EXISTING: $match (file not modified by this branch)"
@@ -45,22 +44,12 @@ if [[ -n "$expected_go" ]]; then
     echo "  NEW: $match"
     details+=("$match")
     ((NEW_ISSUES++)) || true
-  done < <(grep -rn '\bGO_VERSION\b\|\bGOLANG_VERSION\b' --include='Makefile*' . 2>/dev/null | grep -v vendor | grep -v 'GINKGO_VERSION\|HUGO_VERSION\|CARGO_VERSION\|CARGO_GO\|PROTO_GO\|MOCKGEN_GO\|OPERATOR_GO' || true)
+  done
+}
 
-  while IFS= read -r match; do
-    [[ -z "$match" ]] && continue
-    file=$(echo "$match" | cut -d: -f1)
-    if [[ -n "$BASE" ]]; then
-      modified=$(git diff --name-only "$BASE"..HEAD -- "$file" | wc -l)
-      if [[ "$modified" -eq 0 ]]; then
-        echo "  PRE-EXISTING: $match (file not modified by this branch)"
-        continue
-      fi
-    fi
-    echo "  NEW: $match"
-    details+=("$match")
-    ((NEW_ISSUES++)) || true
-  done < <(grep -rn 'golang:' --include='Dockerfile*' . 2>/dev/null | grep -v vendor || true)
+if [[ -n "$expected_go" ]]; then
+  _check_branch_modified_refs < <(grep -rn '\bGO_VERSION\b\|\bGOLANG_VERSION\b' --include='Makefile*' . 2>/dev/null | grep -v vendor | grep -v 'GINKGO_VERSION\|HUGO_VERSION\|CARGO_VERSION\|CARGO_GO\|PROTO_GO\|MOCKGEN_GO\|OPERATOR_GO' || true)
+  _check_branch_modified_refs < <(grep -rn 'golang:' --include='Dockerfile*' . 2>/dev/null | grep -v vendor || true)
 fi
 
 finish_evidence "$NEW_ISSUES Go version issues" "${details[@]}"

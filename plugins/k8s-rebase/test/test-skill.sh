@@ -401,7 +401,7 @@ reset_to_default() {
   local default_br
   default_br=$(default_branch)
   git checkout "$default_br" &>/dev/null || { error "Cannot checkout $default_br"; return 1; }
-  git pull --ff-only &>/dev/null || true
+  git pull --ff-only &>/dev/null || warn "$(repo_short "$repo"): pull --ff-only failed — rebase will start from local HEAD"
   info "$(repo_short "$repo") -> $default_br @ $(git rev-parse --short HEAD)"
 }
 

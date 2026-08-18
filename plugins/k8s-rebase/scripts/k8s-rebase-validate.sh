@@ -60,8 +60,9 @@ _current_branch=$(git branch --show-current 2>/dev/null || true)
 if [[ "$_current_branch" == "master" || "$_current_branch" == "main" ]]; then
   echo "ERROR: Validate is running on '$_current_branch', not the rebase branch."
   if [[ -f "$REPO_ROOT/.rebase-tmp/branch-name" ]]; then
-    echo "The rebase branch is: $(cat "$REPO_ROOT/.rebase-tmp/branch-name")"
-    echo "Run: git checkout $(cat "$REPO_ROOT/.rebase-tmp/branch-name")"
+    _branch=$(<"$REPO_ROOT/.rebase-tmp/branch-name")
+    echo "The rebase branch is: $_branch"
+    echo "Run: git checkout $_branch"
   fi
   exit 1
 fi

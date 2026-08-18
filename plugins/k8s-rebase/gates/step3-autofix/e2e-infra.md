@@ -25,7 +25,7 @@ For each modified e2e file, check:
 
 List each item checked and whether it passes. Report issues.
 
-Run this check FIRST — if nothing matches, SKIP immediately:
+Run this check FIRST — if nothing matches, write a SKIP report and stop:
 ```bash
 REPO="<the repo path from the first line of your prompt>"
 E2E_FILES=$(grep -rln 'kindest/node\|K8S_VERSION\|KIND_VERSION\|kind-common\|e2e-kind\|install-kind' "$REPO" --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.j2' --include='kind-common' 2>/dev/null | grep -v vendor/ | head -20)

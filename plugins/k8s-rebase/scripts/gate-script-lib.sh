@@ -46,7 +46,7 @@ init_gate() {
   local step_dir
   step_dir=$(basename "$(dirname "${BASH_SOURCE[1]}")")
   local step_prefix
-  step_prefix=$(echo "$step_dir" | grep -oE '^step[0-9]+' || true)
+  step_prefix=$(grep -oE '^step[0-9]+' <<< "$step_dir" || true)
   GATE_NAME="${step_prefix}-${GATE_NAME}"
   # Clear any stale crash breadcrumb from a prior failed run so a successful
   # re-run does not leave misleading state alongside the fresh evidence file.
@@ -73,11 +73,11 @@ _head_sha() { git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown; }
 _write_evidence() {
   local summary="$1"; shift
   mkdir -p "$REPO/.rebase-tmp/gates"
-  local ev="$REPO/.rebase-tmp/gates/${GATE_NAME}.evidence"
+  local evidence_path="$REPO/.rebase-tmp/gates/${GATE_NAME}.evidence"
   { echo "HEAD: $(_head_sha)"; echo "SUMMARY: $summary"; printf '%s\n' "$@"; } \
-    | tee "$ev.tmp"
-  mv "$ev.tmp" "$ev"
-  echo "PENDING: $GATE_NAME"; echo "EVIDENCE: $ev"
+    | tee "$evidence_path.tmp"
+  mv "$evidence_path.tmp" "$evidence_path"
+  echo "PENDING: $GATE_NAME"; echo "EVIDENCE: $evidence_path"
 }
 
 finish_evidence() {

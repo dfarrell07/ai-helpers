@@ -15,7 +15,6 @@
 set -euo pipefail
 
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-WRITE_REPORT="$PLUGIN_ROOT/scripts/write-gate-report.sh"
 GATES_ROOT="$PLUGIN_ROOT/gates"
 
 STEP_DIRS=("step1-rebase" "step2-compilation" "step3-autofix" "step4-verification")
@@ -27,16 +26,6 @@ die() { echo "ERROR: $*" >&2; exit 2; }
 # --- State management ---
 
 state_file() { echo "$1/.rebase-tmp/state.json"; }
-
-read_state() {
-  local sf
-  sf=$(state_file "$1")
-  if [[ -f "$sf" ]]; then
-    cat "$sf"
-  else
-    echo "{}"
-  fi
-}
 
 get_version() {
   local sf
@@ -67,7 +56,7 @@ get_step() {
   local sf
   sf=$(state_file "$repo")
   if [[ -f "$sf" ]]; then
-    grep -o '"current_step": *[0-9]*' "$sf" | grep -o '[0-9]*'
+    grep -o '"current_step": *[0-9]*' "$sf" | grep -o '[0-9]*' || true
   else
     echo ""
   fi
@@ -88,13 +77,6 @@ count_gate_mds() {
   local gate_dir="$GATES_ROOT/$1"
   [[ -d "$gate_dir" ]] || { echo 0; return; }
   find "$gate_dir" -maxdepth 1 -name '*.md' -type f | wc -l
-}
-
-count_reports() {
-  local repo="$1" step_dir_prefix="$2"
-  local report_dir="$repo/.rebase-tmp/gates"
-  [[ -d "$report_dir" ]] || { echo 0; return; }
-  find "$report_dir" -maxdepth 1 -name "${step_dir_prefix%-*}-*.report" -type f | wc -l
 }
 
 list_gate_files() {
@@ -123,7 +105,7 @@ report_is_fresh() {
   local rpt="$1" repo="$2"
   [[ -f "$rpt" ]] || return 1
   local rpt_sha
-  rpt_sha=$(grep '^HEAD: ' "$rpt" 2>/dev/null | awk '{print $2}')
+  rpt_sha=$(awk '/^HEAD: /{print $2}' "$rpt" 2>/dev/null)
   if [[ -z "$rpt_sha" ]]; then
     return 1
   fi
@@ -207,7 +189,7 @@ cmd_gates() {
     # 1. Cache hit — fresh verdict already on disk.
     if [[ -f "$rpt" ]] && report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then
       local verdict
-      verdict=$(grep '^VERDICT:' "$rpt" | awk '{print $2}')
+      verdict=$(awk '/^VERDICT:/{print $2}' "$rpt")
       echo "EXISTING: $gate_name $verdict"
       ((resolved++)) || true
       continue
@@ -233,7 +215,7 @@ cmd_gates() {
     # 3. Companion wrote a fresh verdict? (filter/verdict clean-path only)
     if [[ -f "$rpt" ]] && report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then
       local verdict
-      verdict=$(grep '^VERDICT:' "$rpt" | awk '{print $2}')
+      verdict=$(awk '/^VERDICT:/{print $2}' "$rpt")
       echo "RESOLVED: $gate_name $verdict (companion)"
       ((resolved++)) || true
       continue
@@ -313,6 +295,7 @@ cmd_advance() {
   fi
 
   # Count advance attempts
+  local FORCE_ADVANCE_THRESHOLD=3
   local attempts_file="$repo/.rebase-tmp/.advance-attempts-step${step}"
   local attempts=1
   if [[ -f "$attempts_file" ]]; then
@@ -320,7 +303,7 @@ cmd_advance() {
   fi
   echo "$attempts" > "$attempts_file"
 
-  if [[ "$attempts" -ge 3 ]]; then
+  if [[ "$attempts" -ge "$FORCE_ADVANCE_THRESHOLD" ]]; then
     info "Force-advancing after $attempts attempts"
     local next_step=$((step + 1))
     if [[ "$next_step" -gt "$STEP_COUNT" ]]; then
@@ -345,7 +328,7 @@ cmd_advance() {
   fi
 
   echo "BLOCKED: step $step"
-  echo "ADVANCE_ATTEMPTS: $attempts/3"
+  echo "ADVANCE_ATTEMPTS: $attempts/$FORCE_ADVANCE_THRESHOLD"
   [[ ${#missing[@]} -gt 0 ]] && echo "MISSING: ${missing[*]}"
   [[ ${#stale[@]} -gt 0 ]] && echo "STALE: ${stale[*]}"
   [[ ${#failing[@]} -gt 0 ]] && echo "FAILING: ${failing[*]}"
@@ -420,10 +403,10 @@ reconstruct_step() {
     local pass_count=0
     while IFS= read -r gate_md; do
       [[ -z "$gate_md" ]] && continue
-      local gn
-      gn=$(basename "$gate_md" .md)
+      local gate_name
+      gate_name=$(basename "$gate_md" .md)
       local rpt
-      rpt=$(report_path "$repo" "$sd" "$gn")
+      rpt=$(report_path "$repo" "$sd" "$gate_name")
       [[ -f "$rpt" ]] && report_has_pass "$rpt" && ((pass_count++)) || true
     done < <(list_gate_files "$sd")
     local expected
