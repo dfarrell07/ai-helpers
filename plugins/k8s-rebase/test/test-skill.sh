@@ -1158,12 +1158,15 @@ _do_record_one() {
   fi
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key=$(_done_key "$_rec_version" "$spec" "$repo_key")
+  local update_mode="${7:-}"   # "update" = overwrite-safe append for session-end correction
   mkdir -p "$state_dir/done"
   if [[ -f "$state_dir/done/$done_key" ]]; then
-    echo "already recorded (done_key exists)"; return 0
+    # Normal path: already recorded, skip.
+    # update mode: session finished after gate-complete recording; append corrected row.
+    [[ "$update_mode" != "update" ]] && { echo "already recorded (done_key exists)"; return 0; }
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
-  touch "$state_dir/done/$done_key"
+  [[ "$update_mode" != "update" ]] && touch "$state_dir/done/$done_key"
   rm -f "$state_dir/running/${_rec_version}_${repo_key}"
   rm -f "$state_dir/court/${_rec_version}_${repo_key}"
   printf '%-20s %-42s %-8s %s' "$spec" "$short" "$verdict" "$detail"
@@ -1191,7 +1194,25 @@ auto_record() {
     [[ -z "$repo" || ! -d "$repo" ]] && continue
     local short=$(repo_short "$repo")
     local done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
-    [[ -f "$state_dir/done/$done_key" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
+    if [[ -f "$state_dir/done/$done_key" ]]; then
+      # Already recorded at gate-complete. If the session is now dead and the branch
+      # has new commits since recording (e.g. lint fixes that landed after the stop
+      # signal), append a corrected row so make results shows the final diff.
+      if ! _session_alive "$_run_sid" 2>/dev/null; then
+        local _done_mtime; _done_mtime=$(stat -c '%Y' "$state_dir/done/$done_key" 2>/dev/null || echo 0)
+        local _branch_name; _branch_name=$(cat "$repo/.rebase-tmp/branch-name" 2>/dev/null)
+        local _branch_ts=0
+        [[ -n "$_branch_name" ]] && _branch_ts=$(git -C "$repo" log -1 --format='%ct' "$_branch_name" 2>/dev/null || echo 0)
+        if [[ "$_branch_ts" -gt "$_done_mtime" ]]; then
+          local _upd
+          if _upd=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch" "$_run_version" update); then
+            info "Updated record (branch advanced after gate-complete): $_upd"
+          fi
+        fi
+      fi
+      [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
+      rm -f "$running_file"; continue
+    fi
 
     local _session_dead=false
     if _session_alive "$_run_sid"; then
@@ -1925,9 +1946,8 @@ _results_for_version() {
   local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
   if [[ ! -f "$tsv" ]]; then echo "No results yet. Run: make test"; return 0; fi
 
-  printf "%-45s %-8s %-8s %-20s %s\n" "REPO" "VERDICT" "COURT" "LAST RUN" "DETAIL"
-  printf "%-45s %-8s %-8s %-20s %s\n" "----" "-------" "-----" "--------" "------"
   local all_pass=true
+  local -a _res_rows=()
   for repo in "${DEFAULT_REPOS[@]}"; do
     local short=$(repo_short "$repo")
     local _rk=$(repo_key "$repo")
@@ -1955,7 +1975,7 @@ _results_for_version() {
       elif [[ "$court_result" == "FAIL" ]]; then
         all_pass=false
       fi
-      printf "%-45s %-8s %-8s %-20s %s\n" "$short" "$verdict" "$court_result" "$ts" "$detail"
+      _res_rows+=("$short"$'\t'"$verdict"$'\t'"$court_result"$'\t'"$ts"$'\t'"$detail")
     else
       [[ "$(_config_val "$short" "expected_fail")" != "true" ]] && all_pass=false
       local _reason="not tested"
@@ -1966,8 +1986,29 @@ _results_for_version() {
           _reason="already at $_ver — set from-commit to test"
         fi
       fi
-      printf "%-45s %-8s %-8s %-20s %s\n" "$short" "-" "-" "" "$_reason"
+      _res_rows+=("$short"$'\t'"-"$'\t'"-"$'\t'""$'\t'"$_reason")
     fi
+  done
+  # Dynamic column widths from actual data + header minimums
+  local w_rr=4 w_vd=7 w_ct=5 w_ts=8
+  for _rr in "${_res_rows[@]}"; do
+    local _r _v _ct _ts _dt
+    IFS=$'\t' read -r _r _v _ct _ts _dt <<< "$_rr"
+    [[ ${#_r}  -gt $w_rr ]] && w_rr=${#_r}
+    [[ ${#_v}  -gt $w_vd ]] && w_vd=${#_v}
+    [[ ${#_ct} -gt $w_ct ]] && w_ct=${#_ct}
+    [[ ${#_ts} -gt $w_ts ]] && w_ts=${#_ts}
+  done
+  local _rfmt="%-${w_rr}s  %-${w_vd}s  %-${w_ct}s  %-${w_ts}s  %s\n"
+  printf "$_rfmt" "REPO" "VERDICT" "COURT" "LAST RUN" "DETAIL"
+  printf "$_rfmt" "$(printf '%*s' $w_rr '' | tr ' ' '-')" \
+                  "$(printf '%*s' $w_vd '' | tr ' ' '-')" \
+                  "$(printf '%*s' $w_ct '' | tr ' ' '-')" \
+                  "$(printf '%*s' $w_ts '' | tr ' ' '-')" "------"
+  for _rr in "${_res_rows[@]}"; do
+    local _r _v _ct _ts _dt
+    IFS=$'\t' read -r _r _v _ct _ts _dt <<< "$_rr"
+    printf "$_rfmt" "$_r" "$_v" "$_ct" "$_ts" "$_dt"
   done
 
   echo ""
