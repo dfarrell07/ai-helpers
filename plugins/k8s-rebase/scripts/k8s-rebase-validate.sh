@@ -367,6 +367,14 @@ echo ""
 
 step_failed=0
 
+# Shared helper: run golangci-lint directly (no container).
+# Reads mod_dir, mod_name, and step_failed from the enclosing scope.
+_run_lint_direct() {
+  local vendor_flag=""
+  [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && vendor_flag="--modules-download-mode=vendor"
+  run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --max-same-issues 0 $vendor_flag --timeout=15m0s" || step_failed=1
+}
+
 # Auto-detect modules and validate each one
 while IFS= read -r gomod; do
   mod_dir=$(dirname "$gomod" | sed 's|^\./||')
@@ -397,9 +405,7 @@ while IFS= read -r gomod; do
         # Run golangci-lint directly instead.
         command -v golangci-lint &>/dev/null || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
         if command -v golangci-lint &>/dev/null; then
-          vendor_flag=""
-          [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && vendor_flag="--modules-download-mode=vendor"
-          run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --max-same-issues 0 $vendor_flag --timeout=15m0s" || step_failed=1
+          _run_lint_direct
         else
           echo "  WARNING: golangci-lint not available — skipping lint"
         fi
@@ -410,9 +416,7 @@ while IFS= read -r gomod; do
             echo "  NOTE: lint version incompatible, installing latest via go install..."
             go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
             if command -v golangci-lint &>/dev/null; then
-              vendor_flag=""
-              [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && vendor_flag="--modules-download-mode=vendor"
-              run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --max-same-issues 0 $vendor_flag --timeout=15m0s" || step_failed=1
+              _run_lint_direct
             else
               step_failed=1
             fi
@@ -420,9 +424,7 @@ while IFS= read -r gomod; do
             echo "  NOTE: make lint container pull failed — running golangci-lint directly..."
             command -v golangci-lint &>/dev/null || go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@latest 2>/dev/null
             if command -v golangci-lint &>/dev/null; then
-              vendor_flag=""
-              [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && vendor_flag="--modules-download-mode=vendor"
-              run_validation "${mod_name}-lint" "cd $mod_dir && golangci-lint run --verbose --max-same-issues 0 $vendor_flag --timeout=15m0s" || step_failed=1
+              _run_lint_direct
             else
               echo "  WARNING: golangci-lint not available and container pull failed — skipping lint"
             fi

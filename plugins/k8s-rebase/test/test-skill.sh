@@ -148,7 +148,7 @@ _is_stale_fail() {
 }
 
 EXPECTED_GATES=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
-[[ "$EXPECTED_GATES" -lt 1 ]] && EXPECTED_GATES=33
+[[ "$EXPECTED_GATES" -lt 1 ]] && die "Gates directory missing or empty — cannot determine expected gate count"
 
 # Assert evidence-path consistency:
 #   1. Every companion .sh has an EVIDENCE block in its .md with the correct path.

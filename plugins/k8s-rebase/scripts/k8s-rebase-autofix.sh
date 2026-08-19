@@ -27,7 +27,7 @@ cd "$REPO_ROOT" || exit 1
 # Guard: refuse to run on master/main — autofix must run on the rebase branch.
 _current_branch=$(git branch --show-current 2>/dev/null || true)
 if [[ "$_current_branch" == "master" || "$_current_branch" == "main" ]]; then
-  echo "ERROR: Autofix is running on '$_current_branch', not the rebase branch."
+  echo "ERROR: Autofix is running on '$_current_branch', not the rebase branch." >&2
   if [[ -f "$REPO_ROOT/.rebase-tmp/branch-name" ]]; then
     echo "The rebase branch is: $(cat "$REPO_ROOT/.rebase-tmp/branch-name")"
     echo "Run: git checkout $(cat "$REPO_ROOT/.rebase-tmp/branch-name")"
@@ -454,16 +454,14 @@ fix_go_version() {
     | grep -v vendor | grep -v '/\.git/' | grep -v go.mod || true)
 
   # Second pass: catch workflow files with any stale go-version (pre-existing mismatches)
-  if [[ -n "$new_go" ]]; then
-    while IFS= read -r _gvf; do
-      sed -i -E \
-        -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${new_go}|g" \
-        -e "s|go-version: [0-9]+\.[0-9]+|go-version: ${new_go}|g" \
-        "$_gvf"
-    done < <(grep -rlE "go-version: *\[?[0-9]+\.[0-9]+" \
-      --include="*.yml" --include="*.yaml" .github/workflows/ 2>/dev/null \
-      | grep -v vendor | grep -v "/\.git/" || true)
-  fi
+  while IFS= read -r _gvf; do
+    sed -i -E \
+      -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${new_go}|g" \
+      -e "s|go-version: [0-9]+\.[0-9]+|go-version: ${new_go}|g" \
+      "$_gvf"
+  done < <(grep -rlE "go-version: *\[?[0-9]+\.[0-9]+" \
+    --include="*.yml" --include="*.yaml" .github/workflows/ 2>/dev/null \
+    | grep -v vendor | grep -v "/\.git/" || true)
 }
 
 fix_lint_version() {
@@ -512,7 +510,6 @@ fix_lint_version() {
   # Replace the Makefile's no-op else branch with go install,
   # AND bump GOLANGCI_LINT_VERSION from v1 to v2.
   if [[ -n "$lint_ver" ]] && [[ "$lint_ver" == v1.* ]]; then
-    required_go=$(grep "^go " "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
     if [[ -n "$required_go" ]] && [[ "$required_go" -ge 26 ]] 2>/dev/null; then
       if grep -q "can only be run within a container" "$REPO_ROOT/Makefile" 2>/dev/null; then
         echo ":: Fixing Makefile lint fallback for Go 1.${required_go} compatibility"
@@ -881,10 +878,7 @@ fix_feature_gates() {
   # Add ALL gates (parents + deps) to SetFromMap. SetFromMap validates
   # parent-dep consistency — disabling a parent without its deps errors.
   # Each gate is checked against vendor to avoid adding removed gates.
-  local sfm_gates=()
-  for gate in "${parents[@]}"; do
-    sfm_gates+=("$gate")
-  done
+  local sfm_gates=("${parents[@]}")
   for dep in "${all_deps[@]}"; do
     grep -rq "\"$dep\"" "$MODULE_ROOT/vendor/k8s.io/" 2>/dev/null && sfm_gates+=("$dep")
   done

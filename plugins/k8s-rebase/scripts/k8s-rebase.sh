@@ -56,7 +56,7 @@ chmod +x "$HOOK_DIR/pre-push"
 # ── Helpers ──────────────────────────────────────────────────────────
 
 die() { echo "ERROR: $*" >&2; cleanup_hook; exit 1; }
-info() { echo ":: $*"; }
+info() { echo ":: $*" >&2; }
 banner() { echo ""; echo "━━━━ $* ━━━━"; echo ""; }
 
 # Format commit messages per project convention. If CONTRIBUTING.md
@@ -407,13 +407,12 @@ derive_go_gets() {
   own_module=$(grep "^module " "$gomod" | awk '{print $2}')
   while IFS= read -r line; do
     local pkg ver
-    pkg=$(echo "$line" | awk '{print $1}')
-    ver=$(echo "$line" | awk '{print $2}')
+    read -r pkg ver <<< "$line"
     case "$pkg" in
       module|replace|require|exclude|"$own_module") continue ;;
     esac
-    echo "$pkg" | grep -q "controller-runtime" && continue
-    echo "$pkg" | grep -q "network-policy-api" && continue
+    [[ "$pkg" == *controller-runtime* ]] && continue
+    [[ "$pkg" == *network-policy-api* ]] && continue
     if echo "$pkg" | grep -qE '^k8s\.io/' && \
        ! echo "$pkg" | grep -qE 'kube-openapi|k8s\.io/utils|k8s\.io/klog|k8s\.io/gengo' && \
        echo "$ver" | grep -qE '^v0\.[1-9][0-9]*\.[0-9]+$'; then
@@ -603,7 +602,6 @@ VENDOR_MODULES=()
 NONVENDOR_MODULES=()
 while IFS= read -r gomod; do
   mod_dir=$(dirname "$gomod")
-  [[ "$mod_dir" == "." ]] && mod_dir="."
   if [[ -d "$REPO_ROOT/$mod_dir/vendor" ]]; then
     VENDOR_MODULES+=("$mod_dir")
   else
@@ -886,8 +884,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   LATEST_LINT=$(curl -sf --retry 2 --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   if [[ -z "$LATEST_LINT" ]]; then
     info "  WARNING: Could not fetch latest golangci-lint version (API rate limited?). Lint version not bumped."
-  fi
-  if [[ -n "$LATEST_LINT" ]]; then
+  else
     LATEST_LINT_V1=""
     if [[ "$LATEST_LINT" == v2.* ]]; then
       LATEST_LINT_V1=$(curl -sf --retry 2 --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
@@ -1018,12 +1015,12 @@ if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then
   info "  Reconciled setup-envtest to release-0.${CR_MINOR}"
 fi
 
-cd "$REPO_ROOT" || exit 1
+cd "$REPO_ROOT" || die "Cannot cd to $REPO_ROOT"
 # Add only the files we modified (more precise than git add -A)
 CHANGED_FILES=$(echo "$CHANGED_FILES" | grep -v '^$' | sort -u || true)
 if [[ -n "$CHANGED_FILES" ]]; then
   echo "$CHANGED_FILES" | while IFS= read -r f; do
-    [[ -n "$f" ]] && git add "$f" 2>/dev/null || true
+    git add "$f" 2>/dev/null || true
   done
   if [[ -n "$(git status --porcelain)" ]]; then
     if git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
@@ -1111,11 +1108,11 @@ fi
 # tidy) that a deterministic script cannot safely provide.
 
 # ── Commit tool bumps separately ────────────────────────────────────
-cd "$REPO_ROOT" || exit 1
+cd "$REPO_ROOT" || die "Cannot cd to $REPO_ROOT"
 TOOL_CHANGED_FILES=$(echo "$TOOL_CHANGED_FILES" | grep -v '^$' | sort -u || true)
 if [[ -n "$TOOL_CHANGED_FILES" ]]; then
   echo "$TOOL_CHANGED_FILES" | while IFS= read -r f; do
-    [[ -n "$f" ]] && git add "$f" 2>/dev/null || true
+    git add "$f" 2>/dev/null || true
   done
   if [[ -n "$(git status --porcelain)" ]]; then
     if git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
