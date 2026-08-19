@@ -21,7 +21,7 @@ PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 COURT_MODEL="${COURT_MODEL:-claude-opus-4-8}"
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"
 _MAX_CONCURRENT_FROM_ENV="${MAX_CONCURRENT:-}"
-MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
+MAX_CONCURRENT="${MAX_CONCURRENT:-2}"
 # INFO_GATES — space-separated list of BARE gate names (no step prefix).
 # Gates in this list are counted as SKIP rather than FAIL when their verdict
 # is not PASS.  They are matched against report filenames after stripping the

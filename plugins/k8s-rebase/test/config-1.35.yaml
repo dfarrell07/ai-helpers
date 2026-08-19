@@ -1,5 +1,5 @@
 version: "1.35.3"
-max_concurrent: 3
+max_concurrent: 2
 
 # from_commit must be the merge-base of main and the known_good —
 # the commit the human started from when they did the rebase.

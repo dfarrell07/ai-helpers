@@ -1,5 +1,5 @@
 version: "1.34.1"
-max_concurrent: 3
+max_concurrent: 2
 
 repos:
   ovn-org/ovn-kubernetes:
