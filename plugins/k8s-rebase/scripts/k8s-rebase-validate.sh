@@ -570,7 +570,8 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.clau
           _gofmt_unformatted=$(cd "$REPO_ROOT/$ci_dir" && \
             gofmt -l . 2>/dev/null | grep -v vendor/ | grep -v '.cache/' | head -20 || true)
           if [[ -n "$_gofmt_unformatted" ]]; then
-            echo "Unformatted files:" >> "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
+            printf 'NOTE: container unavailable — direct gofmt\nUnformatted files:\n' \
+              > "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
             echo "$_gofmt_unformatted" >> "$REBASE_TMP/${ci_dir##*/}-gofmt.log"
             step_failed=1
           fi

@@ -362,6 +362,12 @@ cmd_status() {
 
   if [[ -z "$step" ]]; then
     step=$(reconstruct_step "$repo")
+    local incomplete_file="$repo/.rebase-tmp/status/INCOMPLETE"
+    if [[ -f "$incomplete_file" ]]; then
+      echo "WARNING: state reconstructed from disk; a prior force-advance was recorded:"
+      cat "$incomplete_file"
+      echo ""
+    fi
   fi
 
   if [[ "$step" -gt "$STEP_COUNT" ]]; then

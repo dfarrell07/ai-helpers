@@ -28,7 +28,10 @@ shift
 ORIGINAL_ERROR="$*"
 
 # Pre-fetch evidence deterministically
-MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null || git -C "$REPO_ROOT" merge-base "$COMMIT" main 2>/dev/null || echo "$COMMIT~10")
+MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null \
+  || git -C "$REPO_ROOT" merge-base "$COMMIT" main 2>/dev/null \
+  || git -C "$REPO_ROOT" merge-base "$COMMIT" trunk 2>/dev/null \
+  || { echo "WARNING: Cannot find merge-base against master/main/trunk, using COMMIT~1" >&2; echo "$COMMIT~1"; })
 if ! git -C "$REPO_ROOT" rev-parse "$MERGE_BASE" &>/dev/null; then
   echo "WARNING: Cannot resolve merge-base '$MERGE_BASE' (shallow clone?), using COMMIT~1" >&2
   MERGE_BASE="$COMMIT~1"
@@ -40,15 +43,19 @@ if git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" "$MERGE_BASE" 2>/dev/n
   echo "ERROR: Current branch: $(git -C "$REPO_ROOT" branch --show-current), HEAD: $(git -C "$REPO_ROOT" rev-parse --short HEAD)" >&2
   exit 1
 fi
-DIFF=$(git -C "$REPO_ROOT" diff "$MERGE_BASE".."$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" \
+DIFF=$(git -C "$REPO_ROOT" show "$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" "go.mod" \
   ':!*/vendor/*' ':!*generated*' ':!*clientset*' ':!*informer*' ':!*lister*' \
   ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*' | head -2000)
 export DIFF
 
 export ORIGINAL_ERROR
 
-K8S_CHANGELOG=$(git -C "$REPO_ROOT" log "$COMMIT" -1 --format="%B" | tail -n +2 || true)
-export K8S_CHANGELOG
+# K8S_CHANGELOG: do not populate from the local fix commit message.
+# A local commit body is not upstream Kubernetes release notes.
+# To populate this with authoritative data, fetch from the
+# kubernetes/kubernetes tag matching the target version.
+# For now, leave empty so the reviewer is not misled.
+export K8S_CHANGELOG=""
 
 export PATTERN_HINT=""
 if [[ -f "$PATTERNS" ]]; then

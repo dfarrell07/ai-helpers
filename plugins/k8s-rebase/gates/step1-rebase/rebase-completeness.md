@@ -65,10 +65,20 @@ Fix hints for non-zero counts:
   `.rebase-tmp/step1.log` for the error and address it.
 - Check 2 (uncommitted): `git add` and commit, or investigate
   why the script's commit step failed
-- Check 3 (missing commits): re-run the rebase for the missing
-  module, or check if that module has no k8s.io deps
+- Check 3 (missing commits): check step1.log for errors in that
+  module's processing. If the module has k8s.io deps and no
+  commit exists, manually run in that module's directory:
+  `go get k8s.io/<dep>@$(cat .rebase-tmp/target-k8s-api-version.txt) && go mod tidy && go mod vendor`
+  then commit with `-s`. If the module has no k8s.io deps,
+  count 0 (no commit expected).
 - Check 4 (version mismatch): report this fix for the main
-  agent to apply: `go get k8s.io/<mod>@v0.<target>.0`
+  agent to apply (exact version from
+  `.rebase-tmp/target-k8s-api-version.txt`):
+  `go get k8s.io/<mod>@$(cat .rebase-tmp/target-k8s-api-version.txt)`
+- Check 5 (conflict markers): for each file reported by the
+  Check 5 grep, open it, resolve every `<<<<<<<`/`=======`/
+  `>>>>>>>` block manually, then `git add <file>` and commit
+  with `-s`. Unresolved conflicts block all subsequent steps.
 
 VERDICT:
 - If all counts are 0: PASS.
