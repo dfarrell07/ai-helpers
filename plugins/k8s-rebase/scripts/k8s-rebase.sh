@@ -186,7 +186,7 @@ if [[ -z "$PRIMARY_GOMOD" ]]; then
   while IFS= read -r -d '' gomod; do
     dir=$(dirname "$gomod")
     # Skip if this go.mod lives inside a nested git repo
-    mod_toplevel=$(cd "$dir" && git rev-parse --show-toplevel 2>/dev/null) || continue
+    mod_toplevel=$(git -C "$dir" rev-parse --show-toplevel 2>/dev/null) || continue
     [[ "$mod_toplevel" != "$REPO_ROOT" ]] && continue
     if grep -qE "k8s\.io/(api|client-go|apimachinery) " "$gomod"; then
       PRIMARY_GOMOD="$gomod"
@@ -331,7 +331,7 @@ fi
 CR_MINOR=$((K8S_MINOR - 12))
 CR_VERSION=""
 # Try patch versions from highest to lowest
-for patch in 9 8 7 6 5 4 3 2 1 0; do
+for patch in 19 18 17 16 15 14 13 12 11 10 9 8 7 6 5 4 3 2 1 0; do
   candidate="v0.${CR_MINOR}.${patch}"
   if curl -sf --retry 2 --connect-timeout 10 "https://proxy.golang.org/sigs.k8s.io/controller-runtime/@v/${candidate}.info" > /dev/null 2>&1; then
     CR_VERSION="$candidate"
@@ -379,6 +379,13 @@ info "Created branch: $BRANCH_NAME"
 derive_go_gets() {
   local gomod="$1"
   local cmds=()
+
+  # NOTE: sigs.k8s.io/ packages whose current version happens to match
+  # v[0-9]+.${OLD_MINOR}.* are excluded from Rule 1 (sigs filter) AND
+  # from Rule 3 (OLD_MINOR exclusion). No go get is emitted for them.
+  # In practice sigs.k8s.io packages do not track k8s minor versions,
+  # but if one is found at that version the omission will surface as a
+  # build error after vendor update rather than a silent skip.
 
   # Rule 1: version-locked (v{N}.{OLD_MINOR}.* → v{N}.{NEW_MINOR}.*)
   while IFS= read -r line; do

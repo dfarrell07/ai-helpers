@@ -30,7 +30,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
 
   if [[ -d "$mod_dir/vendor" ]]; then
     verify_out=$(cd "$mod_dir" && go mod verify 2>&1) || true
-    if echo "$verify_out" | grep -q "FAIL\|modified"; then
+    if echo "$verify_out" | grep -qE "FAIL|modified"; then
       echo "  VENDOR-DRIFT: $mod_dir"
       details+=("VENDOR-DRIFT: $mod_dir: vendor drift detected by go mod verify")
       inc NEW_ISSUES

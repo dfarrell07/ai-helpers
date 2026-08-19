@@ -110,7 +110,7 @@ report_is_fresh() {
     return 1
   fi
   local cur_sha
-  cur_sha=$(cd "$repo" && git rev-parse HEAD 2>/dev/null)
+  cur_sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null)
   [[ "$rpt_sha" == "$cur_sha" ]]
 }
 
@@ -207,6 +207,11 @@ cmd_gates() {
     crash_path=$(report_path "$repo" "$sd" "$gate_name")
     crash_path="${crash_path%.report}.crash"
     local rc=0
+    if [[ -f "$crash_path" ]]; then
+      echo "PENDING: $gate_name (companion previously crashed — deferring to subagent)"
+      ((pending++)) || true
+      continue
+    fi
     if [[ -x "$companion" ]]; then
       info "Running companion: $(basename "$companion")"
       timeout "$GATE_OUTER_TIMEOUT" bash "$companion" "$repo" 2>&1 || rc=$?

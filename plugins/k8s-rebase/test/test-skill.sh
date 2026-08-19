@@ -212,6 +212,11 @@ _resolve_known_good() {
   local kg=$(yq ".repos.\"$name\".known_good // \"\"" "$CONFIG_FILE")
   [[ -z "$kg" || "$kg" == "null" ]] && return 1
   local resolved=""
+  # Plain-string path: $kg is a local branch or tag name.  $resolved stays a
+  # mutable ref — the caller's git-diff always compares against the branch's
+  # current HEAD.  The cache avoids repeated yq + rev-parse overhead but does
+  # not freeze a commit.
+  # URL+ref path: resolves FETCH_HEAD to a full SHA → cache is immutable.
   if ! yq -e ".repos.\"$name\".known_good.url" "$CONFIG_FILE" &>/dev/null; then
     git -C "$repo_dir" rev-parse --verify "$kg" &>/dev/null || return 1
     resolved="$kg"
@@ -884,7 +889,7 @@ cmd_test() {
     rm -f "$_state_dir/court/${version}_${_repo_key}"
 
     # Clean stale worktree branches
-    (cd "$repo" && git worktree prune 2>/dev/null || true)
+    git -C "$repo" worktree prune 2>/dev/null || true
 
     if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${_from_commit:+--from-commit "$_from_commit"}); then
       if [[ -n "$_from_commit" && -d "$repo" ]]; then
@@ -1896,6 +1901,8 @@ _results_for_version() {
       if [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" != "PASS" ]]; then
         verdict="XFAIL"
       elif [[ "$verdict" != "PASS" ]]; then
+        all_pass=false
+      elif [[ "$court_result" == "FAIL" ]]; then
         all_pass=false
       fi
       printf "%-45s %-8s %-8s %-20s %s\n" "$short" "$verdict" "$court_result" "$ts" "$detail"

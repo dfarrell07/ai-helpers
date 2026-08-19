@@ -33,7 +33,7 @@ done
 # Comparison checks — require BASE
 if [[ -n "$BASE" ]]; then
   changed_imports=$(git diff "$BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' 2>/dev/null \
-    | grep '^[+-].*"' | grep -v '^\+\+\+\|^---' \
+    | grep '^[+-].*"' | grep -vE '^\+\+\+|^---' \
     | grep -cE 'k8s\.io/|sigs\.k8s\.io/' || true)
   details+=("Changed k8s imports: $changed_imports")
 
