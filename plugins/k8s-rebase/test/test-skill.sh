@@ -1101,8 +1101,14 @@ _do_record_one() {
   fi
 
   # Known-good diff (informational — does not affect verdict)
+  # Use the version-appropriate config so INFW/other repos without known_good
+  # in an older version don't accidentally inherit the known_good from a newer config.
   local kg_hunks="" kg_vendor="" kg_branch=""
+  local _saved_cf="$CONFIG_FILE"
+  local _ver_cf="${PLUGIN_DIR}/test/config-${_rec_version%.*}.yaml"
+  [[ -f "$_ver_cf" ]] && CONFIG_FILE="$_ver_cf"
   kg_branch=$(_resolve_known_good "$short" "$repo")
+  CONFIG_FILE="$_saved_cf"
   if [[ -n "$kg_branch" ]]; then
     local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
     local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
