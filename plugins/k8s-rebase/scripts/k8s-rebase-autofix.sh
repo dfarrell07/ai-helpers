@@ -731,17 +731,9 @@ fix_kubeadm_v1beta4() {
   echo ":: Migrated kubeadm extraArgs to v1beta4 list format"
 }
 
-fix_crd_int64_validation() {
-  # k8s 1.36 rejects CRD integer fields where Maximum > int32 max
-  # but format is int32 (the default for uint32 Go types).
-  #
-  # Two-part fix:
-  # 1. Add +kubebuilder:validation:Format=int64 marker to types.go
-  #    (ensures future codegen produces correct CRDs)
-  # 2. Patch format: int64 directly into the CRD YAML files
-  #    (immediate fix without re-running codegen, which would strip
-  #    hand-edited metadata blocks from unrelated CRDs)
-  # Part 1: Add kubebuilder markers to Go types (ensures future codegen is correct)
+fix_crd_go_markers() {
+  # Add +kubebuilder:validation:Format=int64 markers to Go types files.
+  # (ensures future codegen produces correct CRDs)
   local files
   files=$(find . -name "*types*.go" -path "*/crd/*" -not -path "*/vendor/*" 2>/dev/null)
   for f in $files; do
@@ -750,8 +742,13 @@ fix_crd_int64_validation() {
       sed -i '/Maximum.*4294967295/a\\t// +kubebuilder:validation:Format=int64' "$f"
     fi
   done
-  # Part 2: Patch CRD YAML files directly (runs unconditionally —
-  # repos like CNO have vendored CRD YAMLs with no types.go)
+}
+
+fix_crd_yaml_format() {
+  # Patch format: int64 directly into CRD YAML files.
+  # (immediate fix without re-running codegen, which would strip
+  # hand-edited metadata blocks from unrelated CRDs)
+  # Runs unconditionally — repos like CNO have vendored CRD YAMLs with no types.go.
   local crd_yamls
   crd_yamls=$(find . \( -path "*/crds/*.yaml" -o -path "*/crd/*.yaml" \
     -o -path "*/bindata/*.yaml" -o -path "*/manifests/*.yaml" \
@@ -762,7 +759,7 @@ fix_crd_int64_validation() {
   echo ":: Patching CRD YAML files: ensure format: int64 for uint32 fields"
   for crd_yaml in $crd_yamls; do
     grep -q "maximum: 4294967295" "$crd_yaml" || continue
-    awk '
+    if ! awk '
       /format: int(32|64)/ { prev=$0; prev_nr=NR; next }
       /maximum: 4294967295/ {
         if (prev_nr==NR-1) {
@@ -777,7 +774,11 @@ fix_crd_int64_validation() {
       }
       { if (prev!="") print prev; prev=""; print }
       END { if (prev!="") print prev }
-    ' "$crd_yaml" > "${crd_yaml}.tmp"
+    ' "$crd_yaml" > "${crd_yaml}.tmp"; then
+      echo "  WARNING: awk failed on $(basename "$crd_yaml") — leaving original unchanged"
+      rm -f "${crd_yaml}.tmp"
+      continue
+    fi
     chmod "$(stat -c '%a' "$crd_yaml" 2>/dev/null || stat -f '%Lp' "$crd_yaml" 2>/dev/null || echo 644)" "${crd_yaml}.tmp" 2>/dev/null || true
     mv "${crd_yaml}.tmp" "$crd_yaml"
     if ! awk '/format: int32/{p=1;next} /maximum: 4294967295/{if(p){found=1;exit}} {p=0} END{exit !found}' "$crd_yaml" 2>/dev/null; then
@@ -786,6 +787,13 @@ fix_crd_int64_validation() {
       echo "  WARNING: format: int32 still precedes maximum: 4294967295 in $(basename "$crd_yaml")"
     fi
   done
+}
+
+fix_crd_int64_validation() {
+  # k8s 1.36 rejects CRD integer fields where Maximum > int32 max
+  # but format is int32 (the default for uint32 Go types).
+  fix_crd_go_markers
+  fix_crd_yaml_format
 }
 # Pattern-based fixes (conditional — only run if pattern found)
 
@@ -866,13 +874,21 @@ fix_feature_gates() {
       [[ -z "$gate" ]] && continue
       if grep -q 'os\.Setenv.*KUBE_FEATURE' "$tf" && ! grep -q "os\.Setenv.*${gate}" "$tf"; then
         local setenv_line
-        setenv_line=$(grep -n 'os\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1 || true)
+        setenv_line=$(grep -n 'os\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1)
+        if [[ -z "$setenv_line" ]]; then
+          echo "  WARNING: could not locate os.Setenv line in $tf — skipping gate $gate"
+          continue
+        fi
         sed -i "${setenv_line}i\\
 \\tos.Setenv(\"KUBE_FEATURE_${gate}\", \"false\")" "$tf"
       fi
       if grep -q 't\.Setenv.*KUBE_FEATURE' "$tf" && ! grep -q "t\.Setenv.*${gate}" "$tf"; then
         local tsetenv_line
-        tsetenv_line=$(grep -n 't\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1 || true)
+        tsetenv_line=$(grep -n 't\.Setenv.*KUBE_FEATURE' "$tf" | head -1 | cut -d: -f1)
+        if [[ -z "$tsetenv_line" ]]; then
+          echo "  WARNING: could not locate t.Setenv line in $tf — skipping gate $gate"
+          continue
+        fi
         sed -i "${tsetenv_line}i\\
 \\tt.Setenv(\"KUBE_FEATURE_${gate}\", \"false\")" "$tf"
       fi
@@ -901,6 +917,9 @@ fix_feature_gates() {
     for g in "${sfm_gates[@]}"; do
       if ! grep -q "\"$g\"" "$tf"; then
         sed -i "/SetFromMap/s/\(true\|false\)}/\1, \"${g}\": false}/" "$tf" 2>/dev/null || true
+        if ! grep -q "\"$g\"" "$tf"; then
+          echo "  WARNING: gate $g not inserted into $tf (SetFromMap may be multi-line — manual fix needed)"
+        fi
       fi
     done
 

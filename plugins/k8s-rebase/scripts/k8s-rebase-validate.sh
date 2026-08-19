@@ -278,7 +278,7 @@ run_test_only() {
 
   # Export feature gate env vars
   local TEST_GO_SH
-  TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
+  TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" 2>/dev/null | head -1)
   if [[ -n "$TEST_GO_SH" ]]; then
     while IFS='=' read -r _key _val; do
       [[ "$_key" =~ ^export\ KUBE_FEATURE_[A-Za-z0-9_]+$ ]] && export "${_key#export }=$_val"
@@ -302,8 +302,8 @@ run_test_only() {
   fi
 
   # Filter out root_pkgs (need CAP_NET_ADMIN, always fail unprivileged)
-  local test_go_sh
-  test_go_sh=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" 2>/dev/null | head -1)
+  # Reuse TEST_GO_SH from above (removed duplicate find)
+  local test_go_sh="$TEST_GO_SH"
   if [[ -n "$test_go_sh" ]]; then
     local root_pkgs_pattern
     root_pkgs_pattern=$(sed -n '/root_pkgs=(/,/)/p' "$test_go_sh" | grep -oE 'pkg/[^"]+' | tr '\n' '|' || true)
