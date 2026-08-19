@@ -1158,15 +1158,28 @@ _do_record_one() {
   fi
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key=$(_done_key "$_rec_version" "$spec" "$repo_key")
-  local update_mode="${7:-}"   # "update" = overwrite-safe append for session-end correction
+  local _prel_sid="${7:-}"    # session ID written to .prel sentinel for post-session update check
+  local update_mode="${8:-}"  # "update" = bypass done_key guard; append corrected row only
   mkdir -p "$state_dir/done"
   if [[ -f "$state_dir/done/$done_key" ]]; then
-    # Normal path: already recorded, skip.
-    # update mode: session finished after gate-complete recording; append corrected row.
     [[ "$update_mode" != "update" ]] && { echo "already recorded (done_key exists)"; return 0; }
+    # update mode: session finished with new commits after gate-complete recording.
+    # Append corrected row. Don't re-touch done_key or clear court.
+    printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
+    printf '%-20s %-42s %-8s %s (updated)' "$spec" "$short" "$verdict" "$detail"
+    return 0
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
-  [[ "$update_mode" != "update" ]] && touch "$state_dir/done/$done_key"
+  touch "$state_dir/done/$done_key"
+  # Write prel sentinel so auto_record can append a corrected row when the session
+  # finishes with new commits after gate-complete recording.
+  # Fields: sid, recorded_sha, version, spec, repo_key (all needed for update).
+  if [[ -n "$_prel_sid" ]]; then
+    local _prel_sha; _prel_sha=$(cat "$repo/.rebase-tmp/branch-name" 2>/dev/null | xargs -I{} git -C "$repo" log -1 --format='%H' {} 2>/dev/null || echo "")
+    [[ -n "$_prel_sha" ]] && printf '%s\t%s\t%s\t%s\t%s\n' \
+      "$_prel_sid" "$_prel_sha" "$_rec_version" "$spec" "$repo_key" \
+      > "$state_dir/done/${done_key}.prel"
+  fi
   rm -f "$state_dir/running/${_rec_version}_${repo_key}"
   rm -f "$state_dir/court/${_rec_version}_${repo_key}"
   printf '%-20s %-42s %-8s %s' "$spec" "$short" "$verdict" "$detail"
@@ -1194,25 +1207,7 @@ auto_record() {
     [[ -z "$repo" || ! -d "$repo" ]] && continue
     local short=$(repo_short "$repo")
     local done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
-    if [[ -f "$state_dir/done/$done_key" ]]; then
-      # Already recorded at gate-complete. If the session is now dead and the branch
-      # has new commits since recording (e.g. lint fixes that landed after the stop
-      # signal), append a corrected row so make results shows the final diff.
-      if ! _session_alive "$_run_sid" 2>/dev/null; then
-        local _done_mtime; _done_mtime=$(stat -c '%Y' "$state_dir/done/$done_key" 2>/dev/null || echo 0)
-        local _branch_name; _branch_name=$(cat "$repo/.rebase-tmp/branch-name" 2>/dev/null)
-        local _branch_ts=0
-        [[ -n "$_branch_name" ]] && _branch_ts=$(git -C "$repo" log -1 --format='%ct' "$_branch_name" 2>/dev/null || echo 0)
-        if [[ "$_branch_ts" -gt "$_done_mtime" ]]; then
-          local _upd
-          if _upd=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch" "$_run_version" update); then
-            info "Updated record (branch advanced after gate-complete): $_upd"
-          fi
-        fi
-      fi
-      [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
-      rm -f "$running_file"; continue
-    fi
+    [[ -f "$state_dir/done/$done_key" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
 
     local _session_dead=false
     if _session_alive "$_run_sid"; then
@@ -1242,7 +1237,7 @@ auto_record() {
     fi
 
     local result
-    if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch" "$_run_version"); then
+    if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch" "$_run_version" "$_run_sid"); then
       [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
       recorded=$((recorded + 1))
       info "Recorded: $result"
@@ -1261,6 +1256,32 @@ auto_record() {
       warn "Record deferred for $short: ${result:-no branch found} (session alive, will retry)"
     fi
   done
+
+  # Scan .prel sentinel files written at gate-complete. When the session later
+  # finishes with new commits (e.g. lint fixes after gates), append a corrected row.
+  # Each .prel file stores: sid TAB recorded_sha TAB version TAB spec TAB repo_key
+  for _pf in "$state_dir/done"/*.prel; do
+    [[ -f "$_pf" ]] || continue
+    local _psid _psha _pver _psp _prk
+    IFS=$'\t' read -r _psid _psha _pver _psp _prk < "$_pf"
+    [[ -z "$_psid" || -z "$_psha" || -z "$_prk" ]] && { rm -f "$_pf"; continue; }
+    # Only update when session is confirmed dead
+    _session_alive "$_psid" 2>/dev/null && continue
+    local _prepo; _prepo=$(_repo_from_key "$_prk") || true
+    [[ -z "$_prepo" ]] && { rm -f "$_pf"; continue; }
+    local _bn; _bn=$(cat "$_prepo/.rebase-tmp/branch-name" 2>/dev/null)
+    [[ -z "$_bn" ]] && { rm -f "$_pf"; continue; }
+    local _cur_sha; _cur_sha=$(git -C "$_prepo" log -1 --format='%H' "$_bn" 2>/dev/null || echo "")
+    if [[ -n "$_cur_sha" && "$_cur_sha" != "$_psha" ]]; then
+      local _upd
+      if _upd=$(_do_record_one "$_prepo" "$_prk" "$_psp" "$state_dir" "0" "$_pver" "" update); then
+        recorded=$((recorded + 1))
+        info "Updated (branch advanced after gate-complete): $_upd"
+      fi
+    fi
+    rm -f "$_pf"
+  done
+
   [[ "$recorded" -gt 0 ]] && info "$recorded result(s) recorded"
 }
 
