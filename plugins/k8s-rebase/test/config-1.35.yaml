@@ -30,3 +30,4 @@ repos:
   openshift/cluster-network-operator:
     known_good: 3689d5ca55f440b337cae5b7d97014e99e40535e
     from_commit: 5b0900b506434f265d1535dd459c32ac53898de3
+model: claude-sonnet-4-6
