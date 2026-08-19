@@ -1746,8 +1746,10 @@ cmd_results() {
   if [[ -n "$repo" ]]; then
     _results_one "$repo" "$court"
   elif $all_versions; then
+    # --court is only honoured when a specific repo is given; ignored here.
     _results_all_versions
   else
+    # --court is only honoured when a specific repo is given; ignored here.
     _results_for_version
   fi
 }
@@ -1770,6 +1772,9 @@ _results_one() {
   elif [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
     local total=0 gfail=0 gskip=0 _gfn=""
     read -r total gfail gskip _gfn <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
+    # _gfn (comma-separated failing gate names from _tally_gates) is not used here.
+    # Failing gates are re-discovered by scanning .report files below, which also
+    # provides the DETAILS: body needed for display.
     local _skip_note=""
     [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
     if [[ "$total" -ge "$EXPECTED_GATES" && "$gfail" -eq 0 ]]; then
@@ -1827,6 +1832,8 @@ _results_one() {
       else
         echo "Diff vs known-good ${kg:0:12}: $nv code hunks differ"
       fi
+      # --court: run cmd_court and persist verdict to .matrix-state/court/ for use
+      # by _results_for_version. exit 0=PASS, exit 1=FAIL, exit 2+=infra error (not recorded).
       if [[ "$court" == "true" ]]; then
         local _court_verdict=""
         if cmd_court "$branch" "$kg" "$repo"; then
@@ -1846,7 +1853,9 @@ _results_one() {
 
   echo ""
   echo "Recent results:"
-  awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts ver spec r verdict detail; do
+  # Field 4 is the short repo name (cols: 1=ts 2=ver 3=spec 4=repo 5=verdict 6=detail).
+  # Intentionally not version-filtered: shows the last 5 entries across all versions.
+  awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts ver spec _r verdict detail; do
     printf "  %-22s %-8s %-8s %s\n" "$ts" "$ver" "$verdict" "$detail"
   done
 }

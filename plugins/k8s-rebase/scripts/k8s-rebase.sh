@@ -473,8 +473,15 @@ rebase_module() {
   # k8s.io/apimachinery v0.33.3" that override the require version.
   # These must be removed during the rebase — the go gets above
   # already set the correct require versions.
+  # Directives pointing to non-k8s.io paths (local forks such as
+  # => ../foo, external redirects, or third-party forks) are left
+  # untouched. The awk pattern requires both sides to start with
+  # k8s.io/, so only same-ecosystem self-references are removed.
   local _self_replaces
-  _self_replaces=$(awk '/^[[:space:]]+k8s\.io\/[^ ]+ => k8s\.io\//{print $1}' go.mod || true)
+  _self_replaces=$(awk '
+    /^[[:space:]]+k8s\.io\/[^ ]+ => k8s\.io\//{print $1}
+    /^replace k8s\.io\/[^ ]+ => k8s\.io\//{print $2}
+  ' go.mod || true)
   if [[ -n "$_self_replaces" ]]; then
     info "Dropping stale k8s.io self-referencing replace directives..."
     while IFS= read -r _rpkg; do
