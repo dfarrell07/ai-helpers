@@ -242,9 +242,9 @@ cmd_advance() {
   step=$(get_step "$repo")
   [[ -z "$step" ]] && die "No state.json — run init first"
 
-  local sd
-  sd=$(step_dir_name "$step")
-  [[ -z "$sd" ]] && die "Invalid step: $step"
+  local step_dir
+  step_dir=$(step_dir_name "$step")
+  [[ -z "$step_dir" ]] && die "Invalid step: $step"
 
   local missing=() stale=() failing=()
 
@@ -252,28 +252,28 @@ cmd_advance() {
     [[ -z "$gate_md" ]] && continue
     local gate_name
     gate_name=$(basename "$gate_md" .md)
-    local rpt
-    rpt=$(report_path "$repo" "$sd" "$gate_name")
+    local report_file
+    report_file=$(report_path "$repo" "$step_dir" "$gate_name")
 
-    if [[ ! -f "$rpt" ]]; then
-      missing+=("$sd/$gate_name")
+    if [[ ! -f "$report_file" ]]; then
+      missing+=("$step_dir/$gate_name")
       continue
     fi
 
-    if ! report_has_verdict "$rpt"; then
-      missing+=("$sd/$gate_name (no verdict)")
+    if ! report_has_verdict "$report_file"; then
+      missing+=("$step_dir/$gate_name (no verdict)")
       continue
     fi
 
-    if ! report_is_fresh "$rpt" "$repo"; then
-      stale+=("$sd/$gate_name")
+    if ! report_is_fresh "$report_file" "$repo"; then
+      stale+=("$step_dir/$gate_name")
       continue
     fi
 
-    if ! report_has_pass "$rpt"; then
-      failing+=("$sd/$gate_name")
+    if ! report_has_pass "$report_file"; then
+      failing+=("$step_dir/$gate_name")
     fi
-  done < <(list_gate_files "$sd")
+  done < <(list_gate_files "$step_dir")
 
   local total_issues=$(( ${#missing[@]} + ${#stale[@]} + ${#failing[@]} ))
 
@@ -294,9 +294,11 @@ cmd_advance() {
     return 0
   fi
 
-  # Count advance attempts
-  local FORCE_ADVANCE_THRESHOLD=3
+  # Track blocked-advance attempts; force-advance when threshold is reached
+  local -r FORCE_ADVANCE_THRESHOLD=3
   local attempts_file="$repo/.rebase-tmp/.advance-attempts-step${step}"
+  # Default to 1 on first blocked call (no file yet); subsequent calls increment
+  # the persisted value, so call-3 produces attempts=3 and fires force-advance.
   local attempts=1
   if [[ -f "$attempts_file" ]]; then
     attempts=$(( $(cat "$attempts_file") + 1 ))
@@ -304,6 +306,8 @@ cmd_advance() {
   echo "$attempts" > "$attempts_file"
 
   if [[ "$attempts" -ge "$FORCE_ADVANCE_THRESHOLD" ]]; then
+    # Threshold met: advance unconditionally and record what was unresolved.
+    # The attempts file is removed so the next step starts with a clean counter.
     info "Force-advancing after $attempts attempts"
     local next_step=$((step + 1))
     if [[ "$next_step" -gt "$STEP_COUNT" ]]; then

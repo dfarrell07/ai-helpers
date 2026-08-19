@@ -555,7 +555,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
       # Container path failure in worktrees (same pattern as lint fallback).
       # The make gofmt target mounts the parent dir of worktrees, so
       # hack/verify-gofmt.sh is not found at the expected path inside the container.
-      if grep -qE "not found.*OCI|executable.*not found|No such file.*Error 127|Error[: ]+125|short-name resolution" \
+      if grep -qE "not found.*OCI|executable.*not found|No such file.*Error 127|Error[: ]+125|short-name resolution|cannot prompt without a TTY" \
           "$REBASE_TMP/${ci_dir##*/}-gofmt.log" 2>/dev/null; then
         echo "  NOTE: make gofmt container failed — running gofmt directly..."
         step_failed=0

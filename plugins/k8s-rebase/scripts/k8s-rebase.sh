@@ -390,6 +390,9 @@ derive_go_gets() {
   done < <(grep -E "k8s\.io/" "$gomod" | grep -v "sigs\.k8s\.io/" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | sort -u)
 
   # Rule 2: controller-runtime
+  # CR_VERSION is resolved earlier by querying the Go module proxy for a
+  # compatible release; it is empty when no compatible version was found,
+  # in which case a bare go get lets MVS pick the best available version.
   if grep -q "controller-runtime" "$gomod"; then
     if [[ -n "$CR_VERSION" ]]; then
       cmds+=("go get sigs.k8s.io/controller-runtime@${CR_VERSION}")

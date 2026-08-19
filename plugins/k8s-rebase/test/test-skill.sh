@@ -292,6 +292,8 @@ _session_alive() {
   build_session_cache
   echo "$_SESSION_CACHE" | while IFS=$'\t' read -r _cwd _st _el _pid _sid _rest; do
     [[ "$_sid" == "$sid"* ]] && [[ "$_st" == "working" ]] && echo "yes" && break
+    # NOTE: 'working' is the only live state reported by `claude agents --json`.
+    # If the claude CLI adds new active states (e.g. 'thinking'), update this check.
   done | grep -q yes
 }
 
@@ -606,7 +608,7 @@ cmd_stop() {
     local repo_key=$(basename "$running_file")
     local raw=$(cat "$running_file")
     local sid=$(echo "$raw" | cut -f3)
-    [[ -z "$sid" ]] && continue
+    if [[ -z "$sid" ]]; then rm -f "$running_file"; continue; fi
     local _fv=$(echo "$raw" | cut -f4)
     repo_key=$(repo_key_from_running "$_fv" "$repo_key")
     local short=$(echo "$repo_key" | tr '_' '/')
@@ -627,6 +629,7 @@ cmd_stop() {
   done
   # Phase 2: fallback to session cache for zombie sessions with no running file
   if [[ "$killed" -eq 0 ]] || $stop_all; then
+    _SESSION_CACHE_AGE=0  # force refresh after Phase 1 stops
     build_session_cache
     while IFS=$'\t' read -r _cwd _state _elapsed _pid _sid _rest; do
       [[ -z "$_cwd" ]] && continue
@@ -1266,7 +1269,7 @@ you will see '-1.34' '+1.35' — the '+' shows what the result produced.
 NOTE: vendor/ and go.sum are omitted from this DIFF (generated/resolver
 output). Do not treat their absence as 'unchanged'; judge dependency
 questions from go.mod version pins, not from go.sum hashes."
-  local preexisting="
+  local criteria="
 PASS/FAIL CRITERIA: PASS means the result is a valid, correct k8s rebase.
 FAIL means it has a data-correctness regression that would break compilation,
 tests, or runtime behavior.
@@ -1304,7 +1307,7 @@ exists that is not shown in the provided DIFF. If referencing files
 outside the DIFF, state it as a concern to verify, not as established fact."
   local logs=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
-$preexisting
+$criteria
 
 DIFF (non-vendor):
 $diff_nv
@@ -1317,20 +1320,22 @@ FILES: $diff_stat"
   local cdir="$_court_dir/$(date +%s)_$(repo_key "$repo")"
   mkdir -p "$cdir"
 
+  # Phase A gives prosecution and defense the full $context (diff + commit history +
+  # file summary). Phases B and C re-assemble the prompt from parts and omit $logs
+  # and $diff_stat — judge and jury work from the diff alone to stay within limits.
+  local _pros_prompt="$context
+
+You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines."
+  local _def_prompt="$context
+
+You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines."
+
   info "$_ci Phase A: Prosecution + Defense..."
-  cat <<EOF_PROS | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
-$context
-
-You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines.
-EOF_PROS
-  local p1=$!
-  cat <<EOF_DEF | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
-$context
-
-You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines.
-EOF_DEF
-  local p2=$!
-  wait "$p1" "$p2" 2>/dev/null || true
+  cat <<<"$_pros_prompt" | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
+  local pid_pros=$!
+  cat <<<"$_def_prompt" | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
+  local pid_def=$!
+  wait "$pid_pros" "$pid_def" 2>/dev/null || true
 
   # Retry helper: retry a phase if it failed with a transient error
   # ("Execution error" = claude CLI crash; "Warning:" only = model fallback with no content)
@@ -1347,14 +1352,8 @@ EOF_DEF
         --permission-mode "$PERMISSION_MODE" --output-format text > "$f" 2>"$errf" || true
     fi
   }
-  _court_retry "$cdir/pros.txt" "$cdir/pros.err" \
-    "$context
-
-You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines." "prosecution"
-  _court_retry "$cdir/def.txt" "$cdir/def.err" \
-    "$context
-
-You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines." "defense"
+  _court_retry "$cdir/pros.txt" "$cdir/pros.err" "$_pros_prompt" "prosecution"
+  _court_retry "$cdir/def.txt" "$cdir/def.err" "$_def_prompt" "defense"
 
   local pros def
   pros=$(grep -v '^Warning:' "$cdir/pros.txt" 2>/dev/null | grep -v '^Execution error' || true)
@@ -1368,7 +1367,7 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
   local judge
   judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err" | grep -v '^Warning:'
 $direction
-$preexisting
+$criteria
 
 PROSECUTION:
 $pros
@@ -1394,7 +1393,7 @@ BASE_REF: $(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo "$
 RESULT_REF: $result_branch
 
 $direction
-$preexisting
+$criteria
 
 TOOLS: You may run git show <ref>:<path> and git diff <ref1> <ref2> -- <path> to verify claims.
 Do NOT run git checkout, git reset, git push, git commit, or any write operation.
