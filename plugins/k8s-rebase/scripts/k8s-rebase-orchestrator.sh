@@ -131,6 +131,11 @@ cmd_init() {
     # .crash has no HEAD stamp — freshness cannot invalidate a stale one.
     # Clean on both FRESH and RESUME or a prior-run crash reads as current.
     rm -f "$repo/.rebase-tmp/gates/"*.crash 2>/dev/null || true
+    # .evidence files are NOT cleared on RESUME. Each evidence file embeds
+    # "HEAD: <sha>" (written by gate-script-lib.sh _write_evidence). Subagents
+    # MUST verify the HEAD sha matches git rev-parse HEAD before trusting
+    # evidence. A companion re-run overwrites evidence atomically (tmp→mv),
+    # so only gates that crashed without writing new evidence carry stale data.
   else
     mkdir -p "$repo/.rebase-tmp/gates"
     rm -f "$repo/.rebase-tmp/gates/"*.report   2>/dev/null || true

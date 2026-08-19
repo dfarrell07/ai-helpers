@@ -30,7 +30,7 @@ uncommitted_count=0
 while IFS= read -r f; do
   [[ -z "$f" ]] && continue
   details+=("CHECK2_UNCOMMITTED: $f")
-  ((uncommitted_count++)) || true
+  inc uncommitted_count
 done < <(git status --short 2>/dev/null \
   | grep -v '^??' | awk '{print $NF}' \
   | grep -E 'go\.mod$|go\.sum$|^vendor/|\.go$' || true)
@@ -43,14 +43,14 @@ if [[ -n "$BASE" ]]; then
   while IFS= read -r line; do
     [[ -z "$line" ]] && continue
     details+=("CHECK3_LOG: $line")
-    ((commit_count++)) || true
+    inc commit_count
   done < <(git log --oneline "$BASE"..HEAD 2>/dev/null || true)
   details+=("CHECK3_COMMITS_ABOVE_BASE: $commit_count")
 
   # Number of non-vendor go.mod files with k8s.io/* deps (min expected rebase commits)
   gomod_with_k8s=0
   while IFS= read -r gm; do
-    grep -q 'k8s\.io/' "$gm" 2>/dev/null && ((gomod_with_k8s++)) || true
+    grep -q 'k8s\.io/' "$gm" 2>/dev/null && inc gomod_with_k8s || true
   done < <(find "$REPO" -name 'go.mod' -not -path '*/vendor/*' \
     -not -path '*/.claude/*' 2>/dev/null)
   details+=("CHECK3_GOMOD_WITH_K8S_DEPS: $gomod_with_k8s")
@@ -91,8 +91,8 @@ conflict_count=0
 while IFS= read -r line; do
   [[ -z "$line" ]] && continue
   details+=("CHECK5_CONFLICT: $line")
-  ((conflict_count++)) || true
-done < <(grep -rn '<<<<<<<\|>>>>>>>' \
+  inc conflict_count
+done < <(grep -rnE '<<<<<<<|>>>>>>>' \
   --include='*.go' --include='*.yaml' --include='*.json' \
   "$REPO" 2>/dev/null | grep -v '/vendor/' | grep -v '/.claude/' || true)
 details+=("CHECK5_CONFLICT_COUNT: $conflict_count")

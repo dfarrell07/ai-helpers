@@ -481,7 +481,7 @@ while IFS= read -r gomod; do
                 continue
               fi
               TEST_PKGS+=" ./${pkg}/..."
-            done < <(cd "$REPO_ROOT/$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -exec dirname {} \; | sed 's|^\./||' | sort -u)
+            done < <(cd "$REPO_ROOT/$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sed 's|^\./||' | sort -u)
           else
             echo "  Testing changed non-privileged packages only..."
             CHANGED_PKGS=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/" 2>/dev/null | grep '\.go$' | grep -v vendor | grep -v "_test.go" | sed "s|${mod_dir}/||;s|/[^/]*$||" | sort -u || true)

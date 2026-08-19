@@ -822,7 +822,7 @@ while IFS= read -r file; do
 done < <(grep -rln -E "v${K8S_MAJOR}\.${OLD_MINOR}(\.[0-9]+)?\b" \
   --include="*.yml" --include="*.yaml" --include="*.sh" \
   --include="*.md" --include="Makefile*" --include="Dockerfile*" . \
-  | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
+  2>/dev/null | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
 
 # Pass 2: bare version in doc prose (1.35 without v-prefix)
 # Uses perl lookbehind/lookahead to avoid corrupting IP addresses
@@ -844,7 +844,7 @@ while IFS= read -r file; do
 done < <(grep -rln "kindest/node:v[0-9]" \
   --include="*.yml" --include="*.yaml" --include="*.sh" \
   --include="Makefile*" . \
-  | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
+  2>/dev/null | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
 
 # Go version update (if changed)
 NEW_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}' || true)
@@ -858,8 +858,8 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     sed -i \
       -e "s|golang:${OLD_GO_SHORT}|golang:${NEW_GO_SHORT}|g" \
       -e "s|golang-${OLD_GO_SHORT}|golang-${NEW_GO_SHORT}|g" \
-      -e "s|GO_VERSION ?= ${OLD_GO_SHORT}|GO_VERSION ?= ${NEW_GO_SHORT}|g" \
-      -e "s|GOLANG_VERSION ?= ${OLD_GO_SHORT}|GOLANG_VERSION ?= ${NEW_GO_SHORT}|g" \
+      -e "s|GO_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GO_VERSION ?= ${NEW_GO_SHORT}|g" \
+      -e "s|GOLANG_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GOLANG_VERSION ?= ${NEW_GO_SHORT}|g" \
       -e "s|go-version: \[${OLD_GO_SHORT}|go-version: [${NEW_GO_SHORT}|g" \
       -e "s|go-version: ${OLD_GO_SHORT}|go-version: ${NEW_GO_SHORT}|g" \
       -e "s|GO_VERSION: \"${OLD_GO_SHORT}\"|GO_VERSION: \"${NEW_GO_SHORT}\"|g" \
@@ -973,7 +973,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     target_ocp=""
     # Detect OCP target from openshift/release ci-operator config
     for branch in master main; do
-      target_ocp=$(curl -sf --retry 2 --connect-timeout 10 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep 'name: "' | tail -1 | grep -oE '[0-9]+\.[0-9]+' || true)
+      target_ocp=$(curl -sf --retry 2 --connect-timeout 10 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep -oE 'openshift-[0-9]+\.[0-9]+' | tail -1 | sed 's/openshift-//' || true)
       [[ -n "$target_ocp" ]] && break
     done
     if [[ -n "$target_ocp" ]]; then
@@ -1024,11 +1024,12 @@ fi
 
 # Reconcile ENVTEST_K8S_VERSION (kubebuilder test binary version).
 # Runs regardless of Go version change — it tracks k8s version.
-if grep -q "ENVTEST_K8S_VERSION" "$REPO_ROOT/Makefile" 2>/dev/null; then
-  sed -i -E "s|(ENVTEST_K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)[0-9]+\.[0-9]+[.x0-9]*|\1${K8S_MAJOR}.${K8S_MINOR}|" "$REPO_ROOT/Makefile"
-  CHANGED_FILES+="Makefile"$'\n'
-  info "  Reconciled ENVTEST_K8S_VERSION to ${K8S_MAJOR}.${K8S_MINOR}"
-fi
+while IFS= read -r _envtest_mk; do
+  [[ -z "$_envtest_mk" ]] && continue
+  sed -i -E "s|(ENVTEST_K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)[0-9]+\.[0-9]+[.x0-9]*|\1${K8S_MAJOR}.${K8S_MINOR}|" "$_envtest_mk"
+  CHANGED_FILES+="$_envtest_mk"$'\n'
+  info "  Reconciled ENVTEST_K8S_VERSION to ${K8S_MAJOR}.${K8S_MINOR} in $_envtest_mk"
+done < <(grep -rln "ENVTEST_K8S_VERSION" --include="Makefile*" . 2>/dev/null | grep -v vendor | grep -v "/\.git/" || true)
 
 # Reconcile setup-envtest release branch (tracks controller-runtime).
 if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then

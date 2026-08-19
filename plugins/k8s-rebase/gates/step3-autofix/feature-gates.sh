@@ -138,7 +138,7 @@ while IFS= read -r gate; do
   # Layer 3: gate name in each SetFromMap file
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
-    if ! grep -q "\"${gate}\"\|features\.${gate}" "$f" 2>/dev/null; then
+    if ! grep -qE "\"${gate}\"|features\.${gate}" "$f" 2>/dev/null; then
       details+=("LAYER3_MISSING: $gate absent from SetFromMap in ${f#"$PRIMARY_GOMOD_DIR/"}")
       inc NEW_ISSUES
     fi
