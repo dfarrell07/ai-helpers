@@ -1759,8 +1759,8 @@ cmd_watch() {
     _watch_rows+=("$_short_r"$'\t'"${_file_version:-?}"$'\t'"${_file_spec:-?}"$'\t'"$session_state"$'\t'"$gate_str"$'\t'"$commit_msg"$'\t'"$diff_info")
   done
   if [[ "$active" -le 0 ]]; then echo "(no active tests)"; return 0; fi
-  # Compute dynamic column widths from actual data
-  local w_r=4 w_v=3 w_sp=4 w_st=6 w_g=5
+  # Compute dynamic column widths from actual data + header minimums
+  local w_r=4 w_v=3 w_sp=4 w_st=6 w_g=5 w_c=13 w_d=13
   for _wr in "${_watch_rows[@]}"; do
     local _r _v _sp _st _g _c _d
     IFS=$'\t' read -r _r _v _sp _st _g _c _d <<< "$_wr"
@@ -1769,19 +1769,24 @@ cmd_watch() {
     [[ ${#_sp} -gt $w_sp ]] && w_sp=${#_sp}
     [[ ${#_st} -gt $w_st ]] && w_st=${#_st}
     [[ ${#_g}  -gt $w_g  ]] && w_g=${#_g}
+    [[ ${#_c}  -gt $w_c  ]] && w_c=${#_c}
+    [[ ${#_d}  -gt $w_d  ]] && w_d=${#_d}
   done
-  local _hfmt="%-${w_r}s  %-${w_v}s  %-${w_sp}s  %-${w_st}s  %-${w_g}s  %-26s  %s\n"
+  local _hfmt="%-${w_r}s  %-${w_v}s  %-${w_sp}s  %-${w_st}s  %-${w_g}s  %-${w_c}s  %s\n"
+  local _dfmt="%-${w_r}s  %-${w_v}s  %-${w_sp}s  %-${w_st}s  %-${w_g}s  %-${w_c}s  %-${w_d}s\n"
+  local _sep_r; _sep_r=$(printf '%*s' $w_r  '' | tr ' ' '-')
+  local _sep_v; _sep_v=$(printf '%*s' $w_v  '' | tr ' ' '-')
+  local _sep_sp; _sep_sp=$(printf '%*s' $w_sp '' | tr ' ' '-')
+  local _sep_st; _sep_st=$(printf '%*s' $w_st '' | tr ' ' '-')
+  local _sep_g; _sep_g=$(printf '%*s' $w_g  '' | tr ' ' '-')
+  local _sep_c; _sep_c=$(printf '%*s' $w_c  '' | tr ' ' '-')
+  local _sep_d; _sep_d=$(printf '%*s' $w_d  '' | tr ' ' '-')
   printf "$_hfmt" "REPO" "VER" "SPEC" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
-  printf "$_hfmt" "$(printf '%*s' $w_r  '' | tr ' ' '-')" \
-                  "$(printf '%*s' $w_v  '' | tr ' ' '-')" \
-                  "$(printf '%*s' $w_sp '' | tr ' ' '-')" \
-                  "$(printf '%*s' $w_st '' | tr ' ' '-')" \
-                  "$(printf '%*s' $w_g  '' | tr ' ' '-')" \
-                  "-------------" "-------------"
+  printf "$_dfmt" "$_sep_r" "$_sep_v" "$_sep_sp" "$_sep_st" "$_sep_g" "$_sep_c" "$_sep_d"
   for _wr in "${_watch_rows[@]}"; do
     local _r _v _sp _st _g _c _d
     IFS=$'\t' read -r _r _v _sp _st _g _c _d <<< "$_wr"
-    printf "$_hfmt" "$_r" "$_v" "$_sp" "$_st" "$_g" "$_c" "$_d"
+    printf "$_dfmt" "$_r" "$_v" "$_sp" "$_st" "$_g" "$_c" "$_d"
   done
   return 0
 }
