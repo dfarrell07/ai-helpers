@@ -2,7 +2,7 @@
 # Stop hook for k8s-rebase — delegates to orchestrator.
 # Blocks session exit unless the orchestrator reports DONE.
 set -euo pipefail
-command -v jq >/dev/null 2>&1 || { printf '{"decision":"block","reason":"jq required"}\n'; exit 0; }
+command -v jq >/dev/null 2>&1 || exit 0
 
 INPUT=$(cat)
 PLUGIN_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
@@ -28,3 +28,4 @@ fi
 
 # Block with actionable reason
 jq -n --arg reason "$STATUS" '{"decision":"block","reason":$reason}'
+exit 0

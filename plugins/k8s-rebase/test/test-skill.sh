@@ -1153,6 +1153,9 @@ _do_record_one() {
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key=$(_done_key "$_rec_version" "$spec" "$repo_key")
   mkdir -p "$state_dir/done"
+  if [[ -f "$state_dir/done/$done_key" ]]; then
+    echo "already recorded (done_key exists)"; return 0
+  fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
   touch "$state_dir/done/$done_key"
   rm -f "$state_dir/running/${_rec_version}_${repo_key}"
@@ -1226,6 +1229,9 @@ auto_record() {
       rm -f "$running_file"
       recorded=$((recorded + 1))
       warn "Recorded FAIL for $short ($_fail_detail)"
+    else
+      # live session but _do_record_one failed (no branch, stale branch)
+      warn "Record deferred for $short: ${result:-no branch found} (session alive, will retry)"
     fi
   done
   [[ "$recorded" -gt 0 ]] && info "$recorded result(s) recorded"

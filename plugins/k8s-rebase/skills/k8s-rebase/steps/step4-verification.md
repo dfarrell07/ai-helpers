@@ -50,9 +50,9 @@ packages:
 TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
 ROOT_PKGS=""
 [ -n "$TEST_GO_SH" ] && ROOT_PKGS=$(sed -n '/root_pkgs=(/,/)/p' "$TEST_GO_SH" | grep -oE 'pkg/[^"]+' | tr '\n' '|')
-for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | sort); do
+for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort); do
   echo "=== $mod_dir ==="
-  for pkg in $(cd "$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -exec dirname {} \; | sort -u); do
+  for pkg in $(cd "$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort -u); do
     [ -n "$ROOT_PKGS" ] && echo "$pkg" | grep -qE "^\./(${ROOT_PKGS%|})(/.+)?$" && continue
     echo "$pkg"
   done
