@@ -1188,9 +1188,10 @@ _do_record_one() {
 auto_record() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local running_dir="$state_dir/running"
-  if [[ ! -d "$running_dir" ]] || [[ -z "$(ls -A "$running_dir" 2>/dev/null)" ]]; then return 0; fi
-
   local recorded=0
+
+  # Main running-file loop — guarded (skip if no active sessions)
+  if [[ -d "$running_dir" ]] && [[ -n "$(ls -A "$running_dir" 2>/dev/null)" ]]; then
 
   for running_file in "$running_dir"/*; do
     [[ -f "$running_file" ]] || continue
@@ -1256,7 +1257,10 @@ auto_record() {
       warn "Record deferred for $short: ${result:-no branch found} (session alive, will retry)"
     fi
   done
+  fi # end running-file guard
 
+  # Prel scan runs unconditionally — needed even when running_dir is empty,
+  # because the session that wrote the sentinel may have already finished.
   # Scan .prel sentinel files written at gate-complete. When the session later
   # finishes with new commits (e.g. lint fixes after gates), append a corrected row.
   # Each .prel file stores: sid TAB recorded_sha TAB version TAB spec TAB repo_key
