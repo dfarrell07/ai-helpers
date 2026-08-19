@@ -1684,11 +1684,15 @@ cmd_watch() {
     fi
     _worktree_info "$repo" || true
     local wt="$_WT_PATH" _branch="$_WT_BRANCH"
-    # Fallback: session running in main repo (no from_commit → no .claude/worktrees entry).
-    # Treat main repo as "wt" so gate count + phase display still work.
+    # Fallback: session running in main repo (no .claude/worktrees entry — either no
+    # from_commit, or detached HEAD after _test-from-* checkout). Treat main repo as
+    # "wt" so gate count + phase display still work. Read branch from branch-name file
+    # (written by the skill at init) rather than git branch --show-current, which
+    # returns empty in detached HEAD.
     if [[ -z "$wt" && "$session_state" == "working" && -d "$repo/.rebase-tmp" ]]; then
       wt="$repo"
-      _branch=$(git -C "$repo" branch --show-current 2>/dev/null)
+      _branch=$(cat "$repo/.rebase-tmp/branch-name" 2>/dev/null)
+      [[ -z "$_branch" ]] && _branch=$(git -C "$repo" branch --show-current 2>/dev/null)
     fi
     local gc=0 gf=0 gs=0 commit_msg="-" diff_info="-"
     if [[ -n "$wt" ]]; then
