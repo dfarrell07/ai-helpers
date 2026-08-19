@@ -390,7 +390,7 @@ derive_go_gets() {
   # Rule 1: version-locked (v{N}.{OLD_MINOR}.* → v{N}.{NEW_MINOR}.*)
   while IFS= read -r line; do
     local pkg ver_prefix
-    pkg=$(echo "$line" | awk '{print $1}')
+    pkg="${line%% *}"
     ver_prefix=$(awk '{print $2}' <<< "$line" | grep -oE '^v[0-9]+' | sed 's/v//' || true)
     [[ -z "$ver_prefix" ]] && continue
     cmds+=("go get ${pkg}@v${ver_prefix}.${K8S_MINOR}.${K8S_PATCH}")
@@ -464,7 +464,7 @@ rebase_module() {
   fi
 
   local num_cmds
-  num_cmds=$(echo "$commands" | wc -l)
+  num_cmds=$(wc -l <<< "$commands")
   info "Running $num_cmds go get commands (log: .rebase-tmp/go-get.log)..."
   local cmd_log="" cmd_num=0
   while IFS= read -r cmd; do
@@ -697,6 +697,9 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   # here is a project-specific wrapper around that same script, not
   # controller-gen. The script-direct fallback handles projects that expose
   # no make target for codegen at all.
+  # Probes three make target candidates via dry-run, then executes the first
+  # matching one. Falls back to running the script directly when no target
+  # exists. Called twice: initial attempt and once after auto-fix.
   run_codegen() {
     for target in codegen generate update-codegen; do
       if make -n -C "$CODEGEN_DIR" "$target" &>/dev/null; then
@@ -733,8 +736,10 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
 
   # Commit codegen output immediately so progress isn't lost if
   # the script is killed during mockery or later steps.
+  # Only commit when codegen succeeded; a partial failure writes
+  # CODEGEN FAILURE to summary.txt for the Phase 6 agent to act on.
   cd "$REPO_ROOT"
-  if [[ -n "$(git status --porcelain)" ]]; then
+  if [[ "$CODEGEN_RAN" -eq 1 ]] && [[ -n "$(git status --porcelain)" ]]; then
     git add -A
     if git commit -s --trailer "$AI_TRAILER" -m "$CODEGEN_MSG"; then
       info "Committed: $CODEGEN_MSG"
@@ -797,6 +802,8 @@ elif [[ -n "$CODEGEN_MAKEFILE" ]]; then
   restore_crd_metadata
 
   cd "$REPO_ROOT"
+  # Skip commit when codegen produced no output changes (e.g. already at target
+  # version, or dry run). Avoids an empty commit that confuses the Phase 6 agent.
   if [[ -n "$(git status --porcelain)" ]]; then
     git add -A
     if git commit -s --trailer "$AI_TRAILER" -m "$(format_msg "codegen" "Regenerate code and manifests for k8s ${K8S_MAJOR_MINOR}")"; then

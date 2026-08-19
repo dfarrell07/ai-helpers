@@ -204,7 +204,7 @@ categorize_errors() {
   if [[ -n "$build_errors" ]]; then
     echo "## BUILD ERRORS ($category)" >> "$SUMMARY"
     echo "$build_errors" >> "$SUMMARY"
-    if echo "$build_errors" | grep -qE "does not implement.*SharedIndexInformer|vendor.*does not implement" 2>/dev/null; then
+    if grep -qE "does not implement.*SharedIndexInformer|vendor.*does not implement" <<< "$build_errors" 2>/dev/null; then
       echo "" >> "$SUMMARY"
       echo "NOTE: Vendored dependency missing a new interface method." >> "$SUMMARY"
       echo "Patching vendor directly will fail verify-deps CI." >> "$SUMMARY"

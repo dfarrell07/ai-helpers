@@ -72,8 +72,8 @@ _worktree_info() {
   local _wt_line
   _wt_line=$(git -C "$1" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
   [[ -z "$_wt_line" ]] && return 1
-  _WT_PATH=$(echo "$_wt_line" | awk '{print $1}')
-  _WT_BRANCH=$(echo "$_wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+  _WT_PATH="${_wt_line%% *}"
+  [[ "$_wt_line" =~ \[([^]]+)\] ]] && _WT_BRANCH="${BASH_REMATCH[1]/ locked/}" || _WT_BRANCH=""
 }
 
 # Collect gate report directories from ALL worktrees (+ main repo).
@@ -85,7 +85,7 @@ _collect_gate_dirs() {
   [[ -d "$_repo/.rebase-tmp/gates" ]] && _GATE_DIRS+=("$_repo/.rebase-tmp/gates")
   while IFS= read -r _wt_line; do
     [[ -z "$_wt_line" ]] && continue
-    local _wtp; _wtp=$(echo "$_wt_line" | awk '{print $1}')
+    local _wtp; _wtp="${_wt_line%% *}"
     [[ -d "$_wtp/.rebase-tmp/gates" ]] && _GATE_DIRS+=("$_wtp/.rebase-tmp/gates")
   done < <(git -C "$_repo" worktree list 2>/dev/null | grep -F '.claude/worktrees')
 }
@@ -202,8 +202,8 @@ _config_val() { yq ".repos.\"$1\".${2} // \"\"" "$CONFIG_FILE"; }
 
 _resolve_known_good() {
   local name="$1" repo_dir="$2"
-  local _rk=$(echo "$name" | tr '/' '_')
-  local _ver=$(echo "$VERSION" | tr '.' '_')
+  local _rk="${name//\//\_}"
+  local _ver="${VERSION//./_}"
   local _cache="$PLUGIN_DIR/test/.matrix-state/known_good_resolved_${_rk}_${_ver}"
   if [[ -f "$_cache" ]]; then
     local _cached=$(cat "$_cache")
@@ -398,7 +398,7 @@ find_newest_branch() {
   fi
   if [[ -n "$wt_line" ]]; then
     local wt_branch
-    wt_branch=$(echo "$wt_line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+    [[ "$wt_line" =~ \[([^]]+)\] ]] && wt_branch="${BASH_REMATCH[1]/ locked/}" || wt_branch=""
     [[ -n "$wt_branch" ]] && { echo "$wt_branch"; return 0; }
   fi
   # Phase 2: bump branches
@@ -447,8 +447,8 @@ remove_worktrees() {
   [[ -n "$version" ]] && ver_prefix="bump${version%.*}-"
   while IFS= read -r line; do
     local wt_path wt_branch commit_count=0
-    wt_path=$(echo "$line" | awk '{print $1}')
-    wt_branch=$(echo "$line" | grep -oE '\[.+\]' | tr -d '[]' | sed 's/ locked//')
+    wt_path="${line%% *}"
+    [[ "$line" =~ \[([^]]+)\] ]] && wt_branch="${BASH_REMATCH[1]/ locked/}" || wt_branch=""
     # Version-scoped: skip worktrees that belong to a different version
     [[ -n "$ver_prefix" && -n "$wt_branch" && "$wt_branch" != "${ver_prefix}"* ]] && continue
     [[ -n "$wt_branch" ]] && commit_count=$(git rev-list --count "$default_br".."$wt_branch" 2>/dev/null || echo 0)
@@ -549,13 +549,13 @@ cmd_run() {
       cd "$repo" || { warn "Skipping $short"; continue; }
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
       local _db=$(default_branch)
-      git checkout -f "$_db" &>/dev/null || true
+      # Switch off any stale _test-from-* branch BEFORE deleting it; git refuses
+      # to delete the currently-checked-out branch.
+      local _cur_branch=$(git branch --show-current 2>/dev/null)
+      [[ "$_cur_branch" == _test-from-* ]] && { git checkout -f "$_db" &>/dev/null || true; }
       git clean -fd &>/dev/null || true
       git fetch origin --no-tags &>/dev/null || true
       git branch -D "_test-from-${from_commit:0:8}" &>/dev/null || true
-      # If repo is checked out on a stale _test-from-* branch, switch away first
-      local _cur_branch=$(git branch --show-current 2>/dev/null)
-      [[ "$_cur_branch" == _test-from-* ]] && git checkout -f "$_db" &>/dev/null || true
       git switch -c "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
         || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
         || {
@@ -592,7 +592,8 @@ cmd_run() {
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
     info "Launched $short -> $session_id"
     local _rk=$(running_key "$version" "$repo")
-    echo "$session_id" > "$PLUGIN_DIR/test/.matrix-state/.session_id_$_rk" 2>/dev/null
+    echo "$session_id" > "$PLUGIN_DIR/test/.matrix-state/.session_id_$_rk" \
+      || { error "Failed to persist session ID for $short (session $session_id is orphaned — stop it manually with: claude stop $session_id)"; continue; }
     launched=$((launched + 1))
   done
   [[ "$launched" -gt 0 ]] || { warn "No sessions launched"; return 1; }
@@ -611,12 +612,12 @@ cmd_stop() {
   for running_file in "$state_dir"/*; do
     [[ -f "$running_file" ]] || continue
     local repo_key=$(basename "$running_file")
-    local raw=$(cat "$running_file")
-    local sid=$(echo "$raw" | cut -f3)
+    local raw; raw=$(cat "$running_file")
+    local sid; sid=$(cut -f3 <<< "$raw")
     if [[ -z "$sid" ]]; then rm -f "$running_file"; continue; fi
-    local _fv=$(echo "$raw" | cut -f4)
+    local _fv; _fv=$(cut -f4 <<< "$raw")
     repo_key=$(repo_key_from_running "$_fv" "$repo_key")
-    local short=$(echo "$repo_key" | tr '_' '/')
+    local short="${repo_key//_//}"
     local should_stop=false
     if $stop_all; then
       should_stop=true
@@ -668,7 +669,7 @@ cmd_clean() {
     version=""
   fi
   local _ver_u=""
-  [[ -n "$version" ]] && _ver_u=$(echo "$version" | tr '.' '_')
+  [[ -n "$version" ]] && _ver_u="${version//./_}"
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   local running_dir="$state_dir/running"
   local cleaned_keys=()
@@ -1275,7 +1276,7 @@ cmd_court() {
     error "$_ci INCONCLUSIVE: diff too large for court (${diff_bytes} bytes — max 250000)"
     return 2
   fi
-  local hunks=$(echo "$diff_nv" | grep -c '^@@' || true)
+  local hunks; hunks=$(grep -c '^@@' <<< "$diff_nv" || true)
   local diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
   info "$_ci Diff: $hunks non-vendor hunks, go.sum excluded (${diff_bytes} bytes)"
 
@@ -1628,7 +1629,7 @@ cmd_court_all() {
       local _v; _v=$(cat "$_cf" 2>/dev/null || echo "ERROR")
       [[ "$_v" == "PASS" ]] && continue
       # Find the most recent court transcript dir for this repo
-      local _rk; _rk=$(echo "$_cs" | tr '/' '_')
+      local _rk; _rk="${_cs//\//\_}"
       local _tdir; _tdir=$(ls -td "$_court_dir"/*"_${_rk}" 2>/dev/null | head -1)
       if [[ -n "$_tdir" ]]; then
         echo "  [$_v] $_cs ($VERSION): $_tdir"
@@ -1665,7 +1666,7 @@ cmd_watch() {
     local _file_spec _f2 _sid _file_version  # _f2 is field 2 of the running file; read to advance IFS position, not used
     IFS=$'\t' read -r _file_spec _f2 _sid _file_version _ <<< "$_raw"
     local _bare_rk=$(repo_key_from_running "$_file_version" "$_running_key")
-    local short=$(echo "$_bare_rk" | tr '_' '/')
+    local short="${_bare_rk//_//}"
     local repo="$REPOS_DIR/$short"
     [[ -d "$repo" ]] || continue
     local session_state="gone"

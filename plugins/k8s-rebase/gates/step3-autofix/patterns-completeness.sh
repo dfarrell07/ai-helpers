@@ -6,7 +6,7 @@ source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
 init_gate "$@"
 
 details=()
-NEW_ISSUES=0
+# NEW_ISSUES initialized to 0 by init_gate
 
 # Build check — runs regardless of BASE availability
 for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" \
@@ -24,7 +24,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.cl
   elif [[ "$build_rc" -ne 0 ]]; then
     # Non-zero exit with no file:line lines = linker error, permission, or toolchain issue
     details+=("BUILD-FAIL $mod_dir: non-file-line error (exit $build_rc)")
-    NEW_ISSUES=$(( NEW_ISSUES + 1 ))
+    inc NEW_ISSUES
   else
     details+=("BUILD-OK $mod_dir")
   fi

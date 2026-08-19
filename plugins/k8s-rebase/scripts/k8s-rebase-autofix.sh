@@ -286,7 +286,7 @@ run_checks() {
   r "CRD missing name validation" "$_crd_name_miss"
   r "Uncommitted" "$(git status --short | grep -v '^[?]' | wc -l)"
   echo "---"
-  [ "$F" -eq 0 ] && echo "RESULT: PASS" || echo "RESULT: FAIL ($F checks non-zero)"
+  [[ "$F" -eq 0 ]] && echo "RESULT: PASS" || echo "RESULT: FAIL ($F checks non-zero)"
   return "$F"
 }
 
@@ -297,7 +297,7 @@ fix_xexp() {
   local files
   files=$(grep -rln 'golang.org/x/exp/' --include='*.go' . | grep -v vendor)
   [[ -z "$files" ]] && return 0
-  echo ":: Fixing x/exp imports in $(echo "$files" | wc -l) files"
+  echo ":: Fixing x/exp imports in $(wc -l <<< "$files") files"
   for f in $files; do
     # In-place replacement — always produces compilable code even if
     # goimports fails to install. Import ends up in the wrong group
@@ -331,7 +331,7 @@ fix_klog_v2() {
   local files
   files=$(grep -rln '"k8s.io/klog"' --include='*.go' . | grep -v vendor | grep -v '/v2')
   [[ -z "$files" ]] && return 0
-  echo ":: Fixing klog v1 → v2 imports in $(echo "$files" | wc -l) files"
+  echo ":: Fixing klog v1 → v2 imports in $(wc -l <<< "$files") files"
   for f in $files; do
     sed -i 's|"k8s.io/klog"|"k8s.io/klog/v2"|g' "$f"
   done
@@ -345,7 +345,7 @@ fix_reflect_ptr() {
   local files
   files=$(grep -rln 'reflect\.Ptr\b' --include='*.go' . | grep -v vendor)
   [[ -z "$files" ]] && return 0
-  echo ":: Fixing reflect.Ptr → reflect.Pointer in $(echo "$files" | wc -l) files"
+  echo ":: Fixing reflect.Ptr → reflect.Pointer in $(wc -l <<< "$files") files"
   for f in $files; do
     sed -i 's/reflect\.Ptr\b/reflect.Pointer/g' "$f"
   done
@@ -357,7 +357,7 @@ fix_fieldsv1() {
   local files
   files=$(grep -rln 'FieldsV1\.Raw\b\|FieldsV1{Raw:' --include='*.go' . | grep -v vendor)
   [[ -z "$files" ]] && return 0
-  echo ":: Fixing FieldsV1.Raw in $(echo "$files" | wc -l) files"
+  echo ":: Fixing FieldsV1.Raw in $(wc -l <<< "$files") files"
   for f in $files; do
     # Read access: .FieldsV1.Raw → .FieldsV1.GetRawBytes()
     # Skip lines where .Raw is on the left side of an assignment
@@ -975,7 +975,7 @@ fix_imports() {
     fi
   fi
   if command -v goimports &>/dev/null; then
-    echo ":: Running goimports on $(echo "$modified" | wc -l) modified files"
+    echo ":: Running goimports on $(wc -l <<< "$modified") modified files"
     for f in $modified; do
       [[ -f "$f" ]] && goimports -w "$f"
     done
@@ -1126,9 +1126,9 @@ fix_uncommitted() {
     # Auto-detect import-only changes when no custom message given
     if [[ -z "$custom_msg" ]]; then
       local changed_count diff_lines
-      changed_count=$(echo "$changed_files" | wc -l)
+      changed_count=$(wc -l <<< "$changed_files")
       diff_lines=$(git diff --cached --stat | tail -1 | grep -oE '[0-9]+ insertion' | grep -oE '[0-9]+' || echo "0")
-      if [[ "$changed_count" -le 3 ]] && [[ "$diff_lines" -le 30 ]] && ! echo "$changed_files" | grep -qvE '\.go$'; then
+      if [[ "$changed_count" -le 3 ]] && [[ "$diff_lines" -le 30 ]] && ! grep -qvE '\.go$' <<< "$changed_files"; then
         msg="$(format_msg "deps" "Reorder imports after k8s rebase fixes")"
       fi
     fi
@@ -1265,7 +1265,7 @@ else
   echo ""
   # Show file:line details for remaining non-zero grep checks
   echo "$RESULT" | grep -v ': 0$' | grep -v '^---' | grep -v '^RESULT' | while IFS=: read -r name count; do
-    count=$(echo "$count" | tr -d ' ')
+    count="${count// /}"
     case "$name" in
       *"x/exp"*)
         echo "  $name: Migrate these imports to stdlib (maps, slices, cmp):"
