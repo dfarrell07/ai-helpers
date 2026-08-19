@@ -336,8 +336,8 @@ fix_klog_v2() {
     sed -i 's|"k8s.io/klog"|"k8s.io/klog/v2"|g' "$f"
   done
   for _gm in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l 'k8s.io/klog ' {} \;); do
-    echo ":: Running go mod tidy in $(dirname "$_gm") to remove stale klog v1"
-    (cd "$(dirname "$_gm")" && GOWORK=off go mod tidy 2>/dev/null) || true
+    echo ":: Running go mod tidy+vendor in $(dirname "$_gm") to remove stale klog v1"
+    (cd "$(dirname "$_gm")" && GOWORK=off go mod tidy 2>/dev/null && [[ -d vendor ]] && go mod vendor 2>/dev/null) || true
   done
 }
 
