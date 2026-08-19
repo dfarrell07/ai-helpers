@@ -233,6 +233,7 @@ _load_config() {
   while IFS= read -r repo_short; do
     [[ -n "$repo_short" ]] && DEFAULT_REPOS+=("$REPOS_DIR/$repo_short")
   done < <(yq '.repos | keys | .[]' "$CONFIG_FILE")
+  [[ ${#DEFAULT_REPOS[@]} -gt 0 ]] || die "No repos configured in $CONFIG_FILE — 'repos' key is missing or empty"
   # Validate from_commit SHAs exist in repos
   for _repo_name in $(yq '.repos | keys | .[]' "$CONFIG_FILE"); do
     local fc=$(_config_val "$_repo_name" "from_commit")

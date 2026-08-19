@@ -1,6 +1,6 @@
 EVIDENCE (read before judging): if `.rebase-tmp/gates/step2-build-vet.evidence` exists,
 run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
-- Match: Read the file first and treat its `SUMMARY:`/facts as reliable input for this gate.
+- Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
   If the summary appears inconsistent with what you know about this repo (e.g., reports
   0 modules checked in a multi-module repo), run the manual checks below instead.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks

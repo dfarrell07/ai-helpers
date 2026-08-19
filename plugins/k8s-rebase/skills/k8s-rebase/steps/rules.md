@@ -38,8 +38,9 @@ the user to copy-paste.
 When a gate reports FAIL:
 1. **Triage** — verify real, not pre-existing on base branch.
 2. **Fix** and commit.
-3. **Delete** old report (`rm .rebase-tmp/gates/<report>`).
-4. **Re-run** gate with a fresh prompt.
+3. **Refresh evidence** — re-run the orchestrator gates command (`bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" <step>`) so companion scripts re-execute against the fixed code.
+4. **Delete** old report (`rm .rebase-tmp/gates/<report>`).
+5. **Re-run** gate with a fresh prompt.
 
 Commit ALL fixes before re-launching ANY gates. Gates read the
 branch tip at launch — uncommitted fixes cause false FAILs.
@@ -94,9 +95,11 @@ remove gates from its SetFromMap.
   investigate and either fix it or explain why it's not an issue.
 - If you cannot launch subagents, run the gate checks inline.
 - **Companion gate scripts:** Some gates have `.sh` files alongside
-  the `.md` prompt. Run the `.sh` script FIRST — it provides
-  mechanical check results. Include the script output in the
-  subagent prompt so it uses the results instead of re-running.
+  the `.md` prompt. The orchestrator's `gates` command runs them
+  automatically and marks the gate RESOLVED if the companion passes,
+  or PENDING if it needs a subagent. Do NOT run companion `.sh`
+  scripts manually — the orchestrator has already handled them.
+  Launch subagents only for PENDING gates.
 - **Context budget:** Never burn main-agent context on build
   monitoring. Use `run_in_background: true` for long commands,
   or launch builds in subagents. NEVER use `sleep` to poll.

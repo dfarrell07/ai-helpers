@@ -100,7 +100,12 @@ gate with verdict FAIL):
 2. **Fix**: For each NEW finding, fix the cited issue and
    commit.
 
-3. **Re-run** (mandatory -- never skip this step): Re-run the
+3. **Re-validate**: After any code-changing fix, re-run
+   `bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick`
+   to confirm build+vet still pass. Fix commits can introduce
+   new regressions -- catch them here before re-running the gate.
+
+4. **Re-run** (mandatory -- never skip this step): Re-run the
    orchestrator gates command to refresh evidence, then delete
    ONLY the specific failing gate's report file
    (`rm .rebase-tmp/gates/step3-<gate>.report`) and re-run that

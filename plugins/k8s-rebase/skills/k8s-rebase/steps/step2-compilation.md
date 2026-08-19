@@ -161,22 +161,36 @@ Gate files:
 
 Count gates must report 0. Judge gates must cite evidence.
 
-**Gate-fix loop:** If ANY gate reports FAIL:
-1. **Triage**: Read each FAIL report. Check current branch base:
-   `git show $(git merge-base HEAD master 2>/dev/null ||
-   git merge-base HEAD main):<file>` — skip pre-existing issues.
-2. **Fix**: Fix the cited issue at the cited location. Commit.
+## Gate-fix loop
+
+If ANY gate reports FAIL (count gate with issues > 0, OR judge
+gate with verdict FAIL):
+
+1. **Triage**: Read each FAIL gate report (DETAILS with
+   file:line). For each finding, check the base branch:
+   `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+   `git show $BASE:<file>` — if the same issue exists on the
+   base branch, it is pre-existing. If the file does not exist
+   on base (new file), the finding IS new. Skip pre-existing
+   findings.
+
+2. **Fix**: For each NEW finding, fix the cited issue and
+   commit.
+
 3. **Re-validate**: After any code-changing fix, re-run
    `bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick`
    to confirm build+vet still pass. Fix commits can introduce
    new regressions — catch them here before re-running the gate.
+
 4. **Re-run** (mandatory — never skip): Re-run the orchestrator
-   gates command to refresh evidence, then delete the old gate
-   report (`rm .rebase-tmp/gates/<gate>.report`) and re-launch
-   the gate subagent. Stale FAIL reports cause auto-record to
-   mark the run as failed even if the fix worked.
-Repeat up to 3 times per gate. If it still fails, report
-remaining issues and proceed.
+   gates command to refresh evidence, then delete ONLY the
+   specific failing gate's report file
+   (`rm .rebase-tmp/gates/step2-<gate>.report`) and re-run that
+   gate. Stale FAIL reports cause auto-record to mark the run
+   as failed even if the fix worked.
+
+Repeat up to 3 times per gate. If it still fails after 3
+attempts, report remaining issues and proceed.
 
 **All 6 step2 gate verdicts are required even if there were zero
 compilation errors.** Gates check more than compilation — they
