@@ -1660,9 +1660,8 @@ cmd_watch() {
   local state_dir="$PLUGIN_DIR/test/.matrix-state"
   _SESSION_CACHE_AGE=0
   build_session_cache
-  printf "%-36s %-7s %-5s %-13s %-14s %-28s %s\n" "REPO" "VER" "SPEC" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
-  printf "%-36s %-7s %-5s %-13s %-14s %-28s %s\n" "----" "---" "----" "------" "-----" "-------------" "-------------"
   local active=0
+  local -a _watch_rows=()
   for running_file in "$state_dir/running"/*; do
     [[ -f "$running_file" ]] || continue
     active=$((active + 1))
@@ -1754,9 +1753,36 @@ cmd_watch() {
     [[ "$gf" -gt 0 ]] && _gsuffix="${gf}F"
     [[ "$gs" -gt 0 ]] && _gsuffix="${_gsuffix:+${_gsuffix},}${gs}S"
     [[ -n "$_gsuffix" ]] && gate_str="${gate_str} (${_gsuffix})"
-    printf "%-36s %-7s %-5s %-13s %-14s %-28s %s\n" "$short" "${_file_version:-?}" "${_file_spec:-?}" "$session_state" "$gate_str" "$commit_msg" "$diff_info"
+    # Truncate repo name at 40 chars to prevent table blowout
+    local _short_r="$short"
+    [[ "${#_short_r}" -gt 40 ]] && _short_r="${_short_r:0:39}…"
+    _watch_rows+=("$_short_r"$'\t'"${_file_version:-?}"$'\t'"${_file_spec:-?}"$'\t'"$session_state"$'\t'"$gate_str"$'\t'"$commit_msg"$'\t'"$diff_info")
   done
-  [[ "$active" -le 0 ]] && echo "(no active tests)"
+  if [[ "$active" -le 0 ]]; then echo "(no active tests)"; return 0; fi
+  # Compute dynamic column widths from actual data
+  local w_r=4 w_v=3 w_sp=4 w_st=6 w_g=5
+  for _wr in "${_watch_rows[@]}"; do
+    local _r _v _sp _st _g _c _d
+    IFS=$'\t' read -r _r _v _sp _st _g _c _d <<< "$_wr"
+    [[ ${#_r}  -gt $w_r  ]] && w_r=${#_r}
+    [[ ${#_v}  -gt $w_v  ]] && w_v=${#_v}
+    [[ ${#_sp} -gt $w_sp ]] && w_sp=${#_sp}
+    [[ ${#_st} -gt $w_st ]] && w_st=${#_st}
+    [[ ${#_g}  -gt $w_g  ]] && w_g=${#_g}
+  done
+  local _hfmt="%-${w_r}s  %-${w_v}s  %-${w_sp}s  %-${w_st}s  %-${w_g}s  %-26s  %s\n"
+  printf "$_hfmt" "REPO" "VER" "SPEC" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
+  printf "$_hfmt" "$(printf '%*s' $w_r  '' | tr ' ' '-')" \
+                  "$(printf '%*s' $w_v  '' | tr ' ' '-')" \
+                  "$(printf '%*s' $w_sp '' | tr ' ' '-')" \
+                  "$(printf '%*s' $w_st '' | tr ' ' '-')" \
+                  "$(printf '%*s' $w_g  '' | tr ' ' '-')" \
+                  "-------------" "-------------"
+  for _wr in "${_watch_rows[@]}"; do
+    local _r _v _sp _st _g _c _d
+    IFS=$'\t' read -r _r _v _sp _st _g _c _d <<< "$_wr"
+    printf "$_hfmt" "$_r" "$_v" "$_sp" "$_st" "$_g" "$_c" "$_d"
+  done
   return 0
 }
 
