@@ -24,7 +24,7 @@ interfaces, or restructure packages.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go mod edit`,
 `go generate`, or `go run`. Allowed: `go build`, `go vet`,
-`go test` (`-mod=vendor` if vendor/ exists), `go mod verify`,
+`go test` (with `-mod=vendor` if vendor/ exists), `go mod verify`,
 `go doc`, `go install <tool>@<version>`, `go clean -cache`.
 Prepend this rule to every gate subagent prompt.
 

@@ -62,8 +62,8 @@ line as unchanged (no + or - on that specific line), it is pre-existing
 INFO. If the diff shows the pattern was added or modified, it is NEW FAIL.
 If ALL findings are pre-existing INFO, verdict MUST be PASS.
 
-NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
-command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
+`go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
 `go mod verify`, `go doc`, `go install <tool>@<version>`,
 `go clean -cache`. Fix-hint commands in report text are fine.

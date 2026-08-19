@@ -46,8 +46,8 @@ Do NOT use "base_has > 0" as a simple binary — that marks all as pre-existing.
 FAIL if any NEW stale imports remain. PASS if clean or
 only pre-existing. If no major-version deps, PASS.
 
-NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
-command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
+`go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
 `go mod verify`, `go doc`, `go install <tool>@<version>`,
 `go clean -cache`. Fix-hint commands in report text are fine.

@@ -22,6 +22,11 @@ COURT_MODEL="${COURT_MODEL:-claude-opus-4-8}"
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"
 _MAX_CONCURRENT_FROM_ENV="${MAX_CONCURRENT:-}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-3}"
+# INFO_GATES — space-separated list of BARE gate names (no step prefix).
+# Gates in this list are counted as SKIP rather than FAIL when their verdict
+# is not PASS.  They are matched against report filenames after stripping the
+# leading stepN- prefix (e.g. step4-dep-cve-check -> dep-cve-check).
+# Update this list whenever a new advisory-only gate is added to gates/step*/.
 INFO_GATES="dep-cve-check skill-improvement commit-messages maintainer-review"
 
 # ── Utilities ──────────────────────────────────────────────────────────
@@ -82,14 +87,14 @@ _collect_gate_dirs() {
     [[ -z "$_wt_line" ]] && continue
     local _wtp; _wtp=$(echo "$_wt_line" | awk '{print $1}')
     [[ -d "$_wtp/.rebase-tmp/gates" ]] && _GATE_DIRS+=("$_wtp/.rebase-tmp/gates")
-  done < <(git -C "$_repo" worktree list 2>/dev/null | grep '\.claude/worktrees')
+  done < <(git -C "$_repo" worktree list 2>/dev/null | grep -F '.claude/worktrees')
 }
 
 # Tally gate reports across one or more directories.
 # Accepts variadic args: _tally_gates dir1 [dir2 ...]
 # When the same gate name exists in multiple dirs, the newest file wins.
 _tally_gates() {
-  local _gt=0 _gf=0 _gs=0 _gfail_names=""
+  local _gt=0 _gfail=0 _gs=0 _gfail_names=""
   # Collect all gate files, dedup by gate name (newest wins)
   local -A _gate_files=()
   for _gdir in "$@"; do
@@ -132,12 +137,12 @@ _tally_gates() {
       if _is_stale_fail "$_gf_file" "$_branch_tip_ts"; then
         _gs=$((_gs + 1))
       else
-        _gf=$((_gf + 1))
+        _gfail=$((_gfail + 1))
         _gfail_names="${_gfail_names:+$_gfail_names,}${_gn}"
       fi
     fi
   done
-  echo "$_gt $_gf $_gs $_gfail_names"
+  echo "$_gt $_gfail $_gs $_gfail_names"
 }
 
 _is_stale_fail() {
@@ -147,13 +152,19 @@ _is_stale_fail() {
   [[ "$_rts" -gt 0 && "$_tip_ts" -gt "$_rts" ]]
 }
 
+# EXPECTED_GATES is computed at load time by counting every .md in the gates tree.
+# It self-updates when gate .md files are added or removed — no manual change needed.
+# WARNING: do NOT add README.md or other non-gate .md files under gates/ — every
+# .md found by this find increments the expected count and will cause gate-complete
+# checks to wait for a report that never arrives.
 EXPECTED_GATES=$(find "$PLUGIN_DIR/gates" -name '*.md' 2>/dev/null | wc -l)
 [[ "$EXPECTED_GATES" -lt 1 ]] && die "Gates directory missing or empty — cannot determine expected gate count"
 
-# Assert evidence-path consistency:
-#   1. Every companion .sh has an EVIDENCE block in its .md with the correct path.
-#   2. The count of EVIDENCE markers equals the count of companions.
-# A mismatch means gate-script-lib.sh, the orchestrator, and a .md are out of sync.
+# _check_evidence_paths performs forward-only checking: each .sh companion must
+# have a matching .md with the correct EVIDENCE path.
+# The REVERSE check (orphaned EVIDENCE blocks in .md without a companion .sh)
+# is only in test/assert-evidence-paths.sh, which is run separately.
+# These two are NOT redundant — they cover complementary failure modes.
 _check_evidence_paths() {
   local companions=0 markers=0 mismatches=0
   for _sh in "$PLUGIN_DIR/gates"/step*/*.sh; do
@@ -717,6 +728,10 @@ cmd_clean() {
 
 # ── Mutation ───────────────────────────────────────────────────────────
 
+# TAG_TO_PATTERN: maps an autofix tag (the suffix in fix_<tag>) to the ### heading
+# of the pattern section it exercises in docs/k8s-rebase-patterns.md.
+# Multiple tags may share one heading — they all exercise the same pattern section,
+# so pattern:<any of them> removes the same block.
 declare -A TAG_TO_PATTERN=(
   [xexp]="golang.org/x/exp" [reflect_ptr]="Deprecated stdlib/apimachinery symbols"
   [fieldsv1]="Deprecated stdlib/apimachinery symbols" [klog_v2]="Deprecated stdlib/apimachinery symbols"
@@ -729,6 +744,11 @@ declare -A TAG_TO_PATTERN=(
   [go_version]="Deprecated stdlib/apimachinery symbols" [lint_version]="golangci-lint"
 )
 
+# mutate_plugin SPEC [SPEC...] -> prints dest path to stdout
+#
+# Creates a timestamped copy of PLUGIN_DIR, then disables the named
+# autofix functions and/or pattern sections so the agent cannot rely on them.
+# Callers must capture the printed path; never pass 'none' here (cmd_test strips it).
 mutate_plugin() {
   local label="mutated-$(date +%s)"
   local dest="$RESULTS_DIR/$label"
@@ -736,6 +756,8 @@ mutate_plugin() {
   command -v rsync &>/dev/null || die "rsync required"
   rsync -a --exclude test/.repos --exclude test/.matrix-state "$PLUGIN_DIR/" "$dest/" || die "Cannot copy plugin to $dest"
 
+  # Deduplicate and expand specs. has_all_patterns / has_all_fns suppress
+  # individual pattern:/fn: specs that are already covered by all-patterns/all-fns.
   local has_all_patterns=false has_all_fns=false
   local -A seen_specs=()
   local specs=()
@@ -1165,6 +1187,9 @@ auto_record() {
         done
         _gc=${#_gc_seen[@]}
       fi
+      # _gc counts .report files; EXPECTED_GATES counts .md files.  If an INFO gate
+      # never runs and produces no .report, this check will not pass until the
+      # session dies and the dead-session path records the result.
       if [[ "$_gc" -ge "$EXPECTED_GATES" ]]; then
         info "Gate-complete: $spec on $short ($_gc/$EXPECTED_GATES gates)"
       else

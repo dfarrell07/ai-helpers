@@ -39,8 +39,8 @@ base_in_vendor=$(git show "$BASE:<vendor/pkg/file.go>" 2>/dev/null | grep -c '<s
 Report pre-existing errors as INFO (pre-existing). Only symbols
 removed by the rebase (present on base, absent now) count as NEW.
 
-NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
-command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
+`go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
 `go mod verify`, `go doc`, `go install <tool>@<version>`,
 `go clean -cache`. Fix-hint commands in report text are fine.

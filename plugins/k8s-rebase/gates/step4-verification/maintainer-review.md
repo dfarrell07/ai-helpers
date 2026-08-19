@@ -45,8 +45,8 @@ human review. Cite your evidence precisely.
 List your findings with specific commit SHAs and file:line refs.
 Do not just say "would approve" — explain what you checked.
 
-NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
-command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
+`go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
 `go mod verify`, `go doc`, `go install <tool>@<version>`,
 `go clean -cache`. Fix-hint commands in report text are fine.

@@ -27,8 +27,8 @@ KIND image isn't published yet (note as INFO in details, not FAIL).
 SKIP if the repo has no CI configuration files. Never use WARN —
 only PASS, FAIL, or SKIP.
 
-NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
-command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
+NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
+`go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
 `go mod verify`, `go doc`, `go install <tool>@<version>`,
 `go clean -cache`. Fix-hint commands in report text are fine.
