@@ -437,6 +437,7 @@ while IFS= read -r gomod; do
               _run_lint_direct
             else
               echo "  WARNING: golangci-lint not available and container pull failed — skipping lint"
+            step_failed=1
             fi
           else
             step_failed=1

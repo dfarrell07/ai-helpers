@@ -383,9 +383,14 @@ derive_go_gets() {
   # NOTE: sigs.k8s.io/ packages whose current version happens to match
   # v[0-9]+.${OLD_MINOR}.* are excluded from Rule 1 (sigs filter) AND
   # from Rule 3 (OLD_MINOR exclusion). No go get is emitted for them.
-  # In practice sigs.k8s.io packages do not track k8s minor versions,
-  # but if one is found at that version the omission will surface as a
-  # build error after vendor update rather than a silent skip.
+  # sigs.k8s.io/controller-tools versions exactly this way (v0.N.P for
+  # k8s 1.N) and falls into this gap.
+  # For DIRECT sigs.k8s.io deps the omission will surface as a build
+  # error after vendor update. For INDIRECT deps the gap is silent:
+  # the package compiles at the old minor API, no build error is emitted,
+  # and the rebase log shows no warning. If a target repo carries
+  # sigs.k8s.io packages that version-lock to the k8s minor, add an
+  # explicit post-derive skew check for those packages.
 
   # Rule 1: version-locked (v{N}.{OLD_MINOR}.* → v{N}.{NEW_MINOR}.*)
   while IFS= read -r line; do
@@ -487,7 +492,9 @@ rebase_module() {
   local _self_replaces
   _self_replaces=$(awk '
     /^[[:space:]]+k8s\.io\/[^ ]+ => k8s\.io\//{print $1}
+    /^[[:space:]]+k8s\.io\/[^ ]+ v[^ ]+ => k8s\.io\//{print $1 "@" $2}
     /^replace k8s\.io\/[^ ]+ => k8s\.io\//{print $2}
+    /^replace k8s\.io\/[^ ]+ v[^ ]+ => k8s\.io\//{print $2 "@" $3}
   ' go.mod || true)
   if [[ -n "$_self_replaces" ]]; then
     info "Dropping stale k8s.io self-referencing replace directives..."

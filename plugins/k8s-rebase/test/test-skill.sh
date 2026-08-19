@@ -1197,22 +1197,22 @@ auto_record() {
     if _session_alive "$_run_sid"; then
       # Session still running — check if gates are complete (scan all worktrees)
       _collect_gate_dirs "$repo"
-      local _gc=0
+      local _report_count=0
       if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
-        local -A _gc_seen=()
+        local -A _seen_reports=()
         for _gd in "${_GATE_DIRS[@]}"; do
           for _gf in "$_gd"/*.report; do
             [[ -f "$_gf" ]] || continue
-            _gc_seen[$(basename "$_gf" .report)]=1
+            _seen_reports[$(basename "$_gf" .report)]=1
           done
         done
-        _gc=${#_gc_seen[@]}
+        _report_count=${#_seen_reports[@]}
       fi
-      # _gc counts .report files; EXPECTED_GATES counts .md files.  If an INFO gate
-      # never runs and produces no .report, this check will not pass until the
-      # session dies and the dead-session path records the result.
-      if [[ "$_gc" -ge "$EXPECTED_GATES" ]]; then
-        info "Gate-complete: $spec on $short ($_gc/$EXPECTED_GATES gates)"
+      # _report_count counts unique .report basenames; EXPECTED_GATES counts .md files.
+      # If an INFO gate never runs and produces no .report, this check will not pass
+      # until the session dies and the dead-session path records the result.
+      if [[ "$_report_count" -ge "$EXPECTED_GATES" ]]; then
+        info "Gate-complete: $spec on $short ($_report_count/$EXPECTED_GATES gates)"
       else
         continue
       fi
@@ -1250,11 +1250,11 @@ cmd_court() {
   local result_branch="$1" known_good="$2" repo="$3"
   # Short label for concurrent-court output — prefixed on every progress line
   # so interleaved output from parallel courts is always identifiable.
-  local _ci; _ci="[$(repo_short "$repo") $VERSION]"
+  local _log_prefix; _log_prefix="[$(repo_short "$repo") $VERSION]"
 
-  cd "$repo" || { error "$_ci Cannot cd to $repo"; return 1; }
-  git rev-parse --verify "$result_branch" &>/dev/null || { error "$_ci Branch not found: $result_branch"; return 1; }
-  git rev-parse --verify "$known_good" &>/dev/null || { error "$_ci Branch not found: $known_good"; return 1; }
+  cd "$repo" || { error "$_log_prefix Cannot cd to $repo"; return 1; }
+  git rev-parse --verify "$result_branch" &>/dev/null || { error "$_log_prefix Branch not found: $result_branch"; return 1; }
+  git rev-parse --verify "$known_good" &>/dev/null || { error "$_log_prefix Branch not found: $known_good"; return 1; }
 
   # Court exclusions. Vendor is generated; go.sum is pure resolver output
   # (module hashes) that the court criteria explicitly cannot act on — a
@@ -1266,19 +1266,19 @@ cmd_court() {
   # reservation eats into the limit). go.mod is kept — version pins are signal.
   local court_excludes=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum')
   local diff_nv=$(git diff "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
-  [[ -z "$diff_nv" ]] && { info "$_ci PASS: identical (non-vendor)"; return 0; }
+  [[ -z "$diff_nv" ]] && { info "$_log_prefix PASS: identical (non-vendor)"; return 0; }
 
   local diff_bytes=${#diff_nv}
   # Backstop only. ~1.4 bytes/token for dense diffs, so 250 KB ≈ 180K tokens;
   # past that the court prompt risks the context window. Real diffs (go.sum
   # excluded) run ~150-185 KB, so this rarely fires.
   if [[ "$diff_bytes" -gt 250000 ]]; then
-    error "$_ci INCONCLUSIVE: diff too large for court (${diff_bytes} bytes — max 250000)"
+    error "$_log_prefix INCONCLUSIVE: diff too large for court (${diff_bytes} bytes — max 250000)"
     return 2
   fi
   local hunks; hunks=$(grep -c '^@@' <<< "$diff_nv" || true)
   local diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
-  info "$_ci Diff: $hunks non-vendor hunks, go.sum excluded (${diff_bytes} bytes)"
+  info "$_log_prefix Diff: $hunks non-vendor hunks, go.sum excluded (${diff_bytes} bytes)"
 
   local direction="DIFF DIRECTION: 'git diff known_good result'.
 '-' lines are in KNOWN-GOOD but not result (things the result may be MISSING).
@@ -1351,10 +1351,10 @@ You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines."
 
 You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines."
 
-  info "$_ci Phase A: Prosecution + Defense..."
-  cat <<<"$_pros_prompt" | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/pros.txt" 2>"$cdir/pros.err" &
+  info "$_log_prefix Phase A: Prosecution + Defense..."
+  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text <<<"$_pros_prompt" > "$cdir/pros.txt" 2>"$cdir/pros.err" &
   local pid_pros=$!
-  cat <<<"$_def_prompt" | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text > "$cdir/def.txt" 2>"$cdir/def.err" &
+  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text <<<"$_def_prompt" > "$cdir/def.txt" 2>"$cdir/def.err" &
   local pid_def=$!
   wait "$pid_pros" "$pid_def" 2>/dev/null || true
 
@@ -1368,9 +1368,9 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
   _court_retry() {
     local f="$1" errf="$2" prompt="$3" role="$4"
     if ! _court_phase_ok "$f"; then
-      info "$_ci   Retrying $role (transient error: $(head -1 "$f" 2>/dev/null | cut -c1-60))..."
-      cat <<<"$prompt" | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" \
-        --permission-mode "$PERMISSION_MODE" --output-format text > "$f" 2>"$errf" || true
+      info "$_log_prefix   Retrying $role (transient error: $(head -1 "$f" 2>/dev/null | cut -c1-60))..."
+      timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" \
+        --permission-mode "$PERMISSION_MODE" --output-format text <<<"$prompt" > "$f" 2>"$errf" || true
     fi
   }
   _court_retry "$cdir/pros.txt" "$cdir/pros.err" "$_pros_prompt" "prosecution"
@@ -1380,11 +1380,11 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
   pros=$(grep -v '^Warning:' "$cdir/pros.txt" 2>/dev/null | grep -v '^Execution error' || true)
   def=$(grep -v '^Warning:' "$cdir/def.txt" 2>/dev/null | grep -v '^Execution error' || true)
   if [[ ${#pros} -lt 200 || ${#def} -lt 200 ]]; then
-    error "$_ci Prosecution/defense too short (${#pros}/${#def} bytes — $(tail -1 "$cdir/pros.err" 2>/dev/null) / $(tail -1 "$cdir/def.err" 2>/dev/null))"
+    error "$_log_prefix Prosecution/defense too short (${#pros}/${#def} bytes — $(tail -1 "$cdir/pros.err" 2>/dev/null) / $(tail -1 "$cdir/def.err" 2>/dev/null))"
     return 2
   fi
 
-  info "$_ci Phase B: Judge..."
+  info "$_log_prefix Phase B: Judge..."
   local judge
   judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err" | grep -v '^Warning:'
 $direction
@@ -1404,7 +1404,7 @@ EOF_JUDGE
   ) || true
   echo "$judge" > "$cdir/judge.txt"
 
-  info "$_ci Phase C: Jury (parallel)..."
+  info "$_log_prefix Phase C: Jury (parallel)..."
   for j in 1 2 3; do
     cat <<EOF_JURY | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text \
       --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
@@ -1448,7 +1448,7 @@ EOF_JURY
   local empty_jurors=0
   for j in 1 2 3; do
     if [[ ! -s "$cdir/juror-$j.txt" ]] || grep -qx 'Execution error' "$cdir/juror-$j.txt" 2>/dev/null; then
-      warn "$_ci Juror $j produced no output ($(cat "$cdir/juror-$j.err" 2>/dev/null | tail -1))"
+      warn "$_log_prefix Juror $j produced no output ($(tail -1 "$cdir/juror-$j.err" 2>/dev/null))"
       empty_jurors=$((empty_jurors + 1))
     fi
   done
@@ -1457,14 +1457,14 @@ EOF_JURY
   for j in 1 2 3; do
     local jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null | grep -ioE 'PASS|FAIL' | tail -1)
     jv="${jv^^}"
-    case "$jv" in "PASS") pass=$((pass+1)); info "$_ci   Juror $j: PASS";; "FAIL") fail=$((fail+1)); info "$_ci   Juror $j: FAIL";; *) info "$_ci   Juror $j: ABSTAIN";; esac
+    case "$jv" in "PASS") pass=$((pass+1)); info "$_log_prefix   Juror $j: PASS";; "FAIL") fail=$((fail+1)); info "$_log_prefix   Juror $j: FAIL";; *) info "$_log_prefix   Juror $j: ABSTAIN";; esac
   done
 
-  info "$_ci Jury: $pass PASS, $fail FAIL"
+  info "$_log_prefix Jury: $pass PASS, $fail FAIL"
 
   # Helper: show key findings from FAIL jurors to avoid transcript hunting
   _show_fail_reasons() {
-    info "$_ci Transcript: $cdir"
+    info "$_log_prefix Transcript: $cdir"
     for j in 1 2 3; do
       local jv; jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null \
                      | grep -ioE 'PASS|FAIL' | tail -1)
@@ -1473,18 +1473,18 @@ EOF_JURY
                                          | sed 's/^VERDICT:[* ]*//')
       local verified_text; verified_text=$(grep 'VERIFIED:' "$cdir/juror-$j.txt" 2>/dev/null \
                                            | tail -1 | sed 's/^VERIFIED:[[:space:]]*//')
-      info "$_ci   Juror $j: $verdict_text"
-      [[ -n "$verified_text" ]] && info "$_ci   Evidence: $verified_text"
+      info "$_log_prefix   Juror $j: $verdict_text"
+      [[ -n "$verified_text" ]] && info "$_log_prefix   Evidence: $verified_text"
     done
   }
 
   if [[ "$empty_jurors" -gt 1 ]]; then
-    error "$_ci INCONCLUSIVE (majority juror failure: $empty_jurors empty)"
-    info "$_ci Transcript: $cdir — check juror-*.err for details"
+    error "$_log_prefix INCONCLUSIVE (majority juror failure: $empty_jurors empty)"
+    info "$_log_prefix Transcript: $cdir — check juror-*.err for details"
     return 2
   fi
   if [[ "$pass" -eq "$fail" && "$empty_jurors" -gt 0 ]]; then
-    error "$_ci INCONCLUSIVE (tied $pass-$fail with $empty_jurors empty juror(s))"
+    error "$_log_prefix INCONCLUSIVE (tied $pass-$fail with $empty_jurors empty juror(s))"
     _show_fail_reasons
     return 2
   fi
@@ -1492,24 +1492,24 @@ EOF_JURY
   local abstaining_nonempty=$(( 3 - pass - fail - empty_jurors ))
   if [[ "$total" -lt 2 ]]; then
     if [[ "$pass" -gt 0 && "$fail" -eq 0 && "$abstaining_nonempty" -eq 0 ]]; then
-      info "$_ci VERDICT: PASS ($pass pass, $empty_jurors empty)"
+      info "$_log_prefix VERDICT: PASS ($pass pass, $empty_jurors empty)"
       return 0
     else
-      error "$_ci INCONCLUSIVE (no quorum — $pass pass, $fail fail, $abstaining_nonempty non-empty-abstain, $empty_jurors empty)"
-      info "$_ci Transcript: $cdir"
+      error "$_log_prefix INCONCLUSIVE (no quorum — $pass pass, $fail fail, $abstaining_nonempty non-empty-abstain, $empty_jurors empty)"
+      info "$_log_prefix Transcript: $cdir"
       return 2
     fi
   fi
   if [[ "$pass" -gt "$fail" ]]; then
-    info "$_ci VERDICT: PASS ($pass-$fail)"
+    info "$_log_prefix VERDICT: PASS ($pass-$fail)"
     return 0
   fi
   if [[ "$pass" -eq "$fail" ]]; then
-    error "$_ci INCONCLUSIVE (tied $pass-$fail)"
+    error "$_log_prefix INCONCLUSIVE (tied $pass-$fail)"
     _show_fail_reasons
     return 2
   fi
-  error "$_ci VERDICT: FAIL ($fail-$pass)"
+  error "$_log_prefix VERDICT: FAIL ($fail-$pass)"
   _show_fail_reasons
   return 1
 }
@@ -1546,11 +1546,14 @@ cmd_court_all() {
       local short=$(repo_short "$repo")
       local _rk=$(repo_key "$repo")
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
+      # Skip repos already courted (PASS/FAIL); retry INCONCLUSIVE.
       [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file" 2>/dev/null)" != "INCONCLUSIVE" ]] && continue
       local latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
-      [[ -z "$latest_line" ]] && continue
+      [[ -z "$latest_line" ]] && continue  # no matrix result yet
       local verdict=$(echo "$latest_line" | cut -f5)
+      # Court only PASS rebases — no point reviewing a known-FAIL run.
       [[ "$verdict" != "PASS" ]] && continue
+      # Rebase still in progress — let it finish before courting.
       [[ -f "$PLUGIN_DIR/test/.matrix-state/running/${VERSION}_$_rk" ]] && { skipped=$((skipped + 1)); continue; }
 
       repo=$(resolve_repo "$short" 2>/dev/null) || { warn "$short ($VERSION): cannot resolve"; skipped=$((skipped + 1)); continue; }
@@ -1593,8 +1596,8 @@ cmd_court_all() {
 
     if [[ ${#_court_pids[@]} -gt 0 ]]; then
       wait "${_court_pids[@]}" 2>/dev/null || true
-      for _ci in "${!_court_files[@]}"; do
-        local _cf="${_court_files[$_ci]}" _cs="${_court_shorts[$_ci]}"
+      for _idx in "${!_court_files[@]}"; do
+        local _cf="${_court_files[$_idx]}" _cs="${_court_shorts[$_idx]}"
         if [[ -f "$_cf" ]]; then
           local _v=$(cat "$_cf")
           case "$_v" in
@@ -1624,8 +1627,8 @@ cmd_court_all() {
     local _court_dir="$PLUGIN_DIR/test/.matrix-state/court"
     echo ""
     echo "Non-PASS transcripts (most recent per repo):"
-    for _ci in "${!_court_files[@]}"; do
-      local _cf="${_court_files[$_ci]}" _cs="${_court_shorts[$_ci]}"
+    for _idx in "${!_court_files[@]}"; do
+      local _cf="${_court_files[$_idx]}" _cs="${_court_shorts[$_idx]}"
       local _v; _v=$(cat "$_cf" 2>/dev/null || echo "ERROR")
       [[ "$_v" == "PASS" ]] && continue
       # Find the most recent court transcript dir for this repo

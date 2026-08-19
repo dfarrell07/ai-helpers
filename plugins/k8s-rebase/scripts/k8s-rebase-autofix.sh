@@ -1111,7 +1111,7 @@ _APPLIED=()
 run_fix() {
   local fn="$1" before after
   before=$(git status --short | grep -v '^[?]' | md5sum)
-  "$fn"
+  "$fn" || echo "WARNING: $fn returned non-zero — partial changes may have been staged above"
   after=$(git status --short | grep -v '^[?]' | md5sum)
   [[ "$before" != "$after" ]] && _APPLIED+=("${fn#fix_}")
 }
