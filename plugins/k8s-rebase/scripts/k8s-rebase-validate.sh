@@ -5,6 +5,7 @@
 # Parses logs to extract actionable errors. Writes categorized summary.
 #
 # Usage: k8s-rebase-validate.sh [--quick|--no-test|--full|--test-only PKG...]
+#   Flags are mutually exclusive — only the first argument is inspected.
 #   --quick      Build + vet only (~1 min)
 #   --no-test    Build + vet + lint, no tests (~5 min)
 #   --full       All checks + privileged tests as root (~25 min)
@@ -45,6 +46,12 @@ if [[ "${1:-}" == "--test-only" ]]; then
   TEST_ONLY_PKGS="${TEST_ONLY_PKGS# }"
   TEST_ONLY_EXTRA="${TEST_ONLY_EXTRA# }"
   [[ -z "$TEST_ONLY_PKGS" ]] && { echo "ERROR: --test-only requires package arguments" >&2; exit 1; }
+fi
+# Reject unknown flags — unrecognized $1 silently falls through to default mode
+if [[ -n "${1:-}" ]] && [[ "${1:-}" == --* ]] && [[ "$MODE" == "default" ]]; then
+  echo "ERROR: Unknown flag: $1" >&2
+  echo "Usage: k8s-rebase-validate.sh [--quick|--no-test|--full|--test-only PKG...]" >&2
+  exit 1
 fi
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }

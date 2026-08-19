@@ -928,11 +928,20 @@ cmd_test_all() {
     echo "${last_ts:-0000}	$repo"
   done | sort | cut -f2)
   [[ ${#sorted_repos[@]} -eq 0 ]] && sorted_repos=("${DEFAULT_REPOS[@]}")
-  # Count already-running repos toward the limit
+  # Count already-running repos toward the limit; clean stale files now
+  # so they do not inflate 'active' before the launch loop.
   for repo in "${sorted_repos[@]}"; do
     [[ -d "$repo" ]] || continue
     local _rk=$(running_key "$version" "$repo")
-    [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
+    if [[ -f "$state_dir/running/$_rk" ]]; then
+      local _pre_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
+      if [[ -z "$_pre_sid" ]] || ! _session_alive "$_pre_sid"; then
+        [[ -n "$_pre_sid" ]] && claude stop "$_pre_sid" 2>/dev/null || true
+        rm -f "$state_dir/running/$_rk"
+      else
+        active=$((active + 1))
+      fi
+    fi
   done
   for repo in "${sorted_repos[@]}"; do
     _ensure_repo "$(repo_short "$repo")"

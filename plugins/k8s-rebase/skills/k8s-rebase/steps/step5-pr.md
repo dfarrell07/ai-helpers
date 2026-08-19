@@ -18,7 +18,7 @@ BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 ```
 
 **OCP version mapping** (see rules.md for the full table):
-k8s 1.N → OCP 4.(N-13) for k8s ≤1.35. OCP 5.0 = k8s 1.36+.
+k8s 1.N → OCP 4.(N-13) for k8s ≤1.35. k8s 1.N → OCP 5.(N-36) for k8s ≥1.36.
 
 If `IS_DOWNSTREAM` is true, the PR title needs a Jira ticket key.
 If interactive, ask. If background mode, use `REPLACE-WITH-JIRA-KEY:`.
@@ -32,7 +32,7 @@ Run `git log --oneline $BASE..HEAD` for the commit list. PR body:
 - What changed: fix categories from commit subjects
 - Commit table: git log output, note mechanical vs manual
 - Verification: what passed locally
-- Footer: "All commits carry `Assisted-by: Claude Code` trailers."
+- Footer: "All commits carry `Assisted-by: Claude Code <noreply@anthropic.com>` trailers."
 
 Output `gh pr create --title "..." --body "..."` using a heredoc.
 
@@ -40,17 +40,7 @@ Output `gh pr create --title "..." --body "..."` using a heredoc.
 
 Print: `/loop 5m check CI on the PR, explore any failures max carefully`
 
-## 5d. Write rebase report
-
-Write final report to `.rebase-tmp/rebase-report.json` with: repo,
-versions, per-step
-data (duration, error categories, patterns applied), discoveries,
-unresolved items, and skill_improvements array.
-
-For skill_improvements: concrete, actionable suggestions backed by
-what you observed — not generic advice.
-
-## 5e. Clean up
+## 5d. Clean up
 
 ```bash
 rm -rf .rebase-tmp/step*.log .rebase-tmp/step*.pid .rebase-tmp/*.log \
@@ -66,7 +56,7 @@ if [[ -f "$HOOK_DIR/pre-push" ]] && grep -q 'k8s-rebase' "$HOOK_DIR/pre-push" 2>
 fi
 ```
 
-Do NOT delete `.rebase-tmp/gates/` or `.rebase-tmp/rebase-report.json`.
+Do NOT delete `.rebase-tmp/gates/`.
 
 ---
 

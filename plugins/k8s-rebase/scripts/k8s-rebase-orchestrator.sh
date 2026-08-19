@@ -123,8 +123,8 @@ cmd_init() {
 
   local sf
   sf=$(state_file "$repo")
+  local step
   if [[ -f "$sf" ]]; then
-    local step
     step=$(get_step "$repo")
     info "Resuming at step $step (state.json exists)"
     echo "ORCHESTRATOR_INIT: RESUME"
@@ -137,7 +137,9 @@ cmd_init() {
     rm -f "$repo/.rebase-tmp/gates/"*.crash    2>/dev/null || true
     rm -f "$repo/.rebase-tmp/gates/"*.evidence 2>/dev/null || true
     # Stale advance-attempts counter survives re-init and triggers premature
-    # force-advance (cmd_advance fires at attempts≥3).
+    # force-advance (cmd_advance fires at attempts≥3).  Cleared on FRESH only:
+    # on RESUME the prior count is still meaningful — a gate that failed N times
+    # before the session ended has not become easier to pass.
     rm -f "$repo/.rebase-tmp/.advance-attempts-step"* 2>/dev/null || true
     rm -f "$repo/.rebase-tmp/status/INCOMPLETE"        2>/dev/null || true
     write_state "$repo" 1 "$version"
@@ -147,16 +149,15 @@ cmd_init() {
 
   touch "$repo/.rebase-tmp/.session-active"
 
-  local step
   step=$(get_step "$repo")
-  local sd
-  sd=$(step_dir_name "$step")
+  local step_dir
+  step_dir=$(step_dir_name "$step")
   local expected
-  expected=$(count_gate_mds "$sd")
+  expected=$(count_gate_mds "$step_dir")
   echo "STEP: $step"
-  echo "STEP_NAME: $sd"
-  echo "STEP_FILE: steps/${sd}.md"
-  echo "GATES_DIR: $GATES_ROOT/$sd"
+  echo "STEP_NAME: $step_dir"
+  echo "STEP_FILE: steps/${step_dir}.md"
+  echo "GATES_DIR: $GATES_ROOT/$step_dir"
   echo "GATES_EXPECTED: $expected"
 }
 
