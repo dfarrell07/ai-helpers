@@ -17,7 +17,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.cl
   fi
   build_rc=0
   result=$(cd "$mod_dir" && go build ./... 2>&1) || build_rc=$?
-  errors=$(echo "$result" | grep -c '^.*\.go:' || true)
+  errors=$(grep -c '^.*\.go:' <<< "$result" || true)
   if [[ "$errors" -gt 0 ]]; then
     details+=("BUILD-FAIL $mod_dir: $errors errors")
     NEW_ISSUES=$(( NEW_ISSUES + errors ))

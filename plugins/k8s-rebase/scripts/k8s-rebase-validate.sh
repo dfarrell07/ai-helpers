@@ -82,8 +82,8 @@ for gm in go-controller/go.mod go.mod; do
 done
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
 if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
-  REQ_MINOR=$(echo "$REQUIRED_GO" | cut -d. -f2)
-  CUR_MINOR=$(echo "$CURRENT_GO" | cut -d. -f2)
+  REQ_MINOR=$(cut -d. -f2 <<< "$REQUIRED_GO")
+  CUR_MINOR=$(cut -d. -f2 <<< "$CURRENT_GO")
   if [[ "$CUR_MINOR" -lt "$REQ_MINOR" ]] 2>/dev/null; then
     CONTAINER_RT=""
     command -v podman &>/dev/null && CONTAINER_RT=podman
@@ -196,7 +196,7 @@ categorize_errors() {
   local build_errors lint_errors vet_errors test_failures
   build_errors=$(grep -E ":[0-9]+:[0-9]+: .*(undefined|cannot use|cannot convert|too many arguments|too few arguments|not enough arguments|unknown field|has no field or method|imported and not used|declared (and|but) not used|multiple-value .* in single-value context)" "$logfile" 2>/dev/null || true)
   lint_errors=$(grep -E "\.go:[0-9]+:[0-9]+:.*\([a-zA-Z][a-zA-Z0-9_-]+\)$" "$logfile" 2>/dev/null | grep -v "^#" || true)
-  vet_errors=$(grep -E ":[0-9]+:[0-9]+:.*(non-constant format string|format %|has arguments but no formatting directives|deprecated|call needs [0-9]+ args but has|the cancel function returned by)" "$logfile" 2>/dev/null | grep -v "^#" || true)
+  vet_errors=$(grep -E ":[0-9]+:[0-9]+:.*(non-constant format string|format %|has arguments but no formatting directives|call needs [0-9]+ args but has|the cancel function returned by)" "$logfile" 2>/dev/null | grep -v "^#" || true)
   test_failures=$(grep -E "^--- FAIL:|^FAIL\t" "$logfile" 2>/dev/null || true)
 
   if [[ -n "$build_errors" ]]; then
@@ -254,7 +254,7 @@ categorize_errors() {
   fi
 
   if [[ "$step_failed" -eq 1 ]] && [[ -z "$build_errors" ]] && [[ -z "$lint_errors" ]] && [[ -z "$vet_errors" ]] && [[ -z "$test_failures" ]] && [[ -z "$timeout_errors" ]]; then
-    echo "## UNCLASSIFIED FAILURE ($category)" >> "$SUMMARY"
+    echo "## UNCLASSIFIED FAILURE ($category) — step failed; no known error pattern matched; last 10 log lines follow" >> "$SUMMARY"
     tail -10 "$logfile" >> "$SUMMARY"
     echo "" >> "$SUMMARY"
     ERRORS_FOUND=1
@@ -310,7 +310,7 @@ run_test_only() {
     if [[ -n "$root_pkgs_pattern" ]]; then
       local filtered=""
       for pkg in $TEST_ONLY_PKGS; do
-        if echo "$pkg" | grep -qE "^\./(${root_pkgs_pattern%|})(/|$)"; then
+        if [[ "$pkg" =~ ^\./(${root_pkgs_pattern%|})(/|$) ]]; then
           echo ":: Skipping root_pkg $pkg (needs CAP_NET_ADMIN)"
         else
           filtered="$filtered $pkg"
@@ -478,7 +478,7 @@ while IFS= read -r gomod; do
             echo "  Vendor changed — testing all non-privileged packages..."
             while IFS= read -r pkg; do
               [[ -z "$pkg" ]] && continue
-              if [[ -n "$ROOT_PKGS" ]] && echo "$pkg" | grep -qE "^(${ROOT_PKGS%|})$"; then
+              if [[ -n "$ROOT_PKGS" ]] && [[ "$pkg" =~ ^(${ROOT_PKGS%|})$ ]]; then
                 echo "  Skipping privileged: $pkg"
                 continue
               fi
@@ -488,7 +488,7 @@ while IFS= read -r gomod; do
             echo "  Testing changed non-privileged packages only..."
             CHANGED_PKGS=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/" 2>/dev/null | grep '\.go$' | grep -v vendor | grep -v "_test.go" | sed "s|${mod_dir}/||;s|/[^/]*$||" | sort -u || true)
             for pkg in $CHANGED_PKGS; do
-              if [[ -n "$ROOT_PKGS" ]] && echo "$pkg" | grep -qE "^(${ROOT_PKGS%|})$"; then
+              if [[ -n "$ROOT_PKGS" ]] && [[ "$pkg" =~ ^(${ROOT_PKGS%|})$ ]]; then
                 echo "  Skipping privileged: $pkg"
                 continue
               fi

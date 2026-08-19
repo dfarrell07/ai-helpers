@@ -1662,7 +1662,7 @@ cmd_watch() {
     active=$((active + 1))
     local _running_key=$(basename "$running_file")
     local _raw=$(cat "$running_file")
-    local _file_spec _f2 _sid _file_version
+    local _file_spec _f2 _sid _file_version  # _f2 is field 2 of the running file; read to advance IFS position, not used
     IFS=$'\t' read -r _file_spec _f2 _sid _file_version _ <<< "$_raw"
     local _bare_rk=$(repo_key_from_running "$_file_version" "$_running_key")
     local short=$(echo "$_bare_rk" | tr '_' '/')
@@ -1672,7 +1672,7 @@ cmd_watch() {
     if [[ -n "$_sid" ]]; then
       local _found_state
       _found_state=$(echo "$_SESSION_CACHE" | while IFS=$'\t' read -r _cwd _st _el _pid _s _rest; do
-        [[ "$_s" == "$_sid"* ]] && echo "$_st" && break
+        [[ "$_s" == "$_sid"* ]] && echo "$_st" && break  # prefix match: running file stores a truncated session ID
       done)
       [[ -n "$_found_state" ]] && session_state="$_found_state"
     fi
@@ -1688,12 +1688,13 @@ cmd_watch() {
       fi
       _collect_gate_dirs "$repo"
       if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
-        local _gfn=""
+        local _gfn=""  # failed gate names — captured to consume field 4, unused here; watch shows counts only
         read -r gc gf gs _gfn <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
       fi
     fi
     local kg=$(_resolve_known_good "$short" "$repo")
     if [[ -n "$kg" && -n "$wt" && -n "$_branch" ]]; then
+      # Count changed hunks (each '@@...@@' header = one hunk). nv excludes vendor; nv_all includes it.
       local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
       local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
       diff_info="${nv} code"
@@ -1707,7 +1708,7 @@ cmd_watch() {
       fi
     fi
     # Replace "working" with the current phase + time since last activity.
-    # Phase from current_step: 1=rebase 2=compile 3=autofix 4=verify 5=pr-review.
+    # Phase from current_step: 1=rebase 2=compile 3=autofix 4=verify 5=finishing.
     # Time is minutes since the most recent file write in .rebase-tmp/ —
     # this reflects actual agent activity, not just when the step started.
     # Use: phase means what the step covers; time tells you if it's stalled.
@@ -1720,8 +1721,10 @@ cmd_watch() {
           3) _phase="autofix" ;;  4) _phase="verify" ;;
           5) _phase="finishing" ;; *) _phase="step$_step" ;;
         esac
-        # Time since last file activity in .rebase-tmp (gates/ excluded — too noisy)
-        local _last_ts; _last_ts=$(find "$wt/.rebase-tmp" -maxdepth 1 -type f \
+        # Time since last file activity in .rebase-tmp/ top-level files only.
+        # -maxdepth 1 excludes all subdirectories (gates/, and any others).
+        local _last_ts; _last_ts=$(find "$wt/.rebase-tmp" -maxdepth 2 -type f \
+          -not -path '*/gates/*' \
           -exec stat -c '%Y' {} \; 2>/dev/null | sort -rn | head -1)
         if [[ -n "$_last_ts" && "$_last_ts" -gt 0 ]]; then
           local _idle=$(( ($(date +%s) - _last_ts) / 60 ))

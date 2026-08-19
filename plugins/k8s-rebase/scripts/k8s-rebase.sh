@@ -202,7 +202,7 @@ for pkg in "k8s.io/api " "k8s.io/client-go " "k8s.io/apimachinery "; do
   OLD_API_VERSION=$(grep "$pkg" "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | head -1 | awk '{print $2}' || true)
   [[ -n "$OLD_API_VERSION" ]] && break
 done
-OLD_MINOR=$(echo "$OLD_API_VERSION" | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//' || true)
+[[ "$OLD_API_VERSION" =~ v0\.([0-9]+) ]] && OLD_MINOR="${BASH_REMATCH[1]}" || OLD_MINOR=""
 [[ -z "$OLD_MINOR" ]] && die "Cannot detect current k8s minor from $PRIMARY_GOMOD"
 OLD_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}' || true)
 [[ -z "$OLD_GO_VERSION" ]] && die "Cannot detect Go version from $PRIMARY_GOMOD"
@@ -217,7 +217,7 @@ if [[ "$OLD_MINOR" == "$K8S_MINOR" ]]; then
     for pkg in "k8s.io/api " "k8s.io/client-go " "k8s.io/apimachinery "; do
       ver=$(grep "$pkg" "$gm" 2>/dev/null | grep -v "=>" | head -1 | awk '{print $2}')
       if [[ -n "$ver" ]]; then
-        minor=$(echo "$ver" | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
+        [[ "$ver" =~ v0\.([0-9]+) ]] && minor="${BASH_REMATCH[1]}" || minor=""
         if [[ -n "$minor" && "$minor" != "$K8S_MINOR" ]]; then
           stale_count=$((stale_count + 1)); info "  Stale: $gm ($pkg at k8s 1.${minor})"
           break
@@ -254,8 +254,8 @@ REQUIRED_GO=$(curl -sf --retry 2 --connect-timeout 10 "https://raw.githubusercon
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
 GO_OK=1
 if [[ -n "$REQUIRED_GO" ]]; then
-  REQ_MINOR=$(echo "$REQUIRED_GO" | cut -d. -f2)
-  CUR_MINOR=$(echo "$CURRENT_GO" | cut -d. -f2)
+  REQ_MINOR=$(cut -d. -f2 <<< "$REQUIRED_GO")
+  CUR_MINOR=$(cut -d. -f2 <<< "$CURRENT_GO")
   [[ "$CUR_MINOR" -lt "$REQ_MINOR" ]] 2>/dev/null && GO_OK=0
 fi
 
@@ -391,7 +391,7 @@ derive_go_gets() {
   while IFS= read -r line; do
     local pkg ver_prefix
     pkg=$(echo "$line" | awk '{print $1}')
-    ver_prefix=$(echo "$line" | awk '{print $2}' | grep -oE '^v[0-9]+' | sed 's/v//' || true)
+    ver_prefix=$(awk '{print $2}' <<< "$line" | grep -oE '^v[0-9]+' | sed 's/v//' || true)
     [[ -z "$ver_prefix" ]] && continue
     cmds+=("go get ${pkg}@v${ver_prefix}.${K8S_MINOR}.${K8S_PATCH}")
   done < <(grep -E "k8s\.io/" "$gomod" | grep -v "sigs\.k8s\.io/" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | sort -u)
@@ -423,9 +423,9 @@ derive_go_gets() {
     esac
     [[ "$pkg" == *controller-runtime* ]] && continue
     [[ "$pkg" == *network-policy-api* ]] && continue
-    if echo "$pkg" | grep -qE '^k8s\.io/' && \
-       ! echo "$pkg" | grep -qE 'kube-openapi|k8s\.io/utils|k8s\.io/klog|k8s\.io/gengo' && \
-       echo "$ver" | grep -qE '^v0\.[1-9][0-9]*\.[0-9]+$'; then
+    if [[ "$pkg" =~ ^k8s\.io/ ]] && \
+       ! [[ "$pkg" =~ kube-openapi|k8s\.io/utils|k8s\.io/klog|k8s\.io/gengo ]] && \
+       [[ "$ver" =~ ^v0\.[1-9][0-9]*\.[0-9]+$ ]]; then
       cmds+=("go get ${pkg}@${API_VERSION}")
     else
       cmds+=("go get ${pkg}")
@@ -469,7 +469,7 @@ rebase_module() {
   local cmd_log="" cmd_num=0
   while IFS= read -r cmd; do
     cmd_num=$((cmd_num + 1))
-    printf "\r:: [%d/%d] %s" "$cmd_num" "$num_cmds" "$(echo "$cmd" | awk '{print $2}' | sed 's/@.*//')"
+    printf "\r:: [%d/%d] %s" "$cmd_num" "$num_cmds" "$(awk '{print $2}' <<< "$cmd" | sed 's/@.*//')"
     $cmd >> "$REBASE_TMP/go-get.log" 2>&1 || info "  WARNING: $cmd failed (see .rebase-tmp/go-get.log)"
     cmd_log+="$cmd"$'\n'
   done <<< "$commands"
@@ -903,7 +903,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   # Bumping v1 here would create an intermediate commit that autofix
   # immediately supersedes — touching the same files in two commits.
   _skip_lint_bump=false
-  _go_minor=$(echo "$NEW_GO_SHORT" | cut -d. -f2)
+  _go_minor=$(cut -d. -f2 <<< "$NEW_GO_SHORT")
   if [[ -n "$_go_minor" ]] && [[ "$_go_minor" -ge 26 ]] 2>/dev/null; then
     _any_v1=false
     while IFS= read -r _ls; do
@@ -1004,8 +1004,8 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         # Dockerfile.rhel7 with golang-1.19 should not get openshift-5.0 tags.
         _df_go=$(grep -oE 'golang-[0-9]+\.[0-9]+' "$ci_file" 2>/dev/null | head -1 | sed 's/golang-//' || true)
         if [[ -n "$_df_go" ]]; then
-          _df_minor=$(echo "$_df_go" | cut -d. -f2)
-          _target_minor=$(echo "$NEW_GO_SHORT" | cut -d. -f2)
+          _df_minor=$(cut -d. -f2 <<< "$_df_go")
+          _target_minor=$(cut -d. -f2 <<< "$NEW_GO_SHORT")
           if [[ -n "$_df_minor" ]] && [[ -n "$_target_minor" ]] && (( _target_minor - _df_minor > 2 )) 2>/dev/null; then
             info "  Skipping legacy $ci_file (Go $_df_go, target $NEW_GO_SHORT)"
             continue
@@ -1108,7 +1108,7 @@ fi
 if grep -qE 'NODE_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
   _node_info=$(curl -sf --retry 2 --connect-timeout 10 "https://nodejs.org/dist/index.json" 2>/dev/null \
     | tr '{}' '\n' | grep '"version"' | head -1 || true)
-  _latest_node=$(echo "$_node_info" | grep -oE '"version":"v[^"]+"' | sed 's/"version":"v//;s/"//' || true)
+  _latest_node=$(grep -oE '"version":"v[^"]+"' <<< "$_node_info" | sed 's/"version":"v//;s/"//' || true)
   _mk_node=$(grep -oE 'NODE_VERSION\s*[:?]?=\s*[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
   if [[ -n "$_latest_node" ]] && [[ -n "$_mk_node" ]] && [[ "$_latest_node" != "$_mk_node" ]]; then
     sed -i -E "s|(NODE_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_node}|" "$REPO_ROOT/Makefile"

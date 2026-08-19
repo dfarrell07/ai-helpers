@@ -83,8 +83,8 @@ REQUIRED_GO=""
 [[ -n "$PRIMARY_GOMOD" ]] && REQUIRED_GO=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}')
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
 if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
-  REQ_MINOR=$(echo "$REQUIRED_GO" | cut -d. -f2)
-  CUR_MINOR=$(echo "$CURRENT_GO" | cut -d. -f2)
+  REQ_MINOR=$(cut -d. -f2 <<< "$REQUIRED_GO")
+  CUR_MINOR=$(cut -d. -f2 <<< "$CURRENT_GO")
   if [[ "$CUR_MINOR" -lt "$REQ_MINOR" ]] 2>/dev/null; then
     CONTAINER_RT=""
     command -v podman &>/dev/null && CONTAINER_RT=podman
@@ -379,9 +379,9 @@ fix_eventf() {
     # Complex case (4+ commas = extra args before .Error()) needs agent judgment.
     while IFS= read -r match; do
       local lineno content commas
-      lineno=$(echo "$match" | cut -d: -f1)
-      content=$(echo "$match" | cut -d: -f2-)
-      commas=$(echo "$content" | sed 's/\.Error().*//' | tr -cd ',' | wc -c)
+      lineno="${match%%:*}"
+      content="${match#*:}"
+      commas=$(sed 's/\.Error().*//' <<< "$content" | tr -cd ',' | wc -c)
       if [[ "$commas" -le 3 ]]; then
         sed -i "${lineno}s/,\( *\)\([a-zA-Z_][a-zA-Z_0-9.]*\)\.Error())/,\1\"%v\", \2)/" "$f"
       else
@@ -486,8 +486,8 @@ fix_lint_version() {
   required_go=$(grep "^go " "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}' | cut -d. -f2)
   if [[ -n "$lint_ver" ]] && [[ -n "$required_go" ]] && [[ "$required_go" -ge 26 ]] 2>/dev/null; then
     # v2.5.0 was built with Go 1.25, v2.12+ with Go 1.26
-    local lint_minor
-    lint_minor=$(echo "$lint_ver" | sed 's/v[0-9]*\.//' | cut -d. -f1)
+    local lint_minor="${lint_ver#v*.}"
+    lint_minor="${lint_minor%%.*}"
     if [[ "$lint_ver" == v2.* ]] && (( lint_minor < 12 )) 2>/dev/null; then
       if [[ -n "$LATEST_LINT" ]]; then
         echo ":: Bumping golangci-lint: $lint_ver → $LATEST_LINT (Go 1.${required_go} requires newer build)"
@@ -805,7 +805,7 @@ fix_addtoscheme() {
   for f in $files; do
     while IFS= read -r line; do
       local pkg_alias
-      pkg_alias=$(echo "$line" | sed 's/\.AddToScheme.*//' | grep -oE '[a-zA-Z0-9_]+$')
+      pkg_alias=$(sed 's/\.AddToScheme.*//' <<< "$line" | grep -oE '[a-zA-Z0-9_]+$')
       [[ -z "$pkg_alias" ]] && continue
       # Find the import path for this alias
       local import_path
@@ -1062,8 +1062,8 @@ run_vet() {
   current_go=$(go env GOVERSION 2>/dev/null | sed 's/go//')
   if [[ -n "$required_go" ]] && [[ -n "$current_go" ]]; then
     local req_minor cur_minor
-    req_minor=$(echo "$required_go" | cut -d. -f2)
-    cur_minor=$(echo "$current_go" | cut -d. -f2)
+    req_minor=$(cut -d. -f2 <<< "$required_go")
+    cur_minor=$(cut -d. -f2 <<< "$current_go")
     if [[ "$cur_minor" -lt "$req_minor" ]] 2>/dev/null; then
       echo ":: Skipping vet (Go $current_go < $required_go required — re-validation will check)"
       return 0
@@ -1172,7 +1172,7 @@ DIAG=$(run_checks)
 echo "$DIAG"
 echo ""
 
-if ! echo "$DIAG" | grep -q "RESULT: PASS"; then
+if [[ "$DIAG" != *"RESULT: PASS"* ]]; then
   echo "━━━━ Phase B: Applying fixes ━━━━"
   echo ""
 
@@ -1249,7 +1249,7 @@ RESULT=$(run_checks)
 echo "$RESULT"
 
 CHECKS_PASSED=true
-if ! echo "$RESULT" | grep -q "RESULT: PASS"; then
+if [[ "$RESULT" != *"RESULT: PASS"* ]]; then
   CHECKS_PASSED=false
 fi
 if [[ "$VET_FAILED" -eq 1 ]]; then

@@ -90,7 +90,7 @@ if [[ -z "$all_wired" ]]; then
     "SKIP: no KUBE_FEATURE_ refs or SetFromMap gate names found outside vendor"
 fi
 
-details+=("WIRED_GATES: $(echo "$all_wired" | tr '\n' ' ' | sed 's/ $//')")
+details+=("WIRED_GATES: $(tr '\n' ' ' <<< "$all_wired" | sed 's/ $//')")
 
 # Locate hack/test-go.sh (layer 1 canonical location)
 test_go_sh=$(find "$PRIMARY_GOMOD_DIR" -name 'test-go.sh' \
