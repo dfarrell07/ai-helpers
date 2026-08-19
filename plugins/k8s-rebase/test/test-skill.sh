@@ -428,10 +428,10 @@ find_newest_branch() {
 reset_to_default() {
   local repo="$1"
   cd "$repo" || { error "Cannot cd to $repo"; return 1; }
-  [[ -n "$(git status --porcelain 2>/dev/null)" ]] && { error "Uncommitted changes in $repo"; return 1; }
+  [[ -n "$(git status --porcelain 2>/dev/null)" ]] && { error "Uncommitted changes in $repo — commit or stash them first, then retry"; return 1; }
   local default_br
   default_br=$(default_branch)
-  git checkout "$default_br" &>/dev/null || { error "Cannot checkout $default_br"; return 1; }
+  git checkout "$default_br" &>/dev/null || { error "Cannot checkout $default_br in $repo — resolve any conflicts or detached HEAD state, then retry"; return 1; }
   git pull --ff-only &>/dev/null || warn "$(repo_short "$repo"): pull --ff-only failed — rebase will start from local HEAD"
   info "$(repo_short "$repo") -> $default_br @ $(git rev-parse --short HEAD)"
 }
@@ -482,7 +482,7 @@ remove_worktrees() {
 }
 
 cmd_run() {
-  command -v claude &>/dev/null || die "claude CLI not found"
+  command -v claude &>/dev/null || die "claude CLI not found — install it and ensure it is on PATH (see https://claude.ai/code)"
   local version="$1"; shift
   [[ "$version" =~ ^[0-9]+\.[0-9]+\.[0-9]+$ ]] || die "Version must be X.Y.Z"
   local from_commit=""
@@ -525,7 +525,7 @@ cmd_run() {
   for repo in "${repos[@]}"; do
     local repo_input="$repo"
     _ensure_repo "$(repo_short "$repo_input")"
-    repo=$(resolve_repo "$repo") || { warn "Not found: $repo_input"; continue; }
+    repo=$(resolve_repo "$repo") || { warn "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"; continue; }
     local short existing_session
     short=$(repo_short "$repo")
     existing_session=$(session_for_repo "$repo")
@@ -870,7 +870,7 @@ cmd_test() {
   for repo_input in "${repos[@]}"; do
     _ensure_repo "$(repo_short "$repo_input")"
     local repo
-    repo=$(resolve_repo "$repo_input") || { error "Not found: $repo_input"; continue; }
+    repo=$(resolve_repo "$repo_input") || { error "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"; continue; }
 
     # Read from_commit from config when not passed via CLI (per-repo)
     local _from_commit="$from_commit"
@@ -1771,7 +1771,7 @@ cmd_results() {
 _results_one() {
   local repo="$1" court="${2:-false}"
   local repo_input="$repo"
-  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"
   local short=$(repo_short "$repo")
   cd "$repo" || die "Cannot cd to $repo"
   _worktree_info "$repo" || true
@@ -1972,7 +1972,7 @@ cmd_set_known_good() {
   [[ -z "$repo" || -z "$ref" ]] && die "Usage: set-known-good <repo> <ref> [--url <url>]"
   local repo_input="$repo"
   _ensure_repo "$(repo_short "$repo_input")"
-  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"
   local short=$(repo_short "$repo")
 
   if [[ -n "$url" ]]; then
@@ -2131,7 +2131,7 @@ cmd_set_from_commit() {
   [[ $# -lt 2 ]] && die "Usage: set-from-commit <repo> <commit>"
   local repo="$1" commit="$2"
   local repo_input="$repo"
-  repo=$(resolve_repo "$repo") || die "Not found: $repo_input"
+  repo=$(resolve_repo "$repo") || die "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"
   cd "$repo" || die "Cannot cd to $repo"
   local full_sha
   full_sha=$(git rev-parse --verify "$commit" 2>/dev/null) || die "Commit not found: $commit"

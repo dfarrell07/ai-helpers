@@ -170,11 +170,11 @@ cmd_gates() {
   local repo="${1:?Usage: $0 gates <repo-path> [step]}"
   repo=$(cd "$repo" && pwd)
   local step="${2:-$(get_step "$repo")}"
-  [[ -z "$step" ]] && die "No step specified and no state.json"
+  [[ -z "$step" ]] && die "No step specified and no state.json in $repo — run: $0 init <repo-path> <version>"
 
   local sd
   sd=$(step_dir_name "$step")
-  [[ -z "$sd" ]] && die "Invalid step: $step"
+  [[ -z "$sd" ]] && die "Invalid step: $step — valid steps are 1-$STEP_COUNT (1=rebase, 2=compilation, 3=autofix, 4=verification)"
 
   local resolved=0 pending=0
 
@@ -183,6 +183,9 @@ cmd_gates() {
   local _mods; _mods=$(find "$repo" -name go.mod -not -path '*/vendor/*' -not -path '*/.claude/*' 2>/dev/null | wc -l)
   (( _mods < 1 )) && _mods=1
   local GATE_OUTER_TIMEOUT=$(( 2 * ${GATE_TIMEOUT:-300} * _mods ))
+  # Note: ((n++)) exits 1 under set -e when n is 0 before the increment
+  # (post-increment returns the old value, which is falsy). The '|| true'
+  # on every counter increment prevents that spurious exit.
 
   while IFS= read -r gate_md; do
     [[ -z "$gate_md" ]] && continue
@@ -257,7 +260,7 @@ cmd_advance() {
 
   local step_dir
   step_dir=$(step_dir_name "$step")
-  [[ -z "$step_dir" ]] && die "Invalid step: $step"
+  [[ -z "$step_dir" ]] && die "Invalid step: $step — valid steps are 1-$STEP_COUNT (1=rebase, 2=compilation, 3=autofix, 4=verification)"
 
   local missing=() stale=() failing=()
 

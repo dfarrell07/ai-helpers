@@ -7,7 +7,8 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   below. Do NOT PASS on the strength of absent or stale evidence.
 
 When evidence is fresh: if SUMMARY shows 0 errors, verdict is PASS. If SUMMARY shows
-errors, analyze each BUILD: or VET: line in the evidence. For each error, determine
+errors, analyze each BUILD or VET line in the evidence (format: 'BUILD <mod_dir>: <error>'
+or 'VET <mod_dir>: <error>'). For each error, determine
 whether it was introduced by the rebase or was pre-existing:
 
 ```bash

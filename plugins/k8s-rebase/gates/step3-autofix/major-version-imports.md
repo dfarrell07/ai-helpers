@@ -5,8 +5,10 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   below. Do NOT PASS on the strength of absent or stale evidence.
 
 Read the evidence. If SUMMARY shows 0 stale imports, verdict is PASS.
-When NEW_ISSUES > 0: only analyze issues the evidence marked as "NEW".
-Ignore "PRE-EXISTING" lines.
+When NEW_ISSUES > 0: analyze all detail lines in the evidence —
+the script excludes pre-existing imports at collection time so every
+detail line is a new finding. There are no "PRE-EXISTING" lines in
+the evidence file.
 
 If evidence is stale or absent, fall back to manual checks:
 

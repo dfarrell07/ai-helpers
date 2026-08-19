@@ -2,9 +2,12 @@ EVIDENCE (read before judging): if `.rebase-tmp/gates/step3-feature-gates.eviden
 run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 - Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
   `WIRED_GATES` lists every gate found wired in the repo. `VENDOR_MISSING` lines identify
-  gates wired in source but absent from vendor (likely stale). `LAYER*_MISSING` lines
-  identify specific wiring gaps. Gates not mentioned as MISSING were confirmed covered —
-  do not re-grep them. `NEW_ISSUES=0` means all wired gates are current and fully covered.
+  gates wired in source but absent from vendor (likely stale). `VENDOR_UNKNOWN` lines
+  identify gates where vendor/k8s.io/*/features/known_features.go is absent — vendor
+  coverage is unverifiable; judge from manual check below. `LAYER*_MISSING` lines
+  identify specific wiring gaps. Gates not mentioned as MISSING or UNKNOWN were
+  confirmed covered — do not re-grep them. `NEW_ISSUES=0` means all wired gates are
+  current and fully covered.
   If evidence shows `SKIP`: no feature gate wiring exists in this repo — verdict PASS.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.

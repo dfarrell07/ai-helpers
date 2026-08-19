@@ -10,6 +10,8 @@
 #   --no-test    Build + vet + lint, no tests (~5 min)
 #   --full       All checks + privileged tests as root (~25 min)
 #   --test-only  Run tests for specified packages only (for parallel agents)
+#                Packages requiring CAP_NET_ADMIN (root_pkgs in hack/test-go.sh)
+#                are automatically excluded; container runs without --privileged
 #   default      All checks except privileged tests (~15 min)
 #
 # --test-only handles auto-containerization, feature gate exports,
@@ -329,7 +331,7 @@ run_test_only() {
     pkg_dir="${pkg_dir%/...}"
     if [[ -d "$pkg_dir" ]]; then
       local lines
-      lines=$(find "$pkg_dir" -name "*_test.go" -not -path "*/vendor/*" -exec cat {} + 2>/dev/null | wc -l)
+      lines=$(find "$pkg_dir" -name "*_test.go" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec cat {} + 2>/dev/null | wc -l)
       TOTAL_LINES=$((TOTAL_LINES + lines))
     fi
   done

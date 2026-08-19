@@ -34,6 +34,10 @@ echo "PLUGIN_ROOT=$PLUGIN_ROOT"
 echo "REPO_ROOT=$REPO_ROOT"
 echo "VERSION=$VERSION"
 bash "$ORCH" init "$REPO_ROOT" "$VERSION"
+# Output includes ORCHESTRATOR_INIT: FRESH or RESUME, and always
+# ends with STEP: N, STEP_NAME, STEP_FILE, GATES_DIR, GATES_EXPECTED.
+# Both FRESH and RESUME continue at Execute Current Step — STEP: N
+# is the authoritative starting point in both cases.
 ```
 
 ## Execute Current Step
