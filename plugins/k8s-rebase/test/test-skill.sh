@@ -1760,7 +1760,9 @@ cmd_watch() {
       fi
     fi
     local kg=$(_resolve_known_good "$short" "$repo")
-    if [[ -n "$kg" && -n "$wt" && -n "$_branch" ]]; then
+    # Only compute VS KNOWN-GOOD after at least one rebase commit lands (n_commits > 0).
+    # Before commits exist, diff($branch, $kg) = full gap from base → known-good = meaningless.
+    if [[ -n "$kg" && -n "$wt" && -n "$_branch" && "${n_commits:-0}" -gt 0 ]]; then
       # Count changed hunks (each '@@...@@' header = one hunk). nv excludes vendor; nv_all includes it.
       local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
       local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
