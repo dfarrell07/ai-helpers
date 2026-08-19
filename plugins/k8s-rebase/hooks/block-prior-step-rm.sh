@@ -25,7 +25,6 @@ CMD=$(echo "$INPUT" | jq -r '.tool_input.command // empty' 2>/dev/null)
 echo "$CMD" | grep -qE '\brm\b' || exit 0
 echo "$CMD" | grep -qE 'step[0-9].*\.report|gates/\*' || exit 0
 
-# Read current step from state.json
 STATE_FILE="$REPO_CWD/.rebase-tmp/state.json"
 [[ -f "$STATE_FILE" ]] || exit 0
 CURRENT_STEP=$(jq -r '.current_step // empty' "$STATE_FILE" 2>/dev/null)
