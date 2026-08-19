@@ -653,6 +653,16 @@ done
 # Save CRD hand-edits before any codegen (restored after)
 save_crd_metadata
 
+# Detect controller-gen-style Makefile (generate/manifests targets).
+# Checked only when no hack/update-codegen.sh was found above.
+CODEGEN_MAKEFILE=""
+for _mf in "$REPO_ROOT/Makefile" "$REPO_ROOT/$(dirname "$PRIMARY_GOMOD")/Makefile"; do
+  if grep -qE "^(generate|manifests):" "$_mf" 2>/dev/null; then
+    CODEGEN_MAKEFILE="$_mf"
+    break
+  fi
+done
+
 if [[ -n "$CODEGEN_SCRIPT" ]]; then
   banner "Phase 2: Code Generation"
 
@@ -667,6 +677,12 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   CODEGEN_LOG="$REBASE_TMP/codegen.log"
   CODEGEN_MSG="$(format_msg "codegen" "Update codegen for k8s ${K8S_MAJOR_MINOR}")"
 
+  # Try common make targets before falling back to the script directly.
+  # Target 'generate' overlaps with Branch 2's Makefile detection — this
+  # branch fires ONLY when hack/update-codegen.sh exists, so make generate
+  # here is a project-specific wrapper around that same script, not
+  # controller-gen. The script-direct fallback handles projects that expose
+  # no make target for codegen at all.
   run_codegen() {
     for target in codegen generate update-codegen; do
       if make -n -C "$CODEGEN_DIR" "$target" &>/dev/null; then
@@ -683,7 +699,10 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     CODEGEN_RAN=1
   else
     info "WARNING: codegen failed — checking for auto-fixable errors"
-    # Auto-fix dropped flags and retry
+    # Auto-fix: k8s occasionally drops a flag from code-generator tools
+    # between minor versions. Remove the first bad flag found and retry once.
+    # Only one flag is removed per run; if multiple flags were dropped the
+    # agent prompt (Phase 6) surfaces the remaining failure for manual repair.
     if grep -q 'unknown flag\|flag provided but not defined' "$CODEGEN_LOG" 2>/dev/null; then
       bad_flag=$(grep -oE '(unknown flag|flag provided but not defined): -+[a-zA-Z0-9_-]+' "$CODEGEN_LOG" | head -1 | sed 's/.*: -*//' || true)
       if [[ -n "$bad_flag" ]] && grep -q "\-\-${bad_flag}" "$CODEGEN_SCRIPT"; then
@@ -711,7 +730,11 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     fi
   fi
 
-  # Regenerate mocks if codegen deleted them
+  # Mockery regeneration: ovn-kubernetes uses .mockery.yaml + make mocksgen.
+  # controller-gen wipes generated mocks from pkg/crd/mocks/ as a side
+  # effect of regenerating CRD types. Detect that and re-run mockery.
+  # This path is ovn-kubernetes-specific; other repos using different mock
+  # paths or tools will need the agent to handle mock regeneration manually.
   if [[ "$CODEGEN_RAN" -eq 1 ]] && [[ -f "$CODEGEN_DIR/.mockery.yaml" ]]; then
     if ! find "$CODEGEN_DIR/pkg/crd" -path "*/mocks/*.go" 2>/dev/null | grep -q .; then
       info "Codegen deleted mock files — running mockery..."
@@ -737,11 +760,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     echo "Fix the codegen script (e.g. removed flags) and re-run codegen." >> "$REBASE_TMP/summary.txt"
     echo "" >> "$REBASE_TMP/summary.txt"
   fi
-elif CODEGEN_MAKEFILE=$(
-    for mf in "$REPO_ROOT/Makefile" "$REPO_ROOT/$(dirname "$PRIMARY_GOMOD")/Makefile"; do
-      grep -qE "^(generate|manifests):" "$mf" 2>/dev/null && echo "$mf" && break
-    done
-  ) && [[ -n "$CODEGEN_MAKEFILE" ]]; then
+elif [[ -n "$CODEGEN_MAKEFILE" ]]; then
   CODEGEN_MAKEDIR=$(dirname "$CODEGEN_MAKEFILE")
   banner "Phase 2: Code Generation (make)"
 
@@ -776,7 +795,7 @@ elif CODEGEN_MAKEFILE=$(
 
   if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
     echo "## CODEGEN FAILURE" >> "$REBASE_TMP/summary.txt"
-    tail -5 "$CODEGEN_LOG" >> "$REBASE_TMP/summary.txt"
+    tail -10 "$CODEGEN_LOG" >> "$REBASE_TMP/summary.txt"
     echo "" >> "$REBASE_TMP/summary.txt"
   fi
 else

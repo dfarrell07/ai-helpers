@@ -274,7 +274,7 @@ run_test_only() {
   for candidate in go-controller .; do
     [[ -f "$candidate/go.mod" ]] && PRIMARY_MOD="$candidate" && break
   done
-  [[ -z "$PRIMARY_MOD" ]] && PRIMARY_MOD=$(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | head -1)
+  [[ -z "$PRIMARY_MOD" ]] && PRIMARY_MOD=$(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort | head -1)
 
   # Export feature gate env vars
   local TEST_GO_SH
@@ -518,7 +518,7 @@ while IFS= read -r gomod; do
   step_failed=0
   run_validation "${mod_name}-vet" "cd $mod_dir && go vet ./..." || step_failed=1
   categorize_errors "$REBASE_TMP/${mod_name}-vet.log" "$mod_name vet" "$step_failed"
-done < <(find . -name "go.mod" -not -path "*/vendor/*" | sort)
+done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort)
 
 # Stricter vet via go test (compiles test binaries, catches Eventf
 # format/arg mismatches that go vet misses). Skip in --quick mode
@@ -538,7 +538,7 @@ if [[ "$MODE" != "quick" ]]; then
     [[ -d "$mod_dir/vendor" ]] && _tv_vendor="-mod vendor"
     run_validation "${mod_name}-test-vet" "cd $mod_dir && GOMAXPROCS=${GOMAXPROCS:-2} go test $_tv_vendor -run='^$' -count=1 ./..." || step_failed=1
     categorize_errors "$REBASE_TMP/${mod_name}-test-vet.log" "$mod_name test-vet" "$step_failed"
-  done < <(find . -name "go.mod" -not -path "*/vendor/*" | sort)
+  done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort)
 fi
 
 if [[ "$MODE" != "quick" ]]; then
@@ -551,7 +551,7 @@ echo "━━━━ CI Parity Checks ━━━━"
 echo ""
 
 # Find the primary module (the one with a Makefile and these targets)
-for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
+for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort); do
   ci_dir=$(dirname "$gomod" | sed 's|^\./||')
   [[ -f "$REPO_ROOT/$ci_dir/Makefile" ]] || continue
 
@@ -660,7 +660,7 @@ if [[ "$MODE" == "full" ]]; then
   echo "━━━━ Privileged Tests ━━━━"
   echo ""
 
-  for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
+  for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort); do
     mod_dir=$(dirname "$gomod" | sed 's|^\./||')
     TEST_GO_SH=$(find "$REPO_ROOT/$mod_dir" -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
     [[ -n "$TEST_GO_SH" ]] || continue

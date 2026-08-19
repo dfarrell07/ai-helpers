@@ -1477,12 +1477,13 @@ EOF_JURY
     return 2
   fi
   local total=$((pass + fail))
+  local abstaining_nonempty=$(( 3 - pass - fail - empty_jurors ))
   if [[ "$total" -lt 2 ]]; then
-    if [[ "$pass" -gt 0 && "$fail" -eq 0 ]]; then
-      info "$_ci VERDICT: PASS ($pass pass, $((3-total)) abstain)"
+    if [[ "$pass" -gt 0 && "$fail" -eq 0 && "$abstaining_nonempty" -eq 0 ]]; then
+      info "$_ci VERDICT: PASS ($pass pass, $empty_jurors empty)"
       return 0
     else
-      error "$_ci INCONCLUSIVE (no quorum — $pass pass, $fail fail, $((3-total)) abstain)"
+      error "$_ci INCONCLUSIVE (no quorum — $pass pass, $fail fail, $abstaining_nonempty non-empty-abstain, $empty_jurors empty)"
       info "$_ci Transcript: $cdir"
       return 2
     fi

@@ -193,7 +193,7 @@ run_checks() {
   local _genv=0
   for _f in $(grep -rl 'os\.Setenv.*KUBE_FEATURE\|t\.Setenv.*KUBE_FEATURE' --include='*_test.go' --include='*_suite_test.go' "$MODULE_ROOT"/ 2>/dev/null | grep -v vendor); do
     for _g in $_all_gate_names; do
-      grep -q "$_g" "$_f" || _genv=$((_genv+1))
+      grep -q "KUBE_FEATURE_${_g}" "$_f" || _genv=$((_genv+1))
     done
   done
   r "Gates in env var files" "$_genv"
@@ -202,6 +202,11 @@ run_checks() {
   local _sfm_gates="$_active_gates"
   for _p in "${!GATE_DEPS[@]}"; do
     grep -rq "\"$_p\"" "$MODULE_ROOT/vendor/k8s.io/" 2>/dev/null || continue
+    # Skip locked parents — their deps must not appear in SetFromMap either.
+    if awk -v g="${_p}:" '$0 ~ g {found=1; next} found && /LockToDefault: true/ {print "locked"; exit} found && /^[[:space:]]*[A-Z]/ {exit} found && /^[[:space:]]*\}/ {exit}' \
+       "$MODULE_ROOT/vendor/k8s.io/client-go/features/known_features.go" 2>/dev/null | grep -q "locked"; then
+      continue
+    fi
     for _d in ${GATE_DEPS[$_p]}; do
       grep -rq "\"$_d\"" "$MODULE_ROOT/vendor/k8s.io/" 2>/dev/null && _sfm_gates="$_sfm_gates $_d"
     done
@@ -900,8 +905,8 @@ fix_feature_gates() {
     done
 
     # Broaden the unrecognized-gate filter if present (safety net).
-    if grep -q 'unrecognized feature gate: WatchListClient' "$tf"; then
-      sed -i 's/unrecognized feature gate: WatchListClient/unrecognized feature gate/' "$tf"
+    if grep -qE 'unrecognized feature gate: [A-Za-z0-9]+' "$tf"; then
+      sed -i 's/unrecognized feature gate: [A-Za-z0-9]\+/unrecognized feature gate/' "$tf"
     fi
 
     # Update stale error messages that name a single gate.

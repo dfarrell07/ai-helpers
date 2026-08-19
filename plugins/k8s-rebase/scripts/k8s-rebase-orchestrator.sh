@@ -98,7 +98,7 @@ report_has_pass() {
 
 report_has_verdict() {
   local rpt="$1"
-  [[ -f "$rpt" ]] && grep -qE '^VERDICT: (PASS|FAIL|SKIP)' "$rpt"
+  [[ -f "$rpt" ]] && grep -qE '^VERDICT: (PASS|FAIL|SKIP|INCONCLUSIVE)' "$rpt"
 }
 
 report_is_fresh() {
@@ -175,7 +175,7 @@ cmd_gates() {
 
   # Outer timeout: build-vet loops per module (2 tools × GATE_TIMEOUT × modules).
   # Compute once before the gate loop — module count is repo-level, not per-gate.
-  local _mods; _mods=$(find "$repo" -name go.mod -not -path '*/vendor/*' 2>/dev/null | wc -l)
+  local _mods; _mods=$(find "$repo" -name go.mod -not -path '*/vendor/*' -not -path '*/.claude/*' 2>/dev/null | wc -l)
   (( _mods < 1 )) && _mods=1
   local GATE_OUTER_TIMEOUT=$(( 2 * ${GATE_TIMEOUT:-300} * _mods ))
 
@@ -198,7 +198,9 @@ cmd_gates() {
 
     # 2. Run companion exactly once. Companion writes its own .evidence file;
     #    for filter/verdict gates it may also write a .report directly.
-    local crash_path="$repo/.rebase-tmp/gates/${sd%-*}-${gate_name}.crash"
+    local crash_path
+    crash_path=$(report_path "$repo" "$sd" "$gate_name")
+    crash_path="${crash_path%.report}.crash"
     local rc=0
     if [[ -x "$companion" ]]; then
       info "Running companion: $(basename "$companion")"
@@ -379,6 +381,8 @@ cmd_status() {
       rpt=$(report_path "$repo" "$sd" "$gate_name")
 
       if [[ ! -f "$rpt" ]] || ! report_has_verdict "$rpt"; then
+        ((miss++)) || true
+      elif ! report_is_fresh "$rpt" "$repo"; then
         ((miss++)) || true
       elif report_has_pass "$rpt"; then
         ((pass++)) || true
