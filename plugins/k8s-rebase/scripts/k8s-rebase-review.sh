@@ -54,7 +54,7 @@ export PATTERN_HINT=""
 if [[ -f "$PATTERNS" ]]; then
   # Try to find a matching pattern based on the error
   for keyword in "undefined" "SA1019" "deprecated" "FAIL" "too many" "too few" "hang"; do
-    if echo "$ORIGINAL_ERROR" | grep -qi "$keyword"; then
+    if grep -qi "$keyword" <<< "$ORIGINAL_ERROR"; then
       PATTERN_HINT=$(grep -A2 -i "$keyword" "$PATTERNS" | head -6 || true)
       break
     fi

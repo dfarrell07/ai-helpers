@@ -7,7 +7,7 @@
 #   ... your checks ...
 #   finish_evidence "N-word summary" ["detail1" "detail2" ...]
 #
-# Provides: REPO, BASE, GATE_NAME, WRITE_REPORT, init_gate, base_file_has,
+# Provides: REPO, BASE, GATE_NAME, NEW_ISSUES, WRITE_REPORT, inc, init_gate, base_file_has,
 #           finish_evidence
 # Conventions: exit 0 always (crash writes .crash, not a verdict).
 
@@ -65,7 +65,7 @@ init_gate() {
 base_file_has() {
   local file="$1" pattern="$2"
   [[ -z "$BASE" ]] && return 1
-  git show "$BASE:$file" 2>/dev/null | grep -qF "$pattern" 2>/dev/null
+  git show "$BASE:$file" 2>/dev/null | grep -qF "$pattern"
 }
 
 _head_sha() { git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown; }
@@ -81,7 +81,7 @@ _write_evidence() {
 }
 
 finish_evidence() {
-  local s="${1:-}"; shift 2>/dev/null || true
-  _write_evidence "$s" "$@"
+  local summary="${1:-}"; shift 2>/dev/null || true
+  _write_evidence "$summary" "$@"
   trap - EXIT; exit 0
 }

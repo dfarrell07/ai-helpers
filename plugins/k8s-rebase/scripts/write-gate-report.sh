@@ -28,9 +28,7 @@ mkdir -p "$REPO/.rebase-tmp/gates"
   echo "ISSUES: $ISSUES"
   echo "SUMMARY: $SUMMARY"
   echo "DETAILS:"
-  for detail in "$@"; do
-    echo "$detail"
-  done
+  printf '%s\n' "$@"
 } > "$REPO/.rebase-tmp/gates/${GATE_NAME}.report.tmp"
 mv "$REPO/.rebase-tmp/gates/${GATE_NAME}.report.tmp" \
    "$REPO/.rebase-tmp/gates/${GATE_NAME}.report"

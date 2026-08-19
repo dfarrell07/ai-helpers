@@ -9,7 +9,7 @@ handles that). Focus on these unique checks:
    fixes, import reordering, codegen output, feature gates,
    deprecated API migrations, dead code removal from stricter
    linters, and any pattern documented in the patterns doc
-   (find k8s-rebase-patterns.md). Flag anything else as suspect.
+   (`find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/*" 2>/dev/null | head -1`). Flag anything else as suspect.
 2. Format strings: Scan ALL non-vendor Go files changed in the
    diff for wrong format verbs (e.g., %d for a string, %s for
    an int). Run: `git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^\+.*fmt\.\|^\+.*Sprintf\|^\+.*Fprintf\|^\+.*Errorf' | head -30`

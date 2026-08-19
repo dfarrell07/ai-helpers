@@ -38,12 +38,12 @@ bash "$ORCH" init "$REPO_ROOT" "$VERSION"
 
 ## Execute Current Step
 
-1. Read `${CLAUDE_PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` —
+1. Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` —
    these rules apply to ALL steps. Internalize them.
 
 2. The orchestrator printed the current step name and file. Read
    that step file using the Read tool:
-   `${CLAUDE_PLUGIN_ROOT}/skills/k8s-rebase/steps/<step-file>.md`
+   `${PLUGIN_ROOT}/skills/k8s-rebase/steps/<step-file>.md`
 
 3. Launch an Agent with the step file instructions + rules.md +
    repo context. Include in the Agent prompt: repo path, k8s
@@ -61,7 +61,7 @@ bash "$ORCH" init "$REPO_ROOT" "$VERSION"
 5. Repeat until the orchestrator prints `DONE: all steps complete`.
 
 6. After DONE: read and execute
-   `${CLAUDE_PLUGIN_ROOT}/skills/k8s-rebase/steps/step5-pr.md`
+   `${PLUGIN_ROOT}/skills/k8s-rebase/steps/step5-pr.md`
    (PR command generation + cleanup). Step 5 has no gates — it runs
    after the orchestrator confirms all gated steps are complete.
 

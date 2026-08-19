@@ -306,7 +306,7 @@ _SESSION_CACHE=""
 _SESSION_CACHE_AGE=0
 
 _SESSION_PARSER=$(cat <<'PYEOF'
-import json, sys, time, os
+import json, sys, time
 try:
     data = json.load(sys.stdin)
     if not isinstance(data, list): sys.exit(0)
@@ -318,14 +318,17 @@ for s in data:
         raw_state = s.get('state')
         raw_status = s.get('status')
         if raw_state == 'working' and raw_status == 'done':
-            st = raw_status  # idle means between-turns (bg tasks may be running); only 'done' is terminal
+            st = raw_status  # state='working'+status='done' means the agent finished; promote to 'done' so session_for_repo skips it
         else:
             st = raw_state or raw_status or '?'
         pid = s.get('pid') or '0'
         full_sid = s.get('sessionId', '?')
         sid = s.get('id') or full_sid[:8]
         started = s.get('startedAt', 0)
-        elapsed = max(0, int((now - started) / 60000)) if started else 0
+        try:
+            elapsed = max(0, int((now - started) / 60000)) if started else 0
+        except TypeError:
+            elapsed = 0  # startedAt was not a number (e.g. ISO string); treat as unknown
         # done is done — don't remap to idle even if PID lingers
         print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
     except (TypeError, ValueError): pass
@@ -355,7 +358,7 @@ session_for_repo() {
     if [[ "$cwd" == *"/.claude/worktrees/"* && ! -d "$cwd" ]]; then
       continue
     fi
-    match="$cwd	$state	$elapsed	$pid	$_rest"
+    match="$cwd	$state	$elapsed	$pid	$_rest"  # no break: last match wins when multiple sessions share the repo
   done <<< "$_SESSION_CACHE"
   [[ -n "$match" ]] && echo "$match"
 }
@@ -753,12 +756,15 @@ mutate_plugin() {
         local heading="${TAG_TO_PATTERN[$key]:-}"
         [[ -z "$heading" ]] && { rm -rf "$dest"; die "Unknown pattern: $key"; }
         local pfile="$dest/docs/k8s-rebase-patterns.md"
+        # Remove the markdown section that starts with 'hdr' and ends at the next ### heading.
         awk -v hdr="### $heading" '/^### / && index($0, hdr) == 1 { skip=1; next } /^### / && skip { skip=0 } skip { next } { print }' \
           "$pfile" > "$pfile.tmp" && mv "$pfile.tmp" "$pfile"
         info "Removed pattern: $heading" ;;
       fn:*)
         local ftag="${spec#fn:}" afile="$dest/scripts/k8s-rebase-autofix.sh"
         grep -q "^fix_${ftag}()" "$afile" 2>/dev/null || { rm -rf "$dest"; die "Function fix_${ftag}() not found"; }
+        # Neuter the named function: keep the header and closing }, replace body with 'return 0'.
+        # /^\}/ matches only a } at column 1 — the conventional bash function-closer.
         awk -v fn="fix_${ftag}" '$0 ~ "^"fn"\\(\\)" { print $0; print "  return 0"; skip=1; next } skip && /^\}/ { print; skip=0; next } skip { next } { print }' \
           "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
         info "Neutered: fix_${ftag}()" ;;
@@ -766,6 +772,8 @@ mutate_plugin() {
         sed -i '/^## Pattern Table/,$ d' "$dest/docs/k8s-rebase-patterns.md" ;;
       all-fns)
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
+        # Neuter the named function: keep the header and closing }, replace body with 'return 0'.
+        # /^\}/ matches only a } at column 1 — the conventional bash function-closer.
         awk '/^fix_[a-z0-9_]+\(\)/ && !/fix_uncommitted/ { print $0; print "  return 0"; skip=1; next } skip && /^\}/ { print; skip=0; next } skip { next } { print }' \
           "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile" ;;
     esac

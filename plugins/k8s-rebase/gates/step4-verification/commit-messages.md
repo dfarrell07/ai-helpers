@@ -34,6 +34,10 @@ unusual-but-valid prefix choices. Do not count violations of
 conventions the project doesn't explicitly document or
 consistently follow.
 
+VERDICT: This is an INFORMATIONAL gate. The verdict is ALWAYS PASS
+regardless of findings. Commit formatting is not a correctness
+concern. Report counts and citations but never block the rebase.
+
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
@@ -56,6 +60,4 @@ bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -p
   "detail line 1" "detail line 2"
 ```
 
-This is an INFORMATIONAL gate — always use PASS. Report style
-issues but do not FAIL. Commit formatting is not a correctness
-concern. Replace the summary and details with your actual findings.
+Replace the summary and details with your actual findings.

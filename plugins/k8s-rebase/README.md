@@ -66,6 +66,7 @@ rebase so the rebase is cleanly bisectable.
 | `scripts/k8s-rebase-autofix.sh` | Applies known fix patterns with PASS/FAIL verification |
 | `scripts/k8s-rebase-validate.sh` | Build/lint/vet/test across all modules |
 | `scripts/k8s-rebase-review.sh` | Antagonistic review via `claude -p` |
+| `scripts/k8s-rebase-review-prompt.md` | Prompt template used by the antagonistic review script |
 | `scripts/gate-script-lib.sh` | Shared library for gate companion scripts |
 | `scripts/write-gate-report.sh` | Structured gate pass/fail report writer |
 | `gates/step{1,2,3,4}-*/*.md` | Subagent verification prompts (33 files) |
