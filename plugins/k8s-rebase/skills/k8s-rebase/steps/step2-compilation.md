@@ -15,8 +15,8 @@ bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick
 
 Exit 0: no errors. Exit 1: errors in `.rebase-tmp/summary.txt`.
 Use `--quick` (~1 min, build + vet only) during fix iterations.
-`--quick` runs `go vet` (fast). `--no-test` adds
-`go test -run='^$'` which catches stricter format string issues
+`--quick` runs build + vet only. `--no-test` adds lint and
+`go test -run='^$'`, which catches stricter format string issues
 (e.g., Eventf arg count mismatches) that standalone `go vet`
 misses — without running any tests.
 

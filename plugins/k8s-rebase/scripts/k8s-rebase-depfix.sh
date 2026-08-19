@@ -4,7 +4,7 @@
 # Exempted from block-module-ops.sh via script-invocation regex.
 set -euo pipefail
 
-[[ $# -ge 1 ]] || { echo "Usage: k8s-rebase-depfix.sh <module>[@version]"; exit 1; }
+[[ $# -eq 1 ]] || { echo "Usage: k8s-rebase-depfix.sh <module>[@version]" >&2; exit 1; }
 
 MODULE="$1"
 [[ "$MODULE" == *@* ]] || MODULE="${MODULE}@latest"

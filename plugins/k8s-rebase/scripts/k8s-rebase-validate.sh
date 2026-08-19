@@ -405,6 +405,7 @@ while IFS= read -r gomod; do
     lint_target=""
     grep -q "^lint:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null && lint_target="lint"
     [[ -z "$lint_target" ]] && grep -q "^golangci-lint:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null && lint_target="golangci-lint"
+    # --quick skips lint (see usage comment; build+vet only)
     if [[ "$MODE" != "quick" ]] && [[ -n "$lint_target" ]]; then
       if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
         # Inside a container — make lint often needs nested containers
@@ -448,6 +449,7 @@ while IFS= read -r gomod; do
     for _tt in test test-unit check; do
       grep -q "^${_tt}:" "$REPO_ROOT/$mod_dir/Makefile" 2>/dev/null && test_target="$_tt" && break
     done
+    # --quick skips tests; --no-test also skips tests (see usage comment)
     if [[ "$MODE" != "quick" ]] && [[ "$MODE" != "no-test" ]] && [[ -n "$test_target" ]]; then
       # Try make test first; if it needs sudo (common for network namespace tests),
       # fall back to go test without -race for non-privileged packages.
