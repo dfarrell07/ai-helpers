@@ -33,9 +33,9 @@ help: ## Show available targets
 	@echo ""
 	@echo "  Workflow: test → watch → court → results"
 	@echo ""
-	@echo "  Test (launches skill in background, auto-clones repos on first run)"
-	@echo "    make test                       Run all repos, wait for completion"
-	@echo "    make test repo=<repo>           Run one repo"
+	@echo "  Test (auto-clones repos on first run)"
+	@echo "    make test                       Launch all repos in background, then block until all finish"
+	@echo "    make test repo=<repo>           Launch in background, returns immediately (use make watch)"
 	@echo "    make test repo=\"<r1> <r2>\"       Run multiple repos (same version, same spec)"
 	@echo "    make test spec=all              Blind test — no patterns doc or autofix"
 	@echo "    make test version=1.35          Backtest against an older k8s version"
@@ -102,7 +102,7 @@ set-known-good: ## Set known-good reference
 	@test -n "$(REF)" || (echo "ERROR: ref required" && exit 1)
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) set-known-good $(REPO) $(REF) $(if $(URL),--url $(URL))
 
-set-from-commit: ## Set pre-merge commit
+set-from-commit: ## Set pre-rebase starting commit
 	@test -n "$(REPO)" || (echo "ERROR: repo required" && exit 1)
 	@test -n "$(COMMIT)" || (echo "ERROR: commit required" && exit 1)
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) set-from-commit $(REPO) $(COMMIT)

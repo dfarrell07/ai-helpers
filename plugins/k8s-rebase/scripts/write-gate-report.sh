@@ -23,7 +23,7 @@ shift 5
 
 mkdir -p "$REPO/.rebase-tmp/gates"
 {
-  echo "HEAD: $(cd "$REPO" && git rev-parse HEAD 2>/dev/null || echo unknown)"
+  echo "HEAD: $(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)"
   echo "VERDICT: $VERDICT"
   echo "ISSUES: $ISSUES"
   echo "SUMMARY: $SUMMARY"

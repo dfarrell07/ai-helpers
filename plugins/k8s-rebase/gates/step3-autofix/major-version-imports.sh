@@ -5,7 +5,6 @@
 source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
 init_gate "$@"
 
-NEW_ISSUES=0
 details=()
 
 check_import() {
@@ -27,7 +26,7 @@ check_import() {
     else
       echo "  NEW: $match"
       details+=("$match (should be $bare/$versioned)")
-      ((NEW_ISSUES++)) || true
+      inc NEW_ISSUES
     fi
   done <<< "$hits"
 }
@@ -53,7 +52,7 @@ for vmod in $versioned_mods; do
       else
         echo "  NEW: $match"
         details+=("$match (should use $vmod)")
-        ((NEW_ISSUES++)) || true
+        inc NEW_ISSUES
       fi
     done <<< "$hits"
   fi

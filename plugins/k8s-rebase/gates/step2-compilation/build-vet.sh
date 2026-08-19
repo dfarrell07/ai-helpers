@@ -8,11 +8,11 @@
 source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
 init_gate "$@"
 
-NEW_ISSUES=0
 details=()
 
 for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | sort); do
   if [[ -d "$mod_dir/vendor" ]] && git check-ignore -q "$mod_dir/vendor" 2>/dev/null; then
+    details+=("SKIP $mod_dir (vendor is gitignored)")
     echo "SKIP $mod_dir (vendor is gitignored)"
     continue
   fi
@@ -47,7 +47,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     [[ "$line" == "# "* ]] && continue
     echo "  BUILD: $line"
     details+=("BUILD $mod_dir: $line")
-    ((NEW_ISSUES++)) || true
+    inc NEW_ISSUES
   done <<< "$build_out"
 
   while IFS= read -r line; do
@@ -55,7 +55,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     [[ "$line" == "# "* ]] && continue
     echo "  VET: $line"
     details+=("VET $mod_dir: $line")
-    ((NEW_ISSUES++)) || true
+    inc NEW_ISSUES
   done <<< "$vet_out"
 
   popd >/dev/null

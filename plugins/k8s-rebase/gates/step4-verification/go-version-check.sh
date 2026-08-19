@@ -5,12 +5,11 @@
 source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
 init_gate "$@"
 
-NEW_ISSUES=0
 details=()
 
 go_versions=()
 for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
-  ver=$(grep '^go ' "$gomod" | awk '{print $2}' | head -1)
+  ver=$(awk '/^go /{print $2; exit}' "$gomod")
   [[ -n "$ver" ]] && go_versions+=("$gomod:$ver")
 done
 
@@ -20,7 +19,7 @@ if [[ ${#go_versions[@]} -gt 1 ]]; then
     echo "INCONSISTENT go.mod go directives:"
     printf '  %s\n' "${go_versions[@]}"
     details+=("Inconsistent go directives: $(printf '%s ' "${go_versions[@]}")")
-    ((NEW_ISSUES++)) || true
+    inc NEW_ISSUES
   fi
 fi
 
@@ -43,7 +42,7 @@ _check_branch_modified_refs() {
     fi
     echo "  NEW: $match"
     details+=("$match")
-    ((NEW_ISSUES++)) || true
+    inc NEW_ISSUES
   done
 }
 

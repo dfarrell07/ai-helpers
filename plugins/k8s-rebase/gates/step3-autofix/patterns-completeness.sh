@@ -6,7 +6,7 @@ source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
 init_gate "$@"
 
 details=()
-new=0
+NEW_ISSUES=0
 
 # Build check — runs regardless of BASE availability
 for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" \
@@ -15,15 +15,16 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.cl
     details+=("SKIP $mod_dir (vendor is gitignored)")
     continue
   fi
-  result=$(cd "$mod_dir" && go build ./... 2>&1); build_rc=$?
+  build_rc=0
+  result=$(cd "$mod_dir" && go build ./... 2>&1) || build_rc=$?
   errors=$(echo "$result" | grep -c '^.*\.go:' || true)
   if [[ "$errors" -gt 0 ]]; then
     details+=("BUILD-FAIL $mod_dir: $errors errors")
-    new=$(( new + errors ))
+    NEW_ISSUES=$(( NEW_ISSUES + errors ))
   elif [[ "$build_rc" -ne 0 ]]; then
     # Non-zero exit with no file:line lines = linker error, permission, or toolchain issue
     details+=("BUILD-FAIL $mod_dir: non-file-line error (exit $build_rc)")
-    new=$(( new + 1 ))
+    NEW_ISSUES=$(( NEW_ISSUES + 1 ))
   else
     details+=("BUILD-OK $mod_dir")
   fi
@@ -42,5 +43,5 @@ if [[ -n "$BASE" ]]; then
   [[ "$changed_go" -eq 0 ]] && details+=("No Go source changes — build-only rebase")
 fi
 
-details+=("NEW_ISSUES=$new")
-finish_evidence "$new build/pattern issues" "${details[@]}"
+details+=("NEW_ISSUES=$NEW_ISSUES")
+finish_evidence "$NEW_ISSUES build/pattern issues" "${details[@]}"

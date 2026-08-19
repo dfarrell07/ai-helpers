@@ -7,7 +7,7 @@ source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
 init_gate "$@"
 
 details=()
-new=0 pre=0
+new=0
 
 crds=$(git ls-files -- '*.yaml' ':(exclude,glob)**/vendor/**' ':!.claude/' 2>/dev/null \
   | xargs grep -l 'kind: CustomResourceDefinition' 2>/dev/null || true)
@@ -25,7 +25,7 @@ for crd in $crds; do
   base_crd=$(git show "$BASE:$crd" 2>/dev/null) || true
   if [[ -z "$base_crd" ]]; then
     details+=("$crd ALL-NEW (file not on base branch)")
-    ((new++)) || true
+    inc new
     continue
   fi
 
@@ -45,5 +45,5 @@ for crd in $crds; do
   fi
 done
 
-details+=("NEW_ISSUES=$new" "PRE_EXISTING=$pre")
+details+=("NEW_ISSUES=$new")
 finish_evidence "$new CRD validation changes" "${details[@]}"

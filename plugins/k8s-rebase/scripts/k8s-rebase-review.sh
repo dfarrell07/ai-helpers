@@ -28,7 +28,6 @@ shift
 ORIGINAL_ERROR="$*"
 
 # Pre-fetch evidence deterministically
-export DIFF
 MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null || git -C "$REPO_ROOT" merge-base "$COMMIT" main 2>/dev/null || echo "$COMMIT~10")
 if ! git -C "$REPO_ROOT" rev-parse "$MERGE_BASE" &>/dev/null; then
   echo "WARNING: Cannot resolve merge-base '$MERGE_BASE' (shallow clone?), using COMMIT~1" >&2
@@ -44,12 +43,12 @@ fi
 DIFF=$(git -C "$REPO_ROOT" diff "$MERGE_BASE".."$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" \
   ':!*/vendor/*' ':!*generated*' ':!*clientset*' ':!*informer*' ':!*lister*' \
   ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*' | head -2000)
+export DIFF
 
 export ORIGINAL_ERROR
 
-export K8S_CHANGELOG=""
-# Try to extract relevant changelog from the commit message
 K8S_CHANGELOG=$(git -C "$REPO_ROOT" log "$COMMIT" -1 --format="%B" | tail -n +2 || true)
+export K8S_CHANGELOG
 
 export PATTERN_HINT=""
 if [[ -f "$PATTERNS" ]]; then
@@ -79,7 +78,7 @@ if ! command -v claude &>/dev/null; then
 fi
 
 echo ":: Reviewing commit $COMMIT..."
-VERDICT=$(echo "$PROMPT" | timeout 120 claude -p --output-format text 2>/dev/null | grep -E "^(APPROVE|REJECT):" | head -1)
+VERDICT=$(timeout 120 claude -p --output-format text 2>/dev/null <<< "$PROMPT" | grep -E "^(APPROVE|REJECT):" | head -1)
 
 if [[ -z "$VERDICT" ]]; then
   echo "WARNING: No verdict from review agent (timeout or parse failure)"
@@ -89,7 +88,7 @@ fi
 
 echo "$VERDICT"
 
-if echo "$VERDICT" | grep -q "^APPROVE:"; then
+if [[ "$VERDICT" == APPROVE:* ]]; then
   exit 0
 else
   exit 1
