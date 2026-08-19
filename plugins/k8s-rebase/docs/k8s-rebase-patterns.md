@@ -41,12 +41,14 @@ codegen output changes.
 | go vet format string | `non-constant format string` | `"%v", err` (prefer `%v` over `"%s", err.Error()`) |
 | go vet format type | `%q has arg of wrong type` | Use `%v` for non-string types |
 | Deprecated API | `SA1019: X is deprecated` | Check vendored `// Deprecated:` comment |
+| FieldsV1.Raw removed | `FieldsV1.Raw undefined` (k8s 1.36+) | Read access: `.GetRawBytes()`; construction: `metav1.NewFieldsV1(...)` |
 | NewSimpleClientset | `SA1019` on generated fakes | Replace with `NewClientset` — check vendored source for `// Deprecated:` first (not all fakes deprecate it) |
 | x/exp migration | `cannot find package "golang.org/x/exp/..."` | Migrate to stdlib `maps`/`slices`/`cmp` |
 | govet inline analyzer | `inline: cannot inline <call>` | Disable `inline` analyzer in `.golangci.yml` (common fix); or fix call site if feasible. Only affects repos with govet `enable-all: true` |
 | Nilness dead code | `nilness: impossible condition` | Remove dead `if err != nil` blocks |
 | Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag from script, re-run codegen |
 | Codegen field removed | `unknown field X in struct literal` | Remove field from Go code, re-run codegen |
+| Codegen deleted mocks | `undefined: mock.X` after codegen runs | Run `make mocksgen` (repos with `.mockery.yaml`) |
 | Feature gate (existing) | Tests hang (gate files exist) | Add new gate + dependents to existing setup |
 | Feature gate (missing) | Tests hang (no gate setup) | Add `t.Setenv` for all gates to suite file |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
@@ -55,11 +57,12 @@ codegen output changes.
 | golangci-lint v1 + Go 1.26 | container image can't parse Go 1.26 | Replace Makefile no-op else with `go install @$(VERSION) && golangci-lint run` |
 | CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | New Go versions may only exist for newer OCP streams (e.g., 1.26 → openshift-5.0, not 4.22) |
 | KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
+| KIND kubeadm config | k8s 1.36: controller-manager flags silently not applied | Migrate `kind.yaml.j2` extraArgs from v1beta3 map format to v1beta4 list format |
 | KubeVirt version | VM readiness timeouts in kv-live-migration CI | Bump to latest stable patch within same minor; nightly as last resort |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in e2e setup script; update FRR image variable separately |
 | library-go interface | `does not implement SharedIndexInformer` | Bump library-go to latest; if still missing, use replace directive pointing to a fork (see Cross-repo dependency ordering below) |
 | Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Check `.snyk` strategy: `vendor/**` glob is safe; per-file exclusions need updating |
-| sudo PATH not preserved (often pre-existing) | `go: command not found` under sudo in CI scripts | In bash: `sudo env "PATH=$PATH" <cmd>` to preserve Go toolchain PATH |
+| sudo PATH not preserved | `go: command not found` under sudo in CI scripts (often pre-existing) | In bash: `sudo env "PATH=$PATH" <cmd>` to preserve Go toolchain PATH |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
 | CRD name validation lost | Resource with invalid name accepted (should be rejected) | Re-insert hand-edited `metadata.name` pattern constraints after codegen |

@@ -60,4 +60,5 @@ bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -p
   "detail line 1" "detail line 2"
 ```
 
+Use PASS as the verdict (this gate is informational — never FAIL).
 Replace the summary and details with your actual findings.

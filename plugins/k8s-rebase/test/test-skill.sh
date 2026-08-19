@@ -224,8 +224,10 @@ _load_config() {
   VERSION=$(yq '.version' "$CONFIG_FILE")
   [[ -z "$VERSION" || "$VERSION" == "null" ]] && die "version not set in $CONFIG_FILE"
   local _mc=$(yq '.max_concurrent // ""' "$CONFIG_FILE")
-  if [[ -n "$_mc" && "$_mc" != "null" ]]; then
-    MAX_CONCURRENT="${_MAX_CONCURRENT_FROM_ENV:-$_mc}"
+  if [[ -n "${_MAX_CONCURRENT_FROM_ENV:-}" ]]; then
+    MAX_CONCURRENT="$_MAX_CONCURRENT_FROM_ENV"
+  elif [[ -n "$_mc" && "$_mc" != "null" ]]; then
+    MAX_CONCURRENT="$_mc"
   fi
   DEFAULT_REPOS=()
   while IFS= read -r repo_short; do
@@ -1132,15 +1134,12 @@ auto_record() {
 
   for running_file in "$running_dir"/*; do
     [[ -f "$running_file" ]] || continue
-    local repo_key=$(basename "$running_file")
-    local _raw=$(cat "$running_file")
-    local spec=$(echo "$_raw" | cut -f1)
-    local launch_epoch=$(echo "$_raw" | cut -f2)
+    local _file_key; _file_key=$(basename "$running_file")
+    local spec launch_epoch _run_sid _run_version
+    IFS=$'\t' read -r spec launch_epoch _run_sid _run_version < "$running_file"
     [[ "$launch_epoch" =~ ^[0-9]+$ ]] || launch_epoch=0
-    local _run_sid=$(echo "$_raw" | cut -f3)
-    local _run_version=$(echo "$_raw" | cut -f4)
     : "${_run_version:=$VERSION}"
-    repo_key=$(repo_key_from_running "$_run_version" "$repo_key")
+    local repo_key; repo_key=$(repo_key_from_running "$_run_version" "$_file_key")
     [[ -z "$spec" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
 
     local repo
@@ -1183,9 +1182,8 @@ auto_record() {
       local _fail_detail="${result:-session ended without result}"
       local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_run_version" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
-      local _done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
       mkdir -p "$state_dir/done"
-      touch "$state_dir/done/$_done_key"
+      touch "$state_dir/done/$done_key"
       [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
       rm -f "$running_file"
       recorded=$((recorded + 1))

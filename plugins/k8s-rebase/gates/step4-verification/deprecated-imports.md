@@ -59,8 +59,10 @@ Report count of FAIL-tier findings only. Cite file:line for each hit.
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
-`go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go mod verify`, `go install <tool>@<version>`,
 `go clean -cache`. Fix-hint commands in report text are fine.
+Note: `go doc` is prohibited — use the stdlib-promotion table above to check
+package availability; the local toolchain version may differ from go.mod.
 
 Rules: you are read-only — do not edit repo files. Your sole
 permitted write is your gate report file under .rebase-tmp/gates/.

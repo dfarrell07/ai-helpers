@@ -58,7 +58,7 @@ base_count >= curr_count), it is PRE-EXISTING — report as
 where curr_count > base_count (or file doesn't exist on base)
 are NEW and count toward FAIL.
 
-Report: FAIL if any build error or rebase-introduced issue
+VERDICT: FAIL if any build error or rebase-introduced issue
 exists. PASS if build succeeds and no NEW issues found.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
