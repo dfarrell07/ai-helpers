@@ -1264,7 +1264,9 @@ cmd_court() {
   # Cutting it removes noise the briefs speculated on and leaves headroom below
   # the context window (a full diff measures close to it, and the model's output
   # reservation eats into the limit). go.mod is kept — version pins are signal.
-  local court_excludes=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum')
+  # packages/ = dependency metadata cache (LICENSE/NOTICE files), like vendor but
+  # for package listings; mocks/ = mockery-generated files — neither needs review.
+  local court_excludes=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' ':(exclude,glob)**/mocks/**')
   local diff_nv=$(git diff "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
   [[ -z "$diff_nv" ]] && { info "$_log_prefix PASS: identical (non-vendor)"; return 0; }
 
