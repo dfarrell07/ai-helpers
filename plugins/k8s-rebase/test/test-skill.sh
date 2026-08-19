@@ -1684,6 +1684,12 @@ cmd_watch() {
     fi
     _worktree_info "$repo" || true
     local wt="$_WT_PATH" _branch="$_WT_BRANCH"
+    # Fallback: session running in main repo (no from_commit → no .claude/worktrees entry).
+    # Treat main repo as "wt" so gate count + phase display still work.
+    if [[ -z "$wt" && "$session_state" == "working" && -d "$repo/.rebase-tmp" ]]; then
+      wt="$repo"
+      _branch=$(git -C "$repo" branch --show-current 2>/dev/null)
+    fi
     local gc=0 gf=0 gs=0 commit_msg="-" diff_info="-"
     if [[ -n "$wt" ]]; then
       local _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
