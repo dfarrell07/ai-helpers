@@ -1766,7 +1766,17 @@ cmd_watch() {
         read -r gc gf gs _gfn <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
       fi
     fi
+    # Use version-appropriate config to avoid cross-version known_good mismatch.
+    # Must also set VERSION since _resolve_known_good uses it for the cache key.
+    local _saved_cf_watch="$CONFIG_FILE" _saved_ver_watch="$VERSION"
+    local _ver_cf_watch="${PLUGIN_DIR}/test/config-${_file_version%.*}.yaml"
+    if [[ -f "$_ver_cf_watch" ]]; then
+      CONFIG_FILE="$_ver_cf_watch"
+      VERSION="$_file_version"
+    fi
     local kg=$(_resolve_known_good "$short" "$repo")
+    CONFIG_FILE="$_saved_cf_watch"
+    VERSION="$_saved_ver_watch"
     if [[ -n "$kg" && -n "$wt" && -n "$_branch" ]]; then
       # Count changed hunks (each '@@...@@' header = one hunk). nv excludes vendor; nv_all includes it.
       local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
