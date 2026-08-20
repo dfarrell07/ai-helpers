@@ -1181,7 +1181,9 @@ _do_record_one() {
   # finishes with new commits after gate-complete recording.
   # Fields: sid, recorded_sha, version, spec, repo_key (all needed for update).
   if [[ -n "$_prel_sid" ]]; then
-    local _prel_sha; _prel_sha=$(cat "$repo/.rebase-tmp/branch-name" 2>/dev/null | xargs -I{} git -C "$repo" log -1 --format='%H' {} 2>/dev/null || echo "")
+    local _prel_bn; _prel_bn=$(cat "$repo/.rebase-tmp/branch-name" 2>/dev/null)
+    [[ -z "$_prel_bn" && -n "$_WT_PATH" ]] && _prel_bn=$(cat "$_WT_PATH/.rebase-tmp/branch-name" 2>/dev/null)
+    local _prel_sha; _prel_sha=$(echo "$_prel_bn" | xargs -I{} git -C "$repo" log -1 --format='%H' {} 2>/dev/null || echo "")
     [[ -n "$_prel_sha" ]] && printf '%s\t%s\t%s\t%s\t%s\n' \
       "$_prel_sid" "$_prel_sha" "$_rec_version" "$spec" "$repo_key" \
       > "$state_dir/done/${done_key}.prel"
@@ -1279,7 +1281,12 @@ auto_record() {
     _session_alive "$_psid" 2>/dev/null && continue
     local _prepo; _prepo=$(_repo_from_key "$_prk") || true
     [[ -z "$_prepo" ]] && { rm -f "$_pf"; continue; }
+    # branch-name may be in the worktree (worktree-based sessions), not main repo
     local _bn; _bn=$(cat "$_prepo/.rebase-tmp/branch-name" 2>/dev/null)
+    if [[ -z "$_bn" ]]; then
+      _worktree_info "$_prepo" || true
+      [[ -n "$_WT_PATH" ]] && _bn=$(cat "$_WT_PATH/.rebase-tmp/branch-name" 2>/dev/null)
+    fi
     [[ -z "$_bn" ]] && { rm -f "$_pf"; continue; }
     local _cur_sha; _cur_sha=$(git -C "$_prepo" log -1 --format='%H' "$_bn" 2>/dev/null || echo "")
     if [[ -n "$_cur_sha" && "$_cur_sha" != "$_psha" ]]; then
