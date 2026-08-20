@@ -1367,9 +1367,11 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
 - k8s.io/* package minor-version splits (e.g. k8s.io/api at v0.36.2
   while k8s.io/kubernetes is at v1.35.3) caused by MVS: openshift/api
   and controller-runtime commonly force k8s.io/api and k8s.io/client-go
-  to a newer minor. If the go-version-check gate PASSED, the version
-  set was validated as acceptable. Do NOT FAIL on a version split unless
-  the diff shows a specific API call that breaks at the pinned version.
+  to a newer minor. This is normal and acceptable. Do NOT FAIL on a
+  version split alone — it is only a regression if the diff shows code
+  calling an API that does not exist in the vendored package. To verify:
+  `git show RESULT_REF:vendor/<pkg>/<file>.go | grep 'func APIName'` —
+  if the function exists in vendor at the pinned version, no regression.
 - K8S_VERSION or KIND version patch-level differences between go.mod
   and CI/test tooling (e.g., v1.34.0 vs v1.34.1) — CI workflows
   typically override these defaults.
