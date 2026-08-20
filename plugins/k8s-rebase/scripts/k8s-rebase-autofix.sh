@@ -103,11 +103,19 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
         mkdir -p "$HOST_GOMODCACHE"
         GOMODCACHE_MOUNT="-v $HOST_GOMODCACHE:$HOST_GOMODCACHE"
       fi
+      # For git worktrees, the .git file points outside REPO_ROOT to the
+      # common git dir. Mount it so git rev-parse works inside the container.
+      GIT_COMMON_DIR_HOST="$(git -C "$REPO_ROOT" rev-parse --git-common-dir 2>/dev/null || true)"
+      GIT_COMMON_MOUNT=""
+      if [[ -n "$GIT_COMMON_DIR_HOST" && "$GIT_COMMON_DIR_HOST" != "$REPO_ROOT/.git" ]]; then
+        GIT_COMMON_MOUNT="-v $GIT_COMMON_DIR_HOST:$GIT_COMMON_DIR_HOST"
+      fi
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         $USERNS_FLAG \
         -v "$REPO_ROOT:$REPO_ROOT" \
         $GOMODCACHE_MOUNT \
+        $GIT_COMMON_MOUNT \
         -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
         -w "$REPO_ROOT" \
         -e GIT_AUTHOR_NAME="$(git config user.name)" \
