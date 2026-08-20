@@ -44,43 +44,43 @@ hints, using only compilation errors + k8s changelog?
 
 ### 3. Post PR replies (~33 CodeRabbit + 7 miheer threads)
 
-#### Fixed (11 threads)
+#### Fixed (14 threads)
 
 | # | Reply |
 |---|-------|
-| 1 | Fixed. Gate uses direct grep for `KUBE_FEATURE_`/`SetFromMap`, no GATE_DEPS map. |
-| 2 | Fixed — gate count is now **32** (logical-completeness folded into logical-consistency). `find gates/ -name "*.md"` = 32. |
-| 4 | Fixed. Gate checks CRDs against base branch (line 26: "Compare each CRD to the base branch version") and then checks for schema inconsistencies (line 32). No adjacent-line matching. |
-| 7 | Fixed. Recovery uses `bash "$ORCH" status "$REPO_ROOT"`, no branch reference. |
-| 8 | No contradiction. No Docker prohibition exists. rules.md says "Prefer podman." |
-| 9 | Now block-push.sh (pure shell). No markdown code blocks. |
-| 10 | File removed. Pre-existing checks inline in companion scripts. |
-| 11 | File removed. gtotal initialized line 912 before conditional. |
-| 12 | Now informational for unreachable findings (INFO, not FAIL per line 39). OSV.dev unavailable → SKIP (not PASS) per lines 54-56. Only reachable+fixable CVEs produce FAIL. |
-| 13 | This is rebase-completeness.md Check 2 (untracked files). The companion script (rebase-completeness.sh) handles this with `git status --short \| grep -v '^??'` — it excludes all untracked and counts only modified/staged go.mod, vendor/, and .go files. For a k8s rebase, any newly generated files that aren't tracked represent a bug in the rebase script, not expected output. The companion's evidence makes this precise without requiring the subagent to distinguish pre-existing untracked from new. |
-| 14 | All code blocks have `bash` identifier. |
+| 1 | Fixed. The gate uses wiring-first discovery — direct grep for `KUBE_FEATURE_` and `SetFromMap` across source files — not a GATE_DEPS map. |
+| 2 | Fixed — gate count is now **32** (logical-completeness was folded into logical-consistency, which is a strict superset). `find gates/ -name "*.md"` = 32. |
+| 3 | Fixed. rebase-completeness.md Check 3 now says `git log --oneline "$BASE"..HEAD` where `$BASE` is from `git merge-base HEAD master 2>/dev/null || git merge-base HEAD main`. Subagent uses the correct range when running the fallback check. |
+| 4 | Fixed. The gate compares each CRD against the base branch version (line 26: "Compare each CRD to the base branch version") then checks for schema inconsistencies (line 32). No adjacent-line matching. |
+| 7 | Fixed. Recovery path uses `bash "$ORCH" status "$REPO_ROOT"` with no branch reference. The orchestrator reads its own state file. |
+| 8 | No contradiction. There is no Docker prohibition. `rules.md` says "Prefer `podman`" — Docker is a fallback, not banned. |
+| 9 | Now `block-push.sh` is pure bash — no markdown code blocks anywhere in the hook scripts. |
+| 10 | File removed. Pre-existing checks are now inline in the relevant companion scripts. |
+| 11 | File removed. The `gtotal` variable is initialized before the conditional block. |
+| 12 | Now uses three-tier verdicts: unreachable CVE findings are INFO (not FAIL, per line 39); OSV.dev unavailable → SKIP (not PASS, per lines 54-56); only reachable+fixable CVEs with no govulncheck override produce FAIL. |
+| 13 | The companion script (rebase-completeness.sh) handles this with `git status --short \| grep -v '^??'` — it excludes all untracked files and counts only modified/staged go.mod, vendor/, and .go files. For a k8s rebase, newly generated files that aren't tracked indicate a bug in the rebase script, not expected output. The companion's evidence makes this precise without requiring the subagent to distinguish pre-existing from new untracked files. |
+| 14 | All code blocks have the `bash` language identifier. |
+| 17 | Fixed. build-vet.md fallback now runs `go build` and `go vet` as separate commands — vet always runs even when build fails. |
+| 19 | Fixed. CRD keyword filter expanded from 6 to 13 OpenAPI validation keywords: added `minLength`, `maxLength`, `minItems`, `maxItems`, `uniqueItems`, `additionalProperties`, `x-kubernetes-` (covers all k8s schema extensions). |
 
-#### By design (7 threads)
-
-| # | Reply |
-|---|-------|
-| 3 | **Fixed.** rebase-completeness.md Check 3 now says `git log --oneline "$BASE"..HEAD` (matching the companion script). Subagent uses the correct range when running the fallback check. |
-| 5 | Lines 29-30 frame content as evidence. Not bulletproof alone, but review is one of **32 gates** + adversarial pre-PR juror (step 5b). Note: the adversarial court runs in test mode only against a known-good branch; the pre-PR juror is the production adversarial check. |
-| 6 | By design. Exit 2 = validation needed, hook must stay until step 5. step5-pr.md **section 5e** cleans up (added adversarial review section 5b renumbered the rest). Hook message tells user how to remove manually if session crashes. |
-| 15 | By design. Gate needs latest cumulative changelog. Pinning to tag would miss entries. |
-| 16 | Correct. k8s repos use `master`. Tag URL tried first, master is fallback. `-sf` handles 404. |
-| 18 | Harmless placeholder. Symmetric output contract with crd-validation.sh. |
-| 20 | `origin` is correct default. All references degrade gracefully. |
-
-#### Acknowledged gaps (5 threads)
+#### By design (6 threads)
 
 | # | Reply |
 |---|-------|
-| 17 | **Fixed.** build-vet.md fallback now runs `go build` and `go vet` as separate commands so vet always runs even when build fails. |
-| 19 | **Fixed.** CRD keyword filter expanded from 6 to 13 OpenAPI validation keywords (added minLength, maxLength, minItems, maxItems, uniqueItems, additionalProperties, x-kubernetes-). |
-| 21 | **Partially fixed.** k8s-rebase-review.sh (per-commit review) now includes go.mod in its diff pathspec (line 46). The new pre-PR adversarial juror in step5-pr.md also covers go.mod (HEAD..BASE diff excludes go.sum but not go.mod). Version-consistency gate still skips replace directives — that remains tracked. |
-| 22 | **Fixed.** build-vet.sh now captures `build_rc`, checks `>= 124`, writes a crash file, and defers — no longer swallowed by `|| true`. |
-| 24 | This is gomod-diff-analysis.md. The gate now reports all 5 classification categories: minor-version jumps (k8s vs third-party), pseudo-version pins, added/removed deps, pre-release deps, and go directive changes. FAIL criteria are in place for unexpected major-version jumps and pseudo-version moves not traceable to a k8s.io/* requirement. The gate is **not** always PASS — the concern has been addressed. |
+| 5 | Lines 29-30 frame content as evidence. Not bulletproof alone, but review is one of **32 gates** plus an adversarial pre-PR juror (step 5b). The adversarial court runs in test mode only against a known-good branch; the pre-PR juror is the production adversarial check. |
+| 6 | By design. Exit 2 means the hook must stay until step 5. step5-pr.md section 5e handles cleanup (section 5b was added for the adversarial juror, renumbering the rest). Hook message tells the user how to remove it manually if the session crashes. |
+| 15 | By design. The gate fetches the changelog at runtime rather than pinning to a tag — pinning would miss entries added after the release cut. |
+| 16 | Correct. k8s repos use `master` as the primary branch. The script tries a tag URL first, then falls back to `master`. `-sf` handles 404s cleanly. |
+| 18 | Harmless. The output format is symmetric with crd-validation.sh so evidence-parsing code works consistently. |
+| 20 | `origin` is the correct default. All references degrade gracefully when origin is unavailable. |
+
+#### Acknowledged gaps (3 threads)
+
+| # | Reply |
+|---|-------|
+| 21 | Partially fixed. k8s-rebase-review.sh (per-commit review) now includes go.mod in its diff pathspec. The new pre-PR adversarial juror in step5-pr.md also covers go.mod (HEAD..BASE diff excludes go.sum but not go.mod). Version-consistency gate still skips replace directives — that remains tracked. |
+| 22 | Fixed. build-vet.sh now captures `build_rc`, explicitly checks `>= 124`, writes a crash breadcrumb, and defers — no longer swallowed by `\|\| true`. |
+| 24 | The gate now reports all 5 classification categories (minor-version jumps, pseudo-version pins, added/removed deps, pre-release deps, go directive changes) with FAIL criteria for unexpected major-version jumps and pseudo-version moves not traceable to a k8s.io/* requirement. The gate is not always-PASS — the concern has been addressed. |
 
 #### Session tracking (2 threads)
 
