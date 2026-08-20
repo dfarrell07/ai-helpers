@@ -43,10 +43,16 @@ if git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" "$MERGE_BASE" 2>/dev/n
   echo "ERROR: Current branch: $(git -C "$REPO_ROOT" branch --show-current), HEAD: $(git -C "$REPO_ROOT" rev-parse --short HEAD)" >&2
   exit 1
 fi
-DIFF=$(git -C "$REPO_ROOT" show "$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" "go.mod" \
+_DIFF_FULL=$(git -C "$REPO_ROOT" show "$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" "go.mod" \
   ':!*/vendor/*' ':!*generated*' ':!*clientset*' ':!*informer*' ':!*lister*' \
-  ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*' | head -2000)
+  ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*')
+DIFF=$(head -2000 <<< "$_DIFF_FULL")
+_DIFF_LINES=$(wc -l <<< "$_DIFF_FULL")
 export DIFF
+export TRUNCATION_WARNING=""
+if [[ "$_DIFF_LINES" -gt 2000 ]]; then
+  export TRUNCATION_WARNING="WARNING: diff was truncated at 2000 of ${_DIFF_LINES} lines — changes beyond line 2000 are not shown. If you cannot verify the fix is complete from what is visible, output: REJECT: diff truncated — cannot fully verify."
+fi
 
 export ORIGINAL_ERROR
 
@@ -75,7 +81,7 @@ if [[ ! -f "$TEMPLATE" ]]; then
   exit 0
 fi
 
-PROMPT=$(envsubst '$DIFF $ORIGINAL_ERROR $K8S_CHANGELOG $PATTERN_HINT' < "$TEMPLATE")
+PROMPT=$(envsubst '$DIFF $ORIGINAL_ERROR $K8S_CHANGELOG $PATTERN_HINT $TRUNCATION_WARNING' < "$TEMPLATE")
 
 # Invoke review agent
 if ! command -v claude &>/dev/null; then

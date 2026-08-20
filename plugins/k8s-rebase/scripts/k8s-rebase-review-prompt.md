@@ -10,9 +10,8 @@ ${ORIGINAL_ERROR}
 
 ## Fix Diff
 
-Note: this diff is filtered to .go/.yml/.yaml/.sh files
-(excluding vendor/generated code) and may be truncated. If
-it ends abruptly, some changes are not shown.
+Note: this diff is filtered to .go/.yml/.yaml/.sh/go.mod files
+(excluding vendor/generated code). ${TRUNCATION_WARNING}
 
 ```diff
 ${DIFF}
