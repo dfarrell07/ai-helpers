@@ -30,7 +30,7 @@ a whole-diff prompt instead. Options:
 2. Inline a `claude -p` call directly in step5-pr.md with the prompt above
 
 The APPROVE:/REJECT: parsing pattern and the `claude -p --output-format text` invocation
-already in `k8s-rebase-review.sh` lines 60-80 can be copied directly.
+already in `k8s-rebase-review.sh` (grep for `VERDICT=`) can be copied directly.
 
 **Effort**: ~30 lines. Core machinery exists; only the prompt template is new.
 
