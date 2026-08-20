@@ -33,7 +33,9 @@ DIFF=$(git diff "$BASE"..HEAD -- . ':!.rebase-tmp' \
   ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' \
   ':(exclude,glob)**/*generated*' ':(exclude,glob)**/*deepcopy*' \
   2>/dev/null | head -c 200000)
-VERDICT=$(claude -p --output-format text 2>/dev/null <<REVIEW_PROMPT
+# Use a quoted heredoc for the static instructions so $-signs in Go diff
+# content aren't mangled, then append the diff separately.
+_STATIC=$(cat <<'REVIEW_STATIC'
 You are an adversarial reviewer for a k8s rebase. Review the diff below and output
 exactly one of:
   APPROVE: <one-sentence reason>
@@ -52,11 +54,12 @@ Check for:
    appear consistent with the claimed k8s target version?
 
 If in doubt, APPROVE — only REJECT on clear concrete evidence in the diff.
+REVIEW_STATIC
+)
+VERDICT=$(claude -p --output-format text 2>/dev/null <<< "${_STATIC}
 
 DIFF:
-$DIFF
-REVIEW_PROMPT
-)
+${DIFF}")
 echo ":: Pre-PR review: $VERDICT"
 ```
 
