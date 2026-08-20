@@ -21,8 +21,9 @@ Report a count for each check:
    (exclude untracked files with `?`). Any staged-but-
    uncommitted go.mod, vendor, or generated files indicate
    the script's commit step failed.
-3. Rebase commits: check `git log --oneline` on the current
-   branch. Count MISSING expected commits:
+3. Rebase commits: check `git log --oneline "$BASE"..HEAD` (where
+   $BASE is from `git merge-base HEAD master 2>/dev/null || git merge-base HEAD main`).
+   Count MISSING expected commits:
    - "Rebase" commits (at least 1 per go.mod with k8s.io deps,
      excluding vendor/)
    - Codegen commit (expected if hack/update-codegen.sh or

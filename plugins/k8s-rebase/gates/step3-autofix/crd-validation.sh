@@ -36,7 +36,7 @@ for crd in $crds; do
   fi
 
   changed=$(grep '^[<>]' <<< "$crd_diff" \
-    | grep -cE 'pattern:|format:|minimum:|maximum:|enum:|required:' || true)
+    | grep -cE 'pattern:|format:|minimum:|maximum:|minLength:|maxLength:|minItems:|maxItems:|uniqueItems:|enum:|required:|additionalProperties:|x-kubernetes-' || true)
   if [[ "$changed" -eq 0 ]]; then
     details+=("$crd NO-VALIDATION-CHANGES")
   else
