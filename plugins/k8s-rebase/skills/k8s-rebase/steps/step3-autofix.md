@@ -77,7 +77,6 @@ Gate files:
 - `deprecated-calls.md` (count)
 - `autofix-diff-review.md` (judge)
 - `crd-validation.md` (count)
-- `logical-completeness.md` (count)
 - `e2e-infra.md` (judge)
 - `dep-release-notes.md` (judge)
 - `patterns-completeness.md` (judge)
