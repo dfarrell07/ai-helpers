@@ -10,13 +10,14 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   current and fully covered.
   `SUITE_NO_SETFROMMAP` lists *_suite_test.go files with RegisterFailHandler but no
   SetFromMap. In k8s 1.35+, pkg/features.init() can override DefaultMutableFeatureGate
-  and defeat the env-var-based gate disable. The human rebase likely added SetFromMap
-  to a SUBSET of these files — check `git show $KNOWN_GOOD -- <file>` for each flagged
-  file to see which ones were actually modified and copy the exact pattern (import alias,
-  gate names, and map keys vary by repo and k8s version). Do NOT add SetFromMap to all
-  flagged files — only suites in packages that exercise k8s informers/watches.
-  This is a quality concern, not a compile/vet failure. PASS if NEW_ISSUES=0;
-  addressing critical suites improves robustness but is not required for PASS.
+  and defeat the env-var-based gate disable. To find which files the human rebase
+  actually modified, run:
+    git log --oneline | grep -iE 'feature.gate|WatchListClient|SetFromMap|disable.*gate'
+  then `git show <that-commit> -- <file>` for each flagged file. Copy the exact pattern
+  from the human commit (import alias, gate names, and map keys all vary by repo and
+  k8s version). Add SetFromMap ONLY to the files the human modified — not all flagged
+  files. This is a quality concern, not a compile/vet failure. PASS if NEW_ISSUES=0;
+  addressing the affected suites improves robustness but is not required for PASS.
   If evidence shows `SKIP`: no feature gate wiring exists in this repo — verdict PASS.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
