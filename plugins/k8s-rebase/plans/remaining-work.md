@@ -16,11 +16,14 @@ production — the court runs only in test mode.
 the PR is opened. A single juror reading the diff with the same criteria as the
 court catches obvious errors cheaply.
 
-**Implementation**: ~10 lines in `skills/k8s-rebase/steps/step5-pr.md`. Use the
-same `k8s-rebase-review.sh` script that already exists. The script already builds
-the prompt and interprets APPROVE:/REJECT: output.
+**Implementation**: ~20-30 lines in `skills/k8s-rebase/steps/step5-pr.md`.
+`k8s-rebase-review.sh` exists but is scoped to per-fix-commit review during lint
+iteration (takes a specific commit + error context). For the pre-PR gate, a broader
+prompt is needed: "review the entire rebase diff — does it look correct?" Either
+adapt the script with a whole-diff mode or add an inline `claude -p` call with a
+new prompt. The APPROVE:/REJECT: output parsing logic can be reused.
 
-**Effort**: Small. The review script exists; just call it in step 5.
+**Effort**: Small-medium. Core machinery exists; needs a new/adapted prompt template.
 
 ---
 
@@ -29,17 +32,18 @@ the prompt and interprets APPROVE:/REJECT: output.
 **What**: Fold two redundant gates to reduce API calls and cognitive load.
 
 - `step3-autofix/logical-completeness.md` → fold into `step4-verification/logical-consistency.md`
-  (step4 is strictly more comprehensive: covers the same checks plus tier-based depth)
-- `step4-verification/ci-readiness.md` → fold into `step4-verification/ci-prediction.md`
-  (different names, overlapping concerns; ci-readiness checks version refs/KIND which
-  ci-prediction already covers in a broader context)
+  (step4 is strictly more comprehensive: covers the same checks plus tier-based depth
+  and full-module grep; no coverage loss)
 
-After: gate count drops from 33 to 31. `EXPECTED_GATES` auto-adjusts (dynamic).
-`INFO_GATES` at `test-skill.sh:21` and two hardcoded gate lists in step3/step4 .md
-files need manual update in the same commit.
+After: gate count drops from 33 to 32. `EXPECTED_GATES` auto-adjusts (dynamic).
+`INFO_GATES` at `test-skill.sh:21` and the hardcoded gate list in step3-autofix.md
+need manual update in the same commit.
 
-**Do NOT fold**: `commit-messages` into `maintainer-review` — they check genuinely
-different things (format vs scope/suppression).
+**Do NOT fold:**
+- `ci-readiness` into `ci-prediction` — genuinely different. ci-readiness checks
+  version strings in CI config files (KIND image tags, KUBERNETES_VERSION refs);
+  ci-prediction checks whether code changes will cause CI test failures. Distinct.
+- `commit-messages` into `maintainer-review` — format vs scope/suppression. Distinct.
 
 **Effort**: Medium. Each fold is one commit: read both gates, merge content,
 delete the redundant one, grep for all references, update counts.
