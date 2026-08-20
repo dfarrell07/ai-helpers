@@ -1369,9 +1369,9 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
   and controller-runtime commonly force k8s.io/api and k8s.io/client-go
   to a newer minor. This is normal and acceptable. Do NOT FAIL on a
   version split alone — it is only a regression if the diff shows code
-  calling an API that does not exist in the vendored package. To verify:
-  `git show RESULT_REF:vendor/<pkg>/<file>.go | grep 'func APIName'` —
-  if the function exists in vendor at the pinned version, no regression.
+  calling an API that does not exist in the vendored package. To verify,
+  run: git show RESULT_REF:vendor/PKG/FILE.go | grep 'func FunctionName'
+  — if the function exists in vendor at the pinned version, no regression.
 - K8S_VERSION or KIND version patch-level differences between go.mod
   and CI/test tooling (e.g., v1.34.0 vs v1.34.1) — CI workflows
   typically override these defaults.
