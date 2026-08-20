@@ -64,7 +64,7 @@ hints, using only compilation errors + k8s changelog?
 
 | # | Reply |
 |---|-------|
-| 3 | Valid point — rebase-completeness.md Check 3 instruction says "git log --oneline" without a BASE range, while the companion script (rebase-completeness.sh) correctly uses "$BASE"..HEAD. The gate subagent running Check 3 directly might see commits beyond the rebase. Low impact. Tracked for consistency. |
+| 3 | **Fixed.** rebase-completeness.md Check 3 now says `git log --oneline "$BASE"..HEAD` (matching the companion script). Subagent uses the correct range when running the fallback check. |
 | 5 | Lines 29-30 frame content as evidence. Not bulletproof alone, but review is one of **32 gates** + adversarial pre-PR juror (step 5b). Note: the adversarial court runs in test mode only against a known-good branch; the pre-PR juror is the production adversarial check. |
 | 6 | By design. Exit 2 = validation needed, hook must stay until step 5. step5-pr.md **section 5e** cleans up (added adversarial review section 5b renumbered the rest). Hook message tells user how to remove manually if session crashes. |
 | 15 | By design. Gate needs latest cumulative changelog. Pinning to tag would miss entries. |
@@ -76,8 +76,8 @@ hints, using only compilation errors + k8s changelog?
 
 | # | Reply |
 |---|-------|
-| 17 | `&&` chain is in the .md fallback only. Primary path (build-vet.sh) runs independently. But 4 implementations have diverged — tracked to consolidate. |
-| 19 | CRD keyword filter covers 6 of 20+ OpenAPI keywords. Changes to uncovered keywords get marked NO-VALIDATION-CHANGES and skipped. Tracked to expand keyword list. |
+| 17 | **Fixed.** build-vet.md fallback now runs `go build` and `go vet` as separate commands so vet always runs even when build fails. |
+| 19 | **Fixed.** CRD keyword filter expanded from 6 to 13 OpenAPI validation keywords (added minLength, maxLength, minItems, maxItems, uniqueItems, additionalProperties, x-kubernetes-). |
 | 21 | **Partially fixed.** k8s-rebase-review.sh (per-commit review) now includes go.mod in its diff pathspec (line 46). The new pre-PR adversarial juror in step5-pr.md also covers go.mod (HEAD..BASE diff excludes go.sum but not go.mod). Version-consistency gate still skips replace directives — that remains tracked. |
 | 22 | **Fixed.** build-vet.sh now captures `build_rc`, checks `>= 124`, writes a crash file, and defers — no longer swallowed by `|| true`. |
 | 24 | This is gomod-diff-analysis.md. The gate now reports all 5 classification categories: minor-version jumps (k8s vs third-party), pseudo-version pins, added/removed deps, pre-release deps, and go directive changes. FAIL criteria are in place for unexpected major-version jumps and pseudo-version moves not traceable to a k8s.io/* requirement. The gate is **not** always PASS — the concern has been addressed. |
