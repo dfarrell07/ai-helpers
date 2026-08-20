@@ -49,7 +49,7 @@ hints, using only compilation errors + k8s changelog?
 | # | Reply |
 |---|-------|
 | 1 | Fixed. Gate uses direct grep for `KUBE_FEATURE_`/`SetFromMap`, no GATE_DEPS map. |
-| 2 | Fixed — line 71 says "33 files", matches actual (`find gates/ -name "*.md"` = 33). |
+| 2 | Fixed — gate count is now **32** (logical-completeness folded into logical-consistency). `find gates/ -name "*.md"` = 32. |
 | 4 | Fixed. Instructions (line 27) say "Check for schema inconsistencies" — no adjacent-line matching. |
 | 7 | Fixed. Recovery uses `bash "$ORCH" status "$REPO_ROOT"`, no branch reference. |
 | 8 | No contradiction. No Docker prohibition exists. rules.md says "Prefer podman." |
@@ -65,8 +65,8 @@ hints, using only compilation errors + k8s changelog?
 | # | Reply |
 |---|-------|
 | 3 | Valid point — Check 3's `git log` lacks merge-base range while other gates use it. Low impact (checks specific commit types). Tracked for consistency. |
-| 5 | Lines 29-30 frame content as evidence. Not bulletproof alone, but review is one of 33 gates + adversarial court. |
-| 6 | By design. Exit 2 = validation needed, hook must stay until step 5. step5-pr.md lines 62-66 clean up. Hook message tells user how to remove manually if session crashes. |
+| 5 | Lines 29-30 frame content as evidence. Not bulletproof alone, but review is one of **32 gates** + adversarial court. |
+| 6 | By design. Exit 2 = validation needed, hook must stay until step 5. step5-pr.md **section 5e** cleans up (added adversarial review section 5b renumbered the rest). Hook message tells user how to remove manually if session crashes. |
 | 15 | By design. Gate needs latest cumulative changelog. Pinning to tag would miss entries. |
 | 16 | Correct. k8s repos use `master`. Tag URL tried first, master is fallback. `-sf` handles 404. |
 | 18 | Harmless placeholder. Symmetric output contract with crd-validation.sh. |
@@ -78,8 +78,8 @@ hints, using only compilation errors + k8s changelog?
 |---|-------|
 | 17 | `&&` chain is in the .md fallback only. Primary path (build-vet.sh) runs independently. But 4 implementations have diverged — tracked to consolidate. |
 | 19 | CRD keyword filter covers 6 of 20+ OpenAPI keywords. Changes to uncovered keywords get marked NO-VALIDATION-CHANGES and skipped. Tracked to expand keyword list. |
-| 21 | go.mod excluded from review diff. Version-consistency gate covers k8s.io alignment but skips replace directives. Tracked to add go.mod to review pathspec. |
-| 22 | timeout exit 124 swallowed by `|| true`. Low probability but real. Tracked for exit code check. |
+| 21 | **Partially fixed.** k8s-rebase-review.sh (per-commit review) now includes go.mod in its diff pathspec (line 46). The new pre-PR adversarial juror in step5-pr.md also covers go.mod (HEAD..BASE diff excludes go.sum but not go.mod). Version-consistency gate still skips replace directives — that remains tracked. |
+| 22 | **Fixed.** build-vet.sh now captures `build_rc`, checks `>= 124`, writes a crash file, and defers — no longer swallowed by `|| true`. |
 | 24 | Only `+` lines collected. Classification (INTRODUCED/PRE-EXISTING) can't work without old versions. Gate is informational (always PASS) so impact is zero. Will simplify. |
 
 #### Session tracking (2 threads)
@@ -93,7 +93,7 @@ hints, using only compilation errors + k8s changelog?
 
 | Thread | Reply |
 |--------|-------|
-| No e2e / no CI | The skill does local validation — build, vet, lint, unit test compilation, 33 gates, adversarial court. CI runs on remote infrastructure (Prow/GHA), takes hours, and involves parsing infrastructure-specific logs — a different problem domain. The design boundary at PR creation is intentional. |
+| No e2e / no CI | The skill does local validation — build, vet, lint, unit test compilation, **32 gates**, adversarial court. CI runs on remote infrastructure (Prow/GHA), takes hours, and involves parsing infrastructure-specific logs — a different problem domain. The design boundary at PR creation is intentional. |
 | Step 5 prints | Intentional (SKILL.md line 20, rules.md line 33). Human controls push timing. |
 | /loop outside | /loop is a Claude Code built-in that handles CI monitoring. It works well as a separate tool — bundling it into the skill would bloat the scope without adding value. |
 | Step 6 | CI monitoring is a different problem domain (hours-long waits, Prow log parsing, infra flake detection). /loop already handles this. Not planned. |
