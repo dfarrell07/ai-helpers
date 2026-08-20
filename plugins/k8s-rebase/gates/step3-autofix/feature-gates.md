@@ -12,16 +12,11 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   SetFromMap. In k8s 1.35+, pkg/features.init() can override DefaultMutableFeatureGate
   and defeat the env-var-based gate disable. The human rebase likely added SetFromMap
   to a SUBSET of these files — check `git show $KNOWN_GOOD -- <file>` for each flagged
-  file to see which ones were actually modified. For files that need it, add before
-  RegisterFailHandler(Fail):
-    import utilfeature "k8s.io/apiserver/pkg/util/feature"
-    if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(
-        map[string]bool{"WatchListClient": false}); err != nil {
-      t.Fatalf("Failed to disable WatchListClient feature gate: %v", err)
-    }
-  Do NOT add SetFromMap to all flagged files — only suites in packages that exercise
-  k8s informers/watches. This is a quality concern, not a compile/vet failure;
-  PASS if NEW_ISSUES=0 and you address the most critical suites.
+  file to see which ones were actually modified and copy the exact pattern (import alias,
+  gate names, and map keys vary by repo and k8s version). Do NOT add SetFromMap to all
+  flagged files — only suites in packages that exercise k8s informers/watches.
+  This is a quality concern, not a compile/vet failure. PASS if NEW_ISSUES=0;
+  addressing critical suites improves robustness but is not required for PASS.
   If evidence shows `SKIP`: no feature gate wiring exists in this repo — verdict PASS.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
