@@ -1364,6 +1364,12 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
   difference is NOT a regression unless the diff shows code calling an
   API that provably does not exist at the resolved version — and that
   proof must come from the diff itself, not speculation.
+- k8s.io/* package minor-version splits (e.g. k8s.io/api at v0.36.2
+  while k8s.io/kubernetes is at v1.35.3) caused by MVS: openshift/api
+  and controller-runtime commonly force k8s.io/api and k8s.io/client-go
+  to a newer minor. If the go-version-check gate PASSED, the version
+  set was validated as acceptable. Do NOT FAIL on a version split unless
+  the diff shows a specific API call that breaks at the pinned version.
 - K8S_VERSION or KIND version patch-level differences between go.mod
   and CI/test tooling (e.g., v1.34.0 vs v1.34.1) — CI workflows
   typically override these defaults.
@@ -1386,7 +1392,14 @@ scope difference, not dropped functionality.
 
 EVIDENCE CONSTRAINT: Do not fabricate file contents or claim code
 exists that is not shown in the provided DIFF. If referencing files
-outside the DIFF, state it as a concern to verify, not as established fact."
+outside the DIFF, state it as a concern to verify, not as established fact.
+COMMIT MESSAGE CONSTRAINT: Commit message subjects are NOT evidence of
+code changes. Do not assert a file was modified because its topic appears
+in a commit subject. Use git show to confirm actual file content before
+claiming a change exists in the diff.
+VERIFICATION CONSTRAINT: Every claim used to support a FAIL verdict MUST
+have its own VERIFIED: line citing a specific file:line from the diff or
+from git show. An unverified claim cannot contribute to a FAIL verdict."
   local logs=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
 $criteria

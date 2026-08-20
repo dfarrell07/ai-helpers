@@ -150,7 +150,7 @@ done <<< "$all_wired"
 # k8s 1.35+ pkg/features.init() overrides DefaultMutableFeatureGate and can
 # defeat env-var-based gate disables. SetFromMap in suite setup is belt-and-suspenders.
 # Emitted as INFO only — subagent picks which suites to fix based on known-good.
-if [[ -n "$all_wired" && -n "$test_go_sh" ]]; then
+if [[ -n "$all_wired" ]]; then
   _suite_missing=()
   while IFS= read -r _sf; do
     [[ -z "$_sf" ]] && continue
