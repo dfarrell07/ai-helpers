@@ -57,14 +57,14 @@ hints, using only compilation errors + k8s changelog?
 | 10 | File removed. Pre-existing checks inline in companion scripts. |
 | 11 | File removed. gtotal initialized line 912 before conditional. |
 | 12 | Now informational for unreachable findings (INFO, not FAIL per line 39). OSV.dev unavailable → SKIP (not PASS) per lines 54-56. Only reachable+fixable CVEs produce FAIL. |
-| 13 | Has pre-existing check (lines 23-36). |
+| 13 | Has pre-existing check. (Note: line numbers vary by gate — feature-gates.md pre-existing check is at line 49, deprecated-calls.md at line 44. Verify the specific gate CodeRabbit flagged before posting.) |
 | 14 | All code blocks have `bash` identifier. |
 
 #### By design (7 threads)
 
 | # | Reply |
 |---|-------|
-| 3 | Valid point — Check 3's `git log` lacks merge-base range while other gates use it. Low impact (checks specific commit types). Tracked for consistency. |
+| 3 | Valid point — rebase-completeness.md Check 3 instruction says "git log --oneline" without a BASE range, while the companion script (rebase-completeness.sh) correctly uses "$BASE"..HEAD. The gate subagent running Check 3 directly might see commits beyond the rebase. Low impact. Tracked for consistency. |
 | 5 | Lines 29-30 frame content as evidence. Not bulletproof alone, but review is one of **32 gates** + adversarial pre-PR juror (step 5b). Note: the adversarial court runs in test mode only against a known-good branch; the pre-PR juror is the production adversarial check. |
 | 6 | By design. Exit 2 = validation needed, hook must stay until step 5. step5-pr.md **section 5e** cleans up (added adversarial review section 5b renumbered the rest). Hook message tells user how to remove manually if session crashes. |
 | 15 | By design. Gate needs latest cumulative changelog. Pinning to tag would miss entries. |
@@ -80,7 +80,7 @@ hints, using only compilation errors + k8s changelog?
 | 19 | CRD keyword filter covers 6 of 20+ OpenAPI keywords. Changes to uncovered keywords get marked NO-VALIDATION-CHANGES and skipped. Tracked to expand keyword list. |
 | 21 | **Partially fixed.** k8s-rebase-review.sh (per-commit review) now includes go.mod in its diff pathspec (line 46). The new pre-PR adversarial juror in step5-pr.md also covers go.mod (HEAD..BASE diff excludes go.sum but not go.mod). Version-consistency gate still skips replace directives — that remains tracked. |
 | 22 | **Fixed.** build-vet.sh now captures `build_rc`, checks `>= 124`, writes a crash file, and defers — no longer swallowed by `|| true`. |
-| 24 | Only `+` lines collected. Classification (INTRODUCED/PRE-EXISTING) can't work without old versions. Gate is informational (always PASS) so impact is zero. Will simplify. |
+| 24 | (Gate identity unclear from current code — check the PR thread to identify which gate CodeRabbit flagged.) The "only + lines / always PASS" description doesn't match any identifiable current gate. If this was an older gate that's been redesigned, the reply may be moot. Verify before posting. |
 
 #### Session tracking (2 threads)
 
@@ -93,7 +93,7 @@ hints, using only compilation errors + k8s changelog?
 
 | Thread | Reply |
 |--------|-------|
-| No e2e / no CI | The skill does local validation — build, vet, lint, unit test compilation, **32 gates**, adversarial court. CI runs on remote infrastructure (Prow/GHA), takes hours, and involves parsing infrastructure-specific logs — a different problem domain. The design boundary at PR creation is intentional. |
+| No e2e / no CI | The skill does local validation — build, vet, lint, unit test compilation, **32 gates**, adversarial pre-PR juror (step 5b). CI runs on remote infrastructure (Prow/GHA), takes hours, and involves parsing infrastructure-specific logs — a different problem domain. The design boundary at PR creation is intentional. |
 | Step 5 prints | Intentional (SKILL.md line 21, rules.md line 33). Human controls push timing. |
 | /loop outside | /loop is a Claude Code built-in that handles CI monitoring. It works well as a separate tool — bundling it into the skill would bloat the scope without adding value. |
 | Step 6 | CI monitoring is a different problem domain (hours-long waits, Prow log parsing, infra flake detection). /loop already handles this. Not planned. |
