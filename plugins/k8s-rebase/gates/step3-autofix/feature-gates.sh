@@ -146,6 +146,24 @@ while IFS= read -r gate; do
 
 done <<< "$all_wired"
 
+# Layer 4: Ginkgo suite files with RegisterFailHandler but no SetFromMap.
+# k8s 1.35+ pkg/features.init() overrides DefaultMutableFeatureGate and can
+# defeat env-var-based gate disables. SetFromMap in suite setup is belt-and-suspenders.
+# Emitted as INFO only — subagent picks which suites to fix based on known-good.
+if [[ -n "$all_wired" && -n "$test_go_sh" ]]; then
+  _suite_missing=()
+  while IFS= read -r _sf; do
+    [[ -z "$_sf" ]] && continue
+    grep -q 'RegisterFailHandler' "$_sf" 2>/dev/null || continue
+    grep -q 'SetFromMap' "$_sf" 2>/dev/null && continue
+    _suite_missing+=("${_sf#"$PRIMARY_GOMOD_DIR/"}")
+  done < <(find "$PRIMARY_GOMOD_DIR" -name '*_suite_test.go' \
+    -not -path '*/vendor/*' -not -path '*/.claude/*' 2>/dev/null)
+  if [[ ${#_suite_missing[@]} -gt 0 ]]; then
+    details+=("SUITE_NO_SETFROMMAP (${#_suite_missing[@]} files): ${_suite_missing[*]}")
+  fi
+fi
+
 # Sudo/export check: new KUBE_FEATURE_*=false export in rebase-touched scripts
 # with bare sudo (env not preserved) would silently drop the gate variable.
 if [[ -n "$BASE" ]]; then
