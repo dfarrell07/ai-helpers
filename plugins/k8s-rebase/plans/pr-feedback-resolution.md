@@ -97,7 +97,7 @@ hints, using only compilation errors + k8s changelog?
 | Step 5 prints | Intentional (SKILL.md line 21, rules.md line 33). Human controls push timing. |
 | /loop outside | /loop is a Claude Code built-in that handles CI monitoring. It works well as a separate tool — bundling it into the skill would bloat the scope without adding value. |
 | Step 6 | CI monitoring is a different problem domain (hours-long waits, Prow log parsing, infra flake detection). /loop already handles this. Not planned. |
-| Patterns specific | The autofix functions handle universal k8s patterns (klog, x/exp, feature gates, codegen). spec=all (fully blind — no patterns doc, no autofix hints) consistently passes across all tested repos and k8s versions. Occasional failures are infrastructure-related (resource limits) or active development bugs being fixed, not skill quality gaps. |
+| Patterns specific | The autofix functions handle universal k8s patterns (klog, x/exp, feature gates, codegen). spec=all (fully blind — no patterns doc, no autofix hints) consistently passes across all tested repos and k8s versions. Occasional failures are infrastructure-related (resource limits) or active development bugs being fixed, not skill quality gaps. The autofix layer may eventually be removed as spec=all results confirm the agent can derive all fixes from first principles without scaffolding. |
 | Testing 1.37 | Will test against 1.37 when released. spec=all mutation now fully strips patterns. |
 | /loop untracked | /loop runs as a separate agent session. Its commits appear in git log. |
 
