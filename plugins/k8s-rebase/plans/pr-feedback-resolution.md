@@ -78,7 +78,7 @@ hints, using only compilation errors + k8s changelog?
 
 | # | Reply |
 |---|-------|
-| 21 | Partially fixed. k8s-rebase-review.sh (per-commit review) now includes go.mod in its diff pathspec. The new pre-PR adversarial juror in step5-pr.md also covers go.mod (HEAD..BASE diff excludes go.sum but not go.mod). Version-consistency gate still skips replace directives — that remains tracked. |
+| 21 | Fixed. review.sh now detects truncation (`wc -l > 2000`) and injects a `$TRUNCATION_WARNING` variable. When not truncated, the note disappears entirely. When truncated, the reviewer gets explicit actionable text: "diff truncated at N of M lines — REJECT if you cannot fully verify." go.mod is also included in the diff pathspec. Version-consistency gate still skips replace directives — tracked separately. |
 | 22 | Fixed. build-vet.sh now captures `build_rc`, explicitly checks `>= 124`, writes a crash breadcrumb, and defers — no longer swallowed by `\|\| true`. |
 | 24 | The gate now reports all 5 classification categories (minor-version jumps, pseudo-version pins, added/removed deps, pre-release deps, go directive changes) with FAIL criteria for unexpected major-version jumps and pseudo-version moves not traceable to a k8s.io/* requirement. The gate is not always-PASS — the concern has been addressed. |
 
