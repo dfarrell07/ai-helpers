@@ -1393,13 +1393,14 @@ scope difference, not dropped functionality.
 EVIDENCE CONSTRAINT: Do not fabricate file contents or claim code
 exists that is not shown in the provided DIFF. If referencing files
 outside the DIFF, state it as a concern to verify, not as established fact.
-COMMIT MESSAGE CONSTRAINT: Commit message subjects are NOT evidence of
-code changes. Do not assert a file was modified because its topic appears
-in a commit subject. Use git show to confirm actual file content before
-claiming a change exists in the diff.
-VERIFICATION CONSTRAINT: Every claim used to support a FAIL verdict MUST
-have its own VERIFIED: line citing a specific file:line from the diff or
-from git show. An unverified claim cannot contribute to a FAIL verdict."
+COMMIT MESSAGE CONSTRAINT: Commit subject lines are NOT evidence of code
+changes. Do not assert a file was modified because its topic appears in a
+commit subject line. You MUST use git show to confirm actual file content
+before claiming a change exists.
+VERIFICATION CONSTRAINT: Each distinct claim you use to support FAIL must
+have its own VERIFIED: line. If you make three claims, you need three
+VERIFIED: lines. A claim without a VERIFIED: line cannot contribute to a
+FAIL verdict — it can only be flagged as a concern."
   local logs=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
 $criteria
@@ -1513,7 +1514,7 @@ file:line and what you found. Verdicts without a VERIFIED line are
 invalid.
 
 Output format:
-VERIFIED: <file>@<ref> — <finding>  (one or more lines — REQUIRED)
+VERIFIED: <file>@<ref> — <finding>  (one line per claim — required for each FAIL claim)
 VERDICT: PASS or FAIL. One sentence.
 EOF_JURY
   done

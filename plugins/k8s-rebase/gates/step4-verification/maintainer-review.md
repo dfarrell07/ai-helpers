@@ -34,6 +34,17 @@ For each hit, verify the suppressed linter is NOT already covered by
 `.golangci.yml`. If it is — FAIL. If the annotation is genuinely
 site-specific with no config equivalent — INFO only.
 
+Deprecated-API suppression check — a special case of lint suppression:
+if the diff adds `//nolint:staticcheck` to hide a deprecated call, check
+whether a non-deprecated replacement exists in the vendored package. Run:
+  `grep -n 'Deprecated' vendor/<package-path>/<file>.go`
+to find the deprecation notice and the recommended replacement. If a
+non-deprecated alternative exists in the same vendor (same function family,
+different signature or type parameter) — FAIL. The correct fix is to use
+the new API, not suppress the deprecation warning. This pattern is a real
+regression because newer k8s/controller-runtime versions may remove the
+deprecated function entirely.
+
 VERDICT: FAIL if scope creep or inaccurate commit messages are
 CONFIRMED from the diff — demonstrably present, not merely suspected.
 PASS if all changes serve the rebase. Only flag what you can point
