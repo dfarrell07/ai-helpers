@@ -1104,11 +1104,11 @@ _do_record_one() {
   # Use the version-appropriate config so INFW/other repos without known_good
   # in an older version don't accidentally inherit the known_good from a newer config.
   local kg_hunks="" kg_vendor="" kg_branch=""
-  local _saved_cf="$CONFIG_FILE"
+  local _saved_cf="$CONFIG_FILE" _saved_ver="$VERSION"
   local _ver_cf="${PLUGIN_DIR}/test/config-${_rec_version%.*}.yaml"
-  [[ -f "$_ver_cf" ]] && CONFIG_FILE="$_ver_cf"
+  if [[ -f "$_ver_cf" ]]; then CONFIG_FILE="$_ver_cf"; VERSION="$_rec_version"; fi
   kg_branch=$(_resolve_known_good "$short" "$repo")
-  CONFIG_FILE="$_saved_cf"
+  CONFIG_FILE="$_saved_cf"; VERSION="$_saved_ver"
   if [[ -n "$kg_branch" ]]; then
     local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
     local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
@@ -1951,9 +1951,18 @@ _results_one() {
     echo "Gates: none (no reports found)"
   fi
 
+  # Derive version from TSV's latest entry to avoid cross-version known_good contamination
+  local _tsv_ver="$VERSION"
+  local _tsv_latest; _tsv_latest=$(_latest_result_line "$short" "$VERSION" "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null)
+  [[ -z "$_tsv_latest" ]] && _tsv_latest=$(awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -1)
+  [[ -n "$_tsv_latest" ]] && _tsv_ver=$(echo "$_tsv_latest" | cut -f2)
+  local _saved_cf_ro="$CONFIG_FILE" _saved_ver_ro="$VERSION"
+  local _ver_cf_ro="${PLUGIN_DIR}/test/config-${_tsv_ver%.*}.yaml"
+  if [[ -f "$_ver_cf_ro" ]]; then CONFIG_FILE="$_ver_cf_ro"; VERSION="$_tsv_ver"; fi
   local kg=$(_resolve_known_good "$short" "$repo")
+  CONFIG_FILE="$_saved_cf_ro"; VERSION="$_saved_ver_ro"
   if [[ -n "$kg" ]]; then
-    local branch=$(find_newest_branch "$repo" "$VERSION")
+    local branch=$(find_newest_branch "$repo" "$_tsv_ver")
     if [[ -n "$branch" ]]; then
       local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
       echo ""
