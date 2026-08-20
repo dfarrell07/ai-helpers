@@ -57,7 +57,7 @@ hints, using only compilation errors + k8s changelog?
 | 10 | File removed. Pre-existing checks inline in companion scripts. |
 | 11 | File removed. gtotal initialized line 912 before conditional. |
 | 12 | Now informational for unreachable findings (INFO, not FAIL per line 39). OSV.dev unavailable → SKIP (not PASS) per lines 54-56. Only reachable+fixable CVEs produce FAIL. |
-| 13 | Has pre-existing check. (Note: line numbers vary by gate — feature-gates.md pre-existing check is at line 49, deprecated-calls.md at line 44. Verify the specific gate CodeRabbit flagged before posting.) |
+| 13 | This is rebase-completeness.md Check 2 (untracked files). The companion script (rebase-completeness.sh) handles this with `git status --short \| grep -v '^??'` — it excludes all untracked and counts only modified/staged go.mod, vendor/, and .go files. For a k8s rebase, any newly generated files that aren't tracked represent a bug in the rebase script, not expected output. The companion's evidence makes this precise without requiring the subagent to distinguish pre-existing untracked from new. |
 | 14 | All code blocks have `bash` identifier. |
 
 #### By design (7 threads)
@@ -80,7 +80,7 @@ hints, using only compilation errors + k8s changelog?
 | 19 | CRD keyword filter covers 6 of 20+ OpenAPI keywords. Changes to uncovered keywords get marked NO-VALIDATION-CHANGES and skipped. Tracked to expand keyword list. |
 | 21 | **Partially fixed.** k8s-rebase-review.sh (per-commit review) now includes go.mod in its diff pathspec (line 46). The new pre-PR adversarial juror in step5-pr.md also covers go.mod (HEAD..BASE diff excludes go.sum but not go.mod). Version-consistency gate still skips replace directives — that remains tracked. |
 | 22 | **Fixed.** build-vet.sh now captures `build_rc`, checks `>= 124`, writes a crash file, and defers — no longer swallowed by `|| true`. |
-| 24 | (Gate identity unclear from current code — check the PR thread to identify which gate CodeRabbit flagged.) The "only + lines / always PASS" description doesn't match any identifiable current gate. If this was an older gate that's been redesigned, the reply may be moot. Verify before posting. |
+| 24 | This is gomod-diff-analysis.md. The gate now reports all 5 classification categories: minor-version jumps (k8s vs third-party), pseudo-version pins, added/removed deps, pre-release deps, and go directive changes. FAIL criteria are in place for unexpected major-version jumps and pseudo-version moves not traceable to a k8s.io/* requirement. The gate is **not** always PASS — the concern has been addressed. |
 
 #### Session tracking (2 threads)
 
