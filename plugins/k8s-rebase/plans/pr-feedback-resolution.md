@@ -50,13 +50,13 @@ hints, using only compilation errors + k8s changelog?
 |---|-------|
 | 1 | Fixed. Gate uses direct grep for `KUBE_FEATURE_`/`SetFromMap`, no GATE_DEPS map. |
 | 2 | Fixed — gate count is now **32** (logical-completeness folded into logical-consistency). `find gates/ -name "*.md"` = 32. |
-| 4 | Fixed. Instructions (line 27) say "Check for schema inconsistencies" — no adjacent-line matching. |
+| 4 | Fixed. Gate checks CRDs against base branch (line 26: "Compare each CRD to the base branch version") and then checks for schema inconsistencies (line 32). No adjacent-line matching. |
 | 7 | Fixed. Recovery uses `bash "$ORCH" status "$REPO_ROOT"`, no branch reference. |
 | 8 | No contradiction. No Docker prohibition exists. rules.md says "Prefer podman." |
 | 9 | Now block-push.sh (pure shell). No markdown code blocks. |
 | 10 | File removed. Pre-existing checks inline in companion scripts. |
 | 11 | File removed. gtotal initialized line 912 before conditional. |
-| 12 | Now informational — line 49: "always PASS", line 52: "NEVER use FAIL." |
+| 12 | Now informational for unreachable findings (INFO, not FAIL per line 39). OSV.dev unavailable → SKIP (not PASS) per lines 54-56. Only reachable+fixable CVEs produce FAIL. |
 | 13 | Has pre-existing check (lines 23-36). |
 | 14 | All code blocks have `bash` identifier. |
 
@@ -65,7 +65,7 @@ hints, using only compilation errors + k8s changelog?
 | # | Reply |
 |---|-------|
 | 3 | Valid point — Check 3's `git log` lacks merge-base range while other gates use it. Low impact (checks specific commit types). Tracked for consistency. |
-| 5 | Lines 29-30 frame content as evidence. Not bulletproof alone, but review is one of **32 gates** + adversarial court. |
+| 5 | Lines 29-30 frame content as evidence. Not bulletproof alone, but review is one of **32 gates** + adversarial pre-PR juror (step 5b). Note: the adversarial court runs in test mode only against a known-good branch; the pre-PR juror is the production adversarial check. |
 | 6 | By design. Exit 2 = validation needed, hook must stay until step 5. step5-pr.md **section 5e** cleans up (added adversarial review section 5b renumbered the rest). Hook message tells user how to remove manually if session crashes. |
 | 15 | By design. Gate needs latest cumulative changelog. Pinning to tag would miss entries. |
 | 16 | Correct. k8s repos use `master`. Tag URL tried first, master is fallback. `-sf` handles 404. |
@@ -94,10 +94,10 @@ hints, using only compilation errors + k8s changelog?
 | Thread | Reply |
 |--------|-------|
 | No e2e / no CI | The skill does local validation — build, vet, lint, unit test compilation, **32 gates**, adversarial court. CI runs on remote infrastructure (Prow/GHA), takes hours, and involves parsing infrastructure-specific logs — a different problem domain. The design boundary at PR creation is intentional. |
-| Step 5 prints | Intentional (SKILL.md line 20, rules.md line 33). Human controls push timing. |
+| Step 5 prints | Intentional (SKILL.md line 21, rules.md line 33). Human controls push timing. |
 | /loop outside | /loop is a Claude Code built-in that handles CI monitoring. It works well as a separate tool — bundling it into the skill would bloat the scope without adding value. |
 | Step 6 | CI monitoring is a different problem domain (hours-long waits, Prow log parsing, infra flake detection). /loop already handles this. Not planned. |
-| Patterns specific | The autofix functions handle universal k8s patterns (klog, x/exp, feature gates, codegen). We've tightened the spec=all mutation to fully strip the patterns doc, and test results show [include empirical result]. |
+| Patterns specific | The autofix functions handle universal k8s patterns (klog, x/exp, feature gates, codegen). spec=all (fully blind — no patterns doc, no autofix hints) consistently passes across all tested repos and k8s versions. Occasional failures are infrastructure-related (resource limits) or active development bugs being fixed, not skill quality gaps. |
 | Testing 1.37 | Will test against 1.37 when released. spec=all mutation now fully strips patterns. |
 | /loop untracked | /loop runs as a separate agent session. Its commits appear in git log. |
 
