@@ -1703,6 +1703,8 @@ cmd_court_all() {
         fi
         mkdir -p "$(dirname "$_court_file")"
         echo "$_verdict" > "$_court_file"
+        # Clean the worktree after PASS to prevent disk accumulation
+        [[ "$_verdict" == "PASS" ]] && remove_worktrees "$repo" "$VERSION" 2>/dev/null || true
       ) &
       _court_pids+=($!)
       _court_files+=("$_court_file")
