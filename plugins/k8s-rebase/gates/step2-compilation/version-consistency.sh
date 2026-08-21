@@ -15,6 +15,7 @@ if [[ -f "$REPO/.rebase-tmp/target-k8s-api-version.txt" ]]; then
 else
   echo "NO_TARGET: target-k8s-api-version.txt absent, version comparison skipped"
   details+=("NO_TARGET: target-k8s-api-version.txt absent — version comparison skipped")
+  inc NEW_ISSUES
 fi
 
 for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
