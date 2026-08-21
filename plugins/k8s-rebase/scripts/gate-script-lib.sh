@@ -54,6 +54,9 @@ init_gate() {
 
   BASE=$(git merge-base HEAD main 2>/dev/null \
       || git merge-base HEAD master 2>/dev/null \
+      || git merge-base HEAD origin/main 2>/dev/null \
+      || git merge-base HEAD origin/master 2>/dev/null \
+      || git merge-base HEAD FETCH_HEAD 2>/dev/null \
       || echo "")
   if [[ -z "$BASE" ]]; then
     echo "NO_BASE: cannot determine merge base — skipping pre-existing filter"
