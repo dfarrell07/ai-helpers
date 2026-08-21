@@ -1537,7 +1537,7 @@ without a BASE_REF scope check for each supporting claim is invalid.
 
 Output format:
 VERIFIED: <file>@<BASE_REF> — <finding>  (one line per FAIL claim — must show BASE_REF scope check)
-VERDICT: PASS or FAIL. One sentence.
+VERDICT: PASS, FAIL, or ABSTAIN. One sentence. Use ABSTAIN only if you cannot determine whether the difference is a regression even after running git show.
 EOF_JUROR_PROMPT
   )
   for j in 1 2 3; do
@@ -1563,7 +1563,7 @@ EOF_JUROR_PROMPT
 
   local pass=0 fail=0
   for j in 1 2 3; do
-    local jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null | grep -ioE 'PASS|FAIL' | tail -1)
+    local jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL|ABSTAIN)' "$cdir/juror-$j.txt" 2>/dev/null | grep -ioE 'PASS|FAIL|ABSTAIN' | tail -1)
     jv="${jv^^}"
     case "$jv" in "PASS") pass=$((pass+1)); info "$_log_prefix   Juror $j: PASS";; "FAIL") fail=$((fail+1)); info "$_log_prefix   Juror $j: FAIL";; *) info "$_log_prefix   Juror $j: ABSTAIN";; esac
   done
@@ -1574,8 +1574,8 @@ EOF_JUROR_PROMPT
   _show_fail_reasons() {
     info "$_log_prefix Transcript: $cdir"
     for j in 1 2 3; do
-      local jv; jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL)' "$cdir/juror-$j.txt" 2>/dev/null \
-                     | grep -ioE 'PASS|FAIL' | tail -1)
+      local jv; jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL|ABSTAIN)' "$cdir/juror-$j.txt" 2>/dev/null \
+                     | grep -ioE 'PASS|FAIL|ABSTAIN' | tail -1)
       [[ "${jv^^}" != "FAIL" ]] && continue
       local verdict_text; verdict_text=$(grep -m1 'VERDICT:' "$cdir/juror-$j.txt" 2>/dev/null \
                                          | sed 's/^VERDICT:[* ]*//')
