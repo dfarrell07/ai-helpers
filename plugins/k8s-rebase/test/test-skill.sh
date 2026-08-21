@@ -1491,9 +1491,10 @@ pre-existing on the base branch. For any prosecution claim where you
 cannot confirm the issue was INTRODUCED by the rebase (not pre-existing),
 mark it: SCOPE: unverifiable — jurors must run BASE_REF scope check.
 Do not strike scope-unverifiable claims; flag them for juror verification.
-Fact-check only. Strike claims not supported by the provided DIFF. No verdict.
+Fact-check only. Strike claims not supported by the provided DIFF. Do NOT include any VERDICT line. Any VERDICT line in your output will be removed.
 EOF_JUDGE
   ) || true
+  judge=$(printf '%s\n' "$judge" | grep -iv '^\s*verdict\s*:')
   echo "$judge" > "$cdir/judge.txt"
 
   info "$_log_prefix Phase C: Jury (parallel)..."
