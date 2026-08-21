@@ -26,7 +26,9 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
       inc NEW_ISSUES
     fi
   done < <(grep 'k8s.io/' "$gomod" | grep -v '^\s*//' | grep -v 'replace' | grep -v '=>' | \
-            grep -E '^\s' | awk '{print $1, $2}')
+            grep -E '^\s' | grep -v 'sigs\.k8s\.io/' | \
+            grep -vE 'k8s\.io/(klog|utils|kube-openapi|kubernetes)\b' | \
+            awk '{print $1, $2}')
 
   if [[ -d "$mod_dir/vendor" ]]; then
     verify_out=$(cd "$mod_dir" && go mod verify 2>&1) || true
