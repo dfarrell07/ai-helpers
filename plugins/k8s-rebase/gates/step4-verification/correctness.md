@@ -12,9 +12,21 @@ handles that). Focus on these unique checks:
    (`find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/*" 2>/dev/null | head -1`). Flag anything else as suspect.
 2. Format strings: Scan ALL non-vendor Go files changed in the
    diff for wrong format verbs (e.g., %d for a string, %s for
-   an int). Run: `git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^\+.*fmt\.\|^\+.*Sprintf\|^\+.*Fprintf\|^\+.*Errorf' | head -30`
+   an int). Run:
+   ```
+   total=$(git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep -c '^\+.*fmt\.\|^\+.*Sprintf\|^\+.*Fprintf\|^\+.*Errorf' 2>/dev/null || echo 0)
+   echo "Total format-string hits: $total"
+   git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^\+.*fmt\.\|^\+.*Sprintf\|^\+.*Fprintf\|^\+.*Errorf' | head -30
+   ```
+   If total > 30, re-run without `head -30` and examine all $total lines before proceeding.
 3. Eventf calls: Check for bare .Error() args without format
-   directives. Run: `grep -rn '\.Eventf\|\.Event(' --include='*.go' . | grep -v vendor/ | grep '\.Error()' | head -20`
+   directives. Run:
+   ```
+   total=$(grep -rn '\.Eventf\|\.Event(' --include='*.go' . | grep -v vendor/ | grep -c '\.Error()' 2>/dev/null || echo 0)
+   echo "Total Eventf/.Error() hits: $total"
+   grep -rn '\.Eventf\|\.Event(' --include='*.go' . | grep -v vendor/ | grep '\.Error()' | head -20
+   ```
+   If total > 20, re-run without `head -20` and examine all $total lines before proceeding.
 4. Test assertion weakening: Check if `assert.Equal` was changed
    to `assert.EqualValues` in the diff. Prefer updating expected
    value literals to match new types over weakening the assertion.
