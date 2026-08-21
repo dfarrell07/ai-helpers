@@ -864,10 +864,12 @@ while IFS= read -r file; do
   info "  Updated (short): $file"
 done < <(grep -rln "\b${OLD_SHORT}\b" --include="*.md" docs/ 2>/dev/null | grep -v vendor || true)
 
-# Pass 3: kindest/node image tags — match ANY old version (not just OLD_MINOR)
+# Pass 3: kindest/node image tags — replace only the old minor series so that
+# files with multiple versions (e.g. upgrade tests with a source and target
+# version in the same file) are not silently broken.
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  sed -i -E "s|kindest/node:v[0-9]+\.[0-9]+\.[0-9]+|kindest/node:${NEW_K8S_FULL}|g" "$file"
+  sed -i -E "s|kindest/node:v${K8S_MAJOR}\\.${OLD_MINOR}\\.[0-9]+|kindest/node:${NEW_K8S_FULL}|g" "$file"
   CHANGED_FILES+="$file"$'\n'
   info "  Updated kindest/node: $file"
 done < <(grep -rln "kindest/node:v[0-9]" \
