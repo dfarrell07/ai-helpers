@@ -1385,7 +1385,7 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
   require or replace blocks, e.g. ovn-org/X vs ovn-kubernetes/X)
 REBASE-SCOPE CHECK (mandatory before claiming FAIL): Verify the issue
 was INTRODUCED by the rebase, not pre-existing in the base branch. Run:
-  git diff BASE_REF..RESULT_REF -- &lt;file&gt;
+  git diff BASE_REF..RESULT_REF -- &lt;file&gt;  (use the actual SHA values shown at BASE_REF: and RESULT_REF: above)
 If the file shows no diff, the difference with known-good existed before
 the rebase started — it is pre-existing, vote PASS on that claim.
 A difference is a REGRESSION only if the rebase INTRODUCES a problem
@@ -1481,7 +1481,12 @@ $def
 DIFF:
 $diff_nv
 
-Fact-check only. Strike unsupported claims. No verdict.
+NOTE: You have no tools and cannot determine whether a difference is
+pre-existing on the base branch. For any prosecution claim where you
+cannot confirm the issue was INTRODUCED by the rebase (not pre-existing),
+mark it: SCOPE: unverifiable — jurors must run BASE_REF scope check.
+Do not strike scope-unverifiable claims; flag them for juror verification.
+Fact-check only. Strike claims not supported by the provided DIFF. No verdict.
 EOF_JUDGE
   ) || true
   echo "$judge" > "$cdir/judge.txt"
@@ -1500,7 +1505,7 @@ $criteria
 
 TOOLS: You may run git show <ref>:<path> and git diff <ref1> <ref2> -- <path> to verify claims.
 Do NOT run git checkout, git reset, git push, git commit, or any write operation.
-Where prosecution and defense disagree, use git show to check the actual file at BASE_REF.
+For every claim you use to support FAIL, use git show to check the actual file at BASE_REF.
 
 DIFF:
 $diff_nv
@@ -1514,14 +1519,15 @@ $def
 JUDGE:
 $judge
 
-REQUIREMENT: Before rendering your verdict, you MUST use at least one
-tool (git show, git diff, or Read) to independently verify one claim
-from the prosecution or defense. Include a VERIFIED: line citing the
-file:line and what you found. Verdicts without a VERIFIED line are
-invalid.
+REQUIREMENT: For each claim you use to support FAIL, you MUST run:
+  git show <BASE_REF>:<file>
+(using the actual BASE_REF SHA shown above) to confirm the issue was not
+present on the base branch before the rebase. Include a VERIFIED: line at
+BASE_REF for each FAIL claim. A FAIL verdict without a BASE_REF scope
+check for each supporting claim is invalid.
 
 Output format:
-VERIFIED: <file>@<ref> — <finding>  (one line per claim — required for each FAIL claim)
+VERIFIED: <file>@<BASE_REF> — <finding>  (one line per FAIL claim — must show BASE_REF scope check)
 VERDICT: PASS or FAIL. One sentence.
 EOF_JURY
   done

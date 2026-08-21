@@ -51,4 +51,24 @@ if [[ -n "$expected_go" ]]; then
   _check_branch_modified_refs < <(grep -rn 'golang:' --include='Dockerfile*' . 2>/dev/null | grep -v vendor || true)
 fi
 
+# If go.mod was bumped by this branch, flag any Dockerfile with golang:X.Y
+# below the new directive even if the Dockerfile itself was not modified.
+# The rebase script exact-version first pass misses pre-existing divergence.
+if [[ -n "$BASE" ]] && [[ -n "$expected_go" ]]; then
+  _new_go_short=$(printf '%s' "$expected_go" | grep -oE '[0-9]+\.[0-9]+')
+  _ver_lt() { printf '%s\n%s\n' "$1" "$2" | sort -V | head -1 | grep -qx "$1"; }
+  if git diff --name-only "$BASE"..HEAD -- go.mod 2>/dev/null | grep -q go.mod && [[ -n "$_new_go_short" ]]; then
+    while IFS= read -r match; do
+      [[ -z "$match" ]] && continue
+      file_ver=$(echo "$match" | grep -oE 'golang:[0-9]+\.[0-9]+' | head -1 | cut -d: -f2)
+      [[ -z "$file_ver" ]] && continue
+      if _ver_lt "$file_ver" "$_new_go_short"; then
+        echo "  NEW MISMATCH: $match (golang:$file_ver < go.mod go $expected_go; Dockerfile not updated by rebase)"
+        details+=("$match")
+        inc NEW_ISSUES
+      fi
+    done < <(grep -rn 'golang:[0-9]' --include='Dockerfile*' . 2>/dev/null | grep -v vendor || true)
+  fi
+fi
+
 finish_evidence "$NEW_ISSUES Go version issues" "${details[@]}"

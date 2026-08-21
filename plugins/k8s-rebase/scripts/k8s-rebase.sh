@@ -911,6 +911,23 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       | grep -v vendor | grep -v "/\.git/" || true)
   fi
 
+  # Third pass: sync any Dockerfile with golang:X.Y below NEW_GO_SHORT.
+  # The first pass only replaces OLD_GO_SHORT exactly. When a Dockerfile
+  # was already ahead of go.mod before the rebase (e.g. golang:1.23 while
+  # go.mod was go 1.21), the first pass finds nothing and leaves it stale.
+  # After go.mod is bumped (e.g. to 1.25), that Dockerfile is build-fatal.
+  _ver_lt() { printf '%s\n%s\n' "$1" "$2" | sort -V | head -1 | grep -qx "$1"; }
+  while IFS= read -r _df; do
+    [[ -z "$_df" ]] && continue
+    cur_ver=$(grep -oE 'golang:[0-9]+\.[0-9]+' "$_df" | head -1 | cut -d: -f2)
+    [[ -z "$cur_ver" ]] && continue
+    if _ver_lt "$cur_ver" "$NEW_GO_SHORT"; then
+      perl -pi -e "s|golang:${cur_ver//./\\.}([^0-9])|golang:${NEW_GO_SHORT}\$1|g; s|golang:${cur_ver//./\\.}\$|golang:${NEW_GO_SHORT}|g" "$_df"
+      CHANGED_FILES+="$_df"$'\n'
+      info "  Updated golang image (pre-existing divergence): $_df ($cur_ver → $NEW_GO_SHORT)"
+    fi
+  done < <(grep -rln 'golang:[0-9]' --include="Dockerfile*" . | grep -v vendor | grep -v "/\.git/" || true)
+
   # Bump golangci-lint version in lint scripts when Go version changes.
   # Skip when Go >= 1.26 and project uses v1: the autofix script handles
   # the full v1→v2 transition (lint.sh + Makefile + import paths).
