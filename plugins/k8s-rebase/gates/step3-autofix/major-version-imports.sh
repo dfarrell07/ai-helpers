@@ -52,7 +52,7 @@ for vmod in $versioned_mods; do
   bare="${vmod%/v[0-9]*}"
   [[ "$bare" == "k8s.io/klog" ]] && continue
   hits=$(grep -rn "\"$bare\"" --include='*.go' . 2>/dev/null \
-    | grep -v vendor/ | grep -v '.cache/' | grep -v "/$vmod" | head -5 || true)
+    | grep -v vendor/ | grep -v '.cache/' | grep -v "/$vmod" || true)
   if [[ -n "$hits" ]]; then
     unset _bc; declare -A _bc
     while IFS= read -r match; do
