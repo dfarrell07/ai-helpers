@@ -25,7 +25,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
       details+=("MISMATCH: $mod_dir: $mod at $ver, expected $TARGET")
       inc NEW_ISSUES
     fi
-  done < <(grep 'k8s.io/' "$gomod" | grep -v '^\s*//' | grep -v 'replace' | \
+  done < <(grep 'k8s.io/' "$gomod" | grep -v '^\s*//' | grep -v 'replace' | grep -v '=>' | \
             grep -E '^\s' | awk '{print $1, $2}')
 
   if [[ -d "$mod_dir/vendor" ]]; then
