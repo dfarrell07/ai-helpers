@@ -99,4 +99,9 @@ if [[ -n "$BASE" ]] && [[ -n "$expected_go" ]]; then
   fi
 fi
 
+# Always record what was scanned so evidence is independently verifiable.
+[[ -n "$expected_go" ]] && details+=("go.mod go directive: $expected_go")
+df_count=$(find . -name 'Dockerfile*' -not -path '*/vendor/*' 2>/dev/null | wc -l | tr -d ' ')
+details+=("Dockerfiles scanned: $df_count")
+
 finish_evidence "$NEW_ISSUES Go version issues" "${details[@]}"

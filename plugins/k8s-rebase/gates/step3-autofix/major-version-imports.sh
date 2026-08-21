@@ -89,4 +89,7 @@ for vmod in $versioned_mods; do
   fi
 done
 
+checked_mods=$(grep -E '/v[0-9]+' "$PRIMARY_GOMOD_DIR/go.mod" 2>/dev/null | grep -v '^\s*//' | wc -l || echo 0)
+details+=("CHECKED: $checked_mods versioned module(s) in $PRIMARY_GOMOD_DIR/go.mod")
+
 finish_evidence "$NEW_ISSUES stale major-version imports" "${details[@]}"
