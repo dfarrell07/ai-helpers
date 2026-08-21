@@ -19,7 +19,25 @@ if [[ ${#go_versions[@]} -gt 1 ]]; then
     echo "INCONSISTENT go.mod go directives:"
     printf '  %s\n' "${go_versions[@]}"
     details+=("Inconsistent go directives: $(printf '%s ' "${go_versions[@]}")")
-    inc NEW_ISSUES
+    # Count as NEW only if at least one inconsistent go.mod was touched by this branch.
+    # A partial update (some touched, some not) is a real new issue.
+    # If none were touched the inconsistency predates the branch: report but do not flag.
+    _is_new=1
+    if [[ -n "$BASE" ]]; then
+      _branch_mods=$(git diff --name-only "$BASE"..HEAD -- '*/go.mod' 'go.mod' 2>/dev/null)
+      _is_new=0
+      for _entry in "${go_versions[@]}"; do
+        _mod="${_entry%%:*}"; _mod="${_mod#./}"
+        if echo "$_branch_mods" | grep -qx "$_mod"; then
+          _is_new=1; break
+        fi
+      done
+    fi
+    if [[ "$_is_new" -eq 1 ]]; then
+      inc NEW_ISSUES
+    else
+      echo "  (PRE-EXISTING: none of the inconsistent go.mod files modified by this branch)"
+    fi
   fi
 fi
 
