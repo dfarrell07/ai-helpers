@@ -13,12 +13,12 @@ set -euo pipefail
 
 REPO="${1:?Usage: $0 <repo> <gate-name> <verdict> <issues> <summary> [details...]}"
 GATE_NAME="${2:?Missing gate name}"
-VERDICT="${3:?Missing verdict (PASS, FAIL, or SKIP)}"
+VERDICT="${3:?Missing verdict (PASS, FAIL, SKIP, or INCONCLUSIVE)}"
 ISSUES="${4:?Missing issue count}"
 SUMMARY="${5:?Missing summary}"
 shift 5
 
-[[ "$VERDICT" =~ ^(PASS|FAIL|SKIP)$ ]] || { echo "ERROR: verdict must be PASS, FAIL, or SKIP (got: $VERDICT)" >&2; exit 1; }
+[[ "$VERDICT" =~ ^(PASS|FAIL|SKIP|INCONCLUSIVE)$ ]] || { echo "ERROR: verdict must be PASS, FAIL, SKIP, or INCONCLUSIVE (got: $VERDICT)" >&2; exit 1; }
 [[ "$GATE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "ERROR: invalid gate name: $GATE_NAME" >&2; exit 1; }
 
 mkdir -p "$REPO/.rebase-tmp/gates"
