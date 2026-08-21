@@ -52,7 +52,7 @@ if [[ -n "$BASE" ]]; then
   while IFS= read -r gm; do
     grep -q 'k8s\.io/' "$gm" 2>/dev/null && inc gomod_with_k8s || true
   done < <(find "$REPO" -name 'go.mod' -not -path '*/vendor/*' \
-    -not -path '*/.claude/*' 2>/dev/null)
+    -not -path "$REPO/.claude/*" 2>/dev/null)
   details+=("CHECK3_GOMOD_WITH_K8S_DEPS: $gomod_with_k8s")
 
   # Codegen exception inputs
@@ -84,7 +84,7 @@ while IFS= read -r gm; do
   done < <(grep -E '\bk8s\.io/' "$gm" 2>/dev/null \
     | grep -v 'sigs\.k8s\.io/' || true)
 done < <(find "$REPO" -name 'go.mod' -not -path '*/vendor/*' \
-  -not -path '*/.claude/*' 2>/dev/null | LC_ALL=C sort)
+  -not -path "$REPO/.claude/*" 2>/dev/null | LC_ALL=C sort)
 
 # Check 5: conflict markers in non-vendor source files
 conflict_count=0
