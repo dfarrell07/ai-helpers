@@ -13,7 +13,7 @@ details=()
 # PRIMARY_GOMOD discovery: sub-module repos (e.g. ovn-org/ovn-kubernetes) keep
 # go.mod and vendor/ under a subdirectory (go-controller/), not the repo root.
 # Find the go.mod that depends on k8s.io/client-go; scope all searches there.
-PRIMARY_GOMOD_DIR="$REPO"
+PRIMARY_GOMOD_DIR="."
 if ! grep -q 'k8s.io/client-go' "$REPO/go.mod" 2>/dev/null; then
   found_mod=""
   while IFS= read -r gomod; do
@@ -21,9 +21,9 @@ if ! grep -q 'k8s.io/client-go' "$REPO/go.mod" 2>/dev/null; then
       found_mod="$gomod"
       break
     fi
-  done < <(find "$REPO" -maxdepth 3 -name 'go.mod' \
+  done < <(find . -maxdepth 3 -name 'go.mod' \
     -not -path '*/vendor/*' -not -path '*/.claude/*' 2>/dev/null | LC_ALL=C sort)
-  [[ -n "$found_mod" ]] && PRIMARY_GOMOD_DIR=$(dirname "$found_mod")
+  [[ -n "$found_mod" ]] && PRIMARY_GOMOD_DIR=$(dirname "${found_mod#"$REPO/"}")
 fi
 
 # Locate known_features.go early — needed for Layer 3 raw-key filtering below.
