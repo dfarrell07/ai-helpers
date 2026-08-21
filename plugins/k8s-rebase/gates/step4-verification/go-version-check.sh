@@ -42,7 +42,10 @@ if [[ ${#go_versions[@]} -gt 1 ]]; then
 fi
 
 expected_go=""
-if [[ ${#go_versions[@]} -gt 0 ]]; then
+if [[ -f go.mod ]]; then
+  expected_go=$(awk '/^go /{print $2; exit}' go.mod)
+fi
+if [[ -z "$expected_go" ]] && [[ ${#go_versions[@]} -gt 0 ]]; then
   expected_go=$(printf '%s\n' "${go_versions[@]}" | head -1 | cut -d: -f2)
 fi
 
