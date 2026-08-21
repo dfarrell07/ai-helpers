@@ -37,7 +37,7 @@ Report a count for each check:
    - Version refs commit
 4. Dependency versions: check all go.mod files (excluding
    vendor/) for k8s.io/* deps. All should be at the same
-   minor version. Count any at an older minor version.
+   minor version. Count any NOT at the target minor version (older or newer).
    EXCEPTION — do NOT count a version mismatch if EITHER:
    (a) the module has a `replace` directive in this go.mod,
        and that same replace (same module, same target) also
