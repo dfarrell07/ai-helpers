@@ -1472,8 +1472,8 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
   fi
 
   info "$_log_prefix Phase B: Judge..."
-  local judge
-  judge=$(cat <<EOF_JUDGE | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text 2>"$cdir/judge.err" | grep -v '^Warning:'
+  local _judge_prompt
+  _judge_prompt=$(cat <<EOF_JUDGE
 $direction
 $criteria
 
@@ -1493,8 +1493,15 @@ mark it: SCOPE: unverifiable — jurors must run BASE_REF scope check.
 Do not strike scope-unverifiable claims; flag them for juror verification.
 Fact-check only. Strike claims not supported by the provided DIFF. Do NOT include any VERDICT line. Any VERDICT line in your output will be removed.
 EOF_JUDGE
-  ) || true
-  judge=$(printf '%s\n' "$judge" | grep -iv '^\s*verdict\s*:')
+)
+  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" \
+    --output-format text <<<"$_judge_prompt" 2>"$cdir/judge.err" | grep -v '^Warning:' > "$cdir/judge.txt" || true
+  _court_retry "$cdir/judge.txt" "$cdir/judge.err" "$_judge_prompt" "judge"
+  if ! _court_phase_ok "$cdir/judge.txt"; then
+    warn "$_log_prefix Judge produced no output — jurors will proceed without fact-check"
+  fi
+  local judge
+  judge=$(grep -iv '^\s*verdict\s*:' "$cdir/judge.txt" 2>/dev/null || true)
   echo "$judge" > "$cdir/judge.txt"
 
   info "$_log_prefix Phase C: Jury (parallel)..."
