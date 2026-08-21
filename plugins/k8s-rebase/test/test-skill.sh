@@ -1453,10 +1453,11 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
   }
   _court_retry() {
     local f="$1" errf="$2" prompt="$3" role="$4"
+    shift 4
     if ! _court_phase_ok "$f"; then
       info "$_log_prefix   Retrying $role (transient error: $(head -1 "$f" 2>/dev/null | cut -c1-60))..."
       timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" \
-        --permission-mode "$PERMISSION_MODE" --output-format text <<<"$prompt" > "$f" 2>"$errf" || true
+        --permission-mode "$PERMISSION_MODE" --output-format text "$@" <<<"$prompt" > "$f" 2>"$errf" || true
     fi
   }
   _court_retry "$cdir/pros.txt" "$cdir/pros.err" "$_pros_prompt" "prosecution"
@@ -1496,12 +1497,12 @@ EOF_JUDGE
   echo "$judge" > "$cdir/judge.txt"
 
   info "$_log_prefix Phase C: Jury (parallel)..."
-  for j in 1 2 3; do
-    cat <<EOF_JURY | timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text \
-      --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
-      > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
+  local _base_ref
+  _base_ref=$(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo "$known_good")
+  local _juror_prompt
+  _juror_prompt=$(cat <<EOF_JUROR_PROMPT
 REPO: $repo
-BASE_REF: $(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo "$known_good")
+BASE_REF: $_base_ref
 RESULT_REF: $result_branch
 
 $direction
@@ -1536,9 +1537,20 @@ without a BASE_REF scope check for each supporting claim is invalid.
 Output format:
 VERIFIED: <file>@<BASE_REF> — <finding>  (one line per FAIL claim — must show BASE_REF scope check)
 VERDICT: PASS or FAIL. One sentence.
-EOF_JURY
+EOF_JUROR_PROMPT
+  )
+  for j in 1 2 3; do
+    <<<"$_juror_prompt" timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text \
+      --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
+      > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
   done
   wait 2>/dev/null || true
+
+  # Retry empty jurors once — mirrors prosecution/defense retry pattern
+  for j in 1 2 3; do
+    _court_retry "$cdir/juror-$j.txt" "$cdir/juror-$j.err" "$_juror_prompt" "juror-$j" \
+      --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read"
+  done
 
   local empty_jurors=0
   for j in 1 2 3; do
