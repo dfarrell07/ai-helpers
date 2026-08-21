@@ -18,6 +18,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
   fi
 
   echo "CHECK $mod_dir"
+  details+=("CHECK $mod_dir")
   pushd "$mod_dir" >/dev/null
 
   build_rc=0
