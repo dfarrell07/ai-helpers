@@ -109,8 +109,12 @@ while IFS= read -r gate; do
   # Vendor symbol presence — gate must exist in vendored known_features.go
   if [[ -n "$known_features" ]]; then
     if ! grep -q "\"${gate}\"" "$known_features" 2>/dev/null; then
-      details+=("VENDOR_MISSING: $gate not in vendor/k8s.io/*/features/known_features.go")
-      inc NEW_ISSUES
+      if [[ -n "$BASE" ]] && ! git grep -q "\"${gate}\"" "$BASE" -- 'vendor/k8s.io/' 2>/dev/null; then
+        details+=("VENDOR_MISSING_PREEXISTING: $gate absent from current and base vendor — pre-existing, not a regression")
+      else
+        details+=("VENDOR_MISSING: $gate not in vendor/k8s.io/*/features/known_features.go")
+        inc NEW_ISSUES
+      fi
     fi
   else
     details+=("VENDOR_UNKNOWN: known_features.go absent — cannot verify $gate symbol")
