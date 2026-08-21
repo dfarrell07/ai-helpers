@@ -18,11 +18,20 @@ check_import() {
     return
   fi
 
+  # Per-file count-delta: track how many base occurrences remain to absorb as PRE-EXISTING.
+  # Avoids the binary base_file_has test that marked all current hits PRE-EXISTING if even
+  # one existed before the rebase.
+  declare -A _bc
   while IFS= read -r match; do
     [[ -z "$match" ]] && continue
     file="${match%%:*}"
-    if [[ -n "$BASE" ]] && base_file_has "$file" "\"$bare\""; then
+    if [[ -n "$BASE" ]] && [[ -z "${_bc[$file]+set}" ]]; then
+      _bc[$file]=$(git show "$BASE:$file" 2>/dev/null | grep -cF "\"$bare\"" || echo 0)
+    fi
+    local bc=${_bc[$file]:-0}
+    if [[ $bc -gt 0 ]]; then
       echo "  PRE-EXISTING: $match"
+      _bc[$file]=$(( bc - 1 ))
     else
       echo "  NEW: $match"
       details+=("$match (should be $bare/$versioned)")
@@ -45,10 +54,16 @@ for vmod in $versioned_mods; do
   hits=$(grep -rn "\"$bare\"" --include='*.go' . 2>/dev/null \
     | grep -v vendor/ | grep -v '.cache/' | grep -v "/$vmod" | head -5 || true)
   if [[ -n "$hits" ]]; then
+    unset _bc; declare -A _bc
     while IFS= read -r match; do
       file="${match%%:*}"
-      if [[ -n "$BASE" ]] && base_file_has "$file" "\"$bare\""; then
+      if [[ -n "$BASE" ]] && [[ -z "${_bc[$file]+set}" ]]; then
+        _bc[$file]=$(git show "$BASE:$file" 2>/dev/null | grep -cF "\"$bare\"" || echo 0)
+      fi
+      bc=${_bc[$file]:-0}
+      if [[ $bc -gt 0 ]]; then
         echo "  PRE-EXISTING: $match"
+        _bc[$file]=$(( bc - 1 ))
       else
         echo "  NEW: $match"
         details+=("$match (should use $vmod)")
