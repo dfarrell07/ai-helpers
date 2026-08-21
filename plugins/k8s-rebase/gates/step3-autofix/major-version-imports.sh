@@ -16,7 +16,7 @@ if ! grep -q 'k8s.io/client-go' "$REPO/go.mod" 2>/dev/null; then
       found_mod="$gomod"
       break
     fi
-  done < <(find "$REPO" -maxdepth 3 -name 'go.mod' \
+  done < <(find . -maxdepth 3 -name 'go.mod' \
     -not -path '*/vendor/*' -not -path '*/.claude/*' 2>/dev/null | LC_ALL=C sort)
   [[ -n "$found_mod" ]] && PRIMARY_GOMOD_DIR=$(dirname "$found_mod")
 fi
