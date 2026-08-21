@@ -1405,9 +1405,13 @@ changes. Do not assert a file was modified because its topic appears in a
 commit subject line. You MUST use git show to confirm actual file content
 before claiming a change exists.
 VERIFICATION CONSTRAINT: Each distinct claim you use to support FAIL must
-have its own VERIFIED: line. If you make three claims, you need three
-VERIFIED: lines. A claim without a VERIFIED: line cannot contribute to a
-FAIL verdict — it can only be flagged as a concern."
+have its own VERIFIED: line showing a git show BASE_REF:<file> scope check.
+A VERIFIED: line at the result branch confirms the diff is accurate but does
+NOT satisfy this requirement — the check must be at BASE_REF to confirm the
+issue was introduced by the rebase, not pre-existing. If you make three
+claims, you need three BASE_REF-scoped VERIFIED: lines. A claim without a
+BASE_REF VERIFIED: line cannot contribute to a FAIL verdict — it can only be
+flagged as a concern."
   local logs=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
 $criteria
