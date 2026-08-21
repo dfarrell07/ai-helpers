@@ -344,7 +344,7 @@ cmd_advance() {
 
     echo "FORCE_ADVANCE: step $step (after $attempts attempts)"
     echo "WARNING: ${#missing[@]} missing, ${#stale[@]} stale, ${#failing[@]} failing"
-    return 0
+    return 2
   fi
 
   echo "BLOCKED: step $step"
