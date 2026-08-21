@@ -130,12 +130,13 @@ while IFS= read -r gate; do
     details+=("LAYER1_SKIP: no hack/test-go.sh — layer 1 not checked for $gate")
   fi
 
-  # Layer 2: KUBE_FEATURE_<gate> in each os.Setenv/t.Setenv file
+  # Layer 2: KUBE_FEATURE_<gate> in each os.Setenv/t.Setenv file.
+  # INFO only — a test file that sets one gate for a focused test legitimately
+  # omits all others; subagent inspects intent before treating absences as fixes.
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
     if ! grep -q "KUBE_FEATURE_${gate}" "$f" 2>/dev/null; then
       details+=("LAYER2_MISSING: KUBE_FEATURE_${gate} absent from ${f#"$PRIMARY_GOMOD_DIR/"}")
-      inc NEW_ISSUES
     fi
   done <<< "$setenv_files"
 
