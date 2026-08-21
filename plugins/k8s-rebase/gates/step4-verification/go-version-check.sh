@@ -40,7 +40,14 @@ _check_branch_modified_refs() {
         continue
       fi
     fi
-    echo "  NEW: $match"
+    # Skip if the version in this line already matches expected_go.
+    match_short=$(echo "$match" | grep -oE '[0-9]+\.[0-9]+(\.[0-9]+)?' | head -1 | grep -oE '[0-9]+\.[0-9]+')
+    exp_short=$(printf '%s' "$expected_go" | grep -oE '[0-9]+\.[0-9]+')
+    if [[ -n "$match_short" && -n "$exp_short" && "$match_short" == "$exp_short" ]]; then
+      echo "  CORRECT: $match (version matches expected $expected_go)"
+      continue
+    fi
+    echo "  NEW MISMATCH: $match"
     details+=("$match")
     inc NEW_ISSUES
   done
