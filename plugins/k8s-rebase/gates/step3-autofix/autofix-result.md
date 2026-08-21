@@ -2,7 +2,7 @@ Check whether the autofix produced meaningful results by
 examining the commit history after the initial rebase.
 
 1. Determine the base:
-   `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+   `BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null || echo "")`
 
 2. List post-rebase commits:
    `git log --oneline $BASE..HEAD`
