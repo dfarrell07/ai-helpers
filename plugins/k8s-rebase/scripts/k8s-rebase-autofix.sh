@@ -471,6 +471,12 @@ fix_go_version() {
 
   # Second pass: catch workflow files with any stale go-version (pre-existing mismatches)
   while IFS= read -r _gvf; do
+    # Skip files with a multi-version go-version matrix (e.g. [1.22, 1.23]).
+    # Replacing only the first element would leave a stale secondary version.
+    if grep -qE 'go-version: *\[[0-9]+\.[0-9]+,' "$_gvf"; then
+      echo "WARN: skipping second-pass go-version rewrite in $_gvf (multi-version matrix — update manually)"
+      continue
+    fi
     sed -i -E \
       -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${new_go}|g" \
       -e "s|go-version: [0-9]+\.[0-9]+|go-version: ${new_go}|g" \
