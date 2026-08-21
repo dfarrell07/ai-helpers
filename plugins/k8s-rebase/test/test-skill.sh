@@ -1385,7 +1385,7 @@ Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
   require or replace blocks, e.g. ovn-org/X vs ovn-kubernetes/X)
 REBASE-SCOPE CHECK (mandatory before claiming FAIL): Verify the issue
 was INTRODUCED by the rebase, not pre-existing in the base branch. Run:
-  git diff BASE_REF..RESULT_REF -- &lt;file&gt;  (use the actual SHA values shown at BASE_REF: and RESULT_REF: above)
+  git diff BASE_REF..RESULT_REF -- <file>  (use the actual SHA values shown at BASE_REF: and RESULT_REF: above)
 If the file shows no diff, the difference with known-good existed before
 the rebase started — it is pre-existing, vote PASS on that claim.
 A difference is a REGRESSION only if the rebase INTRODUCES a problem
