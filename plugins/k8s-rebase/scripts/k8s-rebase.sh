@@ -243,13 +243,13 @@ done
 
 # Verify target version exists on Go module proxy
 info "Checking Go module proxy for $API_VERSION..."
-if ! curl -sf --retry 2 --connect-timeout 10 "https://proxy.golang.org/k8s.io/api/@v/${API_VERSION}.info" > /dev/null 2>&1; then
+if ! curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://proxy.golang.org/k8s.io/api/@v/${API_VERSION}.info" > /dev/null 2>&1; then
   die "k8s.io/api@${API_VERSION} not found on Go module proxy. Version may not be released yet."
 fi
 info "Target version confirmed on proxy"
 
 # Check Go version — if too old, re-exec inside the official Go container
-REQUIRED_GO=$(curl -sf --retry 2 --connect-timeout 10 "https://raw.githubusercontent.com/kubernetes/kubernetes/v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}/go.mod" 2>/dev/null | grep "^go " | awk '{print $2}' || true)
+REQUIRED_GO=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://raw.githubusercontent.com/kubernetes/kubernetes/v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}/go.mod" 2>/dev/null | grep "^go " | awk '{print $2}' || true)
 [[ -n "$REQUIRED_GO" ]] && [[ ! "$REQUIRED_GO" =~ ^[0-9]+\.[0-9]+(\.[0-9]+)?$ ]] && die "Unexpected Go version format from upstream: '$REQUIRED_GO'"
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
 GO_OK=1
@@ -333,7 +333,7 @@ CR_VERSION=""
 # Try patch versions from highest to lowest
 for patch in $(seq 49 -1 0); do
   candidate="v0.${CR_MINOR}.${patch}"
-  if curl -sf --retry 2 --connect-timeout 10 "https://proxy.golang.org/sigs.k8s.io/controller-runtime/@v/${candidate}.info" > /dev/null 2>&1; then
+  if curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://proxy.golang.org/sigs.k8s.io/controller-runtime/@v/${candidate}.info" > /dev/null 2>&1; then
     CR_VERSION="$candidate"
     break
   fi
@@ -949,13 +949,13 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   fi
 
   if [[ "$_skip_lint_bump" == false ]]; then
-  LATEST_LINT=$(curl -sf --retry 2 --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
+  LATEST_LINT=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://api.github.com/repos/golangci/golangci-lint/releases/latest" 2>/dev/null | grep -oE '"tag_name": "[^"]+"' | sed 's/"tag_name": "//;s/"//' || true)
   if [[ -z "$LATEST_LINT" ]]; then
     info "  WARNING: Could not fetch latest golangci-lint version (API rate limited?). Lint version not bumped."
   else
     LATEST_LINT_V1=""
     if [[ "$LATEST_LINT" == v2.* ]]; then
-      LATEST_LINT_V1=$(curl -sf --retry 2 --connect-timeout 10 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
+      LATEST_LINT_V1=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
     fi
     while IFS= read -r lintscript; do
       [[ -z "$lintscript" ]] && continue
@@ -1019,7 +1019,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     target_ocp=""
     # Detect OCP target from openshift/release ci-operator config
     for branch in master main; do
-      target_ocp=$(curl -sf --retry 2 --connect-timeout 10 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep -oE 'openshift-[0-9]+\.[0-9]+' | tail -1 | sed 's/openshift-//' || true)
+      target_ocp=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep -oE 'openshift-[0-9]+\.[0-9]+' | tail -1 | sed 's/openshift-//' || true)
       [[ -n "$target_ocp" ]] && break
     done
     if [[ -n "$target_ocp" ]]; then
@@ -1138,7 +1138,7 @@ fi
 # Uses latest (Current or LTS) since --bump-tools already signals
 # "bump everything." Repos wanting LTS-only can pin manually.
 if grep -qE 'NODE_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
-  _node_info=$(curl -sf --retry 2 --connect-timeout 10 "https://nodejs.org/dist/index.json" 2>/dev/null \
+  _node_info=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://nodejs.org/dist/index.json" 2>/dev/null \
     | tr '{}' '\n' | grep '"version"' | head -1 || true)
   _latest_node=$(grep -oE '"version":"v[^"]+"' <<< "$_node_info" | sed 's/"version":"v//;s/"//' || true)
   _mk_node=$(grep -oE 'NODE_VERSION\s*[:?]?=\s*[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
@@ -1149,7 +1149,7 @@ if grep -qE 'NODE_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
   fi
   # NPM: fetch latest from registry (repos install npm independently
   # via npm install -g npm@VERSION, not the Node-bundled version).
-  _latest_npm=$(curl -sf --retry 2 --connect-timeout 10 "https://registry.npmjs.org/npm/latest" 2>/dev/null | grep -oE '"version":"[^"]+"' | head -1 | sed 's/"version":"//;s/"//' || true)
+  _latest_npm=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://registry.npmjs.org/npm/latest" 2>/dev/null | grep -oE '"version":"[^"]+"' | head -1 | sed 's/"version":"//;s/"//' || true)
   if [[ -n "$_latest_npm" ]]; then
     _mk_npm=$(grep -oE 'NPM_VERSION\s*[:?]?=\s*[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
     if [[ -n "$_mk_npm" ]] && [[ "$_latest_npm" != "$_mk_npm" ]]; then
