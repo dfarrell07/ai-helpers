@@ -36,7 +36,11 @@ site-specific with no config equivalent — INFO only.
 
 Deprecated-API suppression check — if the diff adds `//nolint:staticcheck`
 to suppress a deprecated call, check whether a non-deprecated replacement
-exists in the vendored package. Steps:
+exists. If vendor/ does not exist in the repo, run
+`go doc <import-path>.<Symbol>` to check for a replacement: if go doc
+confirms a replacement exists — FAIL; if go doc is inconclusive or the
+package is unavailable, note the check as unverifiable in DETAILS and do
+not FAIL. If vendor/ exists, use these steps:
   1. Find the new nolint lines: `git diff <base>..HEAD | grep '^\+.*//nolint:staticcheck'`
   2. For each, look at the suppressed call on the same or adjacent line.
   3. Identify the package: find the import path in the file's import block.
