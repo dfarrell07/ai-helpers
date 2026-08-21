@@ -1,11 +1,9 @@
 version: "1.35.3"
 max_concurrent: 2
-
 # from_commit must be the merge-base of main and the known_good —
 # the commit the human started from when they did the rebase.
 # known_good must be the rebase commit or its PR merge, not a
 # later unrelated commit on main.
-
 repos:
   ovn-org/ovn-kubernetes:
     known_good: aa0858b167f0e8a414763795f57c7162cb2ad55d
@@ -22,8 +20,9 @@ repos:
     # compliance work — it left k8s.io/kubernetes at v1.32.3, didn't
     # migrate klog v1, and skipped codegen/CI updates. The repo went
     # straight from that partial bump to a 1.36 rebase (PR #713).
-    # Gates-only verdict (no court comparison).
+    # Known-good is an AI-produced rebase (bump1.35 branch).
     from_commit: 1c7880a7aa38192761538fb98446acca09509e09
+    known_good: 4000494782a01c010358b442a0b0c2829779ee2d
   openshift/cloud-network-config-controller:
     known_good: e846a6c960d2c0f976ff00fc944b854b322ffbe7
     from_commit: 035723854d7b53fb85783d521368d0002d212e47
