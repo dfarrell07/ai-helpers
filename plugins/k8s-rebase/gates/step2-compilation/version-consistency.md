@@ -13,8 +13,9 @@ will always appear as MISMATCH — do not count these as issues:
 - `k8s.io/klog`, `k8s.io/klog/v2` — own major versioning scheme
 - `k8s.io/utils`, `k8s.io/kube-openapi` — pseudo-version or own scheme
 - `k8s.io/kubernetes` — uses v1.x.y (not v0.x.y like k8s.io/api)
-Only `k8s.io/api`, `k8s.io/apimachinery`, `k8s.io/client-go`, and
-their direct sub-packages should match the target k8s minor version.
+All other `k8s.io/*` packages (including api, apimachinery, client-go,
+cloud-provider, controller-manager, and all staging repos using v0.N.P
+versioning) must match the target k8s minor version.
 
 If evidence is stale or absent, fall back to manual checks:
 
