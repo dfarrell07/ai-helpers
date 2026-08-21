@@ -926,7 +926,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         CHANGED_FILES+="$_df"$'\n'
         info "  Updated golang image (pre-existing divergence): $_df ($cur_ver → $NEW_GO_SHORT)"
       fi
-    done < <(grep -oE 'golang:[0-9]+\.[0-9]+' "$_df" | cut -d: -f2 | sort -uV)
+    done < <(grep -oE 'golang:[0-9]+\.[0-9]+(\.[0-9]+)?' "$_df" | cut -d: -f2 | sort -uV)
   done < <(grep -rln 'golang:[0-9]' --include="Dockerfile*" . | grep -v vendor | grep -v "/\.git/" || true)
 
   # Bump golangci-lint version in lint scripts when Go version changes.
