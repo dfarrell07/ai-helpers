@@ -44,9 +44,15 @@ The repo path is the first line of your prompt:
 
 ```bash
 REPO="<the repo path from the first line of your prompt>"
-bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
-  "$REPO" step3-autofix-result PASS 0 "your one-line summary" \
-  "detail line 1" "detail line 2"
+SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
+if [ -n "$SCRIPT" ]; then
+  bash "$SCRIPT" "$REPO" step3-autofix-result PASS 0 "your one-line summary" \
+    "detail line 1" "detail line 2"
+else
+  mkdir -p "$REPO/.rebase-tmp/gates"
+  printf 'VERDICT: PASS\nISSUES: 0\nSUMMARY: your one-line summary\nDETAILS:\ndetail line 1\ndetail line 2\n' \
+    > "$REPO/.rebase-tmp/gates/step3-autofix-result.report"
+fi
 ```
 
 Use PASS, FAIL, or SKIP as the verdict. Replace the summary and
