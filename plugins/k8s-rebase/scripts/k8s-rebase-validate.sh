@@ -476,6 +476,8 @@ while IFS= read -r gomod; do
           # just packages with source changes.
           MERGE_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null || git -C "$REPO_ROOT" merge-base HEAD main 2>/dev/null || echo "HEAD~20")
           VENDOR_CHANGED=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/vendor/" 2>/dev/null | head -1 || true)
+          _vendor_flag=""
+          [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && _vendor_flag="-mod vendor"
           TEST_PKGS=""
           if [[ -n "$VENDOR_CHANGED" ]]; then
             echo "  Vendor changed — testing all non-privileged packages..."
@@ -502,7 +504,7 @@ while IFS= read -r gomod; do
           fi
           if [[ -n "$TEST_PKGS" ]]; then
             echo "  Testing:$TEST_PKGS"
-            if run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && GOMAXPROCS=\${GOMAXPROCS:-2} go test -mod vendor -timeout ${VALIDATION_TIMEOUT} ${TEST_PKGS} -count=1"; then
+            if run_validation "${mod_name}-test" "${GATE_EXPORTS} cd $mod_dir && GOMAXPROCS=\${GOMAXPROCS:-2} go test $_vendor_flag -timeout ${VALIDATION_TIMEOUT} ${TEST_PKGS} -count=1"; then
               step_failed=0
             fi
           else
@@ -685,6 +687,8 @@ if [[ "$MODE" == "full" ]]; then
         printf '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n' > /usr/local/bin/sudo
         chmod +x /usr/local/bin/sudo
       fi
+      _priv_vendor_flag=""
+      [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && _priv_vendor_flag="-mod vendor"
       for pkg in $PRIV_PKGS; do
         # Skip packages whose directories no longer exist (stale root_pkgs entries)
         if [[ ! -d "$REPO_ROOT/$mod_dir/$pkg" ]]; then
@@ -692,7 +696,7 @@ if [[ "$MODE" == "full" ]]; then
           continue
         fi
         step_failed=0
-        run_validation "priv-${pkg##*/}" "${GATE_EXPORTS} cd $mod_dir && GOMAXPROCS=\${GOMAXPROCS:-2} go test -mod vendor -count=1 -timeout 5m ./$pkg/..." || step_failed=1
+        run_validation "priv-${pkg##*/}" "${GATE_EXPORTS} cd $mod_dir && GOMAXPROCS=\${GOMAXPROCS:-2} go test $_priv_vendor_flag -count=1 -timeout 5m ./$pkg/..." || step_failed=1
         if [[ "$step_failed" -eq 1 ]]; then
           echo "## PRIVILEGED TEST FAILURE ($pkg)" >> "$SUMMARY"
           tail -10 "$REBASE_TMP/priv-${pkg##*/}.log" >> "$SUMMARY"
