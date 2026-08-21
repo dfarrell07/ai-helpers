@@ -5,6 +5,22 @@
 source "$(dirname "$0")/../../scripts/gate-script-lib.sh"
 init_gate "$@"
 
+# PRIMARY_GOMOD discovery: sub-module repos (e.g. ovn-org/ovn-kubernetes) keep
+# go.mod and vendor/ under a subdirectory (go-controller/), not the repo root.
+# Find the go.mod that depends on k8s.io/client-go; scope versioned-mod checks there.
+PRIMARY_GOMOD_DIR="$REPO"
+if ! grep -q 'k8s.io/client-go' "$REPO/go.mod" 2>/dev/null; then
+  found_mod=""
+  while IFS= read -r gomod; do
+    if grep -q 'k8s.io/client-go' "$gomod" 2>/dev/null; then
+      found_mod="$gomod"
+      break
+    fi
+  done < <(find "$REPO" -maxdepth 3 -name 'go.mod' \
+    -not -path '*/vendor/*' -not -path '*/.claude/*' 2>/dev/null | LC_ALL=C sort)
+  [[ -n "$found_mod" ]] && PRIMARY_GOMOD_DIR=$(dirname "$found_mod")
+fi
+
 details=()
 
 check_import() {
@@ -42,11 +58,11 @@ check_import() {
 
 check_import "k8s.io/klog" "v2"
 
-if grep -q 'sigs.k8s.io/controller-runtime/v2' go.mod 2>/dev/null; then
+if grep -q 'sigs.k8s.io/controller-runtime/v2' "$PRIMARY_GOMOD_DIR/go.mod" 2>/dev/null; then
   check_import "sigs.k8s.io/controller-runtime" "v2"
 fi
 
-versioned_mods=$(grep -E '/v[0-9]+' go.mod 2>/dev/null | grep -v '^\s*//' | \
+versioned_mods=$(grep -E '/v[0-9]+' "$PRIMARY_GOMOD_DIR/go.mod" 2>/dev/null | grep -v '^\s*//' | \
   sed -n 's|.*[[:space:]]\([a-z][a-z0-9._/-]*/v[0-9]\+\)[[:space:]].*|\1|p' | sort -u || true)
 for vmod in $versioned_mods; do
   bare="${vmod%/v[0-9]*}"
