@@ -1124,7 +1124,8 @@ _do_record_one() {
   local _gate_suffix=""
   [[ "$gskip" -gt 0 ]] && _gate_suffix=", ${gskip} skipped"
   if [[ "$gtotal" -eq 0 ]]; then
-    detail="no gates ran (bug), sid=${_prel_sid:-unknown}"
+    echo "infra: no gates ran — not recording FAIL (session stays retriable)"
+    return 2
   elif [[ "$gtotal" -lt "$EXPECTED_GATES" ]]; then
     local _gmiss_names="" _gcrash_names=""
     for _gmd in "$PLUGIN_DIR/gates"/step*/*.md; do
