@@ -22,7 +22,12 @@ Could any test pass locally but fail in CI due to:
   by test-go.sh exports.
 - Stale codegen output? If hack/update-codegen.sh or a
   Makefile codegen/generate/manifests target exists, check
-  that git log shows a codegen commit. If the repo has a
+  that git log shows a codegen commit (i.e., a commit whose
+  changed files include zz_generated*.go, */clientset/*,
+  */informers/*, */listers/*, or pkg/generated/*, or whose
+  message contains codegen, generate, or deepcopy). If no
+  commit matches these patterns but the repo has a codegen
+  script, flag as CONFIRMED stale-codegen risk. If the repo has a
   `verify-update-codegen` or `verify` CI job, stale output
   will fail `git diff --exit-code`. Look for controller-gen
   version annotations in CRD manifests matching the vendored
