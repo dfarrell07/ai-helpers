@@ -26,7 +26,7 @@ check_import() {
     [[ -z "$match" ]] && continue
     file="${match%%:*}"
     if [[ -n "$BASE" ]] && [[ -z "${_bc[$file]+set}" ]]; then
-      _bc[$file]=$(git show "$BASE:$file" 2>/dev/null | grep -cF "\"$bare\"" || echo 0)
+      _bc[$file]=$(git show "$BASE:$file" 2>/dev/null | grep -cF "\"$bare\"" || true)
     fi
     local bc=${_bc[$file]:-0}
     if [[ $bc -gt 0 ]]; then
@@ -58,7 +58,7 @@ for vmod in $versioned_mods; do
     while IFS= read -r match; do
       file="${match%%:*}"
       if [[ -n "$BASE" ]] && [[ -z "${_bc[$file]+set}" ]]; then
-        _bc[$file]=$(git show "$BASE:$file" 2>/dev/null | grep -cF "\"$bare\"" || echo 0)
+        _bc[$file]=$(git show "$BASE:$file" 2>/dev/null | grep -cF "\"$bare\"" || true)
       fi
       bc=${_bc[$file]:-0}
       if [[ $bc -gt 0 ]]; then
