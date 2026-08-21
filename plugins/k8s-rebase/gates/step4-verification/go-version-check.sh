@@ -62,7 +62,7 @@ if [[ -n "$BASE" ]] && [[ -n "$expected_go" ]]; then
       [[ -z "$match" ]] && continue
       file_ver=$(echo "$match" | grep -oE 'golang:[0-9]+\.[0-9]+' | head -1 | cut -d: -f2)
       [[ -z "$file_ver" ]] && continue
-      if _ver_lt "$file_ver" "$_new_go_short"; then
+      if [[ "$file_ver" != "$_new_go_short" ]] && _ver_lt "$file_ver" "$_new_go_short"; then
         echo "  NEW MISMATCH: $match (golang:$file_ver < go.mod go $expected_go; Dockerfile not updated by rebase)"
         details+=("$match")
         inc NEW_ISSUES

@@ -1521,10 +1521,13 @@ $judge
 
 REQUIREMENT: For each claim you use to support FAIL, you MUST run:
   git show <BASE_REF>:<file>
-(using the actual BASE_REF SHA shown above) to confirm the issue was not
-present on the base branch before the rebase. Include a VERIFIED: line at
-BASE_REF for each FAIL claim. A FAIL verdict without a BASE_REF scope
-check for each supporting claim is invalid.
+(using the actual BASE_REF SHA shown above) to determine scope:
+- Issue IS found at BASE_REF: pre-existing before rebase — vote PASS on that claim.
+- File NOT found at BASE_REF (git show fails): file was added by the rebase —
+  scope confirmed, evaluate the claim on its merits.
+- File exists at BASE_REF but lacks the issue: scope confirmed, evaluate on merits.
+Include a VERIFIED: line at BASE_REF for each FAIL claim. A FAIL verdict
+without a BASE_REF scope check for each supporting claim is invalid.
 
 Output format:
 VERIFIED: <file>@<BASE_REF> — <finding>  (one line per FAIL claim — must show BASE_REF scope check)
