@@ -35,6 +35,17 @@ handles that). Focus on these unique checks:
    count toward FAIL unless the change demonstrably loses type
    precision that would hide a real bug. Pre-existing EqualValues
    usage (on the base branch) is already excluded by the diff filter.
+5. Map key format after API renames: When the diff changes how map
+   keys are constructed from renamed struct fields (e.g., adding
+   namespace qualification to a formerly simple name string), verify
+   ALL consumers of that map still use the same key format. Run:
+   ```
+   git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^\+.*\[.*\+.*\]' | head -20
+   ```
+   For each new map write, find the corresponding lookup site (grep
+   for the map variable name) and confirm the lookup key format
+   matches. Flag any producer/consumer key format mismatch as FAIL —
+   these cause silent runtime data loss (lookup always misses).
 
 Report per-commit findings and current-code scan results.
 
