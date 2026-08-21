@@ -26,6 +26,13 @@ NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go mod edit`,
 `go generate`, or `go run`. Allowed: `go build`, `go vet`,
 `go test` (with `-mod=vendor` if vendor/ exists), `go mod verify`,
 `go doc`, `go install <tool>@<version>`, `go clean -cache`.
+
+**Exception:** When adding a `replace` directive or when
+`k8s-rebase-depfix.sh` bumps a dependency, run `go mod tidy` and
+`go mod vendor` in each affected module directory to keep vendor/ in
+sync. These are the only contexts where `go mod tidy` and
+`go mod vendor` are permitted. Do not run them speculatively.
+
 Prepend this rule to every gate subagent prompt.
 
 ## Never Push
