@@ -1116,12 +1116,15 @@ _do_record_one() {
     [[ "$kg_diff_all" -gt "$kg_diff_nv" ]] && kg_vendor="$((kg_diff_all - kg_diff_nv))"
   fi
 
+  local _prel_sid="${7:-}"    # session ID written to .prel sentinel for post-session update check
+  local update_mode="${8:-}"  # "update" = bypass done_key guard; append corrected row only
+
   # Build human-readable detail
   local detail=""
   local _gate_suffix=""
   [[ "$gskip" -gt 0 ]] && _gate_suffix=", ${gskip} skipped"
   if [[ "$gtotal" -eq 0 ]]; then
-    detail="no gates ran (bug)"
+    detail="no gates ran (bug), sid=${_prel_sid:-unknown}"
   elif [[ "$gtotal" -lt "$EXPECTED_GATES" ]]; then
     local _gmiss_names="" _gcrash_names=""
     for _gmd in "$PLUGIN_DIR/gates"/step*/*.md; do
@@ -1164,8 +1167,6 @@ _do_record_one() {
   fi
   local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key=$(_done_key "$_rec_version" "$spec" "$repo_key")
-  local _prel_sid="${7:-}"    # session ID written to .prel sentinel for post-session update check
-  local update_mode="${8:-}"  # "update" = bypass done_key guard; append corrected row only
   mkdir -p "$state_dir/done"
   if [[ -f "$state_dir/done/$done_key" ]]; then
     [[ "$update_mode" != "update" ]] && { echo "already recorded (done_key exists)"; return 0; }
