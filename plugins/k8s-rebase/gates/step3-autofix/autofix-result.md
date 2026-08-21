@@ -14,8 +14,8 @@ examining the commit history after the initial rebase.
    - Commits with "Assisted-by:" trailer: `git log --grep='Assisted-by:' --oneline $BASE..HEAD`
 
 4. If zero fix commits exist, verify the repo doesn't need any:
-   - `go build ./...` — does it compile?
-   - `go vet ./...` — any warnings?
+   - `go build ./... (add -mod=vendor if vendor/ exists)` — does it compile?
+   - `go vet ./... (add -mod=vendor if vendor/ exists)` — any warnings?
    If both pass, the repo may genuinely need no fixes beyond
    the dependency bump itself. Report PASS with note.
    If either fails, report FAIL — fixes were needed but not
