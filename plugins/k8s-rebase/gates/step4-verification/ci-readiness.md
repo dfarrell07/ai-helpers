@@ -15,6 +15,10 @@ focus on CI-specific gaps that only matter at ship time:
    manually but didn't? Find the patterns doc:
    `find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/*" 2>/dev/null | head -1`
    Read it and check the branch diff for each documented manual fix.
+   If the find command returns an empty string, write a NOTE in your
+   report that the patterns document was not found and skip this check.
+   Do not FAIL — absence of the patterns doc is an environment issue,
+   not a rebase defect.
 4. Would the KIND image tag actually exist? Search the web
    for "kindest/node <version>" to verify. Optionally run:
    `skopeo inspect --no-creds docker://docker.io/kindest/node:v<version> 2>/dev/null`
