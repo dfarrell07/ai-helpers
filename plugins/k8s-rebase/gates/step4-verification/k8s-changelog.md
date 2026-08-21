@@ -30,11 +30,13 @@ For each relevant entry, check whether the rebase addresses it:
 Report per entry:
   [section] summary: ADDRESSED / N/A / NOT ADDRESSED
 
-Also fetch the client-go Go API changelog:
+Also fetch the client-go Go API changelog.
+Try the tag-based URL first, fall back to master:
+  curl -sfL "https://raw.githubusercontent.com/kubernetes/client-go/refs/tags/v0.${K8S_MINOR}.0/CHANGELOG.md"
+If that returns 404:
   curl -sfL "https://raw.githubusercontent.com/kubernetes/client-go/master/CHANGELOG.md"
 
-Ignore entries below the "Changes for Kubernetes <= ..." cutoff
-line — those are from older releases. For each remaining entry:
+For each entry:
 - Extract the changed/removed/added symbols from the code block
 - grep the repo source (excluding vendor) for each symbol
 - If a removed or changed symbol is used, verify the rebase
