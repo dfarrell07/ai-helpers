@@ -37,6 +37,21 @@ if [[ -n "$BASE" ]]; then
     | grep -cE 'k8s\.io/|sigs\.k8s\.io/' || true)
   details+=("Changed k8s imports: $changed_imports")
 
+  # Check 2: newly-added k8s imports using a non-versioned path when a v2+ sibling exists in vendor/
+  while IFS= read -r import_path; do
+    module_path=$(printf '%s' "$import_path" | cut -d/ -f1,2)
+    printf '%s' "$import_path" | grep -qE '/v[2-9][0-9]*(/|$)' && continue
+    for vN in v2 v3 v4 v5; do
+      if [[ -d "vendor/${module_path}/${vN}" ]]; then
+        details+=("IMPORT-VERSION-MISMATCH: $import_path uses non-versioned path but vendor/${module_path}/${vN} exists")
+        inc NEW_ISSUES
+        break
+      fi
+    done
+  done < <(git diff "$BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' 2>/dev/null \
+    | grep '^+' | grep -v '^+++' \
+    | grep -oE '(k8s\.io|sigs\.k8s\.io)/[^"]+' | sort -u)
+
   changed_go=$(git diff --name-only "$BASE"..HEAD \
     -- '*.go' ':(exclude,glob)**/vendor/**' 2>/dev/null | wc -l)
   details+=("Go files changed (non-vendor): $changed_go")
