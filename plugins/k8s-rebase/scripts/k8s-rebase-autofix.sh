@@ -312,9 +312,12 @@ fix_xexp() {
     # (third-party instead of stdlib) but goimports/gci fix that.
     sed -i 's|"golang.org/x/exp/maps"|"maps"|g' "$f"
     sed -i 's|"golang.org/x/exp/slices"|"slices"|g' "$f"
-    sed -i 's|"golang.org/x/exp/constraints"|"cmp"|g' "$f"
-    # Replace API usage
-    sed -i 's/constraints\.Ordered/cmp.Ordered/g' "$f"
+    if grep -q 'constraints\.\(Integer\|Float\|Signed\|Unsigned\|Complex\)' "$f"; then
+      echo ":: WARNING: $f uses non-Ordered constraints types — skipping constraints rewrite (manual fix required)"
+    else
+      sed -i 's|"golang.org/x/exp/constraints"|"cmp"|g' "$f"
+      sed -i 's/constraints\.Ordered/cmp.Ordered/g' "$f"
+    fi
     # maps.Keys/Values now return iterators — wrap with slices.Collect
     # Protect already-wrapped instances with placeholders so both Keys
     # and Values on the same line are handled independently.
