@@ -1051,7 +1051,11 @@ fix_mocks() {
   [[ -z "$mockery_config" ]] && return 0
   local mock_dir
   mock_dir=$(dirname "$mockery_config")
-  if ! find "$mock_dir/pkg/crd" -name "mocks" -type d 2>/dev/null | grep -q .; then
+  # Read output dir from config; skip (don't assume missing) if unparseable.
+  local out_dir
+  out_dir=$(grep -m1 '^[[:space:]]*dir:' "$mockery_config" | awk '{print $2}')
+  [[ -z "$out_dir" ]] && return 0
+  if ! find "$mock_dir/$out_dir" -name "*.go" -type f 2>/dev/null | grep -q .; then
     echo ":: Mock directories missing — running mockery..."
     if make -C "$mock_dir" mocksgen > "$REBASE_TMP/mocksgen.log" 2>&1; then
       echo ":: Mockery regenerated mocks"
