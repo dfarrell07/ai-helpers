@@ -4,6 +4,10 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
 
+If the evidence SUMMARY contains 'no base branch' or any detail line
+starts with 'NO_BASE:', write SKIP with a note that CRD comparison was
+impossible because no merge base could be determined. Do not write PASS.
+
 Read the evidence. When NEW_ISSUES > 0: focus your analysis on CRDs
 the evidence marked "CHANGED-VALIDATION" or "ALL-NEW". Skip CRDs
 marked "IDENTICAL" or "NO-VALIDATION-CHANGES" — the companion script
