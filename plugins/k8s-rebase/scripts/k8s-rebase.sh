@@ -233,6 +233,7 @@ if [[ "$OLD_MINOR" == "$K8S_MINOR" ]]; then
   fi
   info "Primary module at k8s 1.${K8S_MINOR} but $stale_count module(s) still need rebasing — resuming"
 fi
+if [[ "$OLD_MINOR" -gt "$K8S_MINOR" ]]; then die "Refusing downgrade: repo is at k8s 1.${OLD_MINOR}, target is k8s ${K8S_FULL}"; fi
 
 # Check required tools
 MISSING=()
