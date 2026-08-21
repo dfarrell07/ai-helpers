@@ -8,6 +8,9 @@ If the evidence SUMMARY contains 'no base branch' or any detail line
 starts with 'NO_BASE:', write SKIP with a note that CRD comparison was
 impossible because no merge base could be determined. Do not write PASS.
 
+If the evidence SUMMARY starts with 'SKIP:', write SKIP — no CRDs exist
+in this repository. Do not write PASS.
+
 Read the evidence. When NEW_ISSUES > 0: focus your analysis on CRDs
 the evidence marked "CHANGED-VALIDATION" or "ALL-NEW". Skip CRDs
 marked "IDENTICAL" or "NO-VALIDATION-CHANGES" — the companion script
