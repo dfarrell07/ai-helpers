@@ -128,6 +128,11 @@ _tally_gates() {
     local _branch_tip_ts="${_tip_cache[$_gdir]}"
     local _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$_gf_file" 2>/dev/null | head -1)
     _gv="${_gv^^}"
+    # If the AI wrote PASS but the companion evidence says SKIP, honour the evidence.
+    local _ev_file="${_gf_file%.report}.evidence"
+    if [[ "$_gv" == *PASS* && -f "$_ev_file" ]] && grep -qiE '^SUMMARY:[[:space:]]*SKIP:' "$_ev_file"; then
+      _gv="SKIP:"
+    fi
     if [[ "$_gv" == *SKIP* || " $INFO_GATES " == *" ${_gn#step?-} "* ]]; then
       _gs=$((_gs + 1))
     elif [[ "$_gv" == *PASS* ]]; then
