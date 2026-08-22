@@ -1419,9 +1419,14 @@ issue was introduced by the rebase, not pre-existing. If you make three
 claims, you need three BASE_REF-scoped VERIFIED: lines. A claim without a
 BASE_REF VERIFIED: line cannot contribute to a FAIL verdict — it can only be
 flagged as a concern."
-  local logs=$(git log --oneline "$(git merge-base "$result_branch" "$known_good" 2>/dev/null || echo "$known_good")".."$result_branch" 2>/dev/null | head -15)
+  local _base_ref
+  _base_ref=$(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo "$known_good")
+  local logs=$(git log --oneline "$_base_ref".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
 $criteria
+
+BASE_REF: $_base_ref
+RESULT_REF: $result_branch
 
 DIFF (non-vendor):
 $diff_nv
@@ -1512,8 +1517,6 @@ EOF_JUDGE
   echo "$judge" > "$cdir/judge.txt"
 
   info "$_log_prefix Phase C: Jury (parallel)..."
-  local _base_ref
-  _base_ref=$(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo "$known_good")
   local _juror_prompt
   _juror_prompt=$(cat <<EOF_JUROR_PROMPT
 REPO: $repo
