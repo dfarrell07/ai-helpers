@@ -997,6 +997,26 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   fi
   fi
 
+  # Sync testing framework versions (e.g. GINKGO_VERSION in Makefile) with
+  # whatever go.mod now declares.  A go mod tidy / vendor bump can advance the
+  # library version without touching the CLI pin in the Makefile, causing a
+  # runtime mismatch.
+  for _framework_mod in "github.com/onsi/ginkgo/v2:GINKGO_VERSION" "github.com/onsi/gomega:GOMEGA_VERSION"; do
+    _mod="${_framework_mod%%:*}"
+    _mk_var="${_framework_mod##*:}"
+    _new_fw_ver=$(grep "^\s*${_mod} " "$PRIMARY_GOMOD" | awk '{print $2}' | head -1 || true)
+    [[ -z "$_new_fw_ver" ]] && continue
+    while IFS= read -r mkfile; do
+      [[ -z "$mkfile" ]] && continue
+      _old_fw_ver=$(grep -oE "${_mk_var}[[:space:]]*[:?]?=[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+" "$mkfile" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
+      [[ -z "$_old_fw_ver" ]] && continue
+      [[ "$_old_fw_ver" == "$_new_fw_ver" ]] && continue
+      sed -i "s|${_mk_var}[[:space:]]*[:?]?=[[:space:]]*${_old_fw_ver}|${_mk_var} := ${_new_fw_ver}|g" "$mkfile"
+      CHANGED_FILES+="$mkfile"$'\n'
+      info "  Updated ${_mk_var}: ${_old_fw_ver} → ${_new_fw_ver} in $mkfile"
+    done < <(grep -rln "${_mk_var}" --include="Makefile*" . | grep -v vendor | grep -v "/\.git/" || true)
+  done
+
   # Reconcile Dockerfile ARG defaults with the new Go version.
   # Some Dockerfiles have stale GOLANG_VERSION defaults from prior
   # rebases that the OLD→NEW sed misses.
