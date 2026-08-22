@@ -891,15 +891,16 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       -e "s|golang-${OLD_GO_SHORT}|golang-${NEW_GO_SHORT}|g" \
       -e "s|GO_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GO_VERSION ?= ${NEW_GO_SHORT}|g" \
       -e "s|GOLANG_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GOLANG_VERSION ?= ${NEW_GO_SHORT}|g" \
+      -e "s|GOVERSION=\"${OLD_GO_SHORT}|GOVERSION=\"${NEW_GO_SHORT}|g" \
       -e "s|go-version: \[${OLD_GO_SHORT}|go-version: [${NEW_GO_SHORT}|g" \
       -e "s|go-version: ${OLD_GO_SHORT}|go-version: ${NEW_GO_SHORT}|g" \
       -e "s|GO_VERSION: \"${OLD_GO_SHORT}\"|GO_VERSION: \"${NEW_GO_SHORT}\"|g" \
       "$file"
     CHANGED_FILES+="$file"$'\n'
     info "  Updated Go version: $file"
-  done < <(grep -rlnE "golang[:-]${OLD_GO_SHORT}|GO_VERSION.{0,5}${OLD_GO_SHORT}|GOLANG_VERSION.{0,5}${OLD_GO_SHORT}|go-version:.{0,3}${OLD_GO_SHORT}" \
+  done < <(grep -rlnE "golang[:-]${OLD_GO_SHORT}|GO_VERSION.{0,5}${OLD_GO_SHORT}|GOLANG_VERSION.{0,5}${OLD_GO_SHORT}|GOVERSION.{0,5}${OLD_GO_SHORT}|go-version:.{0,3}${OLD_GO_SHORT}" \
     --include="*.yml" --include="*.yaml" --include="Makefile*" \
-    --include="Dockerfile*" . \
+    --include="Dockerfile*" --include="*.Dockerfile" . \
     | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
 
   # Second pass: catch workflow files with any stale go-version (handles pre-existing mismatches)
