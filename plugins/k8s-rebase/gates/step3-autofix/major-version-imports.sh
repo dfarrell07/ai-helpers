@@ -58,10 +58,6 @@ check_import() {
 
 check_import "k8s.io/klog" "v2"
 
-if grep -q 'sigs.k8s.io/controller-runtime/v2' "$PRIMARY_GOMOD_DIR/go.mod" 2>/dev/null; then
-  check_import "sigs.k8s.io/controller-runtime" "v2"
-fi
-
 versioned_mods=$(grep -E '/v[0-9]+' "$PRIMARY_GOMOD_DIR/go.mod" 2>/dev/null | grep -v '^\s*//' | \
   sed -n 's|.*[[:space:]]\([a-z][a-z0-9._/-]*/v[0-9]\+\)[[:space:]].*|\1|p' | sort -u || true)
 for vmod in $versioned_mods; do
