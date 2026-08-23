@@ -871,7 +871,6 @@ done < <(grep -rln "kindest/node:v[0-9]" \
   --include="Makefile*" . \
   2>/dev/null | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
 
-# Go version update (if changed)
 NEW_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}' || true)
 if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
   info "Go version changed: $OLD_GO_VERSION → $NEW_GO_VERSION"
