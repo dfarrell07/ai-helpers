@@ -600,7 +600,6 @@ rebase_module() {
 
   cd "$REPO_ROOT"
 
-  # Commit if there are changes
   if [[ -n "$(git status --porcelain -- "$module_dir")" ]]; then
     git add "$module_dir"
     if git commit -s --trailer "$AI_TRAILER" -m "$(cat <<EOF
