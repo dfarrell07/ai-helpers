@@ -8,6 +8,10 @@ in the diff, trace data flow. Prioritize by risk tier:
   set-but-not-read, unused assignments, incomplete patterns
 State the tier for each function. Depth matters more than breadth.
 
+Before flagging anything FAIL: run `git show $BASE:<file>` where
+`BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`.
+If the issue exists at BASE, it is pre-existing — report INFO, not FAIL.
+
 Flag:
 - Struct copies that drop fields (FAIL)
 - Error values checked in one path but ignored in another (FAIL)
