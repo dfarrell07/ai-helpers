@@ -2,6 +2,12 @@ Read ALL fix commits (autofix + agent). For each function modified
 in the diff, trace data flow. Prioritize by risk tier:
 - Tier 1 (full trace required): type conversions, struct field mappings,
   type assertions — data loss here is silent and hard to catch later
+- Tier 1 (full trace required): map key format changes — if a modified file
+  changes HOW keys are stored in a map (e.g. adds a namespace prefix, changes
+  field used as key), grep ALL lookup sites across the module
+  (`grep -rn 'mapName\[' --include='*.go' . | grep -v vendor/`) and verify
+  every lookup produces the same key format. A mismatch causes silent runtime
+  failure with no compile error or panic.
 - Tier 2 (full trace required): error paths and error propagation —
   a missed error return causes runtime failures
 - Tier 3 (pattern check): all other modifications — scan for obvious
