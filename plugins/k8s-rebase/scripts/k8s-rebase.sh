@@ -235,7 +235,6 @@ if [[ "$OLD_MINOR" == "$K8S_MINOR" ]]; then
 fi
 if [[ "$OLD_MINOR" -gt "$K8S_MINOR" ]]; then die "Refusing downgrade: repo is at k8s 1.${OLD_MINOR}, target is k8s ${K8S_FULL}"; fi
 
-# Check required tools
 MISSING=()
 for tool in go git make curl sed grep perl; do
   command -v "$tool" &>/dev/null || MISSING+=("$tool")
