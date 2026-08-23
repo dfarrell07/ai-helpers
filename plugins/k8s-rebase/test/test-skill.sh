@@ -84,7 +84,6 @@ _collect_gate_dirs() {
   local _repo="$1"
   [[ -d "$_repo/.rebase-tmp/gates" ]] && _GATE_DIRS+=("$_repo/.rebase-tmp/gates")
   while IFS= read -r _wt_line; do
-    [[ -z "$_wt_line" ]] && continue
     local _wtp; _wtp="${_wt_line%% *}"
     [[ -d "$_wtp/.rebase-tmp/gates" ]] && _GATE_DIRS+=("$_wtp/.rebase-tmp/gates")
   done < <(git -C "$_repo" worktree list 2>/dev/null | grep -F '.claude/worktrees')
