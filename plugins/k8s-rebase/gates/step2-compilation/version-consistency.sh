@@ -46,4 +46,24 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
   fi
 done
 
+# If K8S_VERSION in test/scripts/install-kind.sh was bumped by this branch,
+# verify that KIND_URL was also updated. Pre-built kindest/node images only
+# exist for the kind version that shipped with that k8s release; keeping an
+# old kind with a new K8S_VERSION breaks every 'kind create cluster' call.
+if [[ -n "$BASE" ]] && [[ -f test/scripts/install-kind.sh ]]; then
+  _base_k8s=$(git show "$BASE":test/scripts/install-kind.sh 2>/dev/null | grep '^K8S_VERSION=' | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+  _head_k8s=$(grep '^K8S_VERSION=' test/scripts/install-kind.sh 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+  _base_kind=$(git show "$BASE":test/scripts/install-kind.sh 2>/dev/null | grep 'KIND_URL=' | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+  _head_kind=$(grep 'KIND_URL=' test/scripts/install-kind.sh 2>/dev/null | head -1 | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+')
+  if [[ -n "$_base_k8s" && -n "$_head_k8s" && "$_base_k8s" != "$_head_k8s" ]]; then
+    details+=("K8S_VERSION: $BASE=$_base_k8s HEAD=$_head_k8s KIND_URL: $BASE=$_base_kind HEAD=$_head_kind")
+    if [[ "$_base_kind" == "$_head_kind" ]]; then
+      echo "  NEW MISMATCH: K8S_VERSION bumped $_base_k8s→$_head_k8s but KIND_URL unchanged at $_head_kind"
+      echo "    kindest/node images only exist for kind versions paired with that k8s release; update KIND_URL"
+      details+=("MISMATCH: K8S_VERSION bumped but KIND_URL unchanged — kind create cluster will fail for $_head_k8s")
+      inc NEW_ISSUES
+    fi
+  fi
+fi
+
 finish_evidence "$NEW_ISSUES version inconsistencies" "${details[@]}"
