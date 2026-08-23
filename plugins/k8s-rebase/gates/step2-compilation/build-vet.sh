@@ -30,6 +30,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     printf 'CRASH: exit %s (inner go build kill)\n' "$build_rc" \
       > "$REPO/.rebase-tmp/gates/${GATE_NAME}.crash"
     echo "CRASH: ${GATE_NAME} — go build killed (exit ${build_rc}); no verdict; deferring to subagent"
+    trap - EXIT; exit 0
   fi
 
   vet_rc=0
@@ -42,6 +43,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     echo "VET_TIMEOUT: ${GATE_NAME} — go vet killed in $mod_dir (exit ${vet_rc}); test file errors may be undetected"
     popd >/dev/null
     finish_evidence "$NEW_ISSUES build/vet errors" "${details[@]}"
+    trap - EXIT; exit 0
   fi
 
   while IFS= read -r line; do
