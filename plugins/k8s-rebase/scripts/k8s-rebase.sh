@@ -326,7 +326,6 @@ fi
 # v0.22/k8s1.34, v0.23/k8s1.35, v0.24/k8s1.36, ...
 CR_MINOR=$((K8S_MINOR - 12))
 CR_VERSION=""
-# Try patch versions from highest to lowest
 for patch in $(seq 49 -1 0); do
   candidate="v0.${CR_MINOR}.${patch}"
   if curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://proxy.golang.org/sigs.k8s.io/controller-runtime/@v/${candidate}.info" > /dev/null 2>&1; then
