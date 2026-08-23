@@ -246,7 +246,6 @@ info "Checking Go module proxy for $API_VERSION..."
 if ! curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://proxy.golang.org/k8s.io/api/@v/${API_VERSION}.info" > /dev/null 2>&1; then
   die "k8s.io/api@${API_VERSION} not found on Go module proxy. Version may not be released yet."
 fi
-info "Target version confirmed on proxy"
 
 # Check Go version — if too old, re-exec inside the official Go container
 REQUIRED_GO=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://raw.githubusercontent.com/kubernetes/kubernetes/v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}/go.mod" 2>/dev/null | grep "^go " | awk '{print $2}' || true)
