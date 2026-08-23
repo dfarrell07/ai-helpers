@@ -640,7 +640,6 @@ cmd_stop() {
     _SESSION_CACHE_AGE=0  # force refresh after Phase 1 stops
     build_session_cache
     while IFS=$'\t' read -r _cwd _state _elapsed _pid _sid _rest; do
-      [[ -z "$_cwd" ]] && continue
       [[ "$_cwd" == *"$REPOS_DIR"* ]] || continue
       local _repo="${_cwd#*$REPOS_DIR/}"; _repo="${_repo%%/.claude/*}"; _repo="${_repo%%/}"
       local _should_stop=false
