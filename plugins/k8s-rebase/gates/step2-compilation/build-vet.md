@@ -60,6 +60,9 @@ NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
 `go mod verify`, `go doc`, `go install <tool>@<version>`,
 `go clean -cache`. Fix-hint commands in report text are fine.
 
+When your report hints at fixing a renamed API symbol, include this hint:
+`grep -rn 'OldSymbolName' --include='*.go' .` to find ALL call sites — do not assume one location covers all uses.
+
 Rules: report specific counts, not "looks good." You are
 read-only — do not edit repo files. Your sole permitted write
 is your gate report file under .rebase-tmp/gates/. Do not write
