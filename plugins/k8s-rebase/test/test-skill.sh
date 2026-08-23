@@ -73,7 +73,7 @@ _worktree_info() {
   _wt_line=$(git -C "$1" worktree list 2>/dev/null | grep '\.claude/worktrees' | tail -1)
   [[ -z "$_wt_line" ]] && return 1
   _WT_PATH="${_wt_line%% *}"
-  [[ "$_wt_line" =~ \[([^]]+)\] ]] && _WT_BRANCH="${BASH_REMATCH[1]/ locked/}" || _WT_BRANCH=""
+  [[ "$_wt_line" =~ \[([^]]+)\] ]] && _WT_BRANCH="${BASH_REMATCH[1]/ locked/}"
 }
 
 # Collect gate report directories from ALL worktrees (+ main repo).
