@@ -1059,7 +1059,7 @@ _do_record_one() {
   local result_branch="" wt_path=""
   _worktree_info "$repo" || true
   result_branch="$_WT_BRANCH" wt_path="$_WT_PATH"
-  [[ -n "$wt_path" && ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; wt_path=""; }
+  [[ -n "$wt_path" && ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; }
   if [[ -z "$result_branch" ]]; then
     local _bp='bump'
     [[ -n "$_rec_version" ]] && _bp="bump${_rec_version%.*}"
