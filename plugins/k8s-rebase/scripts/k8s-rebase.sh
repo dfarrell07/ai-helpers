@@ -881,7 +881,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   NEW_GO_SHORT=$(echo "$NEW_GO_VERSION" | grep -oE '[0-9]+\.[0-9]+')
 
   while IFS= read -r file; do
-    [[ -z "$file" ]] && continue
     sed -i \
       -e "s|golang:${OLD_GO_SHORT}|golang:${NEW_GO_SHORT}|g" \
       -e "s|golang-${OLD_GO_SHORT}|golang-${NEW_GO_SHORT}|g" \
