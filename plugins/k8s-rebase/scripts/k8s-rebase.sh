@@ -1013,7 +1013,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   # Some Dockerfiles have stale GOLANG_VERSION defaults from prior
   # rebases that the OLD→NEW sed misses.
   while IFS= read -r df; do
-    [[ -z "$df" ]] && continue
     sed -i "s|ARG GOLANG_VERSION=[0-9.]\+|ARG GOLANG_VERSION=${NEW_GO_SHORT}|g" "$df"
     CHANGED_FILES+="$df"$'\n'
     info "  Reconciled Dockerfile Go version: $df"
