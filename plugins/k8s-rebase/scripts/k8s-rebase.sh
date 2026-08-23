@@ -938,7 +938,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   if [[ -n "$_go_minor" ]] && [[ "$_go_minor" -ge 26 ]] 2>/dev/null; then
     _any_v1=false
     while IFS= read -r _ls; do
-      [[ -z "$_ls" ]] && continue
       grep -qE 'VERSION=v1\.' "$_ls" 2>/dev/null && _any_v1=true && break
     done < <(grep -rln "golangci-lint" --include="*.sh" . | grep -v vendor | grep -v "/\.git/" || true)
     if [[ "$_any_v1" == true ]]; then
