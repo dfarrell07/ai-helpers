@@ -711,7 +711,6 @@ cmd_clean() {
   if command -v podman &>/dev/null; then
     local pruned=0
     while IFS= read -r cid; do
-      [[ -z "$cid" ]] && continue
       podman rm "$cid" &>/dev/null && pruned=$((pruned + 1))
     done < <(podman ps -a --filter status=exited --filter name=k8s-rebase --format '{{.ID}}' 2>/dev/null)
     [[ "$pruned" -gt 0 ]] && info "Pruned $pruned containers"
