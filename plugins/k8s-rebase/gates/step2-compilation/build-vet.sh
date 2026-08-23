@@ -43,7 +43,6 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     echo "VET_TIMEOUT: ${GATE_NAME} — go vet killed in $mod_dir (exit ${vet_rc}); test file errors may be undetected"
     popd >/dev/null
     finish_evidence "$NEW_ISSUES build/vet errors" "${details[@]}"
-    trap - EXIT; exit 0
   fi
 
   while IFS= read -r line; do
