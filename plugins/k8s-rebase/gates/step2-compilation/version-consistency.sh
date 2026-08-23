@@ -33,7 +33,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
     fi
   done < <(grep 'k8s.io/' "$gomod" | grep -v '^\s*//' | grep -v 'replace' | grep -v '=>' | \
             grep -E '^\s' | grep -v 'sigs\.k8s\.io/' | \
-            grep -vE 'k8s\.io/(klog|utils|kube-openapi|kubernetes)\b' | \
+            grep -vE 'k8s\.io/(klog|utils|kube-openapi|kubernetes|gengo)\b' | \
             awk '{print $1, $2}')
 
   if [[ -d "$mod_dir/vendor" ]]; then
