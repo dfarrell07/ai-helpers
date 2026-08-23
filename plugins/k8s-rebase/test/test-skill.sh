@@ -1069,7 +1069,7 @@ _do_record_one() {
   # k8s-rebase.sh creates bump branches inside worktrees, but retries can
   # delete the bump branch while the worktree branch retains the commits.
   # Pick the branch with the most commits ahead of the default branch.
-  if [[ -z "$result_branch" && -n "$_rec_version" ]]; then
+  if [[ -z "$result_branch" ]]; then
     result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | sed 's/^[* +]*//' \
       | grep "worktree-k8s-rebase-${_rec_version}" \
       | while read -r _b; do
