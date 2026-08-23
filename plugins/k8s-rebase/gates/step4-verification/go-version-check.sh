@@ -77,6 +77,7 @@ _check_branch_modified_refs() {
 if [[ -n "$expected_go" ]]; then
   _check_branch_modified_refs < <(grep -rn '\bGO_VERSION\b\|\bGOLANG_VERSION\b' --include='Makefile*' . 2>/dev/null | grep -v vendor | grep -v 'GINKGO_VERSION\|HUGO_VERSION\|CARGO_VERSION\|CARGO_GO\|PROTO_GO\|MOCKGEN_GO\|OPERATOR_GO' || true)
   _check_branch_modified_refs < <(grep -rn 'golang:' --include='Dockerfile*' . 2>/dev/null | grep -v vendor || true)
+
 fi
 
 # If go.mod was bumped by this branch, flag any Dockerfile with golang:X.Y
@@ -96,6 +97,22 @@ if [[ -n "$BASE" ]] && [[ -n "$expected_go" ]]; then
         inc NEW_ISSUES
       fi
     done < <(grep -rn 'golang:[0-9]' --include='Dockerfile*' . 2>/dev/null | grep -v vendor || true)
+
+    # Also flag GitHub Actions workflow go-version matrix entries below the new go.mod minimum.
+    if [[ -d .github/workflows ]]; then
+      while IFS= read -r match; do
+        [[ -z "$match" ]] && continue
+        wf_ver=$(echo "$match" | grep -oE '[0-9]+\.[0-9]+x?' | head -1)
+        [[ -z "$wf_ver" ]] && continue
+        wf_short=$(echo "$wf_ver" | grep -oE '[0-9]+\.[0-9]+' | head -1)
+        [[ -z "$wf_short" ]] && continue
+        if _ver_lt "$wf_short" "$_new_go_short"; then
+          echo "  NEW MISMATCH: $match (go-version $wf_ver < go.mod go $expected_go; workflow not updated by rebase)"
+          details+=("$match")
+          inc NEW_ISSUES
+        fi
+      done < <(grep -rn 'go-version:' .github/workflows/ 2>/dev/null | grep -oE '[^:]+:[0-9]+:.*' || true)
+    fi
   fi
 fi
 

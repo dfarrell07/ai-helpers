@@ -12,6 +12,12 @@ Before flagging anything FAIL: run `git show $BASE:<file>` where
 `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`.
 If the issue exists at BASE, it is pre-existing — report INFO, not FAIL.
 
+Also check: if CRD/API schema files (manifests/*.yaml, *crd*.yaml) were modified,
+compare their `description:` default values against the corresponding Go constants
+in the same repo. Mismatches (CRD says X, runtime constant is Y) are false API
+contracts — flag as FAIL regardless of which side was touched. Use
+`grep -rn '<constant-name>' --include='*.go' .` to find the Go definition.
+
 Flag:
 - Struct copies that drop fields (FAIL)
 - Error values checked in one path but ignored in another (FAIL)
