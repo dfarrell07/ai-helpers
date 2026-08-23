@@ -544,7 +544,6 @@ cmd_run() {
     # Clean up stale bump branches from prior runs for this version
     local _bump_prefix="bump${version%.*}"
     while IFS= read -r _old_branch; do
-      [[ -z "$_old_branch" ]] && continue
       git -C "$repo" branch -D "$_old_branch" 2>/dev/null \
         && info "Deleted stale branch: $_old_branch"
     done < <(git -C "$repo" branch --no-color | sed 's/^[* +]*//' | grep "^${_bump_prefix}")
