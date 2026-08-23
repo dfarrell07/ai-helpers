@@ -372,7 +372,6 @@ session_for_repo() {
   short=$(repo_short "$repo")
   local match=""
   while IFS=$'\t' read -r cwd state elapsed pid _rest; do
-    [[ -z "$cwd" ]] && continue
     [[ "$cwd" == *"/${short}/"* || "$cwd" == *"/${short}" ]] || continue
     [[ "$state" != "working" ]] && continue
     [[ "$pid" == "0" ]] && continue
