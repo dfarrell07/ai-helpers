@@ -446,10 +446,11 @@ remove_worktrees() {
   cd "$repo" 2>/dev/null || return 1
   local wt_lines default_br
   wt_lines=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' || true)
-  [[ -z "$wt_lines" ]] && return 0
-  default_br=$(default_branch)
   local ver_prefix=""
   [[ -n "$version" ]] && ver_prefix="bump${version%.*}-"
+  if [[ -n "$wt_lines" ]]; then
+  local default_br
+  default_br=$(default_branch)
   while IFS= read -r line; do
     local wt_path wt_branch commit_count=0
     wt_path="${line%% *}"
@@ -459,7 +460,7 @@ remove_worktrees() {
     [[ -n "$wt_branch" ]] && commit_count=$(git rev-list --count "$default_br".."$wt_branch" 2>/dev/null || echo 0)
     git worktree unlock "$wt_path" 2>/dev/null || true
     git worktree remove "$wt_path" --force 2>/dev/null \
-      || { rm -rf "$wt_path" 2>/dev/null; git worktree prune 2>/dev/null; } \
+      || { chmod -R u+w "$wt_path" 2>/dev/null || true; rm -rf "$wt_path" 2>/dev/null; git worktree prune 2>/dev/null; } \
       || { warn "Could not remove worktree: $wt_path"; continue; }
     if [[ "$commit_count" -gt 0 ]]; then
       info "Removed worktree (branch $wt_branch preserved, $commit_count commits)"
@@ -467,6 +468,7 @@ remove_worktrees() {
       info "Removed worktree (branch $wt_branch kept)"
     fi
   done <<< "$wt_lines"
+  fi
   # Sweep orphaned worktree directories that git lost track of
   # (e.g., after ENOSPC corrupts git's worktree metadata).
   # Safe: only called from cmd_run (before launch) and cmd_clean.
@@ -477,6 +479,8 @@ remove_worktrees() {
       orphan_name=$(basename "$orphan")
       # Version-scoped: skip orphan dirs that belong to a different version
       [[ -n "$ver_prefix" && "$orphan_name" != "${ver_prefix}"* ]] && continue
+      # Go module cache files are read-only; chmod before removal.
+      chmod -R u+w "$orphan" 2>/dev/null || true
       if rm -rf "$orphan"; then
         info "Removed orphaned worktree dir: $orphan_name"
       else
