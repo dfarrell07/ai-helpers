@@ -23,7 +23,7 @@ cleanup_hook() {
   hdir="$(git rev-parse --git-common-dir 2>/dev/null)/hooks" 2>/dev/null || return 0
   if [[ -f "$hdir/pre-push" ]] && grep -q 'k8s-rebase' "$hdir/pre-push" 2>/dev/null; then
     rm -f "$hdir/pre-push"
-    [[ -f "$hdir/pre-push.bak.k8s-rebase" ]] && mv "$hdir/pre-push.bak.k8s-rebase" "$hdir/pre-push"
+    [[ -f "$hdir/pre-push.bak.k8s-rebase" ]] && mv "$hdir/pre-push.bak.k8s-rebase" "$hdir/pre-push" || true
   fi
 }
 trap 'echo "ERROR: k8s-rebase.sh crashed at line $LINENO" >&2; cleanup_hook' ERR INT TERM
@@ -907,6 +907,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   if [[ -n "$NEW_GO_SHORT" ]]; then
     while IFS= read -r _gvf; do
       sed -i -E \
+        -e "s|go-version: \[([0-9.x, ]+)\]|go-version: [${NEW_GO_SHORT}.x]|g" \
         -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${NEW_GO_SHORT}|g" \
         -e "s|go-version: [0-9]+\.[0-9]+|go-version: ${NEW_GO_SHORT}|g" \
         "$_gvf"
