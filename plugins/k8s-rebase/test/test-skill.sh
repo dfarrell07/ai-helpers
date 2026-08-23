@@ -895,7 +895,7 @@ cmd_test() {
     _running_key=$(running_key "$version" "$repo")
     _done_key=$(_done_key "$version" "${specs[*]}" "$_repo_key")
     mkdir -p "$_state_dir/running" "$_state_dir/done"
-    [[ -f "$_state_dir/done/$_done_key" ]] && rm -f "$_state_dir/done/$_done_key"
+    rm -f "$_state_dir/done/$_done_key"
     rm -f "$_state_dir/court/${version}_${_repo_key}"
 
     # Clean stale worktree branches
