@@ -13,7 +13,6 @@ REPOS_DIR="${REPOS_DIR:-$SCRIPT_DIR/.repos}"
 _repos_parent="$(cd "$(dirname "$REPOS_DIR")" 2>/dev/null && pwd)"
 [[ -z "$_repos_parent" ]] && { echo "ERROR: Cannot resolve REPOS_DIR: parent dir '$(dirname "$REPOS_DIR")' does not exist" >&2; exit 1; }
 REPOS_DIR="$_repos_parent/$(basename "$REPOS_DIR")"
-REPOS_DIR="${REPOS_DIR%/}"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 # Model for court analysis — set explicitly so court doesn't fall back to
 # an unavailable model (e.g. Opus 5 on Vertex) and produce no output.
