@@ -783,7 +783,6 @@ elif [[ -n "$CODEGEN_MAKEFILE" ]]; then
 
   # controller-gen projects use make generate/manifests instead of
   # hack/update-codegen.sh. Run both if available.
-  CODEGEN_RAN=0
   CODEGEN_FAILED=0
   CODEGEN_LOG="$REBASE_TMP/codegen.log"
   for target in generate manifests; do
