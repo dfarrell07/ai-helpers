@@ -7,7 +7,12 @@ in the diff, trace data flow. Prioritize by risk tier:
   field used as key), grep ALL lookup sites across the module
   (`grep -rn 'mapName\[' --include='*.go' . | grep -v vendor/`) and verify
   every lookup produces the same key format. A mismatch causes silent runtime
-  failure with no compile error or panic.
+  failure with no compile error or panic. CRITICAL: this cross-file check
+  must cover files NOT modified by the rebase — the reader and writer are
+  often in different files. Find the map variable name, then grep for BOTH
+  write sites (`mapName[`) and read sites (`mapName[`) across ALL .go files.
+  If any read site uses a key format that differs from the new write format,
+  flag FAIL with the specific file:line of each mismatched lookup.
 - Tier 2 (full trace required): error paths and error propagation —
   a missed error return causes runtime failures
 - Tier 3 (pattern check): all other modifications — scan for obvious
