@@ -256,7 +256,6 @@ if [[ -n "$REQUIRED_GO" ]]; then
 fi
 
 if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
-  # Detect container runtime (podman or docker)
   CONTAINER_RT=""
   command -v podman &>/dev/null && CONTAINER_RT=podman
   [[ -z "$CONTAINER_RT" ]] && command -v docker &>/dev/null && CONTAINER_RT=docker
