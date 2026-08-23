@@ -1617,14 +1617,9 @@ EOF_JUROR_PROMPT
   local total=$((pass + fail))
   local abstaining_nonempty=$(( 3 - pass - fail - empty_jurors ))
   if [[ "$total" -lt 2 ]]; then
-    if [[ "$pass" -gt 0 && "$fail" -eq 0 && "$abstaining_nonempty" -eq 0 ]]; then
-      info "$_log_prefix VERDICT: PASS ($pass pass, $empty_jurors empty)"
-      return 0
-    else
       error "$_log_prefix INCONCLUSIVE (no quorum — $pass pass, $fail fail, $abstaining_nonempty non-empty-abstain, $empty_jurors empty)"
       info "$_log_prefix Transcript: $cdir"
       return 2
-    fi
   fi
   if [[ "$pass" -gt "$fail" ]]; then
     info "$_log_prefix VERDICT: PASS ($pass-$fail)"
