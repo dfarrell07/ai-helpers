@@ -975,7 +975,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       fi
     done < <(grep -rln "golangci-lint" --include="*.sh" . | grep -v vendor | grep -v "/\.git/" || true)
     while IFS= read -r mkfile; do
-      [[ -z "$mkfile" ]] && continue
       OLD_MK_LINT=$(grep -oE 'GOLANGCI_LINT_VERSION\s*[:?]?=\s*v[0-9]+\.[0-9]+\.[0-9]+' "$mkfile" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
       [[ -z "$OLD_MK_LINT" ]] && continue
       target_lint="$LATEST_LINT"
@@ -1001,7 +1000,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     _new_fw_ver=$(grep "^\s*${_mod} " "$PRIMARY_GOMOD" | awk '{print $2}' | head -1 || true)
     [[ -z "$_new_fw_ver" ]] && continue
     while IFS= read -r mkfile; do
-      [[ -z "$mkfile" ]] && continue
       _old_fw_ver=$(grep -oE "${_mk_var}[[:space:]]*[:?]?=[[:space:]]*v[0-9]+\.[0-9]+\.[0-9]+" "$mkfile" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
       [[ -z "$_old_fw_ver" ]] && continue
       [[ "$_old_fw_ver" == "$_new_fw_ver" ]] && continue
