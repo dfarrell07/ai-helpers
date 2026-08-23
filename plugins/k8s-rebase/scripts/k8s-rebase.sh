@@ -700,9 +700,6 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   # here is a project-specific wrapper around that same script, not
   # controller-gen. The script-direct fallback handles projects that expose
   # no make target for codegen at all.
-  # Probes three make target candidates via dry-run, then executes the first
-  # matching one. Falls back to running the script directly when no target
-  # exists. Called twice: initial attempt and once after auto-fix.
   run_codegen() {
     for target in codegen generate update-codegen; do
       if make -n -C "$CODEGEN_DIR" "$target" &>/dev/null; then
