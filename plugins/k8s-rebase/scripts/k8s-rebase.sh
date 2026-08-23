@@ -106,7 +106,6 @@ restore_crd_metadata() {
     [[ -f "$saved" ]] || continue
     local crd="$helm_crd_dir/$(basename "$saved")"
     [[ -f "$crd" ]] || continue
-    # Find metadata section boundaries in both files
     # (|| true prevents pipefail from killing the script on no-match)
     local s_start s_end c_start c_end
     s_start=$(grep -n "^          metadata:" "$saved" 2>/dev/null | head -1 | cut -d: -f1 || true)
