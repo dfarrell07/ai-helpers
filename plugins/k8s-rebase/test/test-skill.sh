@@ -955,10 +955,7 @@ cmd_test_all() {
     local _rk=$(running_key "$version" "$repo")
     if [[ -f "$state_dir/running/$_rk" ]]; then
       local _run_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
-      if [[ -z "$_run_sid" ]]; then
-        rm -f "$state_dir/running/$_rk"
-        active=$((active - 1))
-      elif _session_alive "$_run_sid"; then
+      if _session_alive "$_run_sid"; then
         info "SKIP $(repo_short "$repo") (already running)"
         continue
       else
