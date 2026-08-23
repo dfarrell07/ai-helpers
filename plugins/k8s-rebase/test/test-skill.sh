@@ -1690,7 +1690,17 @@ cmd_court_all() {
       local kg=$(_resolve_known_good "$short" "$repo")
       [[ -z "$kg" ]] && { warn "$short ($VERSION): no known-good configured"; skipped=$((skipped + 1)); continue; }
       local branch=$(find_newest_branch "$repo" "$VERSION")
-      [[ -z "$branch" ]] && { warn "$short ($VERSION): no result branch found"; skipped=$((skipped + 1)); continue; }
+      if [[ -z "$branch" ]]; then
+        # If verdict is INCONCLUSIVE and the result branch is gone (cleaned after PASS),
+        # clear the verdict so make results shows "pending" and re-courts on next test run.
+        if [[ "$(cat "$_court_file" 2>/dev/null)" == "INCONCLUSIVE" ]]; then
+          rm -f "$_court_file"
+          warn "$short ($VERSION): INCONCLUSIVE verdict cleared (result branch gone — will re-court after next test run)"
+        else
+          warn "$short ($VERSION): no result branch found"
+        fi
+        skipped=$((skipped + 1)); continue
+      fi
 
       # Throttle: wait for a slot if at concurrency limit
       while [[ ${#_court_pids[@]} -ge $max_court_concurrent ]]; do
