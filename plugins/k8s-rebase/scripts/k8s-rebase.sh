@@ -241,7 +241,6 @@ for tool in go git make curl sed grep perl; do
 done
 [[ ${#MISSING[@]} -gt 0 ]] && die "Missing required tools: ${MISSING[*]}"
 
-# Verify target version exists on Go module proxy
 info "Checking Go module proxy for $API_VERSION..."
 if ! curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://proxy.golang.org/k8s.io/api/@v/${API_VERSION}.info" > /dev/null 2>&1; then
   die "k8s.io/api@${API_VERSION} not found on Go module proxy. Version may not be released yet."
