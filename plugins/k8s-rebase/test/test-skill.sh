@@ -449,7 +449,6 @@ remove_worktrees() {
   local ver_prefix=""
   [[ -n "$version" ]] && ver_prefix="bump${version%.*}-"
   if [[ -n "$wt_lines" ]]; then
-  local default_br
   default_br=$(default_branch)
   while IFS= read -r line; do
     local wt_path wt_branch commit_count=0
