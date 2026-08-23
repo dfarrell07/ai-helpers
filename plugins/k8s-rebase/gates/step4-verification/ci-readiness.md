@@ -1,5 +1,5 @@
 Step 3 already verified autofix patterns (deprecated APIs, CRD
-validation, feature gates). Do NOT re-check those —
+validation, feature gates, e2e infra). Do NOT re-check those —
 focus on CI-specific gaps that only matter at ship time:
 
 1. Does any e2e test or CI config reference a hardcoded k8s
