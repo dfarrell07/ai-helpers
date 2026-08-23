@@ -1086,7 +1086,6 @@ fi
 # Reconcile ENVTEST_K8S_VERSION (kubebuilder test binary version).
 # Runs regardless of Go version change — it tracks k8s version.
 while IFS= read -r _envtest_mk; do
-  [[ -z "$_envtest_mk" ]] && continue
   sed -i -E "s|(ENVTEST_K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)[0-9]+\.[0-9]+[.x0-9]*|\1${K8S_MAJOR}.${K8S_MINOR}|" "$_envtest_mk"
   CHANGED_FILES+="$_envtest_mk"$'\n'
   info "  Reconciled ENVTEST_K8S_VERSION to ${K8S_MAJOR}.${K8S_MINOR} in $_envtest_mk"
