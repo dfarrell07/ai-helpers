@@ -375,7 +375,7 @@ session_for_repo() {
     [[ -z "$cwd" ]] && continue
     [[ "$cwd" == *"/${short}/"* || "$cwd" == *"/${short}" ]] || continue
     [[ "$state" != "working" ]] && continue
-    [[ -z "$pid" || "$pid" == "0" ]] && continue
+    [[ "$pid" == "0" ]] && continue
     kill -0 "$pid" 2>/dev/null || continue
     if [[ "$cwd" == *"/.claude/worktrees/"* && ! -d "$cwd" ]]; then
       continue
