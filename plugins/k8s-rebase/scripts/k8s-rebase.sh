@@ -149,7 +149,6 @@ if [[ -z "$VERSION_INPUT" ]]; then
   exit 1
 fi
 
-# Parse X.Y.Z or X.Y (default Z=0)
 if [[ "$VERSION_INPUT" =~ ^([0-9]+)\.([0-9]+)(\.([0-9]+))?$ ]]; then
   K8S_MAJOR="${BASH_REMATCH[1]}"
   K8S_MINOR="${BASH_REMATCH[2]}"
