@@ -791,7 +791,9 @@ elif [[ -n "$CODEGEN_MAKEFILE" ]]; then
   for target in generate manifests; do
     if grep -q "^${target}:" "$CODEGEN_MAKEFILE"; then
       info "Running make $target in $CODEGEN_MAKEDIR..."
-      if ! make -C "$CODEGEN_MAKEDIR" "$target" >> "$CODEGEN_LOG" 2>&1; then
+      if make -C "$CODEGEN_MAKEDIR" "$target" >> "$CODEGEN_LOG" 2>&1; then
+        CODEGEN_RAN=1
+      else
         info "WARNING: make $target failed — the agent will fix"
         CODEGEN_FAILED=1
       fi
