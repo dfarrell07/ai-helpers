@@ -196,8 +196,6 @@ _check_evidence_paths() {
   done
   if [[ "$mismatches" -gt 0 ]]; then
     warn "evidence-path check: $markers/$companions companions have correct EVIDENCE blocks ($mismatches mismatches)"
-  else
-    info "evidence-path check: $companions companions wired correctly"
   fi
 }
 
