@@ -655,7 +655,6 @@ done
 
 # ── Phase 2: Code Generation ────────────────────────────────────────
 
-# Find codegen script (common locations)
 CODEGEN_SCRIPT=""
 for candidate in go-controller/hack/update-codegen.sh hack/update-codegen.sh; do
   if [[ -f "$REPO_ROOT/$candidate" ]]; then
