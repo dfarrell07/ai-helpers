@@ -1738,7 +1738,7 @@ cmd_court_all() {
     echo ""
     echo "Non-PASS transcripts (most recent per repo):"
     for _idx in "${!_court_files[@]}"; do
-      local _cf="${_court_files[$_idx]}" _cs="${_court_shorts[$_idx]}"
+      _cf="${_court_files[$_idx]}" _cs="${_court_shorts[$_idx]}"
       local _v; _v=$(cat "$_cf" 2>/dev/null || echo "ERROR")
       [[ "$_v" == "PASS" ]] && continue
       # Find the most recent court transcript dir for this repo
