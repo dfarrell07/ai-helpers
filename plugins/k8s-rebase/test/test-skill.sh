@@ -883,7 +883,7 @@ cmd_test() {
     git -C "$repo" worktree prune 2>/dev/null || true
 
     if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${_from_commit:+--from-commit "$_from_commit"}); then
-      if [[ -n "$_from_commit" && -d "$repo" ]]; then
+      if [[ -n "$_from_commit" ]]; then
         local _db; _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
         : "${_db:=main}"
         git -C "$repo" checkout "$_db" 2>/dev/null || true
