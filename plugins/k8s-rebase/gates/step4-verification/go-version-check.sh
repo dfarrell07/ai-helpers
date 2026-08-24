@@ -16,8 +16,6 @@ done
 if [[ ${#go_versions[@]} -gt 1 ]]; then
   unique=$(printf '%s\n' "${go_versions[@]}" | cut -d: -f2 | sort -u | wc -l)
   if [[ "$unique" -gt 1 ]]; then
-    echo "INCONSISTENT go.mod go directives:"
-    printf '  %s\n' "${go_versions[@]}"
     details+=("Inconsistent go directives: $(printf '%s ' "${go_versions[@]}")")
     # Count as NEW only if at least one inconsistent go.mod was touched by this branch.
     # A partial update (some touched, some not) is a real new issue.
