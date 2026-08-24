@@ -1811,7 +1811,6 @@ cmd_watch() {
       fi
       _collect_gate_dirs "$repo"
       if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
-        local _gfn=""  # failed gate names — captured to consume field 4, unused here; watch shows counts only
         read -r gc gf gs _gfn <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
       fi
     fi
