@@ -1089,7 +1089,6 @@ if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then
   info "  Reconciled setup-envtest to release-0.${CR_MINOR}"
 fi
 
-cd "$REPO_ROOT" || die "Cannot cd to $REPO_ROOT"
 # Add only the files we modified (more precise than git add -A)
 CHANGED_FILES=$(echo "$CHANGED_FILES" | grep -v '^$' | sort -u || true)
 if [[ -n "$CHANGED_FILES" ]]; then
