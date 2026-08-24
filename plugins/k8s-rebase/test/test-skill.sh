@@ -1695,7 +1695,6 @@ cmd_court_all() {
       run=$((run + 1))
       info "Court $run: $short ($VERSION)"
       (
-        local _verdict=""
         if cmd_court "$branch" "$kg" "$repo"; then
           _verdict="PASS"
         else
