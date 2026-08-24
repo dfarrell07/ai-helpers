@@ -106,6 +106,10 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
       # For git worktrees, the .git file points outside REPO_ROOT to the
       # common git dir. Mount it so git rev-parse works inside the container.
       GIT_COMMON_DIR_HOST="$(git -C "$REPO_ROOT" rev-parse --git-common-dir 2>/dev/null || true)"
+      # Absolutize: if git-common-dir returns relative path, resolve it
+      if [[ -n "$GIT_COMMON_DIR_HOST" && "$GIT_COMMON_DIR_HOST" != /* ]]; then
+        GIT_COMMON_DIR_HOST="$(cd "$REPO_ROOT/$GIT_COMMON_DIR_HOST" 2>/dev/null && pwd || true)"
+      fi
       GIT_COMMON_MOUNT=""
       if [[ -n "$GIT_COMMON_DIR_HOST" && "$GIT_COMMON_DIR_HOST" != "$REPO_ROOT/.git" ]]; then
         GIT_COMMON_MOUNT="-v $GIT_COMMON_DIR_HOST:$GIT_COMMON_DIR_HOST"
