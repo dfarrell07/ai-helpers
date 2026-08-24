@@ -240,7 +240,7 @@ _load_config() {
   VERSION=$(yq '.version' "$CONFIG_FILE")
   [[ -z "$VERSION" || "$VERSION" == "null" ]] && die "version not set in $CONFIG_FILE"
   local _mc=$(yq '.max_concurrent // ""' "$CONFIG_FILE")
-  if [[ -n "${_MAX_CONCURRENT_FROM_ENV:-}" ]]; then
+  if [[ -n "${_MAX_CONCURRENT_FROM_ENV}" ]]; then
     MAX_CONCURRENT="$_MAX_CONCURRENT_FROM_ENV"
   elif [[ -n "$_mc" && "$_mc" != "null" ]]; then
     MAX_CONCURRENT="$_mc"
