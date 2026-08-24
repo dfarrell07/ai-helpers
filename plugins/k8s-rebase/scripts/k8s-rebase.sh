@@ -905,7 +905,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   # After go.mod is bumped (e.g. to 1.25), that Dockerfile is build-fatal.
   _ver_lt() { printf '%s\n%s\n' "$1" "$2" | sort -V | head -1 | grep -qx "$1"; }
   while IFS= read -r _df; do
-    [[ -z "$_df" ]] && continue
     while IFS= read -r cur_ver; do
       if [[ "$cur_ver" != "$NEW_GO_SHORT" ]] && _ver_lt "$cur_ver" "$NEW_GO_SHORT"; then
         perl -pi -e "s|golang:${cur_ver//./\\.}([^0-9])|golang:${NEW_GO_SHORT}\$1|g; s|golang:${cur_ver//./\\.}\$|golang:${NEW_GO_SHORT}|g" "$_df"
