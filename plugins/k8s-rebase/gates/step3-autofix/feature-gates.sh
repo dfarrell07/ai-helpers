@@ -74,7 +74,6 @@ if [[ -n "$sfm_files" ]]; then
       grep -Eo '"[A-Z][A-Za-z0-9]+"' "$f" 2>/dev/null | tr -d '"' || true
     done <<< "$sfm_files" \
     | while IFS= read -r name; do
-        [[ -z "$name" ]] && continue
         grep -q "\"${name}\"" "$known_features" 2>/dev/null && echo "$name" || true
       done)
   fi
