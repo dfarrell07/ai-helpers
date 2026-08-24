@@ -86,7 +86,6 @@ if [[ -n "$BASE" ]] && [[ -n "$expected_go" ]]; then
   _ver_lt() { printf '%s\n%s\n' "$1" "$2" | sort -V | head -1 | grep -qx "$1"; }
   if git diff --name-only "$BASE"..HEAD -- go.mod 2>/dev/null | grep -q go.mod && [[ -n "$_new_go_short" ]]; then
     while IFS= read -r match; do
-      [[ -z "$match" ]] && continue
       file_ver=$(echo "$match" | grep -oE 'golang:[0-9]+\.[0-9]+' | head -1 | cut -d: -f2)
       [[ -z "$file_ver" ]] && continue
       if [[ "$file_ver" != "$_new_go_short" ]] && _ver_lt "$file_ver" "$_new_go_short"; then
