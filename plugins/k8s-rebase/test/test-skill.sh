@@ -1412,7 +1412,6 @@ COMMITS: $logs
 FILES: $diff_stat"
 
   local _court_dir="$PLUGIN_DIR/test/.matrix-state/court"
-  mkdir -p "$_court_dir" 2>/dev/null
   local cdir="$_court_dir/$(date +%s)_$(repo_key "$repo")"
   mkdir -p "$cdir"
 
