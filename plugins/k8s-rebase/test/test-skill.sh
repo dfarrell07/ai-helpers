@@ -1939,10 +1939,8 @@ cmd_results() {
   if [[ -n "$repo" ]]; then
     _results_one "$repo" "$court"
   elif $all_versions; then
-    # --court is only honoured when a specific repo is given; ignored here.
     _results_all_versions
   else
-    # --court is only honoured when a specific repo is given; ignored here.
     _results_for_version
   fi
 }
