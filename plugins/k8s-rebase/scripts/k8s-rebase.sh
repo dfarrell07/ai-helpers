@@ -1210,7 +1210,6 @@ NEW_GATES=()
 
 if [[ -n "$FEATURE_FILES" ]]; then
   while IFS= read -r gate; do
-    [[ -z "$gate" ]] && continue
     NEW_GATES+=("$gate")
   done < <(
     for _ff in $FEATURE_FILES; do
