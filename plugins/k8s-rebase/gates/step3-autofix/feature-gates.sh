@@ -154,7 +154,6 @@ done <<< "$all_wired"
 # Emitted as INFO only — subagent picks which suites to fix based on known-good.
 _suite_missing=()
   while IFS= read -r _sf; do
-    [[ -z "$_sf" ]] && continue
     grep -q 'RegisterFailHandler' "$_sf" 2>/dev/null || continue
     grep -q 'SetFromMap' "$_sf" 2>/dev/null && continue
     _suite_missing+=("${_sf#"$PRIMARY_GOMOD_DIR/"}")
