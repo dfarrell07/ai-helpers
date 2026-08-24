@@ -362,7 +362,7 @@ build_session_cache() {
   [[ $((now - _SESSION_CACHE_AGE)) -lt 5 ]] && return 0
   command -v claude &>/dev/null || { _SESSION_CACHE_AGE=$now; return 0; }
   _SESSION_CACHE=$(claude agents --json 2>/dev/null \
-    | python3 -c "$_SESSION_PARSER" 2>/dev/null || true)
+    | python3 -c "$_SESSION_PARSER" 2>/dev/null)
   _SESSION_CACHE_AGE=$now
 }
 
@@ -440,7 +440,7 @@ remove_worktrees() {
   local repo="$1" version="${2:-}"
   cd "$repo" 2>/dev/null || return 1
   local wt_lines default_br
-  wt_lines=$(git worktree list 2>/dev/null | grep '\.claude/worktrees' || true)
+  wt_lines=$(git worktree list 2>/dev/null | grep '\.claude/worktrees')
   local ver_prefix=""
   [[ -n "$version" ]] && ver_prefix="bump${version%.*}-"
   if [[ -n "$wt_lines" ]]; then
@@ -452,9 +452,9 @@ remove_worktrees() {
     # Version-scoped: skip worktrees that belong to a different version
     [[ -n "$ver_prefix" && -n "$wt_branch" && "$wt_branch" != "${ver_prefix}"* ]] && continue
     [[ -n "$wt_branch" ]] && commit_count=$(git rev-list --count "$default_br".."$wt_branch" 2>/dev/null || echo 0)
-    git worktree unlock "$wt_path" 2>/dev/null || true
+    git worktree unlock "$wt_path" 2>/dev/null
     git worktree remove "$wt_path" --force 2>/dev/null \
-      || { chmod -R u+w "$wt_path" 2>/dev/null || true; rm -rf "$wt_path" 2>/dev/null; git worktree prune 2>/dev/null; } \
+      || { chmod -R u+w "$wt_path" 2>/dev/null; rm -rf "$wt_path" 2>/dev/null; git worktree prune 2>/dev/null; } \
       || { warn "Could not remove worktree: $wt_path"; continue; }
     if [[ "$commit_count" -gt 0 ]]; then
       info "Removed worktree (branch $wt_branch preserved, $commit_count commits)"
@@ -472,7 +472,7 @@ remove_worktrees() {
       # Version-scoped: skip orphan dirs that belong to a different version
       [[ -n "$ver_prefix" && "$orphan_name" != "${ver_prefix}"* ]] && continue
       # Go module cache files are read-only; chmod before removal.
-      chmod -R u+w "$orphan" 2>/dev/null || true
+      chmod -R u+w "$orphan" 2>/dev/null
       if rm -rf "$orphan"; then
         info "Removed orphaned worktree dir: $orphan_name"
       else
@@ -506,7 +506,7 @@ cmd_run() {
         [[ -f "$_rf" ]] || continue
         local _run_sid=$(cut -f3 "$_rf" 2>/dev/null)
         if [[ -z "$_run_sid" ]] || ! _session_alive "$_run_sid"; then
-          [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
+          [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null
           rm -f "$_rf"
         else
           _active_count=$((_active_count + 1))
@@ -544,7 +544,7 @@ cmd_run() {
     # Clear all stale state from prior runs (state.json, .session-active,
     # gate reports, advance counters). Live run data is in the worktree,
     # not the main repo — nothing is lost.
-    rm -rf "$repo/.rebase-tmp" 2>/dev/null || true
+    rm -rf "$repo/.rebase-tmp" 2>/dev/null
     if [[ -n "$from_commit" ]]; then
       cd "$repo" || { warn "Skipping $short"; continue; }
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
@@ -552,10 +552,10 @@ cmd_run() {
       # Switch off any stale _test-from-* branch BEFORE deleting it; git refuses
       # to delete the currently-checked-out branch.
       local _cur_branch=$(git branch --show-current 2>/dev/null)
-      [[ "$_cur_branch" == _test-from-* ]] && { git checkout -f "$_db" &>/dev/null || true; }
-      git clean -fd &>/dev/null || true
-      git fetch origin --no-tags &>/dev/null || true
-      git branch -D "_test-from-${from_commit:0:8}" &>/dev/null || true
+      [[ "$_cur_branch" == _test-from-* ]] && { git checkout -f "$_db" &>/dev/null; }
+      git clean -fd &>/dev/null
+      git fetch origin --no-tags &>/dev/null
+      git branch -D "_test-from-${from_commit:0:8}" &>/dev/null
       git switch -c "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
         || git checkout -b "_test-from-${from_commit:0:8}" "$from_commit" &>/dev/null \
         || {
@@ -627,7 +627,7 @@ cmd_stop() {
       done
     fi
     if $should_stop; then
-      claude stop "$sid" 2>/dev/null || true
+      claude stop "$sid" 2>/dev/null
       rm -f "$running_file"
       info "Stopped $short"
       killed=$((killed + 1))
@@ -644,7 +644,7 @@ cmd_stop() {
       if $stop_all; then _should_stop=true
       else for t in "${targets[@]}"; do [[ "$_repo" == *"$t"* || "$_sid" == "$t"* ]] && { _should_stop=true; break; }; done; fi
       if $_should_stop; then
-        claude stop "$_sid" 2>/dev/null || true
+        claude stop "$_sid" 2>/dev/null
         info "Stopped $_repo ($_sid) [from session cache]"
         killed=$((killed + 1))
       fi
@@ -684,7 +684,7 @@ cmd_clean() {
         [[ -n "$version" && "$(basename "$rf")" != "${version}_${_ck}" ]] && continue
         local _sid=$(cut -f3 "$rf" 2>/dev/null)
         if [[ -n "$_sid" ]]; then
-          claude stop "$_sid" 2>/dev/null || true
+          claude stop "$_sid" 2>/dev/null
           info "Stopped session on $short"
         fi
         rm -f "$rf"
@@ -692,15 +692,15 @@ cmd_clean() {
     fi
     cleaned_keys+=("$_ck")
     cd "$repo" || continue
-    git worktree prune 2>/dev/null || true
+    git worktree prune 2>/dev/null
     remove_worktrees "$repo" "$version"
-    rm -rf "$repo/.rebase-tmp" 2>/dev/null || true
+    rm -rf "$repo/.rebase-tmp" 2>/dev/null
     # Recover to default branch first (so we can delete temp branches)
     local _cur=$(git branch --show-current 2>/dev/null)
-    [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null || true; }
+    [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null; }
     _set_worktree_base "$repo" remove
     for tb in $(git branch --no-color | tr -d ' *' | grep '^_test-from-'); do
-      git branch -D "$tb" 2>/dev/null || true
+      git branch -D "$tb" 2>/dev/null
     done
   done
   if command -v podman &>/dev/null; then
@@ -755,7 +755,7 @@ declare -A TAG_TO_PATTERN=(
 mutate_plugin() {
   local label="mutated-$(date +%s)"
   local dest="$RESULTS_DIR/$label"
-  mkdir -p "$RESULTS_DIR" 2>/dev/null || true
+  mkdir -p "$RESULTS_DIR" 2>/dev/null
   command -v rsync &>/dev/null || die "rsync required"
   rsync -a --exclude test/.repos --exclude test/.matrix-state "$PLUGIN_DIR/" "$dest/" || die "Cannot copy plugin to $dest"
 
@@ -880,14 +880,14 @@ cmd_test() {
     rm -f "$_state_dir/court/${version}_${_repo_key}"
 
     # Clean stale worktree branches
-    git -C "$repo" worktree prune 2>/dev/null || true
+    git -C "$repo" worktree prune 2>/dev/null
 
     if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${_from_commit:+--from-commit "$_from_commit"}); then
       if [[ -n "$_from_commit" && -d "$repo" ]]; then
         local _db; _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
         : "${_db:=main}"
-        git -C "$repo" checkout "$_db" 2>/dev/null || true
-        git -C "$repo" branch -D "_test-from-${_from_commit:0:8}" 2>/dev/null || true
+        git -C "$repo" checkout "$_db" 2>/dev/null
+        git -C "$repo" branch -D "_test-from-${_from_commit:0:8}" 2>/dev/null
         _set_worktree_base "$repo" remove
       fi
       error "Launch failed for $(repo_short "$repo")"
@@ -907,7 +907,7 @@ cmd_test() {
 }
 
 cmd_test_all() {
-  local spec="${1:-none}"; shift || true
+  local spec="${1:-none}"; shift
   local version="$VERSION"
   [[ "${1:-}" == "--version" ]] && { shift; version="${1:-$VERSION}"; shift; }
   local launched=0 active=0
@@ -932,7 +932,7 @@ cmd_test_all() {
     if [[ -f "$state_dir/running/$_rk" ]]; then
       local _pre_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
       if [[ -z "$_pre_sid" ]] || ! _session_alive "$_pre_sid"; then
-        [[ -n "$_pre_sid" ]] && claude stop "$_pre_sid" 2>/dev/null || true
+        [[ -n "$_pre_sid" ]] && claude stop "$_pre_sid" 2>/dev/null
         rm -f "$state_dir/running/$_rk"
       else
         active=$((active + 1))
@@ -949,7 +949,7 @@ cmd_test_all() {
         info "SKIP $(repo_short "$repo") (already running)"
         continue
       else
-        claude stop "$_run_sid" 2>/dev/null || true
+        claude stop "$_run_sid" 2>/dev/null
         rm -f "$state_dir/running/$_rk"
         active=$((active - 1))
       fi
@@ -992,7 +992,7 @@ cmd_test_all() {
       for _rf in "$state_dir/running"/*; do
         [[ -f "$_rf" ]] || continue
         local _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
-        _session_alive "$_sid_check" || { [[ -n "$_sid_check" ]] && claude stop "$_sid_check" 2>/dev/null || true; rm -f "$_rf"; }
+        _session_alive "$_sid_check" || { [[ -n "$_sid_check" ]] && claude stop "$_sid_check" 2>/dev/null; rm -f "$_rf"; }
       done
     fi
     # Re-count active and launch newly-eligible repos into freed slots
@@ -1037,7 +1037,7 @@ _do_record_one() {
     || default_br="master"
 
   local result_branch="" wt_path=""
-  _worktree_info "$repo" || true
+  _worktree_info "$repo"
   result_branch="$_WT_BRANCH" wt_path="$_WT_PATH"
   [[ -n "$wt_path" && ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; }
   if [[ -z "$result_branch" ]]; then
@@ -1096,8 +1096,8 @@ _do_record_one() {
   kg_branch=$(_resolve_known_good "$short" "$repo")
   CONFIG_FILE="$_saved_cf"; VERSION="$_saved_ver"
   if [[ -n "$kg_branch" ]]; then
-    local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
-    local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+    local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@')
+    local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@')
     kg_hunks="$kg_diff_nv"
     [[ "$kg_diff_all" -gt "$kg_diff_nv" ]] && kg_vendor="$((kg_diff_all - kg_diff_nv))"
   fi
@@ -1196,14 +1196,14 @@ auto_record() {
     [[ "$launch_epoch" =~ ^[0-9]+$ ]] || launch_epoch=0
     : "${_run_version:=$VERSION}"
     local repo_key; repo_key=$(repo_key_from_running "$_run_version" "$_file_key")
-    [[ -z "$spec" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
+    [[ -z "$spec" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null; rm -f "$running_file"; continue; }
 
     local repo
-    repo=$(_repo_from_key "$repo_key") || true
+    repo=$(_repo_from_key "$repo_key")
     [[ -z "$repo" || ! -d "$repo" ]] && continue
     local short=$(repo_short "$repo")
     local done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
-    [[ -f "$state_dir/done/$done_key" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
+    [[ -f "$state_dir/done/$done_key" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null; rm -f "$running_file"; continue; }
 
     local _session_dead=false
     if _session_alive "$_run_sid"; then
@@ -1234,7 +1234,7 @@ auto_record() {
 
     local result
     if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch" "$_run_version" "$_run_sid"); then
-      [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
+      [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null
       recorded=$((recorded + 1))
       info "Recorded: $result"
     elif $_session_dead; then
@@ -1243,7 +1243,7 @@ auto_record() {
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_run_version" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
       mkdir -p "$state_dir/done"
       touch "$state_dir/done/$done_key"
-      [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
+      [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null
       rm -f "$running_file"
       recorded=$((recorded + 1))
       warn "Recorded FAIL for $short ($_fail_detail)"
@@ -1265,12 +1265,12 @@ auto_record() {
     [[ -z "$_psid" || -z "$_psha" || -z "$_prk" ]] && { rm -f "$_pf"; continue; }
     # Only update when session is confirmed dead
     _session_alive "$_psid" 2>/dev/null && continue
-    local _prepo; _prepo=$(_repo_from_key "$_prk") || true
+    local _prepo; _prepo=$(_repo_from_key "$_prk")
     [[ -z "$_prepo" ]] && { rm -f "$_pf"; continue; }
     # branch-name may be in the worktree (worktree-based sessions), not main repo
     local _bn; _bn=$(cat "$_prepo/.rebase-tmp/branch-name" 2>/dev/null)
     if [[ -z "$_bn" ]]; then
-      _worktree_info "$_prepo" || true
+      _worktree_info "$_prepo"
       [[ -n "$_WT_PATH" ]] && _bn=$(cat "$_WT_PATH/.rebase-tmp/branch-name" 2>/dev/null)
     fi
     [[ -z "$_bn" ]] && { rm -f "$_pf"; continue; }
@@ -1323,7 +1323,7 @@ cmd_court() {
     error "$_log_prefix INCONCLUSIVE: diff too large for court (${diff_bytes} bytes — max 250000)"
     return 2
   fi
-  local hunks; hunks=$(grep -c '^@@' <<< "$diff_nv" || true)
+  local hunks; hunks=$(grep -c '^@@' <<< "$diff_nv")
   local diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
   info "$_log_prefix Diff: $hunks non-vendor hunks, go.sum excluded (${diff_bytes} bytes)"
 
@@ -1433,13 +1433,13 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
   local pid_pros=$!
   timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text <<<"$_def_prompt" > "$cdir/def.txt" 2>"$cdir/def.err" &
   local pid_def=$!
-  wait "$pid_pros" "$pid_def" 2>/dev/null || true
+  wait "$pid_pros" "$pid_def" 2>/dev/null
 
   # Retry helper: retry a phase if it failed with a transient error
   # ("Execution error" = claude CLI crash; "Warning:" only = model fallback with no content)
   _court_phase_ok() {
     local f="$1"
-    local content; content=$(grep -v '^Warning:' "$f" 2>/dev/null | grep -v '^Execution error' || true)
+    local content; content=$(grep -v '^Warning:' "$f" 2>/dev/null | grep -v '^Execution error')
     [[ ${#content} -ge 200 ]]
   }
   _court_retry() {
@@ -1448,15 +1448,15 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
     if ! _court_phase_ok "$f"; then
       info "$_log_prefix   Retrying $role (transient error: $(head -1 "$f" 2>/dev/null | cut -c1-60))..."
       timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" \
-        --permission-mode "$PERMISSION_MODE" --output-format text "$@" <<<"$prompt" > "$f" 2>"$errf" || true
+        --permission-mode "$PERMISSION_MODE" --output-format text "$@" <<<"$prompt" > "$f" 2>"$errf"
     fi
   }
   _court_retry "$cdir/pros.txt" "$cdir/pros.err" "$_pros_prompt" "prosecution"
   _court_retry "$cdir/def.txt" "$cdir/def.err" "$_def_prompt" "defense"
 
   local pros def
-  pros=$(grep -v '^Warning:' "$cdir/pros.txt" 2>/dev/null | grep -v '^Execution error' || true)
-  def=$(grep -v '^Warning:' "$cdir/def.txt" 2>/dev/null | grep -v '^Execution error' || true)
+  pros=$(grep -v '^Warning:' "$cdir/pros.txt" 2>/dev/null | grep -v '^Execution error')
+  def=$(grep -v '^Warning:' "$cdir/def.txt" 2>/dev/null | grep -v '^Execution error')
   if [[ ${#pros} -lt 200 || ${#def} -lt 200 ]]; then
     error "$_log_prefix Prosecution/defense too short (${#pros}/${#def} bytes — $(tail -1 "$cdir/pros.err" 2>/dev/null) / $(tail -1 "$cdir/def.err" 2>/dev/null))"
     return 2
@@ -1486,13 +1486,13 @@ Fact-check only. Strike claims not supported by the provided DIFF. Do NOT includ
 EOF_JUDGE
 )
   timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" \
-    --output-format text <<<"$_judge_prompt" 2>"$cdir/judge.err" | grep -v '^Warning:' > "$cdir/judge.txt" || true
+    --output-format text <<<"$_judge_prompt" 2>"$cdir/judge.err" | grep -v '^Warning:' > "$cdir/judge.txt"
   _court_retry "$cdir/judge.txt" "$cdir/judge.err" "$_judge_prompt" "judge"
   if ! _court_phase_ok "$cdir/judge.txt"; then
     warn "$_log_prefix Judge produced no output — jurors will proceed without fact-check"
   fi
   local judge
-  judge=$(grep -iv '^\s*verdict\s*:' "$cdir/judge.txt" 2>/dev/null || true)
+  judge=$(grep -iv '^\s*verdict\s*:' "$cdir/judge.txt" 2>/dev/null)
   echo "$judge" > "$cdir/judge.txt"
 
   info "$_log_prefix Phase C: Jury (parallel)..."
@@ -1541,7 +1541,7 @@ EOF_JUROR_PROMPT
       --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
       > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
   done
-  wait 2>/dev/null || true
+  wait 2>/dev/null
 
   # Retry empty jurors once — mirrors prosecution/defense retry pattern
   for j in 1 2 3; do
@@ -1697,7 +1697,7 @@ cmd_court_all() {
         mkdir -p "$(dirname "$_court_file")"
         echo "$_verdict" > "$_court_file"
         # Clean the worktree after PASS to prevent disk accumulation
-        [[ "$_verdict" == "PASS" ]] && remove_worktrees "$repo" "$VERSION" 2>/dev/null || true
+        [[ "$_verdict" == "PASS" ]] && remove_worktrees "$repo" "$VERSION" 2>/dev/null
       ) &
       _court_pids+=($!)
       _court_files+=("$_court_file")
@@ -1705,7 +1705,7 @@ cmd_court_all() {
     done
 
     if [[ ${#_court_pids[@]} -gt 0 ]]; then
-      wait "${_court_pids[@]}" 2>/dev/null || true
+      wait "${_court_pids[@]}" 2>/dev/null
       for _idx in "${!_court_files[@]}"; do
         local _cf="${_court_files[$_idx]}" _cs="${_court_shorts[$_idx]}"
         if [[ -f "$_cf" ]]; then
@@ -1789,7 +1789,7 @@ cmd_watch() {
       done)
       [[ -n "$_found_state" ]] && session_state="$_found_state"
     fi
-    _worktree_info "$repo" || true
+    _worktree_info "$repo"
     local wt="$_WT_PATH" _branch="$_WT_BRANCH"
     # Fallback: session running in main repo (no .claude/worktrees entry — either no
     # from_commit, or detached HEAD after _test-from-* checkout). Treat main repo as
@@ -1827,8 +1827,8 @@ cmd_watch() {
     VERSION="$_saved_ver_watch"
     if [[ -n "$kg" && -n "$wt" && -n "$_branch" ]]; then
       # Count changed hunks (each '@@...@@' header = one hunk). nv excludes vendor; nv_all includes it.
-      local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-      local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+      local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@')
+      local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@')
       diff_info="${nv} code"
       [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
     fi
@@ -1936,7 +1936,7 @@ _results_one() {
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"
   local short=$(repo_short "$repo")
   cd "$repo" || die "Cannot cd to $repo"
-  _worktree_info "$repo" || true
+  _worktree_info "$repo"
   local wt="$_WT_PATH"
   _collect_gate_dirs "$repo"
   local wt_in_progress=false
@@ -2010,7 +2010,7 @@ _results_one() {
   if [[ -n "$kg" ]]; then
     local branch=$(find_newest_branch "$repo" "$_tsv_ver")
     if [[ -n "$branch" ]]; then
-      local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+      local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@')
       echo ""
       if [[ "$nv" -eq 0 ]]; then
         echo "Diff vs known-good ${kg:0:12}: identical (non-vendor)"
@@ -2182,7 +2182,7 @@ cmd_set_known_good() {
 # ── Matrix ────────────────────────────────────────────────────────────
 
 cmd_matrix() {
-  local spec="${1:-none}"; shift || true
+  local spec="${1:-none}"; shift
   local max_retries=2
 
   # Discover all versioned configs
@@ -2275,7 +2275,7 @@ cmd_matrix() {
           local _done_key=$(_done_key "$VERSION" "$spec" "$_rk")
           rm -f "$PLUGIN_DIR/test/.matrix-state/done/$_done_key"
           rm -f "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
-          cmd_clean "$repo" 2>/dev/null || true
+          cmd_clean "$repo" 2>/dev/null
         done
 
         info "Retry $retry: test-all..."
