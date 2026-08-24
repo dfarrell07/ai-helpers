@@ -2252,7 +2252,6 @@ cmd_matrix() {
       [[ ${#failed_repos[@]} -eq 0 && ${#court_only_repos[@]} -eq 0 ]] && break
 
       retry=$((retry + 1))
-      info ""
 
       # Court-only retries (fast: ~5 min per repo)
       if [[ ${#court_only_repos[@]} -gt 0 ]]; then
