@@ -755,6 +755,18 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
     fi
   fi
 
+  restore_crd_metadata
+  cd "$REPO_ROOT"
+  if [[ -n "$(git status --porcelain)" ]]; then
+    git add -A
+    if git commit -s --trailer "$AI_TRAILER" -m "$(format_msg "codegen" "Regenerate mocks and codegen output for k8s ${K8S_MAJOR_MINOR}")"; then
+      info "Committed: Post-codegen cleanup"
+    else
+      info "WARNING: git commit failed — unstaging to prevent contamination"
+      git reset HEAD 2>/dev/null || true
+    fi
+  fi
+
   if [[ "$CODEGEN_FAILED" -eq 1 ]]; then
     echo "## CODEGEN FAILURE" >> "$REBASE_TMP/summary.txt"
     tail -10 "$CODEGEN_LOG" >> "$REBASE_TMP/summary.txt"
