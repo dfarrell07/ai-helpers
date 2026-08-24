@@ -942,7 +942,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       LATEST_LINT_V1=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://api.github.com/repos/golangci/golangci-lint/releases?per_page=50" 2>/dev/null | grep -oE '"tag_name": "v1\.[^"]+"' | head -1 | sed 's/"tag_name": "//;s/"//' || true)
     fi
     while IFS= read -r lintscript; do
-      [[ -z "$lintscript" ]] && continue
       OLD_LINT=$(grep -oE 'VERSION=v[0-9]+\.[0-9]+\.[0-9]+' "$lintscript" | head -1 | sed 's/VERSION=//' || true)
       if [[ -n "$OLD_LINT" ]] && [[ "$OLD_LINT" != "$LATEST_LINT" ]]; then
         lint_target="$LATEST_LINT"
