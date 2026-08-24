@@ -1900,7 +1900,6 @@ cmd_watch() {
   printf "$_hfmt" "REPO" "VER" "SPEC" "STATUS" "GATES" "LATEST COMMIT" "VS KNOWN-GOOD"
   printf "$_dfmt" "$_sep_r" "$_sep_v" "$_sep_sp" "$_sep_st" "$_sep_g" "$_sep_c" "$_sep_d"
   for _wr in "${_watch_rows[@]}"; do
-    local _r _v _sp _st _g _c _d
     IFS=$'\t' read -r _r _v _sp _st _g _c _d <<< "$_wr"
     printf "$_dfmt" "$_r" "$_v" "$_sp" "$_st" "$_g" "$_c" "$_d"
   done
