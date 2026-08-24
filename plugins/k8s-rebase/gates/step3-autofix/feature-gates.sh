@@ -104,8 +104,6 @@ setenv_files=$(grep -rln 'os\.Setenv.*KUBE_FEATURE\|t\.Setenv.*KUBE_FEATURE' \
 
 # Per-gate checks
 while IFS= read -r gate; do
-  [[ -z "$gate" ]] && continue
-
   # Vendor symbol presence — gate must exist in vendored known_features.go
   if [[ -n "$known_features" ]]; then
     if ! grep -q "\"${gate}\"" "$known_features" 2>/dev/null; then
