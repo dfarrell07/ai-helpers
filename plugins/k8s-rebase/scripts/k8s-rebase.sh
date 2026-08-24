@@ -166,6 +166,8 @@ AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
 
 banner "Phase 0: Prerequisites"
 
+cd "$REPO_ROOT" || die "Cannot cd to $REPO_ROOT"
+
 # Disable Go workspace mode so each module is resolved independently
 export GOWORK=off
 
