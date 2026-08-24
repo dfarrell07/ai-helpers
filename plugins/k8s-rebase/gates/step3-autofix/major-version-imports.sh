@@ -39,7 +39,6 @@ check_import() {
   # one existed before the rebase.
   declare -A _bc
   while IFS= read -r match; do
-    [[ -z "$match" ]] && continue
     file="${match%%:*}"
     if [[ -n "$BASE" ]] && [[ -z "${_bc[$file]+set}" ]]; then
       _bc[$file]=$(git show "$BASE:$file" 2>/dev/null | grep -cF "\"$bare\"" || true)
