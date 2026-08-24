@@ -931,7 +931,7 @@ cmd_test_all() {
     local _rk=$(running_key "$version" "$repo")
     if [[ -f "$state_dir/running/$_rk" ]]; then
       local _pre_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
-      if [[ -z "$_pre_sid" ]] || ! _session_alive "$_pre_sid"; then
+      if ! _session_alive "$_pre_sid"; then
         [[ -n "$_pre_sid" ]] && claude stop "$_pre_sid" 2>/dev/null || true
         rm -f "$state_dir/running/$_rk"
       else
