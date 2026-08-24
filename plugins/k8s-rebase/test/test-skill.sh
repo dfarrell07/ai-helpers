@@ -791,8 +791,6 @@ mutate_plugin() {
       fn:*)
         local ftag="${spec#fn:}" afile="$dest/scripts/k8s-rebase-autofix.sh"
         grep -q "^fix_${ftag}()" "$afile" 2>/dev/null || { rm -rf "$dest"; die "Function fix_${ftag}() not found"; }
-        # Neuter the named function: keep the header and closing }, replace body with 'return 0'.
-        # /^\}/ matches only a } at column 1 — the conventional bash function-closer.
         awk -v fn="fix_${ftag}" '$0 ~ "^"fn"\\(\\)" { print $0; print "  return 0"; skip=1; next } skip && /^\}/ { print; skip=0; next } skip { next } { print }' \
           "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile"
         info "Neutered: fix_${ftag}()" ;;
@@ -800,8 +798,6 @@ mutate_plugin() {
         sed -i '/^## Pattern Table/,$ d' "$dest/docs/k8s-rebase-patterns.md" ;;
       all-fns)
         local afile="$dest/scripts/k8s-rebase-autofix.sh"
-        # Neuter the named function: keep the header and closing }, replace body with 'return 0'.
-        # /^\}/ matches only a } at column 1 — the conventional bash function-closer.
         awk '/^fix_[a-z0-9_]+\(\)/ && !/fix_uncommitted/ { print $0; print "  return 0"; skip=1; next } skip && /^\}/ { print; skip=0; next } skip { next } { print }' \
           "$afile" > "$afile.tmp" && mv "$afile.tmp" "$afile" ;;
     esac
