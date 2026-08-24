@@ -1187,7 +1187,6 @@ auto_record() {
   local recorded=0
 
   # Main running-file loop — guarded (skip if no active sessions)
-  if [[ -d "$running_dir" ]] && [[ -n "$(ls -A "$running_dir" 2>/dev/null)" ]]; then
 
   for running_file in "$running_dir"/*; do
     [[ -f "$running_file" ]] || continue
@@ -1253,7 +1252,6 @@ auto_record() {
       warn "Record deferred for $short: ${result:-no branch found} (session alive, will retry)"
     fi
   done
-  fi # end running-file guard
 
   # Prel scan runs unconditionally — needed even when running_dir is empty,
   # because the session that wrote the sentinel may have already finished.
