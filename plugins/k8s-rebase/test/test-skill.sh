@@ -458,8 +458,6 @@ remove_worktrees() {
       || { warn "Could not remove worktree: $wt_path"; continue; }
     if [[ "$commit_count" -gt 0 ]]; then
       info "Removed worktree (branch $wt_branch preserved, $commit_count commits)"
-    else
-      info "Removed worktree (branch $wt_branch kept)"
     fi
   done <<< "$wt_lines"
   fi
