@@ -819,7 +819,6 @@ else
 fi
 rm -rf "$REBASE_TMP/crd-pre-codegen"
 
-# ── Phase 3: Version Reference Updates ───────────────────────────────
 
 banner "Phase 3: Version Reference Updates"
 
