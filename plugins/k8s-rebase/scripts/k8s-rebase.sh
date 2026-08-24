@@ -1053,7 +1053,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         # Pattern 2: ocp/X.Y: (base image reference)
         if grep -qE "ocp/[0-9.]+:" "$ci_file" && ! grep -q "ocp/${target_ocp}:" "$ci_file"; then
           for stale_base in $(grep -oE 'ocp/[0-9.]+:' "$ci_file" | sed 's|ocp/||;s|:||' | sort -u); do
-            [[ "$stale_base" == "$target_ocp" ]] && continue
             sed -i "s|ocp/${stale_base}:|ocp/${target_ocp}:|g" "$ci_file"
           done
           _fixed=1
