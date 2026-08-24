@@ -1046,7 +1046,6 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         # Pattern 1: openshift-X.Y (builder image tag suffix)
         if grep -qE "openshift-[0-9.]+" "$ci_file" && ! grep -q "openshift-${target_ocp}" "$ci_file"; then
           for stale_ocp in $(grep -oE 'openshift-[0-9.]+' "$ci_file" | sed 's/openshift-//' | sort -u); do
-            [[ "$stale_ocp" == "$target_ocp" ]] && continue
             sed -i "s|openshift-${stale_ocp}|openshift-${target_ocp}|g" "$ci_file"
           done
           _fixed=1
