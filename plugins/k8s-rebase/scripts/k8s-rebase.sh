@@ -358,7 +358,6 @@ elif [[ "$CURRENT_BRANCH" != "$DEFAULT_BRANCH" ]]; then
   info "WARNING: on '$CURRENT_BRANCH', not default branch '$DEFAULT_BRANCH' — rebase normally starts from '$DEFAULT_BRANCH'"
 fi
 
-# Create branch (append timestamp if name taken)
 BRANCH_NAME="bump${K8S_MAJOR_MINOR}"
 if git rev-parse --verify "$BRANCH_NAME" &>/dev/null; then
   BRANCH_NAME="bump${K8S_MAJOR_MINOR}-$(date +%Y%m%d%H%M%S)"
