@@ -836,7 +836,7 @@ while IFS= read -r file; do
 done < <(grep -rln -E "v${K8S_MAJOR}\.${OLD_MINOR}(\.[0-9]+)?\b" \
   --include="*.yml" --include="*.yaml" --include="*.sh" \
   --include="*.md" --include="Makefile*" --include="Dockerfile*" . \
-  2>/dev/null | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
+  2>/dev/null | grep -v vendor | grep -v "/\.git/" || true)
 
 # Pass 2: bare version in doc prose (1.35 without v-prefix)
 # Uses perl lookbehind/lookahead to avoid corrupting IP addresses
@@ -859,7 +859,7 @@ while IFS= read -r file; do
 done < <(grep -rln "kindest/node:v[0-9]" \
   --include="*.yml" --include="*.yaml" --include="*.sh" \
   --include="Makefile*" . \
-  2>/dev/null | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
+  2>/dev/null | grep -v vendor | grep -v "/\.git/" || true)
 
 NEW_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}' || true)
 if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then
@@ -883,7 +883,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   done < <(grep -rlnE "golang[:-]${OLD_GO_SHORT}|GO_VERSION.{0,5}${OLD_GO_SHORT}|GOLANG_VERSION.{0,5}${OLD_GO_SHORT}|GOVERSION.{0,5}${OLD_GO_SHORT}|go-version:.{0,3}${OLD_GO_SHORT}" \
     --include="*.yml" --include="*.yaml" --include="Makefile*" \
     --include="Dockerfile*" --include="*.Dockerfile" . \
-    | grep -v vendor | grep -v "/\.git/" | grep -v go.mod || true)
+    | grep -v vendor | grep -v "/\.git/" || true)
 
   # Second pass: catch workflow files with any stale go-version (handles pre-existing mismatches)
   if [[ -n "$NEW_GO_SHORT" ]]; then
