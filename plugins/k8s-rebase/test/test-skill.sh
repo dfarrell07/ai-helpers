@@ -1061,7 +1061,6 @@ _do_record_one() {
   if [[ "$launch_epoch" -gt 0 ]]; then
     local branch_tip_epoch
     branch_tip_epoch=$(git -C "$repo" log -1 --format='%ct' "$result_branch" 2>/dev/null)
-    : "${branch_tip_epoch:=0}"
     [[ "$branch_tip_epoch" -gt 0 && "$branch_tip_epoch" -lt "$launch_epoch" ]] && { echo "stale branch"; return 1; }
   fi
 
