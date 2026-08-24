@@ -493,7 +493,6 @@ rebase_module() {
   if [[ -n "$_self_replaces" ]]; then
     info "Dropping stale k8s.io self-referencing replace directives..."
     while IFS= read -r _rpkg; do
-      [[ -z "$_rpkg" ]] && continue
       info "  -dropreplace ${_rpkg}"
       go mod edit -dropreplace="${_rpkg}" 2>/dev/null || true
     done <<< "$_self_replaces"
