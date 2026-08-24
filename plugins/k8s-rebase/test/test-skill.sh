@@ -150,7 +150,6 @@ _tally_gates() {
 
 _is_stale_fail() {
   local _file="$1" _tip_ts="$2"
-  [[ "$_tip_ts" -le 0 ]] && return 1
   local _rts; _rts=$(stat -c '%Y' "$_file" 2>/dev/null || echo 0)
   [[ "$_rts" -gt 0 && "$_tip_ts" -gt "$_rts" ]]
 }
