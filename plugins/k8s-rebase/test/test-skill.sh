@@ -1052,7 +1052,7 @@ _do_record_one() {
   [[ -n "$wt_path" && ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; }
   if [[ -z "$result_branch" ]]; then
     local _bp='bump'
-    [[ -n "$_rec_version" ]] && _bp="bump${_rec_version%.*}"
+    _bp="bump${_rec_version%.*}"
     result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep "$_bp" | sed 's/^[* +]*//' | sort -V | tail -1)
   fi
   # Fallback: Claude Code worktree branches (worktree-k8s-rebase-<version>*)
