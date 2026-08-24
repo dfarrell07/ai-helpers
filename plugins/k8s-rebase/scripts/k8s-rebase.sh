@@ -843,7 +843,6 @@ done < <(grep -rln -E "v${K8S_MAJOR}\.${OLD_MINOR}(\.[0-9]+)?\b" \
 # (10.244.1.35), compound versions (openshift-4.1.35), and patch
 # versions (1.35.2) while still replacing standalone bare versions.
 while IFS= read -r file; do
-  [[ -z "$file" ]] && continue
   perl -pi -e "s/(?<!\\d\\.)\b${OLD_SHORT//./\\.}\b(?!\\.\\d)/${NEW_SHORT}/g" "$file"
   CHANGED_FILES+="$file"$'\n'
   info "  Updated (short): $file"
