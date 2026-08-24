@@ -79,7 +79,6 @@ fi
 while IFS= read -r gm; do
   rel="${gm#"$REPO/"}"
   while IFS= read -r dep; do
-    [[ -z "$dep" ]] && continue
     details+=("CHECK4_DEP: $rel: $dep")
   done < <(grep -E '\bk8s\.io/' "$gm" 2>/dev/null \
     | grep -v 'sigs\.k8s\.io/' || true)
