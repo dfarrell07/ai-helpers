@@ -27,7 +27,6 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
     [[ -z "$mod" || -z "$ver" ]] && continue
 
     if [[ -n "$TARGET" && "$ver" != "$TARGET" ]]; then
-      echo "  MISMATCH: $mod $ver (expected $TARGET)"
       details+=("MISMATCH: $mod_dir: $mod at $ver, expected $TARGET")
       inc NEW_ISSUES
     fi
