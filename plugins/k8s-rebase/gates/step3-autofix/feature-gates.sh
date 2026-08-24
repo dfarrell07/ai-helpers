@@ -23,7 +23,7 @@ if ! grep -q 'k8s.io/client-go' "$REPO/go.mod" 2>/dev/null; then
     fi
   done < <(find . -maxdepth 3 -name 'go.mod' \
     -not -path '*/vendor/*' -not -path '*/.claude/*' 2>/dev/null | LC_ALL=C sort)
-  [[ -n "$found_mod" ]] && PRIMARY_GOMOD_DIR=$(dirname "${found_mod#"$REPO/"}")
+  [[ -n "$found_mod" ]] && PRIMARY_GOMOD_DIR=$(dirname "${found_mod}")
 fi
 
 # Locate known_features.go early — needed for Layer 3 raw-key filtering below.
