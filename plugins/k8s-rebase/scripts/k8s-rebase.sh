@@ -636,7 +636,7 @@ done
 # Re-tidy modules that depend on sibling modules via replace directives
 for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*"); do
   mod_dir=$(dirname "$gomod" | sed 's|^\./||')
-  if grep -q '\.\./.*go-controller\|\.\./' "$gomod" 2>/dev/null; then
+  if grep -q '\.\./' "$gomod" 2>/dev/null; then
     banner "Phase 1: Re-tidy $mod_dir (replace directive sync)"
     (cd "$REPO_ROOT/$mod_dir" && go mod tidy) || info "WARNING: go mod tidy failed in $mod_dir — continuing"
     if [[ -n "$(git status --porcelain -- "$mod_dir")" ]]; then
