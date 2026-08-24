@@ -504,7 +504,7 @@ cmd_run() {
       for _rf in "$_running_dir"/*; do
         [[ -f "$_rf" ]] || continue
         local _run_sid=$(cut -f3 "$_rf" 2>/dev/null)
-        if [[ -z "$_run_sid" ]] || ! _session_alive "$_run_sid"; then
+        if ! _session_alive "$_run_sid"; then
           [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
           rm -f "$_rf"
         else
