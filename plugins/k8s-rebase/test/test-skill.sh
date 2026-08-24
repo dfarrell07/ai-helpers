@@ -1049,7 +1049,6 @@ _do_record_one() {
   result_branch="$_WT_BRANCH" wt_path="$_WT_PATH"
   [[ -n "$wt_path" && ! -d "$wt_path" ]] && { git -C "$repo" worktree prune 2>/dev/null; }
   if [[ -z "$result_branch" ]]; then
-    local _bp='bump'
     _bp="bump${_rec_version%.*}"
     result_branch=$(LC_ALL=C git -C "$repo" branch --no-color | grep "$_bp" | sed 's/^[* +]*//' | sort -V | tail -1)
   fi
