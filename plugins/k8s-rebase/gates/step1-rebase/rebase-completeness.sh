@@ -28,7 +28,6 @@ fi
 # modifications — go mod tidy may update files on disk without staging them.
 uncommitted_count=0
 while IFS= read -r f; do
-  [[ -z "$f" ]] && continue
   details+=("CHECK2_UNCOMMITTED: $f")
   inc uncommitted_count
 done < <(git status --short 2>/dev/null \
