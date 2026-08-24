@@ -710,10 +710,6 @@ cmd_clean() {
     done < <(podman ps -a --filter status=exited --filter name=k8s-rebase --format '{{.ID}}' 2>/dev/null)
     [[ "$pruned" -gt 0 ]] && info "Pruned $pruned containers"
   fi
-  if [[ -d "$RESULTS_DIR" ]]; then
-    local old_mutated=$(find "$RESULTS_DIR" -maxdepth 1 -name 'mutated-*' -type d 2>/dev/null | wc -l)
-    [[ "$old_mutated" -gt 0 ]] && { rm -rf "$RESULTS_DIR"/mutated-* 2>/dev/null; info "Cleaned $old_mutated mutated dirs"; }
-  fi
   for _ck in "${cleaned_keys[@]}"; do
     if [[ -n "$version" ]]; then
       rm -f "$state_dir/done/${version}_"*"_${_ck}" 2>/dev/null
