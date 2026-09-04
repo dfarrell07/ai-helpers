@@ -1,17 +1,10 @@
-Inspect branch commits and the branch diff to identify manual fix commits.
-
-Step 1 — list commit subjects and bodies above the merge base:
-  git log --format="%H %s" $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
-  git log --format="%H%n%B%n---END---" $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
-  (Run the second command to get full commit bodies — required for classification.)
-
-Step 2 — read the aggregate diff:
-  git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
-
-Classify each commit as manual or autofix using the commit BODY (not the diff):
-- Autofix commits contain "Applied:" trailers in the body, OR have script-generated
-  subjects (deps:, codegen:, ci:, test:, docs:) from the rebase or autofix scripts.
-- Manual fix commits: body lacks "Applied:" AND subject does not match autofix patterns.
+Read the branch diff (git diff of merge-base..HEAD). Identify
+manual fix commits — those that do NOT have "Applied:" in the
+commit body AND are not known autofix infrastructure commits
+(license regeneration, post-vet cleanup, import reordering).
+Autofix commits contain "Applied:" trailers; commits matching
+script-generated subjects (deps:, codegen:, ci:, test:, docs:)
+from the rebase or autofix scripts are also not manual work.
 
 For each manual fix commit, classify the change:
 - ONE-OFF: affects a single file with project-specific logic
