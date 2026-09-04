@@ -20,12 +20,19 @@ to ensure nothing was missed.
 
 If evidence is stale or absent, run the manual checks below for
 each CRD schema file in the repository.
+
+Before any manual comparison, initialize and validate BASE:
+  BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master 2>/dev/null)
+  if [ -z "$BASE" ]; then
+    write SKIP — "no merge base; CRD comparison impossible without a base ref"
+    # Do not proceed. Never PASS on a self-comparison.
+  fi
+
 Find CRD files: `find . -name '*.yaml' -not -path '*/vendor/*' | xargs grep -l 'kind: CustomResourceDefinition' 2>/dev/null`
 For each CRD, compare `git show $BASE:<path>` against the working copy and
 flag any newly removed or weakened validation constraint (deleted pattern,
 format, minimum/maximum, enum, or required entries, or relaxed values).
-If $BASE is empty, do not compare — defer without a self-comparison; never
-PASS on a self-comparison. Never PASS on unexamined output.
+Never PASS on unexamined output.
 
 For each CRD the evidence marked "CHANGED-VALIDATION" or "ALL-NEW"
 (or found manually when evidence is absent):

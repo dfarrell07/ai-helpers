@@ -1741,7 +1741,7 @@ footer a { color: var(--primary); }
     {
       "name": "k8s-rebase",
       "description": "Automate Kubernetes dependency rebases for Go projects that consume k8s.io/* packages. Scans go.mod, derives version bumps, runs codegen, updates version references, and guides agent-driven fixups with antagonistic review.",
-      "version": "0.3.0",
+      "version": "0.3.1",
       "has_readme": true,
       "commands": [],
       "skills": [
@@ -1757,7 +1757,7 @@ footer a { color: var(--primary); }
         {
           "event_type": "PreToolUse",
           "matcher": "Bash",
-          "hooks_json": "[\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/block-module-ops.sh\",\n    \"type\": \"command\"\n  },\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/block-push.sh\",\n    \"type\": \"command\"\n  }\n]"
+          "hooks_json": "[\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/block-module-ops.sh\",\n    \"type\": \"command\"\n  },\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/block-push.sh\",\n    \"type\": \"command\"\n  },\n  {\n    \"command\": \"${CLAUDE_PLUGIN_ROOT}/hooks/block-prior-step-rm.sh\",\n    \"type\": \"command\"\n  }\n]"
         },
         {
           "event_type": "PreToolUse",

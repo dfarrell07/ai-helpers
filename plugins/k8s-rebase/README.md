@@ -69,7 +69,7 @@ rebase so the rebase is cleanly bisectable.
 | `scripts/k8s-rebase-review-prompt.md` | Prompt template used by the antagonistic review script |
 | `scripts/gate-script-lib.sh` | Shared library for gate companion scripts |
 | `scripts/write-gate-report.sh` | Structured gate pass/fail report writer |
-| `gates/step{1,2,3,4}-*/*.md` | Subagent verification prompts (33 files) |
+| `gates/step{1,2,3,4}-*/*.md` | Subagent verification prompts (32 files) |
 | `docs/k8s-rebase-patterns.md` | Breakage patterns for k8s rebases |
 
 ## Tested against

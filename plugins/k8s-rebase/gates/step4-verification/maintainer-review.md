@@ -1,7 +1,14 @@
-Review the full branch diff as a maintainer would. Does every
-change serve the k8s version bump, or are there unrelated
-cleanups, style changes, or logic alterations? Would a
-maintainer approve this diff as-is?
+Review the branch as a maintainer would. Does every change serve the k8s
+version bump, or are there unrelated cleanups, style changes, or logic alterations?
+
+Step 1 — read the commit history (subjects AND bodies — both are required):
+  git log --format="%H%n%s%n%b%n---END---" $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
+
+  Use the commit bodies to verify: are commit messages accurate? Do they match the diff?
+  Individual commits map changes to SHAs — needed for citing evidence in any FAIL finding.
+
+Step 2 — read the aggregate diff:
+  git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
 
 Check:
 - Are commits well-scoped (one concern per commit)?
@@ -29,7 +36,7 @@ suppressed via `.golangci.yml` (exclude-functions, exclude-rules, or
 linter settings). The config is the right place; inline annotations are
 for rare, targeted, one-off exceptions that can't be expressed in config.
 Check:
-  `git diff <merge-base>..HEAD | grep '^\+.*//nolint:'`
+  `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD | grep '^\+.*//nolint:'`
 For each hit, verify the suppressed linter is NOT already covered by
 `.golangci.yml`. If it is — FAIL. If the annotation is genuinely
 site-specific with no config equivalent — INFO only.
@@ -41,7 +48,7 @@ exists. If vendor/ does not exist in the repo, run
 confirms a replacement exists — FAIL; if go doc is inconclusive or the
 package is unavailable, note the check as unverifiable in DETAILS and do
 not FAIL. If vendor/ exists, use these steps:
-  1. Find the new nolint lines: `git diff <base>..HEAD | grep '^\+.*//nolint:staticcheck'`
+  1. Find the new nolint lines: `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD | grep '^\+.*//nolint:staticcheck'`
   2. For each, look at the suppressed call on the same or adjacent line.
   3. Identify the package: find the import path in the file's import block.
   4. Locate the deprecation notice: `grep -rn 'Deprecated' vendor/<import-path>/`
