@@ -13,20 +13,19 @@ harness-visible footing as `plugins/ci`, `plugins/code-review`,
 the more rigorous test system k8s-rebase already has, and without
 overselling what a green eval run would actually prove.
 
-**Revision note**: this plan was reviewed twice against the real code
-(orchestrator, hooks, `cmd_run`, `cmd_court`, `k8s-rebase-autofix.sh`)
-and against design-quality concerns. Several parts of the first draft
-did not survive: item 1's execution model was wrong (assumed a
-synchronous single `claude -p` call; `cmd_run` actually backgrounds
-via `claude --bg`), one judge's pass condition was backwards (a
-correctly-blocked `git push` attempt produces hook-denial stderr, not
-silence), one fixture is already broken (a `known_good` fork branch
-404s today), and the fixture-reuse design as originally scoped risked
-being tautological — validating "does the skill still do what it was
-tuned to do" rather than "does it generalize," which is the same gap
-miheer already raised on the PR and this plan had not connected to
-that thread. All of this is corrected below; superseded content is
-not preserved separately since git history has it.
+**Revision note (round 2)**: this plan went through a second,
+4-way-parallel adversarial review (execution model, judge design,
+fixture/cost realism, harness/repo conventions) after the first
+revision. The first revision's own fix to the execution model was
+itself wrong — it invented an external bash reimplementation of the
+skill's step logic instead of just invoking the real skill. That is
+now corrected. Several other things were undiscovered until this
+round: an unspecified judge sitting next to a well-specified one, a
+circular judge, uncalibrated thresholds copy-pasted from an unrelated
+eval, a silently swapped model, a missing version-bump step, a wrong
+case-directory layout, and held-out fixture options that were weaker
+than claimed. All corrected below. Superseded content is not
+preserved separately; git history has both prior drafts.
 
 ---
 
@@ -35,15 +34,19 @@ not preserved separately since git history has it.
 `test/test-skill.sh` (2378 lines) is a hand-rolled eval system, built
 before this repo's `evals/` convention existed:
 
-- `test/config-{1.34,1.35,1.36}.yaml` — a real matrix: 6 repos
-  (ovn-org/ovn-kubernetes, ovn-kubernetes-mcp, multus-cni,
-  ingress-node-firewall, cloud-network-config-controller,
-  cluster-network-operator), each pinned to a `from_commit` (the
-  broken starting state) and a `known_good` branch/SHA (a real,
-  human-reviewed rebase PR to compare against).
+- `test/config-{1.34,1.35,1.36}.yaml` — a real matrix. `config-1.34.yaml`
+  has 3 repos (ovn-kubernetes, cloud-network-config-controller,
+  multus-cni); `config-1.35.yaml` has 5 (adds ovn-kubernetes-mcp,
+  cluster-network-operator); `config-1.36.yaml` has 6 (adds
+  ingress-node-firewall). Each entry pins a `from_commit` (the broken
+  starting state) and a `known_good` branch/SHA (a real,
+  human-reviewed rebase PR to compare against). This version-by-version
+  overlap matters for Item 6 below — most repos have already been run
+  at every version currently in the matrix.
 - `cmd_run` (test-skill.sh:484-601) launches the skill via
-  **`claude --bg`** (backgrounded/detached, not synchronous `-p`)
-  against a cloned repo reset to `from_commit`, then returns
+  **`claude --bg "/k8s-rebase:k8s-rebase <version>"`** — a single
+  backgrounded invocation of the real skill by its actual slash
+  command, against a cloned repo reset to `from_commit` — then returns
   immediately. Progress is polled later by `cmd_test`/`cmd_test_all`
   via `_session_alive` (checks the background process) and
   `_tally_gates` (reads `.rebase-tmp/gates/*.report`).
@@ -61,9 +64,12 @@ before this repo's `evals/` convention existed:
 - `k8s-rebase-autofix.sh`'s `fix_*` functions run in a **fixed,
   unconditional sequence** (each internally no-ops via its own
   pattern check if it doesn't apply) — not a symptom-keyed dispatch
-  table picked by grepping error text. This matters for Item 6 below:
-  every one of the 6 matrix repos already exercises the full set of
-  currently-known fix functions.
+  table picked by grepping error text. This matters for Item 6: every
+  matrix repo already exercises the full set of currently-known fix
+  functions.
+- `test/config-1.36.yaml:34` pins `model: claude-sonnet-4-6` as the
+  model the 6-repo PASS validation cited in the PR description
+  actually used. This matters for Item 2's `models` block below.
 
 **What's missing**: cost (`total_cost_usd`), token counts, wall-clock
 duration, model identity — captured nowhere. And none of this is
@@ -72,99 +78,111 @@ coverage, which is exactly what triggered the PR feedback.
 
 **Why not just rewrite test-skill.sh as eval.yaml**: the agent-eval-harness
 `case` execution mode is built for single-shot, sub-few-minutes agent
-invocations judged against one output artifact. A full k8s-rebase run is
-a multi-hour, multi-invocation state machine driving a real git repo
-through 32 gates with hooks blocking `go mod`/`git push`. Forcing that
-into a single `case` invocation doesn't fit the model. The harness's
-`runner.type: cli` mode is designed for exactly this instead: it shells
-out to an arbitrary script and just consumes whatever output/metrics
-files that script produces. `plugins/openshift-developer/evals/eval-solve.yaml`
-+ `scripts/run-solve.sh` prove the pattern works for a multi-phase,
-real-repo, real-git-commit agentic pipeline — but note that
-`run-solve.sh`'s phases are each a short **synchronous** `claude -p`
-call (minutes, not hours per phase); k8s-rebase's per-step work can
-run far longer (see Item 4), so the wrapper is modeled on
-`run-solve.sh`'s *shape* (per-phase invocation + `jq`-summed cost),
-not copied as-is.
+invocations judged against one output artifact. A full k8s-rebase run
+is a multi-hour, multi-invocation state machine driving a real git
+repo through 32 gates with hooks blocking `go mod`/`git push`. The
+harness's `runner.type: cli` mode fits this instead: it shells out to
+an arbitrary script and consumes whatever output/metrics files that
+script produces — it does not require the *skill invocation itself*
+to be single-shot, only the outer script's contract with the harness
+to be. `plugins/openshift-developer/evals/eval-solve.yaml` +
+`scripts/run-solve.sh` prove this pattern works for a multi-phase,
+real-repo, real-git-commit agentic pipeline; k8s-rebase's wrapper
+follows the same shape but invokes the skill once, not per-phase (see
+Item 1 — this is the corrected part of this revision).
 
 ---
 
 ## Blocking prerequisites (resolve before writing the "real" yaml)
 
-These were Open Questions in the first draft. Two of them are load-bearing
-enough that getting them wrong invalidates Items 1-3 outright, not just
-the numbers in them — they are sequenced first, not left as footnotes.
+Three of these are load-bearing enough that getting them wrong
+invalidates Items 1-3 outright, not just the numbers in them.
 
-### P1. Confirm subagent cost aggregation, and pick a real execution model
+### P1. Execution model: invoke the real skill once, not a bash reimplementation of it
 
-Confirmed via research: Claude Code's `total_cost_usd` in a
-`stream-json` session's final `result` event aggregates cost from
-Agent/Task-tool-launched subagents in the same session, since they
-run as part of the same billing session. This holds for k8s-rebase's
-step subagents specifically, since `SKILL.md`'s "Execute Current
-Step" launches each step via the `Agent` tool (not a nested `claude`
-CLI process, which would be a separate untracked billing session).
-The gate-subagent fallback path in `rules.md` ("If you cannot launch
-subagents, run the gate checks inline") also stays in-session, so it
-doesn't break this either.
+**This is corrected from the prior revision, which got it wrong.**
+The prior fix rejected a single `claude -p` call and proposed instead
+that `run-rebase.sh` itself loop over steps, hand-assembling each
+step's prompt from "step file instructions + rules.md + repo context"
+and mechanically branching on the orchestrator's exit codes in bash.
 
-What does **not** hold is the first draft's assumption that the whole
-rebase can be driven by one synchronous `claude -p ... --output-format
-stream-json` call. `cmd_run` — the only validated way this skill has
-ever been run end-to-end across 6 repos — uses `claude --bg`
-(backgrounded), polled via gate-report tallying and session-alive
-checks, specifically because a single non-interactive process risks
-exceeding turn/context budgets across a multi-hour run with real
-compilation breakage and multiple 3-iteration gate-fix loops per gate
-(up to 32 gates). `rules.md`'s own "Context budget" and "Stay active"
-rules exist because the skill's authors already know single-session
-context is scarce over a run this long.
+That is not a wrapper around the skill — it's an external
+reimplementation of what `SKILL.md` tells an *agent* to do
+(`SKILL.md`'s "Execute Current Step" section: read `rules.md`, read
+the step file, launch an Agent with that content, interpret
+`advance`'s exit code, run a judgment-driven gate-fix loop on FAIL,
+decide whether a `FORCE_ADVANCE` warning needs surfacing). Turning
+those into bash conditionals discards exactly the judgment that
+constitutes the skill's actual behavior — deciding *how* to fix a
+gate failure, triaging false positives, deciding what's in scope for
+a step. A wrapper built this way tests "does bash correctly parse
+orchestrator exit codes," not "does k8s-rebase work." It would also
+silently diverge from what real users invoke (`/k8s-rebase 1.36.0`),
+since it never goes through the skill/slash-command layer at all.
 
-**Decision**: `run-rebase.sh` invokes `claude -p` **once per
-orchestrator step** (mirroring `run-solve.sh`'s per-phase pattern,
-not one monolithic call), driven by the same `bootstrap -> execute
-step -> advance -> repeat` loop `SKILL.md` already documents, and
-sums `total_cost_usd`/tokens across all step invocations via `jq -s`
-exactly as `run-solve.sh` sums its 3 phases into `total-cost.json`.
-This changes the skill's validated execution path from
-"one backgrounded session" to "N synchronous per-step sessions
-driven by the wrapper script" — that is a real behavioral difference
-from `cmd_run`, not just an instrumentation wrapper around it, and
-should be explicitly flagged as such when this plan is discussed:
-the eval is now exercising a *slightly different* invocation pattern
-than the one tested across the 6 repos in the PR description. If
-that divergence turns out to matter (e.g. per-step invocation loses
-some conversational context `--bg` mode would have kept across
-steps — unlikely, since `SKILL.md` already says each step gets "a
-fresh agent context" from the orchestrator's boot loader, but not
-yet confirmed), fall back to option (b): keep `claude --bg` and
-extract cost post-hoc from Claude Code's persisted session
-transcript once the background session completes, rather than from
-a live stream-json pipe. Try (a) first; only reach for (b) if a real
-run shows step-to-step context loss.
+**Corrected decision**: `run-rebase.sh` invokes the real skill by its
+actual slash command, **once per case**, exactly mirroring `cmd_run`'s
+pattern but synchronous instead of backgrounded:
+
+```bash
+claude -p "/k8s-rebase:k8s-rebase <version>" \
+  --output-format stream-json \
+  --max-turns <N> \
+  --model "$SKILL_MODEL" \
+  2>"$OUTPUT_DIR/session-stderr.log" \
+  | tee "$OUTPUT_DIR/session-output.json"
+```
+
+Confirmed via `claude -p --help`: skills resolve via `/skill-name` in
+print mode exactly as they do in `--bg` mode, and `--output-format
+stream-json` is a print-mode flag — so this is directly available.
+This lets `SKILL.md`'s own orchestration (its own Agent-tool subagent
+launches per step, its own gate-fix judgment, its own advance-loop
+interpretation) run inside one session, same as `cmd_run` already
+does, just capturable synchronously instead of needing to poll a
+background process.
+
+The turn/context-exhaustion concern that motivated the (wrong) per-step
+split in the prior revision is real, but it's a `--max-turns`/timeout
+calibration problem (Item 4's job), not a reason to bypass the skill's
+own orchestration — `--bg` mode faces an identical context-accumulation
+risk per invocation; backgrounding only affects whether the terminal
+can disconnect, not how much context a single skill invocation
+consumes. Calibrate `--max-turns` generously (Item 4) rather than
+decomposing the invocation.
+
+Subagent cost aggregation is confirmed separately: `total_cost_usd` in
+`stream-json`'s final `result` event aggregates cost from
+Agent/Task-tool-launched subagents in the same session (they share the
+billing session), which covers every step subagent `SKILL.md` launches,
+including the gate-subagent inline fallback path in `rules.md`.
 
 ### P2. Fix the `dfarrell07/cloud-network-config-controller` fixture now, not later
 
 `https://github.com/dfarrell07/cloud-network-config-controller`
 branch `bump1.36` returns 404 today — confirmed directly via `gh api`.
-This is a **live blocker**, not a future risk to "consider." Item 3
-cannot ship a case for this repo until one of:
+This is a **live blocker**. Item 3 cannot ship a case for this repo
+until one of:
 - the branch is restored/re-pushed under whatever ref it actually
   lives at now, or
 - it's repointed at a different `known_good` commit/branch, or
 - it's dropped from the initial case set (5 cases instead of 6) with
   a tracked follow-up to add it back.
 
-Do not let this surface as a silent case failure during a first eval
-run — check all 6 `known_good` refs (not just this one) before
-writing `evals/cases/k8s-rebase/*/input.yaml`, since fork branches
-under a personal account are inherently less durable than upstream
-refs. Confirmed still live as of this review: `dfarrell07/ovn-kubernetes-mcp`
-branch `bump1.36-20260717052952`, `dfarrell07/multus-cni` branch
-`bump1.36`. Re-verify the remaining refs (`ovn-org/ovn-kubernetes`,
-`openshift/ingress-node-firewall`, `openshift/cluster-network-operator`
-— these use upstream SHAs/branches, not personal forks, so lower risk)
-before treating the full 6-case set as ready.
+The other 5 `known_good` refs are confirmed resolvable today (checked
+directly, not assumed): `dfarrell07/ovn-kubernetes-mcp` branch
+`bump1.36-20260717052952` and `dfarrell07/multus-cni` branch
+`bump1.36` both exist; `ovn-org/ovn-kubernetes` commit
+`af1d95ca97f9237e27d4c78fb8691946fa5cab73`, `openshift/ingress-node-firewall`
+commit `577523c2bfd6ccb52f9fa7fa87bbb9034035c631`, and
+`openshift/cluster-network-operator` commit
+`aab9941e9517d22ee552d7b171de3b5cd463c341` all resolve via `gh api`
+(bare SHAs on org-owned upstream repos, not personal-fork branches —
+meaningfully more durable than a fork branch, though not risk-free
+forever: an unreferenced commit on an upstream repo can eventually be
+garbage-collected if no branch/tag keeps it reachable, so "lower risk"
+is directionally right, not "no risk"). Re-verify all 5 again
+immediately before writing case files, since this can change.
 
 ### P3. Confirm what, if anything, actually runs `evals/*.yaml` in this repo
 
@@ -172,32 +190,26 @@ No Makefile target or CI workflow in this repo currently invokes any
 existing `eval-*.yaml` automatically — `CONTRIBUTING.md` only notes
 `evals/` is a protected directory requiring admin approval to modify.
 No cron/schedule mechanism exists in any eval config found in this
-repo (checked directly, not assumed). This means writing
-`eval-k8s-rebase.yaml` produces a file that *looks* like it satisfies
-the marketplace convention, but if nothing runs it, it doesn't
-actually answer enxebre's question in substance — it answers it in
-form only.
+repo (checked directly). This means writing `eval-k8s-rebase.yaml`
+produces a file that *looks* like it satisfies the marketplace
+convention, but if nothing runs it automatically, it doesn't fully
+answer enxebre's question — it answers it in form, not necessarily in
+practice.
 
-**This must be resolved, and the answer stated plainly to enxebre,
-before or alongside proposing Item 2 as complete**: either (a)
-confirm a manual-trigger convention exists (how a human runs it —
-exact command, prerequisites, expected wait, likely by analogy to
-however `eval-solve.yaml` or `trt-agentic-solve` are actually invoked
-today — track this down by asking a maintainer or checking harness
-docs/tooling directly rather than assuming), or (b) own explicitly
-that this is a manually-invoked, no-fixed-cadence artifact, the same
-as `make court` is today, and say so rather than imply CI integration
-that doesn't exist.
+**Resolve this, and state the answer plainly to enxebre, before or
+alongside proposing Item 2 as complete**: either (a) confirm a
+manual-trigger convention exists (exact command, prerequisites,
+expected wait — ask a maintainer or check harness docs/tooling
+directly rather than assuming), or (b) own explicitly that this is a
+manually-invoked, no-fixed-cadence artifact, the same as `make court`
+is today.
 
 ---
 
-## 1. `run-rebase.sh` wrapper: per-step invocation + cost capture — HIGH VALUE
+## 1. `run-rebase.sh` wrapper: single real-skill invocation + cost capture — HIGH VALUE
 
 **What**: Add `plugins/k8s-rebase/evals/scripts/run-rebase.sh`. Per
-P1's decision, it drives the skill through the same
-bootstrap/execute-step/advance loop `SKILL.md` documents, but via
-sequential synchronous `claude -p` calls (one per step) instead of
-`cmd_run`'s single backgrounded session:
+P1's corrected decision:
 
 ```bash
 extract_tokens() {
@@ -212,62 +224,79 @@ extract_tokens() {
 }
 ```
 
-1. Bootstrap: run the orchestrator `init` command directly (shell,
-   not an LLM call — matches `SKILL.md`'s Bootstrap section, which is
-   pure bash today).
-2. Loop: for the current step, launch `claude -p "<step file
-   instructions + rules.md + repo context>" --output-format
-   stream-json --max-turns <N>`, capture that step's `stream-json`
-   output to `step<N>-output.json`, extract tokens/cost via the
-   helper above, then run `k8s-rebase-orchestrator.sh advance` exactly
-   as `SKILL.md` describes (exit 0 → next step, exit 1 → gate-fix loop
-   within the same step's `claude -p` call before re-advancing, exit 2
-   with `FORCE_ADVANCE` → record it and continue, exit 2 with `ERROR`
-   → abort the case as a hard failure).
-3. After `DONE: all steps complete`, run `step5-pr.md`'s instructions
-   the same way, capturing its own `stream-json` output.
-4. Sum all step-cost JSON files via `jq -s` (matching
-   `run-solve.sh`'s `total-cost.json` pattern) into
-   `.rebase-tmp/eval-metrics.json`.
-5. Copy `.rebase-tmp/gates/*.report` into the harness's expected
-   `output/gate-reports/` alongside the diff/commit-log artifacts
-   `eval-k8s-rebase.yaml` (Item 2) expects.
+1. Clone the target repo, reset to `from_commit`.
+2. Invoke the real skill once: `claude -p "/k8s-rebase:k8s-rebase
+   <version>" --output-format stream-json --max-turns <N> --model
+   "$SKILL_MODEL"`, capturing to `session-output.json`.
+3. Extract cost/tokens via the helper above into
+   `session-tokens.json` (single file now, not per-step — this
+   collapses the prior revision's `step<N>-output.json`/
+   `step<N>-tokens.json` design, which no longer applies since there's
+   one invocation, not N).
+4. Copy `.rebase-tmp/gates/*.report` into `output/gate-reports/`.
+5. Compute `gate-retry-counts.json` from gate-report regeneration
+   history visible in git (each Gate-Fix Loop iteration deletes and
+   re-creates a report per `rules.md`'s Gate-Fix Loop step 4 — count
+   distinct commits touching each report path via `git log --follow`
+   on `.rebase-tmp/gates/<name>.report` within the run, or, simpler,
+   have `run-rebase.sh` snapshot report mtimes/hashes at each
+   `advance` poll if polling proves easier than git-log archaeology —
+   pick whichever is more reliable once Item 1 is actually written,
+   this is an implementation detail, not a design commitment).
+6. Capture `diff.patch`, `files-changed.txt`, `commit-log.txt` against
+   `from_commit`, and `known-good.patch` (`known_good` vs
+   `from_commit`) for judge comparison.
+7. Build `push-attempt.log`: search the full transcript for any
+   `git push`/`gh pr create` invocation; if found, confirm the
+   `block-push.sh` hook's actual denial message (read the hook script
+   directly to get the exact string, don't guess it) appears
+   immediately after.
 
 **Why**: this is the literal, minimal fix for what enxebre flagged,
-while being honest about the fact that it changes the skill's
-invocation pattern from backgrounded to per-step-synchronous (see
-P1). It requires no changes to `test-skill.sh`'s existing logic and
-no risk to the court/jury system — it's a new, parallel driver script,
-not a modification of `cmd_run`.
+using the skill exactly as real users and `cmd_run` already do —
+synchronous instead of backgrounded, so its cost/tokens are directly
+capturable, but not otherwise behaviorally different. It requires no
+changes to `test-skill.sh`'s existing logic and no risk to the
+court/jury system — it's a new, parallel driver script.
 
 **Implementation**: `run-rebase.sh <repo_url> <from_commit> <version>
-[model]`, called by `eval.yaml`'s `runner.type: cli`. Depends on P1
-being settled (execution model) before writing this for real.
+[model]`, called by `eval.yaml`'s `runner.type: cli`. Depends on
+Item 4's calibrated `--max-turns`/timeout values to avoid truncating a
+real run.
 
 ---
 
-## 2. `evals/eval-k8s-rebase.yaml` — HIGH VALUE
+## 2. `evals/eval-k8s-rebase-pattern-retention.yaml` — HIGH VALUE
 
-**What**: The harness-visible entry point, structured like
-`eval-solve.yaml`:
+**Name change from the prior revision**: this eval is named
+`k8s-rebase-pattern-retention` (not the generic `k8s-rebase-eval`), so
+that a dashboard entry, an mlflow experiment name, or a casual mention
+of "the k8s-rebase eval" cannot be misread as validating something it
+doesn't. A green run here means "the skill still correctly applies
+already-known fixes," not "the skill is validated" or "the skill
+generalizes to new breakage" — see Item 6. This scope-signal must ship
+with Items 1-5, not be deferred to whenever Item 6's held-out case
+lands; a prose caveat in a plan document does not survive past this
+conversation the way a dashboard entry's own name does.
 
 ```yaml
-name: k8s-rebase-eval
+name: k8s-rebase-pattern-retention-eval
 description: >
-  End-to-end eval of the k8s-rebase skill. Runs a full dependency
-  rebase against a real repo snapshot, judges gate pass rate,
-  gate-fix efficiency, and diff correctness against a human-reviewed
-  known-good rebase. Validates pattern-retention (does the skill
-  still correctly apply already-encoded fixes), NOT generalization
-  to novel, unencoded breakage — see plans/agent-eval-harness.md
-  Item 6 for the complementary held-out design that addresses that.
+  Pattern-retention eval of the k8s-rebase skill: runs a full
+  dependency rebase against a real repo snapshot the skill's autofix
+  patterns were already tuned against, and checks the skill still
+  applies them correctly (regression detection). This does NOT
+  validate generalization to novel, un-encoded breakage — see
+  evals/README.md and plans/agent-eval-harness.md Item 6 for the
+  separate, not-yet-shipped held-out design that addresses that gap,
+  which is the same one miheer raised on PR #617.
 skill: k8s-rebase:k8s-rebase
 
 execution:
   mode: case
   arguments: "{repo_url} {from_commit} {version}"
-  timeout: 21600           # 6h — see Item 4; calibrate before trusting this number
-  max_budget_usd: 60.0     # placeholder; see Item 4, likely still low
+  timeout: <SET BY ITEM 4 CALIBRATION — placeholder only, do not trust>
+  max_budget_usd: <SET BY ITEM 4 CALIBRATION — placeholder only, do not trust>
   env:
     AI_HELPERS_DIR: "$PWD"
 
@@ -284,14 +313,23 @@ runner:
     - "{model}"
 
 models:
-  skill: claude-opus-4-6
+  # Deliberately matches test/config-1.36.yaml's model, NOT copied
+  # from eval-solve.yaml's opus default — the skill's only real
+  # validation (the 6-repo PASS results cited in the PR description)
+  # used sonnet-4-6. An eval that silently swaps to a different,
+  # possibly more capable model would show results that don't reflect
+  # what the skill was actually proven to do. If evaluating under
+  # opus is later wanted as a deliberate "does a stronger model make
+  # this easier" question, do that as an explicit second eval variant
+  # with its own name, not a silent default change here.
+  skill: claude-sonnet-4-6
   judge: claude-opus-4-6
 
 mlflow:
-  experiment: k8s-rebase-eval
+  experiment: k8s-rebase-pattern-retention-eval
 
 dataset:
-  path: cases/k8s-rebase
+  path: cases/pattern-retention
   schema: |
     Each case directory contains:
     - input.yaml:
@@ -300,36 +338,37 @@ dataset:
       - 'version' — target k8s version (e.g. 1.36.2)
       - 'known_good' — branch/SHA of the human-reviewed reference rebase
     - annotations.yaml:
-      - 'expected_gates_pass': integer (e.g. 28)
-      - 'expected_gates_total': integer (e.g. 32)
+      - 'expected_gates_total': integer (e.g. 32) — used only to sanity-check
+        gate-reports/ coverage, NOT to derive a partial-credit pass count
+        (see the dropped gate_pass_rate_meets_expected judge below)
       - 'known_repo_difficulty': simple|medium|complex
-      - 'held_out': boolean — true if this case was NOT used to
-        develop/tune the autofix patterns (see Item 6); judges and
-        report readers should weight held_out cases as the real
-        generalization signal, not the tuned-fixture cases
+      - 'held_out': boolean — always false for cases in this eval; a
+        future held_out:true case belongs in a SEPARATE eval.yaml (see
+        Item 6), not mixed into this one's dataset, so pattern-retention
+        and generalization results are never silently blended by the
+        harness's own reporting
       - 'notes': context for LLM judges (known tricky patterns for
-        this repo/version, and — for held_out cases — which specific
-        breakage is expected to require novel (not pre-encoded)
-        reasoning)
+        this repo/version)
 
 outputs:
   - path: "output"
     schema: |
-      Per-step (N = step number):
-        step<N>-output.json — raw stream-json for that step's claude -p call
-        step<N>-tokens.json — extracted cost/token metrics for that step
+      session-output.json — raw stream-json for the single skill invocation
+      session-tokens.json — extracted cost/token metrics
+      diff.patch, files-changed.txt, commit-log.txt — final rebase output
+      gate-reports/ — copy of .rebase-tmp/gates/*.report
+      gate-retry-counts.json — per-gate count of report regenerations
+        (see gate_fix_loop_efficiency judge)
+      known-good.patch — known_good vs from_commit, for judge comparison
+      push-attempt.log — evidence of any push/PR-create attempt and,
+        if present, confirmation the hook's actual denial text followed
+        (see pr_command_never_attempted_or_blocked judge)
 
-      Final state:
-        diff.patch, files-changed.txt, commit-log.txt — final rebase output
-        gate-reports/ — copy of .rebase-tmp/gates/*.report
-        gate-retry-counts.json — per-gate count of report regenerations
-          (see gate_fix_loop_efficiency judge below)
-        known-good.patch — known_good vs from_commit, for judge comparison
-        eval-metrics.json — summed total_cost_usd, duration_ms, num_turns,
-          model, across all step invocations
-        push-attempt.log — grep of all stderr for push/PR-create hook
-          denial or, if absent, explicit confirmation no attempt occurred
-          (see pr_command_never_attempted_or_blocked judge below)
+  # Note: this outputs.schema block is documentation for judge authors,
+  # not a harness-enforced contract — confirmed against run-solve.sh,
+  # which writes more files than eval-solve.yaml's schema enumerates.
+  # A script can write any file into $OUTPUT_DIR; judges just need to
+  # know where to look.
 
 traces:
   stdout: true
@@ -338,54 +377,63 @@ traces:
   metrics: true
 
 judges:
-  # ── deterministic ──
+  # ── deterministic, hard safety invariants — see Item 7 for
+  #    N-repeat aggregation policy: these require N/N across repeats,
+  #    never an averaged rate ──
 
   - name: all_gates_resolved
     description: Every gate report is PASS or SKIP; none PENDING or FAIL at run end
     check: |
       # parse outputs["files"]/["modified_files"] for gate-reports/*.report,
-      # assert every file's VERDICT line is PASS or SKIP
-
-  - name: gate_pass_rate_meets_expected
-    description: Gate pass count meets annotations.expected_gates_pass
-    check: |
-      # count PASS verdicts across gate-reports/*.report, compare to
-      # annotations["expected_gates_pass"]
+      # assert every file's VERDICT line is PASS or SKIP.
+      # This alone already implies 100% of non-SKIP gates PASS, by
+      # construction of the orchestrator's advance-blocking behavior —
+      # there is no partial-credit state for a *completed* run to be
+      # in between "all resolved" and "some still failing." (This is
+      # why gate_pass_rate_meets_expected, present in the prior
+      # revision, is dropped below — it was redundant with this judge
+      # and, worse, circular: the only way to fill in its
+      # expected_gates_pass annotation is by watching what the skill
+      # already produced on a prior run.)
 
   - name: no_forced_advance
     description: Orchestrator never emitted FORCE_ADVANCE during the run
     check: |
-      # grep all step<N>-output.json / stdout traces for the literal
+      # grep session-output.json / stdout traces for the literal
       # string "FORCE_ADVANCE" — must not appear
 
   - name: pr_command_never_attempted_or_blocked
     description: >
       Either no git push / gh pr create was attempted, or it was
-      attempted and the block-push.sh hook's denial message is present
-      immediately after — a hook block produces denial text in stderr,
-      NOT silence, so "clean stderr" alone does not distinguish
-      "correctly blocked" from "never got far enough to try."
+      attempted and hooks/block-push.sh's actual denial message is
+      present immediately after — a hook block produces denial text
+      in stderr, NOT silence, so "clean stderr" alone does not
+      distinguish "correctly blocked" from "never got far enough to
+      try." Read hooks/block-push.sh directly to get its exact message
+      text before writing this check — don't guess the string.
     check: |
       # search push-attempt.log for either (a) no push/pr-create
       # invocation anywhere in the transcript, or (b) an invocation
-      # immediately followed by the hook's actual denial string —
-      # read hooks/block-push.sh directly to get its exact message
-      # text before writing this check, don't guess the string
+      # immediately followed by the hook's real denial string
+
+  # ── deterministic, informational (no threshold — see Item 7) ──
 
   - name: gate_fix_loop_efficiency
     description: >
-      Surfaces retry cost as a distinct signal from pass/fail — a gate
-      that passes clean and a gate that passes after 3 retries on a
+      Surfaces retry cost as a signal distinct from pass/fail — a gate
+      that passes clean and one that passes after 3 retries on a
       false-positive FAIL look identical to the judges above without
-      this. Not a hard gate (no threshold below), reported for
-      trend-tracking.
+      this.
     check: |
       # read gate-retry-counts.json, report per-gate retry counts;
-      # no pass/fail verdict, this judge is informational
+      # informational only, no pass/fail verdict
 
-  # ── LLM, adapted from cmd_court's rubric — see Item 5's caveat
-  #    about the rigor this necessarily gives up relative to court's
-  #    3-juror + judge + evidence-citation design ──
+  # ── LLM, adapted from cmd_court's rubric and rules.md's Scope
+  #    section — see Item 5's caveat for rebase_correctness, and note
+  #    no_scope_creep below is now given the same evidence-citation
+  #    treatment (the prior revision left it as an unspecified
+  #    placeholder despite rules.md's Scope section being, if
+  #    anything, MORE concretely checkable than court's own rubric) ──
 
   - name: rebase_correctness
     description: >
@@ -397,54 +445,91 @@ judges:
     prompt: |
       <cmd_court's PASS/FAIL criteria text (test-skill.sh:1338-1398),
       adapted to {{ outputs }}, including the REBASE-SCOPE CHECK and
-      EVIDENCE CONSTRAINT language verbatim — those constraints matter
-      even in a single-judge context>
+      EVIDENCE CONSTRAINT language verbatim>
 
   - name: no_scope_creep
-    description: Changes are directly required by the version bump
+    description: >
+      Every changed hunk must be directly required by the k8s version
+      bump (rules.md Scope section). WEAKER than a full audit: single
+      LLM pass, no independent verification — treat a low score as
+      "audit the diff by hand," not as a verdict.
     prompt: |
-      <rules.md's Scope section, turned into a judge>
+      You are checking a k8s dependency rebase diff for scope creep,
+      per this project's rule: "Every change must be directly required
+      by the k8s version bump. Does build, vet, or lint fail without
+      it? If not, do not make the change."
+
+      For "diff.patch" in {{ outputs }}, examine each changed hunk.
+      For EVERY hunk, cite the file:line and state one of:
+      - REQUIRED: <specific build/vet/lint error this fixes, quoted
+        from session-output.json if available>
+      - VIOLATION: <what forbidden category — refactor, struct-tag
+        addition, interface rename, package restructuring, unnecessary
+        DeepEqual/selector swap, or unrelated file touched while
+        compiling clean>
+      Do not summarize without listing hunks. "Looks fine" without a
+      per-hunk citation is not acceptable output.
+
+      {{ annotations }}
+
+      Score 1: Multiple VIOLATION hunks, no build/vet justification cited.
+      Score 2: At least one clear VIOLATION hunk (e.g. touches a file
+               that compiles clean pre-bump).
+      Score 3: All hunks REQUIRED but citations are weak/generic.
+      Score 4: All hunks REQUIRED with specific, verifiable error citations.
+      Score 5: All hunks REQUIRED, citations specific, and includes
+               base-branch verification (git show merge-base) for any
+               hunk that could plausibly be pre-existing.
 
 thresholds:
+  # All threshold values below are placeholders pending Item 4's
+  # SCORE calibration (not just cost/timeout) — see Item 4. Do not
+  # trust these numbers until a known-good historical diff and a
+  # deliberately-bad synthetic diff have both been scored under these
+  # exact judge prompts and the thresholds set from that observed
+  # range, not copied from eval-solve.yaml (a different task with a
+  # different rubric — the prior revision's 3.5/4.0/0.9 numbers were
+  # exactly this mistake: 3.5 copy-pasted from eval-solve.yaml's
+  # solution_correctness/code_quality thresholds verbatim, 4.0
+  # invented with no derivation, 0.9 inconsistent even with
+  # eval-solve.yaml's own nearest analogue at 0.8).
   all_gates_resolved: { min_pass_rate: 1.0 }
   no_forced_advance: { min_pass_rate: 1.0 }
   pr_command_never_attempted_or_blocked: { min_pass_rate: 1.0 }
-  gate_pass_rate_meets_expected: { min_pass_rate: 0.9 }
-  rebase_correctness: { min_mean: 3.5 }
-  no_scope_creep: { min_mean: 4.0 }
+  rebase_correctness: { min_mean: <SET BY ITEM 4 SCORE CALIBRATION> }
+  no_scope_creep: { min_mean: <SET BY ITEM 4 SCORE CALIBRATION> }
   # gate_fix_loop_efficiency: no threshold — informational only
 ```
 
-**Why**: matches the repo convention exactly. The deterministic
-judges encode the skill's hard safety invariants (no forced-advance
-degradation, no successful unblocked push) as harness-visible facts.
-`gate_fix_loop_efficiency` closes the gap where cost/turns/pass-rate
-alone can't distinguish a clean pass from a thrashy one. The
-`pr_command_never_attempted_or_blocked` judge's logic is corrected
-from the first draft, which had it backwards (see Blocking
-Prerequisites intro and the judge's own description).
+**Why**: matches the repo convention. The deterministic judges encode
+the skill's hard safety invariants as harness-visible facts. The
+`gate_pass_rate_meets_expected` judge from the prior revision is
+dropped: it was circular (its only source of an `expected_gates_pass`
+number is watching the skill's own prior output) and redundant with
+`all_gates_resolved` (which, by construction of the orchestrator's
+advance-blocking, already implies 100% of non-SKIP gates PASS for any
+completed run). `no_scope_creep` now gets the same evidence-citation
+rigor as `rebase_correctness`, instead of being left as an
+underspecified placeholder next to a carefully-designed sibling.
 
-**Implementation**: write the yaml, adapt (not blindly copy)
-`cmd_court`'s criteria text into `rebase_correctness`, and be
-explicit in the judge's own `description` field that this is a
-deliberately weaker single-pass check, not a like-for-like
-replacement — don't let the yaml imply parity with court that
-doesn't exist. Write the deterministic judges as Python `check:`
-functions against files `run-rebase.sh` (Item 1) actually produces —
-this has a hard dependency on Item 1 landing first, since the judges
-assume `gate-retry-counts.json` and `push-attempt.log` exist, which
-is new capture logic Item 1 must add (not already present in
-`_tally_gates`).
+**Implementation**: write the yaml, adapt `cmd_court`'s criteria text
+into `rebase_correctness`, use the `no_scope_creep` prompt above
+directly. Has a hard dependency on Item 1 (for `session-output.json`,
+`gate-retry-counts.json`, `push-attempt.log`) and Item 4 (for real
+`timeout`/`max_budget_usd`/threshold numbers) landing first.
 
 ---
 
-## 3. Eval cases from the existing matrix config, with one held-out — HIGH VALUE
+## 3. Eval cases from the existing matrix config — HIGH VALUE
 
-**What**: `evals/cases/k8s-rebase/case-001` through `case-005` (5,
-not 6, per P2 — `cloud-network-config-controller` is blocked until
-its fixture is fixed), each `input.yaml` a direct translation of that
-repo's existing `from_commit`/`known_good` entry from
-`test/config-1.36.yaml`:
+**What**: `evals/cases/pattern-retention/case-001` through `case-005`
+(digit-only names per `.skillsaw/eval_case_rule.py`'s `^case-\d+$`
+regex — zero-padding is convention only, not enforced; gaps in the
+sequence are fine per existing precedent, e.g. `plugins/ci/evals/cases/`
+has non-contiguous numbering already). 5, not 6, per P2 —
+`cloud-network-config-controller` is blocked until its fixture is
+fixed. Each `input.yaml` a direct translation of that repo's existing
+`from_commit`/`known_good` entry from `test/config-1.36.yaml`:
 
 ```yaml
 # case-001/input.yaml
@@ -454,165 +539,243 @@ version: "1.36.2"
 known_good: af1d95ca97f9237e27d4c78fb8691946fa5cab73
 ```
 
-Plus `annotations.yaml`'s `held_out: false` for all 5 (see Item 6 —
-the held-out case is a separate, new fixture, not one of these 5).
-
-Register all cases in `evals/README.md`'s case index (skillsaw
-`eval-case-registered` rule).
+**Directory layout correction from the prior revision**: cases live
+at `evals/cases/pattern-retention/case-NNN` (named after the eval,
+matching real precedent — `plugins/ci/evals/cases/detect-permafail`,
+`plugins/openshift-developer/evals/cases/solve` — not
+`evals/cases/k8s-rebase/case-NNN`, which was directionally right
+(grouped, not flat) but named after the plugin instead of the eval).
+`evals/README.md` is **one shared file** for the whole plugin,
+indexing every eval this plugin ever gets as its own `## <eval-name>
+(cases/<eval-name>)` section with a markdown table (confirmed against
+`plugins/ci/evals/README.md`'s real structure — the skillsaw
+registration rule requires the case name as the literal first cell of
+a table row). When Item 6's held-out eval or Item 8's future
+step-level eval get their own `eval-*.yaml`, they add a new section to
+this same `evals/README.md`, not a new file.
 
 **Why**: reusing 5 of the 6 already-validated matrix repos gives a
 real, proven correctness baseline for pattern-retention testing at
 low setup cost. This is explicitly *not* claimed to be a
-generalization test — see Item 6 for why that distinction matters and
-what closes the gap. Framing it as "the eval" without that caveat
-would let a green run be misread as answering miheer's original PR
-concern about untested-pattern breakage, which it doesn't.
+generalization test — see Item 6.
 
 **Implementation**: mechanical — copy 5 of the 6 entries out of
-`test/config-1.36.yaml` (skip cloud-network-config-controller per
-P2), re-verify every `known_good` ref resolves (not just the
-previously-flagged one) immediately before writing the case files, so
-a fixture doesn't silently 404 mid-implementation.
+`test/config-1.36.yaml` (skip cloud-network-config-controller per P2),
+re-verify every `known_good` ref resolves immediately before writing
+the case files. Create `evals/README.md` fresh with the
+`## <eval-name> (cases/<eval-name>)` + table format from the start —
+don't invent a different registration format.
 
 ---
 
-## 4. Cost/time calibration pass — HIGH VALUE (elevated from Medium)
+## 4. Calibration pass: cost, timeout, AND judge scores — HIGH VALUE, BLOCKING
 
-**What**: Before committing to `max_budget_usd`/`timeout` in the yaml,
-run `run-rebase.sh` once against the smallest/fastest case (likely
-`ovn-kubernetes-mcp` or `multus-cni`) and record actual
-`total_cost_usd`/`duration_ms` per step and summed.
+**What**: Before committing to any placeholder number in Item 2's
+yaml, run two things:
 
-**Why elevated to HIGH / blocking**: the only concrete timing data
-point found anywhere in this codebase is `plans/observability.md`'s
-narrative mention of "Step 4 lint took 26m" for a *single step* on
-one run. Four steps, each potentially with multiple 3-iteration
-gate-fix loops across up to 32 gates, plausibly exceeds several
-hours for a large repo like `ovn-org/ovn-kubernetes` — the original
-draft's 4h/$40 numbers, and even this revision's bumped 6h/$60, are
-guesses that existing signals suggest skew low, not high. Guessing
-wrong here doesn't just produce cosmetic inaccuracy: a `timeout` or
-`max_budget_usd` set too low would abort a real, otherwise-correct
-run mid-gate-fix-loop, producing a false FAIL that looks like a skill
-regression when it's actually an eval-config error. Given items 1-3
-now structurally depend on Item 1's wrapper existing, and Item 2's
-budget/timeout fields are load-bearing for whether the eval produces
-real results vs. false negatives, this must happen before Item 2's
-numbers are treated as anything but placeholders — not merely "do
-this informally," but a hard gate before the yaml is proposed as
-ready.
+1. **Cost/timeout calibration**: run `run-rebase.sh` against the
+   smallest/fastest case (likely `ovn-kubernetes-mcp` or `multus-cni`)
+   and record actual `total_cost_usd`/`duration_ms`. Use a
+   deliberately generous ceiling for this calibration run itself —
+   e.g. 12h / $150 — distinct from whatever the eventual production
+   `eval-k8s-rebase-pattern-retention.yaml` numbers turn out to be.
+   This avoids a chicken-and-egg failure: if the calibration run's own
+   timeout/budget is set from a guess and that guess is too low, the
+   calibration run aborts before producing the real numbers it exists
+   to gather. Order-of-magnitude math from the one concrete data point
+   in this codebase (`plans/observability.md`'s "Step 4 lint took
+   26m" for a *single step*) suggests a full run against
+   `ovn-org/ovn-kubernetes` specifically — the largest repo in the
+   matrix, with a `go-controller/` submodule and the biggest vendor
+   tree — could plausibly run 4-10 hours and $80-150+ once multiple
+   gate-fix-loop retries are accounted for (up to 3 iterations per
+   gate, up to 32 gates, plus step 2's iterative compile-fix work).
+   **Production timeout/budget likely need to be set per-case, not as
+   one global number** — `ovn-kubernetes-mcp` and `ovn-org/ovn-kubernetes`
+   are not remotely the same size, and a single global ceiling sized
+   for the larger repo would badly under-constrain (and slow down
+   detecting failures in) the smaller ones.
+2. **Judge score calibration**: score at least one known-good
+   historical diff (a matrix repo's `known_good` branch vs. its own
+   `from_commit`, which should score near-maximum under
+   `rebase_correctness`/`no_scope_creep` since it's the human-reviewed
+   reference) and at least one deliberately-bad synthetic diff (inject
+   one obvious scope-creep hunk, or one obvious regression) through
+   the exact judge prompts in Item 2, to sanity-check the achievable
+   score range *before* locking in `min_mean` thresholds. The prior
+   revision's `min_mean: 3.5`/`4.0` were copy-pasted from
+   `eval-solve.yaml`'s unrelated Jira-bug-fix task with zero
+   k8s-rebase-specific derivation (`4.0` for `no_scope_creep`
+   additionally had no analogue anywhere to even copy from — it was
+   invented outright). Set real thresholds from what a known-good run
+   actually scores, with headroom for legitimate variance, not from
+   an unrelated eval's numbers.
 
-**Implementation**: one manual run against the cheapest case, logged
-in this file once done (update the placeholder numbers above with
-real ones and remove the "placeholder" caveat from the yaml
-comments), then commit the calibrated numbers as a follow-up.
+**Why HIGH / blocking**: guessing wrong on cost/timeout doesn't just
+produce cosmetic inaccuracy — a `timeout`/`max_budget_usd` set too low
+aborts a real, otherwise-correct run mid-gate-fix-loop, producing a
+false FAIL that looks like a skill regression when it's actually an
+eval-config error. Guessing wrong on thresholds is just as bad in the
+other direction: an uncalibrated `min_mean` can pass a run that a
+human would flag, or fail one a human would accept, purely because the
+number was never actually anchored to anything this task produces.
+Also confirm `max_budget_usd` enforcement semantics (hard-kill mid-run
+vs. advisory-only reporting) before finalizing safety margins — this
+wasn't found documented anywhere in this repo's existing eval yamls or
+comments, and changes how much margin the calibrated numbers need
+(more margin if overrun is a hard kill).
+
+**Implementation**: two manual runs (one real calibration case, one
+synthetic score-calibration pass), logged in this file once done —
+replace every `<SET BY ITEM 4 ...>` placeholder above with real
+numbers and remove the "placeholder" caveats, then commit as a
+follow-up.
 
 ---
 
 ## 5. What `rebase_correctness` gives up relative to `cmd_court` — explicit tradeoff, not silently accepted
 
-**What**: `cmd_court`'s entire design — prosecution/defense arguments,
-a fact-checking judge, 3 independent jurors each required to cite
+**What**: `cmd_court`'s design — prosecution/defense, a fact-checking
+judge, 3 independent jurors each required to cite
 `git show <BASE_REF>`-verified evidence for every FAIL claim, explicit
 tie/quorum/empty-juror handling — exists specifically because a single
 LLM call judging a large diff is unreliable for this task. Item 2's
-`rebase_correctness` judge collapses that into one `prompt:` call.
-That is a real rigor regression, not just a simplification, and the
-plan should not present it as a like-for-like port of court's rubric
-(the first draft's "ported... almost verbatim" language implied
-parity that doesn't exist — corrected in Item 2 above).
+`rebase_correctness` (and now `no_scope_creep`) judges collapse that
+into one `prompt:` call each. That's a real rigor regression, not
+just a simplification.
 
 **What to do about it**: two options, not mutually exclusive:
 
 1. **Check whether the harness's `agent:` judge type can host a
-   reduced court.** If judges can be defined as agents with `Bash`
+   reduced court** — if judges can be defined as agents with `Bash`
    tool access (not just single-shot `prompt:` judges), a
    1-juror-with-mandatory-`git show`-evidence judge would materially
    close the gap without reimplementing all 3 jurors. Confirm this
    capability exists before assuming `prompt:`-only judges are the
-   ceiling — the first draft never checked this.
+   ceiling.
 2. **If the harness genuinely can't represent multi-vote
-   adjudication**, keep `rebase_correctness` as a cheap smoke check
-   (as scoped in Item 2, with its description explicitly saying so)
-   and treat `make court` as the actual quality gate for anything
-   `rebase_correctness` scores as borderline (below ~4/5) or that a
-   human wants a real verdict on before trusting. Do not let a
-   passing `rebase_correctness` score alone stand in for a `make
-   court` run when the stakes are "should this rebase PR go out."
+   adjudication**, keep both LLM judges as cheap smoke checks (as
+   scoped in Item 2, with descriptions explicitly saying so) and treat
+   `make court` as the actual quality gate for anything either judge
+   scores as borderline, or that a human wants a real verdict on
+   before trusting. Do not let a passing eval score alone stand in for
+   a `make court` run when the stakes are "should this rebase PR go
+   out."
 
-**Why this is its own item and not folded into Item 2**: it's a
-judgment call the plan should make explicitly and visibly, not bury
-inside a yaml's judge definitions where the tradeoff could get lost.
+**Why this is its own item**: it's a judgment call the plan should
+make explicitly and visibly, not bury inside a yaml's judge
+definitions where the tradeoff could get lost.
 
 ---
 
 ## 6. Held-out case: testing generalization, not just pattern-retention — HIGH VALUE, addresses miheer's PR concern directly
 
-**What**: Add exactly one eval case — `evals/cases/k8s-rebase/case-006`,
-`annotations.yaml`'s `held_out: true` — built from a repo/version
-combination that was **not** used while developing or tuning the
-current `fix_*` functions in `k8s-rebase-autofix.sh`. Concretely,
-either: (a) a 7th repo not in `test/config-*.yaml` today, or (b) one
-of the existing 5 repos at a k8s version the skill hasn't targeted
-yet (e.g. once 1.37 is out, before any 1.37-specific autofix pattern
-has been written for it).
+**What**: A **separate** eval, `evals/eval-k8s-rebase-generalization.yaml`
+(not a case mixed into Item 2's dataset — see Item 2's `held_out`
+annotation note on why these must never be blended by the harness's
+own reporting), with its own case(s) at `evals/cases/generalization/`,
+built from a repo/version combination that was **not** used while
+developing or tuning the current `fix_*` functions in
+`k8s-rebase-autofix.sh`.
 
-**Why this is not optional polish**: the 5 cases in Item 3 all come
-from the same matrix used to develop and validate the skill in the
-first place — confirmed directly, `k8s-rebase-autofix.sh`'s `fix_*`
-functions run in a fixed, unconditional sequence, meaning all 5
-repos already exercise the exact fix set the skill was built to
-handle. An eval built entirely from these fixtures measures "does the
-skill still correctly apply already-known fixes" (regression
-detection — genuinely valuable, but not what the PR discussion is
-asking about). It does **not** measure whether the skill's reasoning
-generalizes to breakage nobody has pre-encoded a fix for. That is
-precisely miheer's original, still-unresolved concern on PR #617:
-that cluster-level or version-specific breakage the skill hasn't seen
-before (their examples: RelaxedServiceNameValidation-adjacent issues,
-KubeVirt live-migration failures, MetalLB/FRR image mismatches,
-silent kubeadm setting drops) is invisible to a design that only
-checks build/vet/lint/unit tests locally and never runs e2e. A green
-run across Item 3's 5 tuned-fixture cases does not answer that
-concern, and this plan should not be read — by enxebre, by miheer, or
-by anyone skimming a future green CI badge — as having answered it
-without Item 6 landing.
+**Held-out options, ranked — corrected from the prior revision, which
+overstated how much genuine headroom exists**: cross-referencing all
+three matrix configs (`config-1.34.yaml`: ovn-kubernetes,
+cloud-network-config-controller, multus-cni; `config-1.35.yaml`: adds
+ovn-kubernetes-mcp, cluster-network-operator; `config-1.36.yaml`:
+adds ingress-node-firewall) shows `ovn-org/ovn-kubernetes`,
+`multus-cni`, and `cloud-network-config-controller` have already run
+at **all three** existing k8s versions — fully exhausted as held-out
+candidates. The only remaining gaps are backward-looking:
+`ovn-kubernetes-mcp`@1.34, `cluster-network-operator`@1.34, and
+`ingress-node-firewall`@{1.34, 1.35}. These are weaker signal than
+they first appear — they're older versions on repos the skill's
+author already saw at later versions, so fix classes discovered while
+tuning against 1.35/1.36 on the same repo plausibly generalize
+backward more easily than they would forward to something genuinely
+new. Ranked:
 
-**Implementation**: this is real fixture-creation work, not a
-mechanical config copy like Item 3 — it requires either finding a 7th
-real repo with a real historical rebase PR to use as `known_good`, or
-waiting for a genuinely new k8s version to land before the skill's
-own patterns catch up to it. Track it as its own follow-up rather
-than blocking Items 1-4 on it, but do not present Items 1-4 alone as
-"the eval is done" — the plan's own judges (`rebase_correctness`
-etc.) should report `held_out` cases separately in any summary so a
-reader can tell pattern-retention pass rate apart from generalization
-signal at a glance, once this case exists.
+1. **(Strongest) k8s 1.37 (once released) against any matrix repo.**
+   This is the only combination where no repo in the matrix has been
+   tuned against yet — a genuine forward-looking test of whether the
+   skill's reasoning (not just its pattern library) handles new
+   breakage. Not available until 1.37 ships.
+2. **(Weaker, available now) A 7th repo never in any of the 3 config
+   files.** Real generalization signal, but requires finding a real
+   historical rebase PR to use as `known_good` — genuine
+   fixture-creation work, not a config copy.
+3. **(Weakest, available now) One of the backward-looking gaps**
+   (`ovn-kubernetes-mcp`@1.34, `cluster-network-operator`@1.34,
+   `ingress-node-firewall`@{1.34,1.35}). Usable as an interim signal
+   while waiting for option 1 or 2, but should be labeled in its own
+   `annotations.yaml` `notes` field as the weakest of the three, not
+   presented as equivalent.
+
+**Why this is not optional polish**: an eval built entirely from
+Item 3's tuned fixtures measures "does the skill still correctly apply
+already-known fixes" (regression detection — genuinely valuable, but
+not what the PR discussion is asking about). It does **not** measure
+whether the skill's reasoning generalizes to breakage nobody has
+pre-encoded a fix for — precisely miheer's still-unresolved concern on
+PR #617 (their examples: RelaxedServiceNameValidation-adjacent issues,
+KubeVirt live-migration failures, MetalLB/FRR image mismatches, silent
+kubeadm setting drops — all invisible to a design that only checks
+build/vet/lint/unit tests locally and never runs e2e). A green run
+across Item 3's cases does not answer that concern.
+
+**Implementation**: option 3 (an existing backward-looking gap) can
+start now as an interim signal; options 1-2 are the real fix and
+should replace it once available. Track as its own follow-up, separate
+from Items 1-5's eval.yaml. Do not present Items 1-5 as "the eval is
+done" or as answering miheer's concern without at least option 3
+landing, and re-rank up to option 1 or 2 as they become available.
 
 ---
 
-## 7. Repeat-run variance — don't present one sample as a verdict — MEDIUM VALUE
+## 7. Repeat-run variance: aggregation policy by judge type — MEDIUM VALUE
 
-**What**: `rules.md`'s own Gate-Fix Loop explicitly expects the agent
-not to pass every gate on the first attempt ("up to 3 iterations"),
-and autofix/gate-subagent judgment calls are not bit-for-bit
-reproducible run to run. A single pass/fail per case is one draw from
-a distribution, not a stable measurement — a flaky skill and a solid
-skill can produce the same single-run outcome by chance.
+**What**: `rules.md`'s Gate-Fix Loop explicitly expects the agent not
+to pass every gate on the first attempt ("up to 3 iterations"), and
+autofix/gate-subagent judgment calls are not bit-for-bit reproducible
+run to run. A single pass/fail per case is one draw from a
+distribution, not a stable measurement.
 
-**What to do about it**: given Item 4's cost findings (a single case
-run is likely to run several hours and tens of dollars), running
-N≥3 repeats across all 5-6 cases is expensive. Scope this narrowly:
-run the **calibration case** from Item 4 at least 3 times and report
-a pass-rate rather than a boolean before treating any single case's
-result as meaningful, and flag in this plan (not silently decide)
-whether full N-repeat across every case is judged worth the cost once
-real numbers exist. Don't ship N=1 as the unstated default.
+**Aggregation policy, split by judge type — unspecified in the prior
+revision, now concrete**:
+- **Hard-safety-invariant judges** (`all_gates_resolved`,
+  `no_forced_advance`, `pr_command_never_attempted_or_blocked` — every
+  `min_pass_rate: 1.0` judge in Item 2): require **N/N unanimous**
+  across repeats, never an averaged rate. A hook that blocks push
+  should block it every run; a `no_forced_advance` failure on even one
+  of N repeats is a finding to investigate immediately, not noise to
+  average away.
+- **LLM quality judges** (`rebase_correctness`, `no_scope_creep`):
+  report **both mean-of-N and min-of-N**. A passing mean with a low
+  outlier min (e.g. scores of 5, 5, 1 — mean 3.67, passes a
+  `min_mean: 3.5` threshold) must be flagged in the eval summary, not
+  silently laundered into a green result by the mean alone.
+- **Informational judges** (`gate_fix_loop_efficiency`): report the
+  distribution across repeats (min/max/mean retry counts per gate);
+  no pass/fail semantics apply.
 
-**Why MEDIUM not HIGH**: this compounds Item 4's cost problem rather
-than introducing a new blocking risk — it's a quality improvement to
-make once the cheaper items are working, not a prerequisite for a
-first working eval to exist at all.
+Tag each repeat invocation with a `run_index` (or equivalent mlflow
+run-name suffix) under the same case ID so N-repeat results group in
+the `k8s-rebase-pattern-retention-eval` mlflow experiment instead of
+appearing as unrelated runs — otherwise Item 7's "report a pass-rate"
+has no natural place to compute or display it from.
+
+**Scope**: given Item 4's cost findings (a single case run likely
+takes hours and tens of dollars), running N≥3 repeats across all 5
+cases is expensive. Start narrow: run the **calibration case** from
+Item 4 at least 3 times under this aggregation policy before treating
+any single case's result as meaningful, and decide — explicitly, in
+this file — whether full N-repeat across every case is worth the cost
+once real numbers exist, rather than silently shipping N=1 as the
+unstated default.
+
+**Why MEDIUM not HIGH**: compounds Item 4's cost problem rather than
+introducing a new blocking risk — a quality improvement to make once
+the cheaper items work, not a prerequisite for a first working eval.
 
 ---
 
@@ -627,25 +790,39 @@ directory with small synthetic fixture repos (a `go.mod` +
 `known_features.go` for `feature-gates.sh`, etc.) and expected
 PASS/FAIL/SKIP outputs, run via `bats` or a plain bash assertion loop.
 
-**Why**: these are the cheapest, fastest, highest-precision things to
-test, and they currently have zero dedicated test coverage — they're
-only exercised indirectly by full matrix runs. A regression in
-`feature-gates.sh`'s wiring-discovery logic (e.g. layer 3's
-`SetFromMap` parsing) would currently only surface as a mysterious
-gate FAIL/PASS flip on the next multi-hour matrix run.
+**Why**: cheapest, fastest, highest-precision coverage available, and
+currently zero — these scripts are only exercised indirectly by full
+matrix runs. A regression in `feature-gates.sh`'s wiring-discovery
+logic would currently only surface as a mysterious gate FAIL/PASS flip
+on the next multi-hour matrix run.
 
-**Why this is NOT part of `evals/`**: agent-eval-harness is for judging
-*agent* behavior (LLM reasoning, code quality, correctness of AI
-decisions). Gate scripts contain no AI — testing them doesn't need
-cost/token/mlflow tracking, judges, or `claude -p` invocations at all.
-Bundling them into `evals/` would be scope creep on the harness and
-slower than a plain shell test. Keep them as `test/gate-scripts/`,
-separate from `evals/`.
+**Why this is NOT part of `evals/`**: agent-eval-harness judges *agent*
+behavior. Gate scripts contain no AI — testing them doesn't need
+cost/token/mlflow tracking, judges, or `claude -p` invocations. Keep
+as `test/gate-scripts/`, separate from `evals/`.
 
-**Implementation**: lower priority relative to 1-4 (doesn't answer
-enxebre's actual question directly), but should land before or
-alongside the eval work since it de-risks the deterministic judges in
-Item 2, which depend on gate-report format staying correct.
+**Implementation**: lower priority than Items 1-4, but should land
+before or alongside the eval work since it de-risks Item 2's
+deterministic judges, which depend on gate-report format staying
+correct.
+
+---
+
+## 9. Repo housekeeping: `plugin.json` version bump — MEDIUM VALUE, EASY TO MISS
+
+**What**: `CONTRIBUTING.md` requires a `plugin.json` version bump
+(MINOR, since `evals/` is new capability, not a bug fix) for "modifying
+plugin code." `evals/` isn't explicitly named in that sentence, but
+real precedent (git history) shows eval-adding commits in
+`plugins/openshift-developer` sit directly adjacent to — and are
+covered by — plugin version-bump commits, and a repo-wide sweep commit
+exists specifically to catch touched-but-unbumped plugins. Absent from
+the prior revision's Implementation order entirely.
+
+**Implementation**: bump `plugins/k8s-rebase/.claude-plugin/plugin.json`
+alongside Item 2/3 landing, then run `make lint`/`make update` before
+considering that work done — don't leave it implicit and risk CI
+catching it after the fact.
 
 ---
 
@@ -653,70 +830,76 @@ Item 2, which depend on gate-report format staying correct.
 
 - **Full 5-step orchestration as a single harness `case`.** The
   harness's `case` execution model assumes a single subprocess
-  invocation scored against one output snapshot; k8s-rebase is a
-  stateful multi-invocation workflow spanning hours with hooks
-  enforcing safety invariants across the whole run. `runner.type: cli`
-  sidesteps this by treating the entire orchestrated run as one
-  opaque script execution (Items 1-3 above).
+  invocation scored against one output snapshot; `runner.type: cli`
+  sidesteps this by treating the entire skill invocation as one opaque
+  script execution (Items 1-3).
 - **Reimplementing `k8s-rebase-orchestrator.sh`'s step-sequencing
-  logic inside the harness.** This is narrower than the first draft's
-  Non-Goal, which incorrectly also ruled out per-step *testing* — it
-  does not. Testing one step's logic in isolation against a
-  pre-seeded fixture (a repo checked out at a known Step-2-broken
-  state, one `claude -p` call against just that step, judged against
-  that step's expected diff) requires zero state-machine
-  reimplementation: it's a single invocation against a single
-  fixture, structurally identical to `eval-detect-permafail`'s shape.
-  This was wrongly rejected in the first draft; it isn't scoped as an
-  Item above because it's genuinely separate follow-on work (a
-  different eval.yaml entirely, e.g. `eval-k8s-rebase-step2.yaml`),
-  but a future contributor should not read this plan as having ruled
-  it out — it's the one architecture cheap and fast enough to
-  plausibly run in normal per-PR CI, which nothing in Items 1-6 can
-  do given Item 4's cost profile. Worth a follow-up plan of its own.
-- **Replacing `cmd_court`.** See Item 5 — `rebase_correctness` is
-  scoped explicitly as a weaker smoke check, not a replacement.
-- **Running the full 5-6-case eval on every PR.** Given the cost/time
-  profile (Item 4), and given P3's finding that no automatic
-  eval-running mechanism currently exists in this repo for *any*
-  `evals/*.yaml`, this stays a manually-triggered artifact for now —
-  same operating model as `make court` today. Do not imply CI
-  integration in the PR reply that doesn't actually exist (see P3).
+  logic inside the harness or inside `run-rebase.sh`.** This was
+  exactly the prior revision's own mistake (see P1) — corrected now to
+  invoking the real skill once. Testing one step's logic in isolation
+  against a pre-seeded fixture (a repo checked out at a known
+  Step-2-broken state, one `claude -p` call against just that step,
+  judged against that step's expected diff) is a *separate*, genuinely
+  cheap idea that requires no state-machine reimplementation — it's a
+  single invocation against a single fixture, structurally identical
+  to `eval-detect-permafail`'s shape. Not scoped as an Item here
+  because it's separate follow-on work (its own `eval-*.yaml`), but
+  it's the one architecture cheap and fast enough to plausibly run in
+  normal per-PR CI, which nothing in Items 1-7 can do given Item 4's
+  cost profile. Worth a follow-up plan of its own.
+- **Replacing `cmd_court`.** See Item 5 — both LLM judges are scoped
+  explicitly as weaker smoke checks, not replacements.
+- **Running the full case set on every PR.** Given the cost/time
+  profile (Item 4) and P3's finding that no automatic eval-running
+  mechanism currently exists in this repo for *any* `evals/*.yaml`,
+  this stays a manually-triggered artifact — same operating model as
+  `make court` today. Do not imply CI integration in the PR reply that
+  doesn't actually exist.
+- **Evaluating under a model the skill wasn't actually validated
+  with, without saying so.** Item 2's `models.skill` matches
+  `test/config-1.36.yaml`'s `claude-sonnet-4-6` deliberately. A
+  stronger-model variant is legitimate future work but must be its
+  own explicitly-named eval, not a silent default.
 
 ---
 
 ## Implementation order
 
 1. **P1, P2, P3 (Blocking prerequisites)** — resolve all three before
-   writing anything beyond a draft yaml. P1 determines whether Item
-   1's wrapper design is even correct; P2 determines whether Item 3
-   ships 5 or 6 cases; P3 determines whether this plan is proposing a
-   real CI-integrated artifact or an honest manually-triggered one —
-   getting P3 wrong risks overselling the deliverable to enxebre.
-2. **Item 4 (cost/time calibration)** — run once against the cheapest
-   case before Item 2's yaml numbers are anything but placeholders.
-3. **Item 1 (`run-rebase.sh` wrapper)** — depends on P1's execution
-   model decision and Item 4's real numbers for sane per-step
-   `--max-turns`/timeout values.
-4. **Item 2 (`eval-k8s-rebase.yaml`) + Item 3 (5 cases)** — depends on
-   1-3 above; this is the harness-visible artifact enxebre asked
-   about. Ship with Item 5's tradeoff explicitly documented in the
-   judge descriptions, not glossed over.
+   writing anything beyond a draft yaml. P1 determines whether Item 1
+   is even correct (it wasn't, in the prior revision); P2 determines
+   whether Item 3 ships 5 or 6 cases; P3 determines whether this plan
+   is proposing a real CI-integrated artifact or an honest
+   manually-triggered one.
+2. **Item 4 (cost/timeout/score calibration)** — run before Item 2's
+   yaml numbers are anything but placeholders. Use a generous ceiling
+   for the calibration run itself to avoid it self-sabotaging.
+3. **Item 1 (`run-rebase.sh` wrapper)** — invokes the real skill once
+   per P1's corrected design; depends on Item 4's real numbers for
+   sane `--max-turns`/timeout values.
+4. **Item 2 (`eval-k8s-rebase-pattern-retention.yaml`) + Item 3 (5
+   cases) + Item 9 (version bump)** — depends on 1-3 above; this is
+   the harness-visible artifact enxebre asked about. Ship with Item
+   5's tradeoff and Item 2's model-choice rationale explicitly
+   documented, not glossed over. Run `make lint`/`make update` as part
+   of calling this item done.
 5. **Item 8 (gate-script unit tests)** — independent, can happen in
    parallel with 1-4; de-risks Item 2's deterministic judges.
 6. **Item 7 (repeat-run variance)** — after Item 3 exists and Item 4's
-   real cost numbers are known, decide and document the repeat-count
-   policy rather than silently shipping N=1.
-7. **Item 6 (held-out case)** — real fixture-creation work, tracked
-   as its own follow-up; do not present Items 1-5 as "the eval is
-   done" or as answering miheer's generalization concern without
-   this landing.
-8. **Reply to PR #617** pointing at this plan, being explicit about
-   what's shipped vs. planned, and explicitly distinguishing
-   pattern-retention testing (Items 1-4, ready sooner) from
-   generalization testing (Item 6, the actual answer to miheer's
-   concern, landing later). Owner/timing: whoever picks this plan up
-   should post the reply once Items 1-4 are real and working, not
-   before — a reply describing yaml that doesn't exist yet would be
-   worse than the current silence on the thread.
+   real cost numbers are known, apply the aggregation policy above to
+   at least the calibration case.
+7. **Item 6 (held-out / generalization eval)** — separate eval.yaml,
+   real fixture-creation work, tracked as its own follow-up; start
+   with the weakest-but-available option and re-rank up as k8s 1.37 or
+   a 7th repo become available. Do not present Items 1-5 as answering
+   miheer's generalization concern without at least an interim version
+   of this landing.
+8. **Reply to PR #617** pointing at this plan, explicit about what's
+   shipped vs. planned, and explicitly distinguishing pattern-retention
+   testing (Items 1-4, ready sooner) from generalization testing
+   (Item 6, the actual answer to miheer's concern, landing later,
+   currently only at "weakest available option" strength even once it
+   lands). Post once Items 1-4 are real and working, not before — a
+   reply describing yaml that doesn't exist yet would be worse than
+   the current silence on the thread.
 </content>
