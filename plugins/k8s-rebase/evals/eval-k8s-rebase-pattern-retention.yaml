@@ -366,7 +366,8 @@ judges:
       Score 2: At least one clear VIOLATION hunk (e.g. touches a file
                that compiles clean pre-bump).
       Score 3: All hunks REQUIRED but citations are weak/generic.
-      Score 4: All hunks REQUIRED with specific, verifiable error citations.
+      Score 4: All hunks REQUIRED with specific, verifiable error citations
+               (or REQUIRED (go.mod/vendor) for go.mod/vendor changes).
       Score 5: All hunks REQUIRED, citations specific, and includes
                base-branch verification for any hunk that could
                plausibly be pre-existing.
