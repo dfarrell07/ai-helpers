@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help matrix test watch results court set-known-good set-from-commit stop clean assert-evidence-paths
+.PHONY: help matrix test watch results court set-known-good set-from-commit stop clean assert-evidence-paths eval
 
 SCRIPT := test/test-skill.sh
 SPEC ?= $(if $(spec),$(spec),none)
@@ -67,6 +67,9 @@ help: ## Show available targets
 	@echo "    make set-from-commit repo=<repo> commit=<sha>        Set pre-rebase starting commit"
 	@echo "    repos_dir=/path make test       Override repo checkout location (default: test/.repos/)"
 	@echo ""
+	@echo "  Agent eval (agent-eval-harness — cost/token/model measurement)"
+	@echo "    make eval case=001              Run one pattern-retention eval case (see evals/README.md)"
+	@echo ""
 
 matrix: ## Full pipeline: all versions x all repos, court, retries (4-8 hours)
 	@$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) $(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) matrix $(if $(spec),$(SPEC),all)
@@ -112,6 +115,18 @@ stop: ## Stop all sessions
 
 assert-evidence-paths: ## Verify all companion .sh files have matching EVIDENCE templates
 	@bash test/assert-evidence-paths.sh
+
+eval: ## Run the agent-eval-harness pattern-retention eval for one case (case=NNN required). Manually-triggered only, same as `make court`.
+	@test -n "$(case)" || (echo "ERROR: case required, e.g. make eval case=001" && exit 1)
+	@INPUT="evals/cases/pattern-retention/case-$(case)/input.yaml"; \
+	test -f "$$INPUT" || (echo "ERROR: $$INPUT not found" && exit 1); \
+	REPO_URL=$$(grep '^repo_url:' "$$INPUT" | cut -d' ' -f2); \
+	FROM_COMMIT=$$(grep '^from_commit:' "$$INPUT" | cut -d' ' -f2); \
+	VERSION=$$(grep '^version:' "$$INPUT" | cut -d' ' -f2 | tr -d '"'); \
+	mkdir -p /tmp/k8s-rebase-eval-case-$(case)/output; \
+	cd /tmp/k8s-rebase-eval-case-$(case) && \
+	AI_HELPERS_DIR=$$(cd $(CURDIR)/../.. && pwd) \
+	bash $(CURDIR)/evals/scripts/run-rebase.sh "$$REPO_URL" "$$FROM_COMMIT" "$$VERSION"
 
 clean: ## Reset worktrees, state, temp branches (keeps clones). Use repo= and version= to limit scope.
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean $(if $(VER),--version $(VER)) $(if $(REPO),$(REPO))

@@ -1,0 +1,5 @@
+expected_gates_total: 32
+notes: >
+  multus-cni — small repo, alternative candidate for cheap wrapper
+  calibration alongside case-002. known_good lives on a personal fork
+  branch; re-verify it resolves before trusting this case.

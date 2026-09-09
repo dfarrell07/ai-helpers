@@ -1,0 +1,6 @@
+repo_url: https://github.com/openshift/multus-cni
+from_commit: b4ec7d8239ce4bd3ed949bce9816a013377b44c7
+version: "1.36.2"
+known_good:
+  url: https://github.com/dfarrell07/multus-cni.git
+  ref: bump1.36

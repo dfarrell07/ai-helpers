@@ -1,0 +1,6 @@
+expected_gates_total: 32
+notes: >
+  openshift/cloud-network-config-controller — this fixture's
+  known_good branch has flaked (404) before; re-verify it resolves
+  before trusting this case (confirmed live as of this writing, see
+  plans/agent-eval-harness.md P2).
