@@ -48,7 +48,6 @@ PLUGIN_DIR="$AI_HELPERS_DIR/plugins/k8s-rebase"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 MAX_TURNS="${SKILL_MAX_TURNS:-200}"
 
-# The harness pre-creates output/ in the workspace (cwd).
 WORKSPACE="$(pwd)"
 OUTPUT_DIR="${WORKSPACE}/output"
 mkdir -p "$OUTPUT_DIR"
@@ -60,12 +59,9 @@ REPO_DIR="${EVAL_REPO_DIR:-$AI_HELPERS_DIR/plugins/k8s-rebase/evals/.repos/$(rep
 
 # --- Step 0: crash-safety status write, SIGKILL-safe ---
 #
-# Write run-status.json defaulting to infra_error as the LITERAL FIRST
-# filesystem operation, before cloning, before any trap. A trap alone
-# cannot fire on SIGKILL (POSIX signal semantics), which is a plausible
-# way a harness enforces execution.timeout — if the status file only
-# existed inside a trap, a timeout would leave no signal behind at all.
-# Only the success path (end of this script) overwrites it to completed.
+# Write infra_error as the first filesystem op — SIGKILL (a plausible
+# harness timeout mechanism) won't fire any trap, so this must exist
+# before any other work. Only the success path overwrites it to completed.
 write_status() {
   local status="$1" reason="$2"
   jq -n --arg status "$status" --arg reason "$reason" \
@@ -82,19 +78,12 @@ on_err() {
 }
 trap on_err ERR
 
-echo "=== k8s-rebase Eval: $REPO_URL @ $VERSION ==="
-echo "from_commit: $FROM_COMMIT"
-echo "Model: $SKILL_MODEL"
-echo "Workspace: $WORKSPACE"
-echo "Repo dir: $REPO_DIR"
-echo "ai-helpers: $AI_HELPERS_DIR"
+echo "=== k8s-rebase Eval: $REPO_URL @ $VERSION (model: $SKILL_MODEL) ==="
 
-# --- Step 1: clone/reset-and-clean, as the FIRST real action ---
+# --- Step 1: clone/reset-and-clean ---
 #
-# Cache the clone across repeat runs, but always reset-and-clean before
-# doing anything else in THIS run — never as end-of-run cleanup, which
-# would race with (and could destroy) this run's own output capture
-# below before the next run even starts.
+# Always reset at run start, not end — a post-run reset would race with
+# output capture by the next run on the same cached clone.
 if [[ ! -d "$REPO_DIR/.git" ]]; then
   mkdir -p "$(dirname "$REPO_DIR")"
   git clone "$REPO_URL" "$REPO_DIR"
@@ -108,8 +97,6 @@ git config user.name "k8s-rebase-eval"
 git config user.email "eval@k8s-rebase.local"
 
 # --- Step 2: invoke the real skill once, with cmd_run's exact flags ---
-echo ""
-echo "--- Running skill ---"
 set +e
 claude -p "/k8s-rebase:k8s-rebase $VERSION" \
   --output-format stream-json \
@@ -125,7 +112,6 @@ SKILL_EXIT=${PIPESTATUS[0]}
 TEE_EXIT=${PIPESTATUS[1]}
 set -e
 
-echo "Skill exit code: $SKILL_EXIT"
 if [[ $SKILL_EXIT -ne 0 ]]; then
   write_status "infra_error" "skill exited $SKILL_EXIT"; exit 1
 fi
@@ -163,13 +149,9 @@ else
   echo "ERROR: orchestrator not found at $ORCH" > "$OUTPUT_DIR/final-status.txt"
 fi
 
-# The orchestrator writes .rebase-tmp/status/INCOMPLETE unconditionally
-# whenever a force-advance happens (k8s-rebase-orchestrator.sh's
-# FORCE_ADVANCE_THRESHOLD path) — independent of whether `status` itself
-# needs to reconstruct state from disk. `status`'s own output only
-# surfaces this file conditionally (when state reconstruction was
-# needed), so it is NOT a reliable way to detect a forced advance —
-# check the file directly instead.
+# .rebase-tmp/status/INCOMPLETE is written unconditionally on force-advance;
+# orchestrator `status` output only surfaces it conditionally, so check
+# the file directly rather than parsing status output.
 if [[ -f "$REPO_DIR/.rebase-tmp/status/INCOMPLETE" ]]; then
   cp "$REPO_DIR/.rebase-tmp/status/INCOMPLETE" "$OUTPUT_DIR/force-advance.log"
 else
@@ -194,13 +176,8 @@ if [[ -n "$KNOWN_GOOD_REF" ]]; then
   # human-reviewed rebase branch) than repo_url — fetch from THAT remote,
   # not "origin" (repo_url), which does not have this ref.
   if [[ -n "$KNOWN_GOOD_URL" && "$KNOWN_GOOD_URL" != "$REPO_URL" ]]; then
-    # On a cached clone (evals/.repos/ reuse), a PRIOR run may have added
-    # known-good-remote pointing at a DIFFERENT fork's URL. `git remote
-    # add` fails silently (`|| true`) when the remote name already
-    # exists, which would leave it pointing at the stale URL — always
-    # set-url first (falling back to add only if the remote doesn't
-    # exist yet) so the remote is current regardless of what a prior
-    # run against this same cached clone used.
+    # set-url first — cached clone may have stale known-good-remote from
+    # a prior run against a different fork URL; add only if missing.
     git remote set-url known-good-remote "$KNOWN_GOOD_URL" 2>/dev/null \
       || git remote add known-good-remote "$KNOWN_GOOD_URL"
     git fetch known-good-remote "$KNOWN_GOOD_REF"
@@ -254,14 +231,9 @@ else
   echo "PUSH_STATUS: NONE" > "$OUTPUT_DIR/push-attempt.log"
 fi
 
-# Remove large files so the harness doesn't load them into outputs["files"].
-# session-output.json can be tens of MB of JSONL on a long rebase run;
-# session-stderr.log is usually small but has no value for judges.
-# Both are already used above (tokens extracted, stderr size logged).
+# Remove large files the harness would otherwise load into outputs["files"].
 rm -f "$OUTPUT_DIR/session-output.json" "$OUTPUT_DIR/session-stderr.log"
 
 # --- Success: mark completed ---
 trap - ERR
 write_status "completed" ""
-echo ""
-echo "=== Run complete (skill exit $SKILL_EXIT) ==="
