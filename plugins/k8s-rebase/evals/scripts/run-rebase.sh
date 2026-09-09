@@ -133,40 +133,22 @@ if [[ $TEE_EXIT -ne 0 ]]; then
   write_status "infra_error" "tee failed writing session-output.json (disk full?)"; exit 1
 fi
 
-stderr_size=$(wc -c < "$OUTPUT_DIR/session-stderr.log" 2>/dev/null || echo 0)
-if [[ $stderr_size -gt 0 ]]; then
-  echo "WARNING: session-stderr.log is non-empty ($stderr_size bytes) — review it"
-fi
-
-# --- Step 3: extract cost/tokens ---
-extract_tokens() {
-  grep '"type":"result"' "$1" 2>/dev/null \
-    | head -1 \
-    | jq '{
-        total_cost_usd: (.total_cost_usd // 0),
-        duration_ms: (.duration_ms // 0),
-        num_turns: (.num_turns // 0),
-        input_tokens: (.usage.input_tokens // 0),
-        output_tokens: (.usage.output_tokens // 0),
-        cache_read_input_tokens: (.usage.cache_read_input_tokens // 0),
-        cache_creation_input_tokens: (.usage.cache_creation_input_tokens // 0),
-        model: ((.modelUsage // {} | keys | first) // "unknown")
-      }' 2>/dev/null \
-    || echo '{"total_cost_usd":0,"duration_ms":0,"num_turns":0,"input_tokens":0,"output_tokens":0,"model":"unknown"}'
-}
-extract_tokens "$OUTPUT_DIR/session-output.json" > "$OUTPUT_DIR/session-tokens.json"
-echo "Cost/tokens:"
-cat "$OUTPUT_DIR/session-tokens.json"
-
-# Write metrics.json in the CLI runner contract format the harness expects
-# (matches run-solve.sh's pattern — token_usage/cost_usd/num_turns/model)
-jq '{
-  token_usage: {input: .input_tokens, output: .output_tokens},
-  cost_usd: .total_cost_usd,
-  num_turns: .num_turns,
-  model: .model
-}' "$OUTPUT_DIR/session-tokens.json" > "$OUTPUT_DIR/metrics.json" 2>/dev/null \
+# --- Step 3: extract cost/tokens into metrics.json (CLI runner contract) ---
+grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
+  | head -1 \
+  | jq '{
+      token_usage: {
+        input: (.usage.input_tokens // 0),
+        output: (.usage.output_tokens // 0)
+      },
+      cost_usd: (.total_cost_usd // 0),
+      num_turns: (.num_turns // 0),
+      model: ((.modelUsage // {} | keys | first) // "unknown")
+    }' 2>/dev/null \
+  > "$OUTPUT_DIR/metrics.json" \
   || echo '{"cost_usd":0,"num_turns":0}' > "$OUTPUT_DIR/metrics.json"
+echo "Cost/tokens:"
+cat "$OUTPUT_DIR/metrics.json"
 
 # --- Step 4: post-exit status guard ---
 #

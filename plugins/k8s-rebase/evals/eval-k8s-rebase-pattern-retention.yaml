@@ -47,6 +47,26 @@ dataset:
   # Each case: input.yaml (repo_url, from_commit, version, known_good_url,
   # known_good_ref) + annotations.yaml (notes — context for LLM judges).
 
+outputs:
+  - path: "output"
+    schema: |
+      run-rebase.sh produces these files in the output/ directory:
+
+        run-status.json         — {"status": "completed"|"infra_error", "reason": "..."}
+        metrics.json            — CLI runner contract: token_usage, cost_usd, num_turns, model
+        final-status.txt        — orchestrator `status` output (contains "DONE: true" on success)
+        force-advance.log       — empty on a clean run; non-empty if orchestrator force-advanced
+        push-attempt.log        — PUSH_STATUS: NONE|BLOCKED|ATTEMPTED_UNBLOCKED sentinel
+        diff.patch              — git diff from_commit..HEAD (court_excludes applied)
+        files-changed.txt       — git diff --name-only from_commit..HEAD
+        commit-log.txt          — git log --oneline from_commit..HEAD
+        known-good.patch        — git diff from_commit..known_good_sha (court_excludes applied)
+        build-errors.txt        — compiler/vet errors from tool_result events
+        gate-reports/*.report   — per-gate VERDICT: PASS|SKIP|FAIL|PENDING reports
+
+      Judges should check outputs["files"] and outputs["modified_files"]
+      for files matching these naming patterns.
+
 traces:
   stdout: true
   stderr: true
@@ -275,7 +295,9 @@ judges:
 
       EVIDENCE CONSTRAINT: Do not fabricate file contents or claim
       code exists that is not shown in diff.patch or known-good.patch
-      below. Cite specific file:line for every claim.
+      below. Cite file and hunk context (e.g. "pkg/foo/bar.go near
+      func Foo") for every claim — diffs show hunk headers, not
+      absolute line numbers.
 
       === diff.patch (agent result vs from_commit) ===
       {% for path, content in outputs.files.items() if path.endswith('diff.patch') %}
@@ -315,9 +337,12 @@ judges:
       it? If not, do not make the change."
 
       For diff.patch below, examine each changed hunk.
-      For EVERY hunk, cite the file:line and state one of:
+      For EVERY hunk, cite the file and hunk context and state one of:
       - REQUIRED: <specific build/vet/lint error this fixes, quoted
         from build-errors.txt below>
+      - REQUIRED (go.mod/vendor): go.mod and vendor/ changes are
+        inherently required by the version bump; no error citation
+        needed even if build-errors.txt is empty
       - VIOLATION: <what forbidden category — refactor, struct-tag
         addition, interface rename, package restructuring, unnecessary
         DeepEqual/selector swap, or unrelated file touched while
