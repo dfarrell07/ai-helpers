@@ -4,7 +4,8 @@
 
 **Implemented and hardened.** `evals/scripts/run-rebase.sh`,
 `evals/eval-k8s-rebase-pattern-retention.yaml`, and 6 cases are shipped and
-have been through multiple adversarial review + fix cycles.
+have been through multiple adversarial review + fix cycles including comparison
+against all other plugin evals in this repo.
 
 ## What it does
 
@@ -16,6 +17,19 @@ against a human-reviewed known-good rebase via 5 deterministic + 2 LLM judges.
 Lighter-weight smoke check than `make court` (single LLM pass vs. adversarial
 3-juror panel) — a passing run means "worth shipping," not "fully validated."
 
+## How to run
+
+```bash
+# via make (manually-triggered, same as make court)
+make eval case=002
+
+# directly
+bash evals/scripts/run-rebase.sh <repo_url> <from_commit> <version> <model> <known_good_url> <known_good_ref>
+
+# via harness (runs all cases)
+claude plugin eval evals/eval-k8s-rebase-pattern-retention.yaml
+```
+
 ## Open work
 
 ### Calibration (required before thresholds are real)
@@ -23,8 +37,8 @@ Lighter-weight smoke check than `make court` (single LLM pass vs. adversarial
 `timeout`, `max_budget_usd`, and LLM judge `min_mean` are all uncalibrated
 placeholders. Before trusting any eval results:
 
-1. Run once against the cheapest case (case-002, `ovn-kubernetes-mcp`, or
-   case-003, `multus-cni`). Record actual cost and duration.
+1. Run once against the cheapest case (`make eval case=002` or `case=003`).
+   Record actual cost and duration.
 2. Score one known-good diff and one obviously-bad diff through both LLM judge
    prompts; set `min_mean` in the gap between those two scores.
 3. Confirm `known-good.patch` is non-empty for the calibration case before
@@ -33,22 +47,18 @@ placeholders. Before trusting any eval results:
 `ovn-org/ovn-kubernetes` (case-001) is the largest repo and may need a per-case
 timeout/budget override rather than one global number.
 
-### Convention alignment (verified against other plugins)
+## Convention alignment (verified against all other plugins)
 
-Compared against `plugins/ci`, `plugins/code-review`, and `plugins/openshift-developer` evals:
+- **Runner type**: `cli` (same as `openshift-developer/eval-solve.yaml`)
+- **`metrics.json`**: written in the CLI runner contract format (`token_usage`, `cost_usd`, `num_turns`, `model`)
+- **`session-output.json`**: deleted at end of run (matches `run-solve.sh`'s pattern — prevents large JSONL from loading into harness outputs)
+- **Jinja2 loops**: multi-line `{% for %}...{% endfor %}`, iterating both `outputs.files` and `outputs.modified_files` so file classification by the harness doesn't silently empty the prompt
+- **`--disallowed-tools`**: blocks `git push`/`gh pr create` AND `go mod tidy/get/vendor/edit` + `go generate` (all forbidden by SKILL.md)
+- **`events`**: omitted (equivalent to `false`)
+- **`permissions` block**: not needed (`cli` runner evals don't use it; only `claude-code` runner evals do)
 
-- **Runner type**: we use `cli` (same as `openshift-developer/eval-solve.yaml`) — correct.
-- **`permissions` block**: other `claude-code` runner evals have one; `cli` runner evals do not — we're a `cli` runner, so no `permissions` block needed. Correct.
-- **Template syntax in LLM judges**: harness uses Jinja2. `{{ outputs }}` passes the full blob. Scoped file access must use `{% for path, content in outputs.files.items() if path.endswith('foo') %}` — NOT `{{ filename }}`. Our LLM judges were fixed to use the Jinja loop pattern (commit 85821ed7).
-- **`events: false`**: other evals explicitly set `events: false`; we removed `events: true`. Either is fine — omitting it is equivalent to false per harness docs.
-- **`make eval case=NNN`**: wired up in the Makefile — runnable.
+## Potential follow-on (not blocking)
 
-### Potential follow-on (not blocking)
-
-- **`{**files, **modified}` merge pattern** is copy-pasted across all 5
-  deterministic judge check blocks. If the harness ever adds a shared-helper
-  mechanism, factor it out. For now a comment on the first instance documents it.
-- **`rebase_correctness` / `no_scope_creep` are weaker than `make court`** —
-  single LLM pass, no adversarial jury, no mandatory per-claim citation. If a
-  future legitimate skill improvement scores lower here without being a regression,
-  recalibrate rather than reverting the skill change.
+- **`go mod` blocks in `--disallowed-tools`** should be verified during calibration — confirm the skill doesn't try to call them and get blocked unexpectedly (they're forbidden by SKILL.md, so blocking them is correct, but a block mid-run is still an infra_error).
+- **`rebase_correctness` / `no_scope_creep` are weaker than `make court`** — single LLM pass, no adversarial jury. A legitimate skill improvement that scores lower here without regressing should trigger recalibration, not a revert.
+- **Step 5 `gh pr create` command**: eval verifies the command was not *executed*, but doesn't verify it was *printed* for the user. A skill that skipped step5-pr.md entirely and reported DONE would still pass all judges.

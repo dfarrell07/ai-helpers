@@ -128,7 +128,7 @@ eval: ## Run the agent-eval-harness pattern-retention eval for one case (case=NN
 	mkdir -p /tmp/k8s-rebase-eval-case-$(case)/output; \
 	cd /tmp/k8s-rebase-eval-case-$(case) && \
 	AI_HELPERS_DIR=$$(cd $(CURDIR)/../.. && pwd) \
-	bash $(CURDIR)/evals/scripts/run-rebase.sh "$$REPO_URL" "$$FROM_COMMIT" "$$VERSION" "" "$$KNOWN_GOOD_URL" "$$KNOWN_GOOD_REF"
+	bash $(CURDIR)/evals/scripts/run-rebase.sh "$$REPO_URL" "$$FROM_COMMIT" "$$VERSION" "claude-sonnet-4-6" "$$KNOWN_GOOD_URL" "$$KNOWN_GOOD_REF"
 
 clean: ## Reset worktrees, state, temp branches (keeps clones). Use repo= and version= to limit scope.
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean $(if $(VER),--version $(VER)) $(if $(REPO),$(REPO))

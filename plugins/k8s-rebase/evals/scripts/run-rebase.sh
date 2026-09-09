@@ -118,7 +118,7 @@ claude -p "/k8s-rebase:k8s-rebase $VERSION" \
   --model "$SKILL_MODEL" \
   --plugin-dir "$PLUGIN_DIR" \
   --permission-mode "$PERMISSION_MODE" \
-  --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(sleep *)' \
+  --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(sleep *),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go generate*)' \
   2>"$OUTPUT_DIR/session-stderr.log" \
   | tee "$OUTPUT_DIR/session-output.json"
 SKILL_EXIT=${PIPESTATUS[0]}
@@ -157,6 +157,16 @@ extract_tokens() {
 extract_tokens "$OUTPUT_DIR/session-output.json" > "$OUTPUT_DIR/session-tokens.json"
 echo "Cost/tokens:"
 cat "$OUTPUT_DIR/session-tokens.json"
+
+# Write metrics.json in the CLI runner contract format the harness expects
+# (matches run-solve.sh's pattern — token_usage/cost_usd/num_turns/model)
+jq '{
+  token_usage: {input: .input_tokens, output: .output_tokens},
+  cost_usd: .total_cost_usd,
+  num_turns: .num_turns,
+  model: .model
+}' "$OUTPUT_DIR/session-tokens.json" > "$OUTPUT_DIR/metrics.json" 2>/dev/null \
+  || echo '{"cost_usd":0,"num_turns":0}' > "$OUTPUT_DIR/metrics.json"
 
 # --- Step 4: post-exit status guard ---
 #
@@ -260,6 +270,10 @@ if jq -e '[.[] | select(.type=="tool_use") | .input.command // ""] |
 else
   echo "PUSH_STATUS: NONE" > "$OUTPUT_DIR/push-attempt.log"
 fi
+
+# Remove large stream-json file so the harness doesn't load tens of MB
+# into outputs["files"] — metrics/tokens are already extracted above.
+rm -f "$OUTPUT_DIR/session-output.json"
 
 # --- Success: mark completed ---
 trap - ERR
