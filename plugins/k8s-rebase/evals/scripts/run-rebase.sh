@@ -259,7 +259,7 @@ jq -r '
 set +e
 jq -e '[.[] | select(.type=="tool_use") | .input.command // ""] |
     any(test("git\\s+push|gh\\s+pr\\s+create"))' \
-    "$OUTPUT_DIR/session-output.json" 2>/dev/null
+    "$OUTPUT_DIR/session-output.json" > /dev/null 2>&1
 PUSH_JQ_EXIT=$?
 set -e
 if [[ $PUSH_JQ_EXIT -eq 0 ]]; then

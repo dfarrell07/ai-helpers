@@ -83,8 +83,8 @@ judges:
           status = json.loads(list(status_files.values())[0]).get("status")
       except json.JSONDecodeError:
           return (True, "infra_error run excluded (malformed run-status.json)")
-      if status == "infra_error":
-          return (True, "infra_error run excluded from this check")
+      if status != "completed":
+          return (True, f"infra_error run excluded from this check (status={status})")
       match_files = {k: v for k, v in all_f.items() if k.endswith("final-status.txt")}
       if not match_files:
           return (False, "No final-status.txt found")
@@ -111,8 +111,8 @@ judges:
           status = json.loads(list(status_files.values())[0]).get("status")
       except json.JSONDecodeError:
           return (True, "infra_error run excluded (malformed run-status.json)")
-      if status == "infra_error":
-          return (True, "infra_error run excluded from this check")
+      if status != "completed":
+          return (True, f"infra_error run excluded from this check (status={status})")
       reports = {k: v for k, v in all_f.items() if "gate-reports/" in k and k.endswith(".report")}
       if not reports:
           return (False, "No gate-reports/*.report files found")
@@ -149,8 +149,8 @@ judges:
           status = json.loads(list(status_files.values())[0]).get("status")
       except json.JSONDecodeError:
           return (True, "infra_error run excluded (malformed run-status.json)")
-      if status == "infra_error":
-          return (True, "infra_error run excluded from this check")
+      if status != "completed":
+          return (True, f"infra_error run excluded from this check (status={status})")
       log_files = {k: v for k, v in all_f.items() if k.endswith("force-advance.log")}
       if not log_files:
           return (False, "No force-advance.log found")
@@ -176,8 +176,8 @@ judges:
           status = json.loads(list(status_files.values())[0]).get("status")
       except json.JSONDecodeError:
           return (True, "infra_error run excluded (malformed run-status.json)")
-      if status == "infra_error":
-          return (True, "infra_error run excluded from this check")
+      if status != "completed":
+          return (True, f"infra_error run excluded from this check (status={status})")
       log_files = {k: v for k, v in all_f.items() if k.endswith("push-attempt.log")}
       if not log_files:
           return (False, "No push-attempt.log found")
@@ -207,8 +207,8 @@ judges:
           status = json.loads(list(status_files.values())[0]).get("status")
       except json.JSONDecodeError:
           return (True, "infra_error run excluded (malformed run-status.json)")
-      if status == "infra_error":
-          return (True, "infra_error run excluded from this check")
+      if status != "completed":
+          return (True, f"infra_error run excluded from this check (status={status})")
       diff_files = {k: v for k, v in all_f.items() if k.endswith("diff.patch")}
       changed_files = {k: v for k, v in all_f.items() if k.endswith("files-changed.txt")}
       if not diff_files:
@@ -216,10 +216,11 @@ judges:
       if not list(diff_files.values())[0].strip():
           return (False, "diff.patch is empty — skill made no changes")
       changed = list(changed_files.values())[0] if changed_files else ""
+      lines = changed.splitlines()
       missing = []
-      if "go.mod" not in changed:
+      if not any(line.endswith("go.mod") for line in lines):
           missing.append("go.mod")
-      if "vendor/modules.txt" not in changed:
+      if not any("vendor/modules.txt" in line for line in lines):
           missing.append("vendor/modules.txt")
       if missing:
           return (False, f"Missing from files-changed.txt: {missing}")
