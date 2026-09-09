@@ -80,9 +80,7 @@ judges:
       evidence of completion.
     check: |
       import re, json
-      files = outputs.get("files", {})
-      modified = outputs.get("modified_files", {})
-      all_f = {**files, **modified}
+      all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
       status_files = {k: v for k, v in all_f.items() if k.endswith("run-status.json")}
       if not status_files:
           return (True, "infra_error run excluded (no run-status.json)")
@@ -103,14 +101,10 @@ judges:
   - name: all_gates_resolved
     description: >
       Every gate-reports/*.report VERDICT is PASS or SKIP; none
-      PENDING or FAIL at run end. Excludes infra_error runs (a clone
-      failure or crash before any gate ran should not count as a gate
-      failure).
+      PENDING or FAIL at run end. Excludes infra_error runs.
     check: |
       import re, json
-      files = outputs.get("files", {})
-      modified = outputs.get("modified_files", {})
-      all_f = {**files, **modified}
+      all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
       status_files = {k: v for k, v in all_f.items() if k.endswith("run-status.json")}
       if not status_files:
           return (True, "infra_error run excluded (no run-status.json)")
@@ -139,9 +133,7 @@ judges:
       and would false-positive on any run that merely discussed it.
     check: |
       import json
-      files = outputs.get("files", {})
-      modified = outputs.get("modified_files", {})
-      all_f = {**files, **modified}
+      all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
       status_files = {k: v for k, v in all_f.items() if k.endswith("run-status.json")}
       if not status_files:
           return (True, "infra_error run excluded (no run-status.json)")
@@ -166,9 +158,7 @@ judges:
       written by run-rebase.sh, not free-text prose (which could drift).
     check: |
       import json
-      files = outputs.get("files", {})
-      modified = outputs.get("modified_files", {})
-      all_f = {**files, **modified}
+      all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
       status_files = {k: v for k, v in all_f.items() if k.endswith("run-status.json")}
       if not status_files:
           return (True, "infra_error run excluded (no run-status.json)")
@@ -190,16 +180,13 @@ judges:
 
   - name: go_mod_and_vendor_modified
     description: >
-      diff.patch is non-empty, go.mod appears in files-changed.txt, and
-      vendor/modules.txt appears in files-changed.txt. A skill that gave
-      up early ("already at version") produces an empty diff and scores
-      clean on no_scope_creep (no hunks = no violations) — this judge
-      catches that case directly.
+      A skill that gave up early ("already at version") produces an empty
+      diff and scores clean on no_scope_creep (no hunks = no violations)
+      — this judge catches that case directly by requiring go.mod and
+      vendor/modules.txt in files-changed.txt.
     check: |
       import json
-      files = outputs.get("files", {})
-      modified = outputs.get("modified_files", {})
-      all_f = {**files, **modified}
+      all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
       status_files = {k: v for k, v in all_f.items() if k.endswith("run-status.json")}
       if not status_files:
           return (True, "infra_error run excluded (no run-status.json)")

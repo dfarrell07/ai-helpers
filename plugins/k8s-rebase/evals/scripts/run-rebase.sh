@@ -48,14 +48,10 @@ PLUGIN_DIR="$AI_HELPERS_DIR/plugins/k8s-rebase"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 MAX_TURNS="${SKILL_MAX_TURNS:-200}"
 
-WORKSPACE="$(pwd)"
-OUTPUT_DIR="${WORKSPACE}/output"
+OUTPUT_DIR="$(pwd)/output"
 mkdir -p "$OUTPUT_DIR"
 
-repo_key() {
-  echo "$1" | sed -E 's#https?://##; s#[^A-Za-z0-9]+#_#g'
-}
-REPO_DIR="${EVAL_REPO_DIR:-$AI_HELPERS_DIR/plugins/k8s-rebase/evals/.repos/$(repo_key "$REPO_URL")}"
+REPO_DIR="${EVAL_REPO_DIR:-$AI_HELPERS_DIR/plugins/k8s-rebase/evals/.repos/$(echo "$REPO_URL" | sed -E 's#https?://##; s#[^A-Za-z0-9]+#_#g')}"
 
 # --- Step 0: crash-safety status write, SIGKILL-safe ---
 #
