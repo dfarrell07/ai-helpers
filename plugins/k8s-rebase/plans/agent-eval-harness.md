@@ -71,11 +71,13 @@ before this repo's `evals/` convention existed:
   <branch>\nTo create PR: gh pr create --title \"...\" --body \"...\""`.
 - `test/.repos/.gitignore` shows `test-skill.sh` clones into a
   local-only, gitignored directory, reused across calls.
-- **Gate count: 32 `.md` gate files, 8 with companion `.sh` scripts**
+- **Gate count: 32 `.md` gate files, 9 with companion `.sh` scripts**
   (re-verified directly via `find plugins/k8s-rebase/gates -name
   '*.md'/'*.sh' | wc -l` — an earlier review pass mis-derived this
   count from a `git log --all` scan that walked unrelated local refs;
-  scope any future recount to the actual checked-out branch).
+  scope any future recount to the actual checked-out branch. This
+  skill's gate directory changes over time — recount at implementation
+  time regardless of what's written here).
 - `plugins/k8s-rebase/OWNERS` lists a single approver (`dfarrell07`).
 
 **What's missing**: cost (`total_cost_usd`), token counts, wall-clock
@@ -155,13 +157,15 @@ acceptable trade-off, stated so it isn't read as an oversight.
 ### P2. Verify fixture branches before writing case files
 
 `test/config-1.36.yaml`'s 6 `known_good` refs must all resolve at
-implementation time. One (`dfarrell07/cloud-network-config-controller`
-branch `bump1.36`) has flipped between 404 and live across review
-passes — it sits among ~30 scratch timestamped branches on the same
-personal fork, so don't trust a single check. Re-verify all 6 refs
+implementation time. One specifically —
+`dfarrell07/cloud-network-config-controller` branch `bump1.36` — has
+flipped between 404 and live across review passes; it sits among ~30
+scratch timestamped branches on the same personal fork, so don't trust
+a single check for that ref specifically. Re-verify all 6 refs
 immediately before writing `evals/cases/pattern-retention/*/input.yaml`;
-ship whichever subset actually resolves at that moment (5 or 6 cases),
-don't block on a repo that may be temporarily unavailable.
+if `bump1.36` resolves at that moment, ship all 6 cases, otherwise ship
+the other 5 and skip `cloud-network-config-controller` — don't block
+on a repo that may be temporarily unavailable.
 
 ### P3. Confirm what, if anything, actually runs `evals/*.yaml` in this repo
 
@@ -183,12 +187,6 @@ local runs. Not a new risk, but stated explicitly. All target repos
 confirmed public. If P3 resolves toward any shared/CI execution
 environment, API-key scoping and this trust boundary need explicit
 reconsideration.
-
-Get this plan's design reviewed by `plugins/k8s-rebase/OWNERS` before
-running Item 4's first real (non-free) calibration pass — a single run
-can plausibly cost tens to low hundreds of dollars against a
-single-owner plugin, and that's worth a human look before an agent
-spends it autonomously.
 
 ---
 
@@ -526,6 +524,13 @@ nothing. Do not proceed to 4b until this passes.
 
 ### 4b. Real calibration — cost, timeout, and judge scores
 
+**Scoped to the minimum that makes the eval actually run and produce
+trustworthy numbers — not a statistically rigorous judge-tuning
+exercise.** enxebre asked whether cost/model measurement exists;
+answering that requires the eval to actually complete (not abort on a
+bad timeout guess) and requires thresholds that are at least sane, not
+thresholds validated to a research-grade confidence level.
+
 1. **Cost/timeout calibration**: run `run-rebase.sh` against the
    smallest/fastest case and record actual `total_cost_usd`/`duration_ms`.
    `eval.yaml` doesn't exist yet at this point, so this run's own
@@ -538,36 +543,31 @@ nothing. Do not proceed to 4b until this passes.
    Production timeout/budget likely need to be set per-case, not one
    global number. During this same run, empirically resolve P1's
    remaining unconfirmed items.
-2. **Judge score calibration — graded, multi-sample, with a
-   separation check**:
-   - Calibrate against: (a) a known-good historical diff (expect
-     near-max score), (b) a **subtle** bad example — hand-edit a copy
-     of one real, correctly-preserved label-selector comparison in a
-     `known_good` diff to swap it for `reflect.DeepEqual` instead
-     (`rules.md`'s explicitly-forbidden-but-plausible pattern), and
-     (c) an obviously-bad example as a sanity floor.
-   - Score each fixture **N≥3 times** before deriving any threshold —
-     LLM judge output is itself noisy.
-   - **Separation check**: verify `min(fixture_a_scores) >
-     max(fixture_b_scores)` with an explicit minimum margin (e.g.
-     ≥1.0 point) before trusting either fixture as calibration data.
-     If the distributions overlap, that's a finding the judge prompt
-     needs revision, not a threshold to paper over. With only N=3
-     samples this separation check reduces but doesn't eliminate the
-     risk of a threshold based on too few samples — treat the result
-     as provisional, to be refined once real production runs exist.
-   - Set the final threshold in the confirmed gap between (a)'s
-     minimum and (b)'s maximum.
+2. **Judge score calibration — minimal**: score one known-good
+   historical diff and one obviously-bad synthetic diff through the
+   judge prompts once each, and set `min_mean` in the gap between the
+   two observed scores. That's enough to give the thresholds a real
+   anchor instead of an arbitrary number, without turning calibration
+   into its own research project.
 
 **Why HIGH / blocking**: guessing wrong on cost/timeout aborts a real,
-otherwise-correct run. Guessing wrong on thresholds produces a
-threshold that looks calibrated but isn't trustworthy. Also confirm
-`max_budget_usd` enforcement semantics (hard-kill vs. advisory) before
-finalizing safety margins.
+otherwise-correct run, which would answer "does a yaml file exist,"
+not "does cost measurement work." Guessing wrong on thresholds means
+the judges pass or fail arbitrarily rather than meaningfully. Also
+confirm `max_budget_usd` enforcement semantics (hard-kill vs.
+advisory) before finalizing safety margins.
 
 **Implementation**: 4a first (cheap, blocking), then 4b (expensive,
 real), logged in this file once done — replace every placeholder with
 real numbers, then commit as a follow-up.
+
+**Out of scope, future work if wanted separately**: a more rigorous
+calibration methodology (multiple graded fixtures, N≥3 samples per
+fixture, a statistical separation check between good/bad score
+distributions) would make the judge thresholds more defensible, but
+that's tuning the eval's *quality* — a different, larger goal than
+answering "does eval/cost/model measurement exist." Propose it as its
+own scoped follow-up if it's wanted, not bundled into this plan.
 
 ---
 
@@ -627,13 +627,17 @@ isn't.
   miheer's related PR #617 concern is already being handled
   separately. Don't reintroduce that work here.
 - **Ownership/staleness governance, repeat-run statistical frameworks,
-  gate-script unit tests, or any other process/tooling not directly
-  needed to answer enxebre's question.** These may be worthwhile
-  ideas, but each is its own scoped project with its own tradeoffs —
-  bundling them into "the eval plan" was scope creep in earlier drafts
-  of this document, cut in this revision. If wanted later, propose
-  them separately so they get evaluated on their own merits and cost,
-  not smuggled in under an unrelated PR comment.
+  gate-script unit tests, a human-sign-off approval process, a
+  statistically rigorous judge-threshold-calibration methodology, or
+  any other process/tooling not directly needed to answer enxebre's
+  question.** These may be worthwhile ideas, but each is its own
+  scoped project with its own tradeoffs — bundling them into "the eval
+  plan" was scope creep in earlier drafts of this document (including
+  a version of Item 4's calibration step and a version of P4 that had
+  both crept back toward this territory before a later scope-discipline
+  pass caught it), cut/trimmed in this revision. If wanted later,
+  propose them separately so they get evaluated on their own merits
+  and cost, not smuggled in under an unrelated PR comment.
 
 ---
 
@@ -641,7 +645,7 @@ isn't.
 
 1. **P1, P2, P3, P4 (Blocking prerequisites)** — resolve all four
    before writing anything beyond a draft yaml. Re-`grep` `cmd_run`'s
-   exact safety flags fresh. Get P4's human sign-off before Item 4b.
+   exact safety flags fresh.
 2. **Item 4a (wrapper self-test)** — cheap, synthetic, blocking, before
    any real spend.
 3. **Item 1 (`run-rebase.sh` wrapper), first draft** — with generous,
