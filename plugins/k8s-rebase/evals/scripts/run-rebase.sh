@@ -118,7 +118,7 @@ claude -p "/k8s-rebase:k8s-rebase $VERSION" \
   --model "$SKILL_MODEL" \
   --plugin-dir "$PLUGIN_DIR" \
   --permission-mode "$PERMISSION_MODE" \
-  --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(sleep *),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go generate*)' \
+  --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(sleep *),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go generate*),Bash(go run *)' \
   2>"$OUTPUT_DIR/session-stderr.log" \
   | tee "$OUTPUT_DIR/session-output.json"
 SKILL_EXIT=${PIPESTATUS[0]}
@@ -245,7 +245,7 @@ jq -r '
   select(.type == "user") | .message.content[]? | select(.type == "tool_result") |
   (.content[]? | select(.type == "text") | .text) // (.content // empty)
 ' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
-  | grep -iE '(error|failed|undefined|cannot use|type mismatch)' \
+  | grep -iE '(error|failed|undefined|cannot use|type mismatch|cannot find|not enough arguments|too many arguments|does not implement|incompatible types|has no field|declared (and not used|but not used))' \
   > "$OUTPUT_DIR/build-errors.txt" || true
 
 # --- Step 8: push-attempt log ---

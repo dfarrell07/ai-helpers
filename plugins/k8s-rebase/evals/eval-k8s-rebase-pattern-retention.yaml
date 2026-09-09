@@ -277,18 +277,12 @@ judges:
       below. Cite specific file:line for every claim.
 
       === diff.patch (agent result vs from_commit) ===
-      {% for path, content in (outputs.files | default({})).items() if path.endswith('diff.patch') %}
-      {{ content }}
-      {% endfor %}
-      {% for path, content in (outputs.modified_files | default({})).items() if path.endswith('diff.patch') %}
+      {% for path, content in outputs.files.items() if path.endswith('diff.patch') %}
       {{ content }}
       {% endfor %}
 
       === known-good.patch (human reference vs from_commit) ===
-      {% for path, content in (outputs.files | default({})).items() if path.endswith('known-good.patch') %}
-      {{ content }}
-      {% endfor %}
-      {% for path, content in (outputs.modified_files | default({})).items() if path.endswith('known-good.patch') %}
+      {% for path, content in outputs.files.items() if path.endswith('known-good.patch') %}
       {{ content }}
       {% endfor %}
 
