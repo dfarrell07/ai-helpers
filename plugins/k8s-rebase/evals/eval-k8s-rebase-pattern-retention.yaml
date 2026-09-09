@@ -277,10 +277,10 @@ judges:
       below. Cite specific file:line for every claim.
 
       === diff.patch (agent result vs from_commit) ===
-      {{ diff.patch }}
+      {% for path, content in outputs.files.items() if path.endswith('diff.patch') %}{{ content }}{% endfor %}
 
       === known-good.patch (human reference vs from_commit) ===
-      {{ known-good.patch }}
+      {% for path, content in outputs.files.items() if path.endswith('known-good.patch') %}{{ content }}{% endfor %}
 
       {{ annotations }}
 
@@ -321,10 +321,10 @@ judges:
       per-hunk citation is not acceptable output.
 
       === diff.patch ===
-      {{ diff.patch }}
+      {% for path, content in outputs.files.items() if path.endswith('diff.patch') %}{{ content }}{% endfor %}
 
       === build-errors.txt (raw compiler/vet output from the run) ===
-      {{ build-errors.txt }}
+      {% for path, content in outputs.files.items() if path.endswith('build-errors.txt') %}{{ content }}{% endfor %}
 
       {{ annotations }}
 
