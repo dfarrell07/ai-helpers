@@ -325,18 +325,12 @@ judges:
       per-hunk citation is not acceptable output.
 
       === diff.patch ===
-      {% for path, content in (outputs.files | default({})).items() if path.endswith('diff.patch') %}
-      {{ content }}
-      {% endfor %}
-      {% for path, content in (outputs.modified_files | default({})).items() if path.endswith('diff.patch') %}
+      {% for path, content in outputs.files.items() if path.endswith('diff.patch') %}
       {{ content }}
       {% endfor %}
 
       === build-errors.txt (raw compiler/vet output from the run) ===
-      {% for path, content in (outputs.files | default({})).items() if path.endswith('build-errors.txt') %}
-      {{ content }}
-      {% endfor %}
-      {% for path, content in (outputs.modified_files | default({})).items() if path.endswith('build-errors.txt') %}
+      {% for path, content in outputs.files.items() if path.endswith('build-errors.txt') %}
       {{ content }}
       {% endfor %}
 
