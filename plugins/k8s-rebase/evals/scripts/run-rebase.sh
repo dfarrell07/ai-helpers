@@ -194,9 +194,16 @@ if [[ -n "$KNOWN_GOOD_REF" ]]; then
   # human-reviewed rebase branch) than repo_url — fetch from THAT remote,
   # not "origin" (repo_url), which does not have this ref.
   if [[ -n "$KNOWN_GOOD_URL" && "$KNOWN_GOOD_URL" != "$REPO_URL" ]]; then
-    git fetch known-good-remote "$KNOWN_GOOD_REF" 2>/dev/null \
-      || { git remote add known-good-remote "$KNOWN_GOOD_URL" 2>/dev/null || true; \
-           git fetch known-good-remote "$KNOWN_GOOD_REF" 2>/dev/null || true; }
+    # On a cached clone (evals/.repos/ reuse), a PRIOR run may have added
+    # known-good-remote pointing at a DIFFERENT fork's URL. `git remote
+    # add` fails silently (`|| true`) when the remote name already
+    # exists, which would leave it pointing at the stale URL — always
+    # set-url first (falling back to add only if the remote doesn't
+    # exist yet) so the remote is current regardless of what a prior
+    # run against this same cached clone used.
+    git remote set-url known-good-remote "$KNOWN_GOOD_URL" 2>/dev/null \
+      || git remote add known-good-remote "$KNOWN_GOOD_URL" 2>/dev/null || true
+    git fetch known-good-remote "$KNOWN_GOOD_REF" 2>/dev/null || true
   else
     git fetch origin "$KNOWN_GOOD_REF" 2>/dev/null || true
   fi
