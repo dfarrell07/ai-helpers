@@ -178,9 +178,7 @@ fi
 
 # --- Step 5: gate reports ---
 mkdir -p "$OUTPUT_DIR/gate-reports"
-if [[ -d "$REPO_DIR/.rebase-tmp/gates" ]]; then
-  cp "$REPO_DIR"/.rebase-tmp/gates/*.report "$OUTPUT_DIR/gate-reports/" 2>/dev/null || true
-fi
+cp "$REPO_DIR"/.rebase-tmp/gates/*.report "$OUTPUT_DIR/gate-reports/" 2>/dev/null || true
 
 # --- Step 6: diffs, with the same exclusions make court uses ---
 #
@@ -190,7 +188,6 @@ fi
 COURT_EXCLUDES=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' ':(exclude,glob)**/mocks/**')
 git diff "$FROM_COMMIT"..HEAD -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/diff.patch" 2>/dev/null || true
 git diff "$FROM_COMMIT"..HEAD --name-only > "$OUTPUT_DIR/files-changed.txt" 2>/dev/null || true
-git log --oneline "$FROM_COMMIT"..HEAD > "$OUTPUT_DIR/commit-log.txt" 2>/dev/null || true
 
 if [[ -n "$KNOWN_GOOD_REF" ]]; then
   # known_good may live on a different repo (a personal fork hosting the

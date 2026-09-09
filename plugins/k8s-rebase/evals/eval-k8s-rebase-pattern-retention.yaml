@@ -57,7 +57,6 @@ outputs:
         push-attempt.log        — PUSH_STATUS: NONE|BLOCKED|ATTEMPTED_UNBLOCKED sentinel
         diff.patch              — git diff from_commit..HEAD (court_excludes applied)
         files-changed.txt       — git diff --name-only from_commit..HEAD
-        commit-log.txt          — git log --oneline from_commit..HEAD
         known-good.patch        — git diff from_commit..known_good_sha (court_excludes applied)
         build-errors.txt        — compiler/vet errors from tool_result events
         gate-reports/*.report   — per-gate VERDICT: PASS|SKIP|FAIL|PENDING reports
