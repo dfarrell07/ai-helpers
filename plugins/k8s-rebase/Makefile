@@ -123,10 +123,12 @@ eval: ## Run the agent-eval-harness pattern-retention eval for one case (case=NN
 	REPO_URL=$$(grep '^repo_url:' "$$INPUT" | cut -d' ' -f2); \
 	FROM_COMMIT=$$(grep '^from_commit:' "$$INPUT" | cut -d' ' -f2); \
 	VERSION=$$(grep '^version:' "$$INPUT" | cut -d' ' -f2 | tr -d '"'); \
+	KNOWN_GOOD_URL=$$(grep '^known_good_url:' "$$INPUT" | cut -d' ' -f2); \
+	KNOWN_GOOD_REF=$$(grep '^known_good_ref:' "$$INPUT" | cut -d' ' -f2); \
 	mkdir -p /tmp/k8s-rebase-eval-case-$(case)/output; \
 	cd /tmp/k8s-rebase-eval-case-$(case) && \
 	AI_HELPERS_DIR=$$(cd $(CURDIR)/../.. && pwd) \
-	bash $(CURDIR)/evals/scripts/run-rebase.sh "$$REPO_URL" "$$FROM_COMMIT" "$$VERSION"
+	bash $(CURDIR)/evals/scripts/run-rebase.sh "$$REPO_URL" "$$FROM_COMMIT" "$$VERSION" "" "$$KNOWN_GOOD_URL" "$$KNOWN_GOOD_REF"
 
 clean: ## Reset worktrees, state, temp branches (keeps clones). Use repo= and version= to limit scope.
 	@$(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) clean $(if $(VER),--version $(VER)) $(if $(REPO),$(REPO))

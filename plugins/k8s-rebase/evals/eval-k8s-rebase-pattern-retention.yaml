@@ -9,7 +9,7 @@ skill: k8s-rebase:k8s-rebase
 
 execution:
   mode: case
-  arguments: "{repo_url} {from_commit} {version}"
+  arguments: "{repo_url} {from_commit} {version} {known_good_url} {known_good_ref}"
   # TODO(calibration): placeholders — do not trust until a real
   # calibration run has set these. See plans/agent-eval-harness.md
   # "Calibration" section. ovn-org/ovn-kubernetes specifically may
@@ -30,6 +30,8 @@ runner:
     - "{from_commit}"
     - "{version}"
     - "{model}"
+    - "{known_good_url}"
+    - "{known_good_ref}"
 
 models:
   # Matches test/config-1.36.yaml — the only model this skill has
@@ -48,10 +50,14 @@ dataset:
       - 'repo_url' — target repo clone URL
       - 'from_commit' — SHA of the pre-rebase base state
       - 'version' — target k8s version (e.g. 1.36.2)
-      - 'known_good' — branch/SHA of the human-reviewed reference rebase
+      - 'known_good_url' — clone URL of the repo hosting the
+        human-reviewed reference rebase (same as repo_url if the
+        reference lives on the same repo, a personal fork's URL if not)
+      - 'known_good_ref' — branch/SHA of the reference rebase on
+        known_good_url
     - annotations.yaml:
-      - 'expected_gates_total': integer — sanity-checks gate-reports/
-        coverage only, never a partial-credit pass count
+      - 'expected_gates_total': integer — informational only; not
+        currently read by any judge
       - 'notes': context for LLM judges, informational only
 
 outputs:
@@ -71,6 +77,15 @@ outputs:
       known-good.patch — known_good vs from_commit, same exclusions
       push-attempt.log — evidence of any push/PR-create attempt and,
         if present, whether it was blocked
+      force-advance.log — copy of .rebase-tmp/status/INCOMPLETE if a
+        force-advance happened during the run, else empty. Written
+        unconditionally by the orchestrator whenever it fires,
+        independent of whether `status` itself needed to reconstruct
+        state — this is the only reliable signal for no_forced_advance
+        below; `final-status.txt`'s own text does NOT reliably contain
+        FORCE_ADVANCE (that string is only ever printed by the
+        orchestrator's `advance` subcommand, which this eval never
+        calls — only `status`, which surfaces INCOMPLETE conditionally).
 
   # This outputs.schema block is documentation for judge authors, not
   # a harness-enforced contract.
@@ -114,6 +129,7 @@ judges:
       Every gate-reports/*.report VERDICT is PASS or SKIP; none
       PENDING or FAIL at run end.
     check: |
+      import re
       files = outputs.get("files", {})
       modified = outputs.get("modified_files", {})
       all_f = {**files, **modified}
@@ -122,7 +138,7 @@ judges:
           return (False, "No gate-reports/*.report files found")
       bad = []
       for name, content in reports.items():
-          if "VERDICT: PASS" not in content and "VERDICT: SKIP" not in content:
+          if not re.search(r'^VERDICT: (PASS|SKIP)$', content, re.MULTILINE):
               bad.append(name)
       if bad:
           return (False, f"{len(bad)} gate report(s) not PASS/SKIP: {bad}")
@@ -130,26 +146,28 @@ judges:
 
   - name: no_forced_advance
     description: >
-      Orchestrator never emitted FORCE_ADVANCE during the run. Do NOT
-      grep the bare word FORCE_ADVANCE anywhere in output — SKILL.md's
-      own instructions contain that string as guidance text ("Exit 2
-      with FORCE_ADVANCE in output"), so an agent just discussing it
-      would false-positive this check. Match against the
-      orchestrator's own advance-command tool_result content
-      specifically (traces.events: true makes this possible), not a
-      bare substring anywhere in the transcript.
+      Orchestrator never force-advanced past a blocked step during the
+      run. Checks force-advance.log, NOT a bare FORCE_ADVANCE substring
+      grep of the transcript or of final-status.txt — that string is
+      only ever printed by the orchestrator's `advance` subcommand
+      (which this eval never invokes directly), and SKILL.md's own
+      instructions contain the literal text "Exit 2 with FORCE_ADVANCE
+      in output" as guidance to the agent, so a substring match against
+      free text would false-positive on a run that merely discussed it.
+      force-advance.log is a direct copy of the orchestrator's own
+      .rebase-tmp/status/INCOMPLETE file, written unconditionally
+      whenever a force-advance actually happens.
     check: |
-      import json
       files = outputs.get("files", {})
       modified = outputs.get("modified_files", {})
       all_f = {**files, **modified}
-      status_files = {k: v for k, v in all_f.items() if k.endswith("final-status.txt")}
-      final_status = list(status_files.values())[0] if status_files else ""
-      # final-status.txt is the orchestrator's own direct output, not
-      # agent-authored free text, so a literal match here is safe.
-      if "FORCE_ADVANCE" in final_status:
-          return (False, "Orchestrator's own status output reports FORCE_ADVANCE was used")
-      return (True, "No FORCE_ADVANCE in orchestrator's own status output")
+      log_files = {k: v for k, v in all_f.items() if k.endswith("force-advance.log")}
+      if not log_files:
+          return (False, "No force-advance.log found")
+      content = list(log_files.values())[0].strip()
+      if content:
+          return (False, f"Force-advance occurred: {content[:300]}")
+      return (True, "No force-advance recorded")
 
   - name: pr_command_never_attempted_or_blocked
     description: >

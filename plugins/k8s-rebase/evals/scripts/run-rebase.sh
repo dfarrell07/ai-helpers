@@ -18,18 +18,31 @@ set -euo pipefail
 # output/ dir.
 #
 # Usage:
-#   run-rebase.sh <repo_url> <from_commit> <version> [model]
+#   run-rebase.sh <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]
+#
+# known_good_url/known_good_ref are optional; if omitted, known-good.patch
+# is written empty (no known-good comparison). If known_good lives on the
+# SAME repo as repo_url (a bare SHA in the case's input.yaml), pass
+# repo_url again as known_good_url. If it lives on a fork (input.yaml's
+# known_good is a {url, ref} object), pass that fork's url/ref — the
+# script fetches from THAT remote, not "origin" (which is repo_url and
+# does not have the fork's ref).
 #
 # Env vars:
 #   AI_HELPERS_DIR   — path to ai-helpers checkout (default: auto-detect)
 #   EVAL_REPO_DIR    — override the clone location (default: cached under
 #                       evals/.repos/, keyed by repo_url)
-#   SKILL_MAX_TURNS  — passed to claude -p --max-turns (default: 200)
+#   SKILL_MAX_TURNS  — passed to claude -p --max-turns. Default: 200 —
+#                       UNCALIBRATED PLACEHOLDER (--max-turns accounting
+#                       scope is unconfirmed, per the plan; set for real
+#                       during calibration, not chosen deliberately here).
 
-REPO_URL=${1:?"Usage: $0 <repo_url> <from_commit> <version> [model]"}
-FROM_COMMIT=${2:?"Usage: $0 <repo_url> <from_commit> <version> [model]"}
-VERSION=${3:?"Usage: $0 <repo_url> <from_commit> <version> [model]"}
+REPO_URL=${1:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
+FROM_COMMIT=${2:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
+VERSION=${3:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
 SKILL_MODEL=${4:-claude-sonnet-4-6}
+KNOWN_GOOD_URL=${5:-}
+KNOWN_GOOD_REF=${6:-}
 AI_HELPERS_DIR=${AI_HELPERS_DIR:-$(cd "$(dirname "$0")/../../../.." && pwd)}
 PLUGIN_DIR="$AI_HELPERS_DIR/plugins/k8s-rebase"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
@@ -143,6 +156,23 @@ else
   echo "ERROR: orchestrator not found at $ORCH" > "$OUTPUT_DIR/final-status.txt"
 fi
 
+# The orchestrator writes .rebase-tmp/status/INCOMPLETE unconditionally
+# whenever a force-advance happens (k8s-rebase-orchestrator.sh's
+# FORCE_ADVANCE_THRESHOLD path) — independent of whether `status` itself
+# needs to reconstruct state from disk. `status`'s own output only
+# surfaces this file conditionally (when state reconstruction was
+# needed), so it is NOT a reliable way to detect a forced advance —
+# check the file directly instead.
+if [[ -f "$REPO_DIR/.rebase-tmp/status/INCOMPLETE" ]]; then
+  cp "$REPO_DIR/.rebase-tmp/status/INCOMPLETE" "$OUTPUT_DIR/force-advance.log"
+else
+  : > "$OUTPUT_DIR/force-advance.log"
+fi
+
+# --- Step 5: infrastructure-failure tagging (see run-status.json above:
+#     written infra_error at step 0, overwritten to completed at the end
+#     of this script on success) ---
+
 # --- Step 6: gate reports ---
 mkdir -p "$OUTPUT_DIR/gate-reports"
 if [[ -d "$REPO_DIR/.rebase-tmp/gates" ]]; then
@@ -159,10 +189,19 @@ git diff "$FROM_COMMIT"..HEAD -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/diff.pa
 git diff "$FROM_COMMIT"..HEAD --name-only > "$OUTPUT_DIR/files-changed.txt" 2>/dev/null || true
 git log --oneline "$FROM_COMMIT"..HEAD > "$OUTPUT_DIR/commit-log.txt" 2>/dev/null || true
 
-KNOWN_GOOD="${KNOWN_GOOD_REF:-}"
-if [[ -n "$KNOWN_GOOD" ]]; then
-  git fetch origin "$KNOWN_GOOD" 2>/dev/null || true
-  git diff "$FROM_COMMIT".."$KNOWN_GOOD" -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/known-good.patch" 2>/dev/null || true
+if [[ -n "$KNOWN_GOOD_REF" ]]; then
+  # known_good may live on a different repo (a personal fork hosting the
+  # human-reviewed rebase branch) than repo_url — fetch from THAT remote,
+  # not "origin" (repo_url), which does not have this ref.
+  if [[ -n "$KNOWN_GOOD_URL" && "$KNOWN_GOOD_URL" != "$REPO_URL" ]]; then
+    git fetch known-good-remote "$KNOWN_GOOD_REF" 2>/dev/null \
+      || { git remote add known-good-remote "$KNOWN_GOOD_URL" 2>/dev/null || true; \
+           git fetch known-good-remote "$KNOWN_GOOD_REF" 2>/dev/null || true; }
+  else
+    git fetch origin "$KNOWN_GOOD_REF" 2>/dev/null || true
+  fi
+  KNOWN_GOOD_SHA=$(git rev-parse FETCH_HEAD 2>/dev/null || echo "$KNOWN_GOOD_REF")
+  git diff "$FROM_COMMIT".."$KNOWN_GOOD_SHA" -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/known-good.patch" 2>/dev/null || true
 else
   : > "$OUTPUT_DIR/known-good.patch"
 fi
@@ -170,11 +209,21 @@ fi
 # --- Step 8: extracted build-error artifact ---
 #
 # Give the no_scope_creep judge something concrete to cite instead of
-# mining the raw stream-json transcript itself.
-grep -iE '(error|failed|undefined|cannot use|type mismatch)' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
-  | jq -r 'select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text // empty' 2>/dev/null \
+# mining the raw stream-json transcript itself. Build/vet errors most
+# often surface via tool_result content (e.g. `go build` output handed
+# back to the agent), not the agent's own assistant-authored prose, so
+# pull text from both event types.
+jq -r '
+  select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text // empty
+' "$OUTPUT_DIR/session-output.json" 2>/dev/null > "$OUTPUT_DIR/.build-errors-assistant.tmp" || true
+jq -r '
+  select(.type == "user") | .message.content[]? | select(.type == "tool_result") |
+  (.content[]? | select(.type == "text") | .text) // (.content // empty)
+' "$OUTPUT_DIR/session-output.json" 2>/dev/null > "$OUTPUT_DIR/.build-errors-tool.tmp" || true
+cat "$OUTPUT_DIR/.build-errors-assistant.tmp" "$OUTPUT_DIR/.build-errors-tool.tmp" 2>/dev/null \
   | grep -iE '(error|failed|undefined|cannot use|type mismatch)' \
   > "$OUTPUT_DIR/build-errors.txt" || true
+rm -f "$OUTPUT_DIR/.build-errors-assistant.tmp" "$OUTPUT_DIR/.build-errors-tool.tmp"
 
 # --- Step 9: push-attempt log ---
 #
