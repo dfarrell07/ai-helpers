@@ -79,8 +79,14 @@ bash "$ORCH" init "$REPO_ROOT" "$VERSION"
 
 ## Recovery
 
-If resuming a crashed or interrupted session:
+If resuming a crashed or interrupted session (Bootstrap has not been run yet):
 ```bash
+PLUGIN_ROOT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/scripts" -type d 2>/dev/null | head -1 | sed 's|/scripts$||')
+[[ -n "$PLUGIN_ROOT" ]] || { echo "ERROR: k8s-rebase plugin not found under $HOME — is it installed?"; exit 1; }
+ORCH="$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh"
+REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "$ORCH" status "$REPO_ROOT"
 ```
-This shows the current step and gate progress. Continue from there.
+This shows the current step and gate progress. Set `VERSION` from the rebase branch
+name (`git branch --show-current | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'`), then
+continue from Execute Current Step.
