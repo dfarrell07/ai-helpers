@@ -33,6 +33,16 @@ placeholders. Before trusting any eval results:
 `ovn-org/ovn-kubernetes` (case-001) is the largest repo and may need a per-case
 timeout/budget override rather than one global number.
 
+### Convention alignment (verified against other plugins)
+
+Compared against `plugins/ci`, `plugins/code-review`, and `plugins/openshift-developer` evals:
+
+- **Runner type**: we use `cli` (same as `openshift-developer/eval-solve.yaml`) — correct.
+- **`permissions` block**: other `claude-code` runner evals have one; `cli` runner evals do not — we're a `cli` runner, so no `permissions` block needed. Correct.
+- **Template syntax in LLM judges**: harness uses Jinja2. `{{ outputs }}` passes the full blob. Scoped file access must use `{% for path, content in outputs.files.items() if path.endswith('foo') %}` — NOT `{{ filename }}`. Our LLM judges were fixed to use the Jinja loop pattern (commit 85821ed7).
+- **`events: false`**: other evals explicitly set `events: false`; we removed `events: true`. Either is fine — omitting it is equivalent to false per harness docs.
+- **`make eval case=NNN`**: wired up in the Makefile — runnable.
+
 ### Potential follow-on (not blocking)
 
 - **`{**files, **modified}` merge pattern** is copy-pasted across all 5
