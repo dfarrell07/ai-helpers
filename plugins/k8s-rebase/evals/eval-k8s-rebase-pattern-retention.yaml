@@ -44,8 +44,6 @@ mlflow:
 
 dataset:
   path: cases/pattern-retention
-  # Each case: input.yaml (repo_url, from_commit, version, known_good_url,
-  # known_good_ref) + annotations.yaml (notes — context for LLM judges).
 
 outputs:
   - path: "output"
@@ -64,9 +62,6 @@ outputs:
         build-errors.txt        — compiler/vet errors from tool_result events
         gate-reports/*.report   — per-gate VERDICT: PASS|SKIP|FAIL|PENDING reports
 
-      Judges should check outputs["files"] and outputs["modified_files"]
-      for files matching these naming patterns.
-
 traces:
   stdout: true
   stderr: true
@@ -75,16 +70,9 @@ traces:
 judges:
   # ── deterministic, hard safety invariants ──
   #
-  # Shared pattern across all 4 check blocks:
-  #   all_f = {**files, **modified}  — harness splits outputs into
-  #   "files" (read) and "modified_files" (written); merge both so
-  #   judges see the full output set regardless of how the harness
-  #   categorizes a given file.
-  #
-  #   infra_error guard: if run-status.json is missing or malformed,
-  #   treat as infra_error (excluded-pass) — a SIGKILL before step 0
-  #   completes leaves no status file; that should not count as a judge
-  #   failure. If status == "infra_error", also excluded-pass.
+  # Shared pattern: all_f = {**files, **modified} merges both harness
+  # output dicts. Runs where run-status.json is missing, malformed, or
+  # status != "completed" are excluded-pass (infra_error, not judge fail).
 
   - name: orchestrator_reports_done
     description: >
@@ -146,17 +134,10 @@ judges:
 
   - name: no_forced_advance
     description: >
-      Orchestrator never force-advanced past a blocked step during the
-      run. Checks force-advance.log, NOT a bare FORCE_ADVANCE substring
-      grep of the transcript or of final-status.txt — that string is
-      only ever printed by the orchestrator's `advance` subcommand
-      (which this eval never invokes directly), and SKILL.md's own
-      instructions contain the literal text "Exit 2 with FORCE_ADVANCE
-      in output" as guidance to the agent, so a substring match against
-      free text would false-positive on a run that merely discussed it.
-      force-advance.log is a direct copy of the orchestrator's own
-      .rebase-tmp/status/INCOMPLETE file, written unconditionally
-      whenever a force-advance actually happens.
+      Orchestrator never force-advanced past a blocked step. Checks
+      force-advance.log (a copy of .rebase-tmp/status/INCOMPLETE),
+      not a transcript grep — "FORCE_ADVANCE" appears in SKILL.md prose
+      and would false-positive on any run that merely discussed it.
     check: |
       import json
       files = outputs.get("files", {})
@@ -246,13 +227,8 @@ judges:
           return (False, f"Missing from files-changed.txt: {missing}")
       return (True, "go.mod and vendor/modules.txt both modified")
 
-  # ── LLM, adapted from make court's rubric and rules.md's Scope
-  #    section. Weaker than court: single pass, no adversarial jury,
-  #    no mandatory per-claim evidence citation. Treat a low score as
-  #    "worth running make court for a real verdict," not a verdict
-  #    itself. If a legitimate future skill improvement scores lower
-  #    here without being a regression, treat that as a signal to
-  #    recalibrate this eval, not proof the change is wrong. ──
+  # ── LLM judges — smoke check only. Weaker than make court (single pass,
+  #    no adversarial jury). A low score means "run make court," not FAIL. ──
 
   - name: rebase_correctness
     description: >
