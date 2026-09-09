@@ -52,13 +52,13 @@ timeout/budget override rather than one global number.
 - **Runner type**: `cli` (same as `openshift-developer/eval-solve.yaml`)
 - **`metrics.json`**: written in the CLI runner contract format (`token_usage`, `cost_usd`, `num_turns`, `model`)
 - **`session-output.json`**: deleted at end of run (matches `run-solve.sh`'s pattern — prevents large JSONL from loading into harness outputs)
-- **Jinja2 loops**: multi-line `{% for %}...{% endfor %}`, iterating both `outputs.files` and `outputs.modified_files` so file classification by the harness doesn't silently empty the prompt
-- **`--disallowed-tools`**: blocks `git push`/`gh pr create` AND `go mod tidy/get/vendor/edit` + `go generate` (all forbidden by SKILL.md)
+- **Jinja2 loops**: multi-line `{% for path, content in outputs.files.items() if path.endswith('...') %}` — matches the exact form used by every peer eval; `outputs.modified_files` is not available in prompt template context (only in Python check blocks)
+- **`--disallowed-tools`**: blocks `git push`/`gh pr create` AND `go mod tidy/get/vendor/edit`, `go get`, `go generate`, `go run` (all forbidden by SKILL.md)
 - **`events`**: omitted (equivalent to `false`)
 - **`permissions` block**: not needed (`cli` runner evals don't use it; only `claude-code` runner evals do)
 
 ## Potential follow-on (not blocking)
 
-- **`go mod` blocks in `--disallowed-tools`** should be verified during calibration — confirm the skill doesn't try to call them and get blocked unexpectedly (they're forbidden by SKILL.md, so blocking them is correct, but a block mid-run is still an infra_error).
+- **`go mod`/`go run`/`go get` blocks in `--disallowed-tools`** should be verified during calibration — confirm the skill doesn't try to call them. A block returns a tool error to the agent (not a process exit), so it won't cause `infra_error` — but repeated blocks could confuse the skill's step loop.
 - **`rebase_correctness` / `no_scope_creep` are weaker than `make court`** — single LLM pass, no adversarial jury. A legitimate skill improvement that scores lower here without regressing should trigger recalibration, not a revert.
 - **Step 5 `gh pr create` command**: eval verifies the command was not *executed*, but doesn't verify it was *printed* for the user. A skill that skipped step5-pr.md entirely and reported DONE would still pass all judges.
