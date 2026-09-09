@@ -1,2 +1,3 @@
-expected_gates_total: 32
-notes: openshift/ingress-node-firewall.
+notes: >
+  openshift/ingress-node-firewall — medium-sized repo with a
+  relatively small k8s API surface; good mid-tier case.

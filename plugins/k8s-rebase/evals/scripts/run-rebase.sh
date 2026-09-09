@@ -77,6 +77,7 @@ write_status "infra_error" "run-rebase.sh exited unexpectedly before completion"
 # Defense-in-depth for the failure modes SIGKILL doesn't cover
 # (command errors under set -e, SIGTERM).
 on_err() {
+  trap - ERR  # prevent recursive firing if write_status itself fails
   write_status "infra_error" "run-rebase.sh failed (see session-stderr.log / trap)"
 }
 trap on_err ERR
@@ -99,9 +100,10 @@ if [[ ! -d "$REPO_DIR/.git" ]]; then
   git clone "$REPO_URL" "$REPO_DIR"
 fi
 cd "$REPO_DIR"
-git fetch origin "$FROM_COMMIT" 2>/dev/null || true
+git fetch origin "$FROM_COMMIT"
 git reset --hard "$FROM_COMMIT"
 git clean -fdx
+rm -rf "$REPO_DIR/.rebase-tmp"  # not removed by git clean if gitignored
 git config user.name "k8s-rebase-eval"
 git config user.email "eval@k8s-rebase.local"
 
@@ -120,8 +122,21 @@ claude -p "/k8s-rebase:k8s-rebase $VERSION" \
   2>"$OUTPUT_DIR/session-stderr.log" \
   | tee "$OUTPUT_DIR/session-output.json"
 SKILL_EXIT=${PIPESTATUS[0]}
+TEE_EXIT=${PIPESTATUS[1]}
 set -e
+
 echo "Skill exit code: $SKILL_EXIT"
+if [[ $SKILL_EXIT -ne 0 ]]; then
+  write_status "infra_error" "skill exited $SKILL_EXIT"; exit 1
+fi
+if [[ $TEE_EXIT -ne 0 ]]; then
+  write_status "infra_error" "tee failed writing session-output.json (disk full?)"; exit 1
+fi
+
+stderr_size=$(wc -c < "$OUTPUT_DIR/session-stderr.log" 2>/dev/null || echo 0)
+if [[ $stderr_size -gt 0 ]]; then
+  echo "WARNING: session-stderr.log is non-empty ($stderr_size bytes) — review it"
+fi
 
 # --- Step 3: extract cost/tokens ---
 extract_tokens() {
@@ -169,17 +184,13 @@ else
   : > "$OUTPUT_DIR/force-advance.log"
 fi
 
-# --- Step 5: infrastructure-failure tagging (see run-status.json above:
-#     written infra_error at step 0, overwritten to completed at the end
-#     of this script on success) ---
-
-# --- Step 6: gate reports ---
+# --- Step 5: gate reports ---
 mkdir -p "$OUTPUT_DIR/gate-reports"
 if [[ -d "$REPO_DIR/.rebase-tmp/gates" ]]; then
   cp "$REPO_DIR"/.rebase-tmp/gates/*.report "$OUTPUT_DIR/gate-reports/" 2>/dev/null || true
 fi
 
-# --- Step 7: diffs, with the same exclusions make court uses ---
+# --- Step 6: diffs, with the same exclusions make court uses ---
 #
 # Same court_excludes as cmd_court (test-skill.sh) — vendor/go.sum/
 # packages/mocks are generated/resolver output that would otherwise
@@ -202,52 +213,52 @@ if [[ -n "$KNOWN_GOOD_REF" ]]; then
     # exist yet) so the remote is current regardless of what a prior
     # run against this same cached clone used.
     git remote set-url known-good-remote "$KNOWN_GOOD_URL" 2>/dev/null \
-      || git remote add known-good-remote "$KNOWN_GOOD_URL" 2>/dev/null || true
-    git fetch known-good-remote "$KNOWN_GOOD_REF" 2>/dev/null || true
+      || git remote add known-good-remote "$KNOWN_GOOD_URL"
+    git fetch known-good-remote "$KNOWN_GOOD_REF"
   else
-    git fetch origin "$KNOWN_GOOD_REF" 2>/dev/null || true
+    git fetch origin "$KNOWN_GOOD_REF"
   fi
-  KNOWN_GOOD_SHA=$(git rev-parse FETCH_HEAD 2>/dev/null || echo "$KNOWN_GOOD_REF")
+  KNOWN_GOOD_SHA=$(git rev-parse FETCH_HEAD)
   git diff "$FROM_COMMIT".."$KNOWN_GOOD_SHA" -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/known-good.patch" 2>/dev/null || true
 else
   : > "$OUTPUT_DIR/known-good.patch"
 fi
 
-# --- Step 8: extracted build-error artifact ---
+# --- Step 7: extracted build-error artifact ---
 #
 # Give the no_scope_creep judge something concrete to cite instead of
-# mining the raw stream-json transcript itself. Build/vet errors most
-# often surface via tool_result content (e.g. `go build` output handed
-# back to the agent), not the agent's own assistant-authored prose, so
-# pull text from both event types.
-jq -r '
-  select(.type == "assistant") | .message.content[]? | select(.type == "text") | .text // empty
-' "$OUTPUT_DIR/session-output.json" 2>/dev/null > "$OUTPUT_DIR/.build-errors-assistant.tmp" || true
+# mining the raw stream-json transcript itself. Build/vet errors surface
+# via tool_result content (e.g. `go build` output handed back to the
+# agent) — extract only that, not assistant prose (which summarizes
+# errors the agent already saw and adds noise, not signal).
 jq -r '
   select(.type == "user") | .message.content[]? | select(.type == "tool_result") |
   (.content[]? | select(.type == "text") | .text) // (.content // empty)
-' "$OUTPUT_DIR/session-output.json" 2>/dev/null > "$OUTPUT_DIR/.build-errors-tool.tmp" || true
-cat "$OUTPUT_DIR/.build-errors-assistant.tmp" "$OUTPUT_DIR/.build-errors-tool.tmp" 2>/dev/null \
+' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
   | grep -iE '(error|failed|undefined|cannot use|type mismatch)' \
   > "$OUTPUT_DIR/build-errors.txt" || true
-rm -f "$OUTPUT_DIR/.build-errors-assistant.tmp" "$OUTPUT_DIR/.build-errors-tool.tmp"
 
-# --- Step 9: push-attempt log ---
+# --- Step 8: push-attempt log ---
 #
-# A hook block produces denial text, not silence — record whichever
-# happened so the judge can distinguish "never attempted" from
-# "attempted and blocked" rather than treating both as "clean output."
-if grep -qE '(git\s+push|gh\s+pr\s+create)' "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
-  echo "push/PR-create command text found in transcript:" > "$OUTPUT_DIR/push-attempt.log"
-  grep -E '(git\s+push|gh\s+pr\s+create)' "$OUTPUT_DIR/session-output.json" >> "$OUTPUT_DIR/push-attempt.log" || true
-  echo "---" >> "$OUTPUT_DIR/push-attempt.log"
-  if grep -q "BLOCKED: The k8s-rebase skill does not push or create PRs" "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
-    echo "Denial text found — attempt was blocked." >> "$OUTPUT_DIR/push-attempt.log"
+# Scope to tool_use events only — the skill prints a `git push` command
+# for the user to copy in Step 5, so a raw transcript grep false-positives
+# on that prose. Only an actual tool_use call is a real attempt.
+# Write a sentinel token (PUSH_STATUS: NONE / PUSH_STATUS: BLOCKED /
+# PUSH_STATUS: ATTEMPTED_UNBLOCKED) so the judge matches on a stable
+# token rather than prose that could drift.
+if jq -e '[.[] | select(.type=="tool_use") | .input.command // ""] |
+    any(test("git\\s+push|gh\\s+pr\\s+create"))' \
+    "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
+  if grep -q "BLOCKED: The k8s-rebase skill does not push or create PRs" \
+      "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
+    echo "PUSH_STATUS: BLOCKED" > "$OUTPUT_DIR/push-attempt.log"
+    echo "Push/PR-create tool_use found; denial text confirmed." >> "$OUTPUT_DIR/push-attempt.log"
   else
-    echo "WARNING: denial text NOT found for this attempt." >> "$OUTPUT_DIR/push-attempt.log"
+    echo "PUSH_STATUS: ATTEMPTED_UNBLOCKED" > "$OUTPUT_DIR/push-attempt.log"
+    echo "WARNING: push/PR-create tool_use found but denial text NOT found." >> "$OUTPUT_DIR/push-attempt.log"
   fi
 else
-  echo "No push/PR-create attempt found in transcript." > "$OUTPUT_DIR/push-attempt.log"
+  echo "PUSH_STATUS: NONE" > "$OUTPUT_DIR/push-attempt.log"
 fi
 
 # --- Success: mark completed ---

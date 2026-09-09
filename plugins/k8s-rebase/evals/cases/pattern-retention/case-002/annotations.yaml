@@ -1,6 +1,3 @@
-expected_gates_total: 32
 notes: >
   ovn-kubernetes-mcp — small repo, good candidate for cheap wrapper
-  calibration (see plans/agent-eval-harness.md). known_good lives on
-  a personal fork branch; re-verify it resolves before trusting this
-  case, per that plan's P2 note.
+  calibration (see plans/agent-eval-harness.md).

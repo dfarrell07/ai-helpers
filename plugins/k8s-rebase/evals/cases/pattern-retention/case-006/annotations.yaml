@@ -1,2 +1,4 @@
-expected_gates_total: 32
-notes: openshift/cluster-network-operator.
+notes: >
+  openshift/cluster-network-operator — larger downstream repo with
+  OpenShift-specific API usage; good stress test for scope-creep
+  detection.

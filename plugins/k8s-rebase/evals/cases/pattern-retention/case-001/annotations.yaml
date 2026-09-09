@@ -1,4 +1,3 @@
-expected_gates_total: 32
 notes: >
   ovn-org/ovn-kubernetes — the largest, most complex repo in the
   matrix (largest vendor tree, sub-module go-controller/ layout).
