@@ -113,7 +113,7 @@ judges:
           return (True, "infra_error run excluded (malformed run-status.json)")
       if status != "completed":
           return (True, f"infra_error run excluded from this check (status={status})")
-      reports = {k: v for k, v in all_f.items() if "gate-reports/" in k and k.endswith(".report")}
+      reports = {k: v for k, v in all_f.items() if k.endswith(".report")}
       if not reports:
           return (False, "No gate-reports/*.report files found")
       bad = []
