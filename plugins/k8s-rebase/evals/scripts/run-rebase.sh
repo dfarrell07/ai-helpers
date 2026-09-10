@@ -129,7 +129,7 @@ grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
       model: ((.modelUsage // {} | keys | first) // "unknown")
     }' 2>/dev/null \
   > "$OUTPUT_DIR/metrics.json" \
-  || echo '{"cost_usd":0,"num_turns":0}' > "$OUTPUT_DIR/metrics.json"
+  || echo '{"token_usage":{"input":0,"output":0},"cost_usd":0,"num_turns":0,"model":"unknown"}' > "$OUTPUT_DIR/metrics.json"
 echo "Cost/tokens:"
 cat "$OUTPUT_DIR/metrics.json"
 
@@ -167,6 +167,8 @@ cp "$REPO_DIR"/.rebase-tmp/gates/*.report "$OUTPUT_DIR/gate-reports/" 2>/dev/nul
 COURT_EXCLUDES=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' ':(exclude,glob)**/mocks/**')
 git diff "$FROM_COMMIT"..HEAD -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/diff.patch" 2>/dev/null || true
 git diff "$FROM_COMMIT"..HEAD --name-only -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/files-changed.txt" 2>/dev/null || true
+# Unfiltered list (includes vendor/) used by go_mod_and_vendor_modified judge.
+git diff "$FROM_COMMIT"..HEAD --name-only > "$OUTPUT_DIR/files-changed-all.txt" 2>/dev/null || true
 
 if [[ -n "$KNOWN_GOOD_REF" ]]; then
   # known_good may live on a different repo (a personal fork hosting the

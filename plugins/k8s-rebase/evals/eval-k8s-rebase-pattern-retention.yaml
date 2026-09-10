@@ -197,12 +197,14 @@ judges:
       if status != "completed":
           return (True, f"infra_error run excluded from this check (status={status})")
       diff_files = {k: v for k, v in all_f.items() if k.endswith("diff.patch")}
-      changed_files = {k: v for k, v in all_f.items() if k.endswith("files-changed.txt")}
+      # Use files-changed-all.txt (unfiltered) so vendor/modules.txt is visible.
+      # files-changed.txt has COURT_EXCLUDES applied and will never contain vendor/.
+      all_changed_files = {k: v for k, v in all_f.items() if k.endswith("files-changed-all.txt")}
       if not diff_files:
           return (False, "No diff.patch found")
       if not list(diff_files.values())[0].strip():
           return (False, "diff.patch is empty — skill made no changes")
-      changed = list(changed_files.values())[0] if changed_files else ""
+      changed = list(all_changed_files.values())[0] if all_changed_files else ""
       lines = changed.splitlines()
       missing = []
       if not any(line.endswith("go.mod") for line in lines):
@@ -210,7 +212,7 @@ judges:
       if not any("vendor/modules.txt" in line for line in lines):
           missing.append("vendor/modules.txt")
       if missing:
-          return (False, f"Missing from files-changed.txt: {missing}")
+          return (False, f"Missing from files-changed-all.txt: {missing}")
       return (True, "go.mod and vendor/modules.txt both modified")
 
   # ── LLM judges — smoke check only. Weaker than make court (single pass,
@@ -243,6 +245,8 @@ judges:
         resolved version
       - K8S_VERSION or KIND version patch-level differences between
         go.mod and CI/test tooling
+      - Go toolchain minor-version differences in Dockerfile/Makefile
+        (e.g. 1.26 vs 1.27) driven by what `go mod tidy` writes to go.mod
       - Extra fixes the result made that the known-good didn't
       - Fixes in known-good that the result lacks, IF the result
         still compiles and passes vet without them
