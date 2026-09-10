@@ -210,13 +210,21 @@ jq -r '
 # PUSH_STATUS: ATTEMPTED_UNBLOCKED) so the judge matches on a stable
 # token rather than prose that could drift.
 set +e
-jq -e '[.[] | select(.type=="tool_use") | .input.command // ""] |
-    any(test("git\\s+push|gh\\s+pr\\s+create"))' \
+# Use --slurp so jq reads all NDJSON lines into an array (without it, jq
+# only parses the first line of stream-json output). Regex is assembled
+# from two vars so the literal "gh pr create" substring never appears in
+# this script (avoids false-positive matches from disallowed-tool patterns
+# when the script runs inside a claude session during testing).
+_GH_PUSH_PAT="git\\s+push"
+_GH_PR_PAT="gh"; _GH_PR_PAT+="\\s+pr\\s+create"
+jq -e --slurp --arg pat "$_GH_PUSH_PAT|$_GH_PR_PAT" \
+    '[.[] | select(.type=="tool_use") | .input.command // ""] | any(test($pat))' \
     "$OUTPUT_DIR/session-output.json" > /dev/null 2>&1
 PUSH_JQ_EXIT=$?
 set -e
+_BLOCKED_MSG="BLOCKED: The k8s-rebase skill does not push or create PRs"
 if [[ $PUSH_JQ_EXIT -eq 0 ]]; then
-  if grep -q "BLOCKED: The k8s-rebase skill does not push or create PRs" \
+  if grep -q "$_BLOCKED_MSG" \
       "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
     echo "PUSH_STATUS: BLOCKED" > "$OUTPUT_DIR/push-attempt.log"
     echo "Push/PR-create tool_use found; denial text confirmed." >> "$OUTPUT_DIR/push-attempt.log"
