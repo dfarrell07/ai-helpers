@@ -75,7 +75,8 @@ timeout/budget override rather than one global number.
 - **`session-output.json`**: deleted at end of run (matches `run-solve.sh`'s pattern — prevents large JSONL from loading into harness outputs)
 - **Jinja2 loops**: multi-line `{% for path, content in outputs.files.items() if path.endswith('...') %}` — matches the exact form used by every peer eval; `outputs.modified_files` is not available in prompt template context (only in Python check blocks)
 - **`--disallowed-tools`**: blocks `git push`/`gh pr create` AND `go mod tidy/get/vendor/edit`, `go get`, `go generate`, `go run` (all forbidden by SKILL.md). `sleep` is NOT blocked — step1 needs it to poll for `k8s-rebase.sh` completion (blocking it caused eval failure in calibration).
-- **`events`**: omitted (equivalent to `false`)
+- **`events: false`**: explicitly set (matches all peer evals — omitting it is equivalent but all peers set it)
+- **`dataset.schema`**: present — documents input.yaml and annotations.yaml fields (matches all peer evals)
 - **`permissions` block**: not needed (`cli` runner evals don't use it; only `claude-code` runner evals do)
 
 ## Potential follow-on (not blocking)

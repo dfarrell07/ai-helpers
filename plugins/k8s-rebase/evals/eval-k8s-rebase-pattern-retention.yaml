@@ -44,6 +44,16 @@ mlflow:
 
 dataset:
   path: cases/pattern-retention
+  schema: |
+    Each case directory contains:
+    - input.yaml: YAML file with fields:
+      - 'repo_url' — GitHub URL of the repo to rebase
+      - 'from_commit' — SHA to start from (the pre-rebase state)
+      - 'version' — target k8s version string (e.g. "1.36.2")
+      - 'known_good_url' — GitHub URL of the repo hosting the known-good branch
+      - 'known_good_ref' — SHA of the human-reviewed reference rebase
+    - annotations.yaml: Context for LLM judges:
+      - 'notes' — repo characteristics, expected difficulty, known fixture issues
 
 outputs:
   - path: "output"
@@ -64,6 +74,7 @@ outputs:
 traces:
   stdout: true
   stderr: true
+  events: false
   metrics: true
 
 judges:
