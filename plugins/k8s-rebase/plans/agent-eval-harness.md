@@ -13,6 +13,7 @@ Calibrated against case-002 (ovn-kubernetes-mcp, 2026-09-13): ~$12 cost,
 ~50 min, all 31 gates PASS. LLM thresholds set at 2.5 (midpoint of the
 good=4/3 vs bad=1/1 scores). Timeout/budget (12h / $150) covers all 6 cases
 with headroom; case-001 (ovn-kubernetes) may need more — monitor its first run.
+go mod/go run/go get blocks verified in calibration: skill did not attempt any.
 
 ## How to run
 
@@ -29,8 +30,6 @@ claude plugin eval evals/eval-k8s-rebase-pattern-retention.yaml
 
 ## Potential follow-on (not blocking)
 
-- **`go mod`/`go run`/`go get` blocks** verified in case-002 calibration — no
-  disruptions observed; skill did not attempt any blocked operations.
 - **`rebase_correctness` / `no_scope_creep` are weaker than `make court`** —
   single LLM pass, no adversarial jury. A legitimate skill improvement that
   scores lower here without regressing should trigger recalibration, not a revert.

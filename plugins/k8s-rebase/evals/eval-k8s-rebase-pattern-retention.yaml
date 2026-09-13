@@ -12,7 +12,7 @@ execution:
   timeout: 43200        # 12h — covers all 6 cases; case-001 (ovn-kubernetes) may need more
   max_budget_usd: 150.0
   env:
-    AI_HELPERS_DIR: "$PWD"
+    AI_HELPERS_DIR: "$PWD"  # harness sets cwd to the case workspace; $PWD resolves at runtime
 
 runner:
   type: cli
@@ -44,7 +44,7 @@ dataset:
       - 'repo_url' — GitHub URL of the repo to rebase
       - 'from_commit' — SHA to start from (the pre-rebase state)
       - 'version' — target k8s version string (e.g. "1.36.2")
-      - 'known_good_url' — GitHub URL of the repo hosting the known-good branch
+      - 'known_good_url' — GitHub URL of the repo hosting the known-good ref (may equal repo_url for same-repo refs)
       - 'known_good_ref' — SHA of the human-reviewed reference rebase
     - annotations.yaml: Context for LLM judges:
       - 'notes' — repo characteristics, expected difficulty, known fixture issues

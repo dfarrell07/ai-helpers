@@ -32,7 +32,7 @@ MAX_TURNS="${SKILL_MAX_TURNS:-200}"
 OUTPUT_DIR="$(pwd)/output"
 mkdir -p "$OUTPUT_DIR"
 
-REPO_DIR="${EVAL_REPO_DIR:-$AI_HELPERS_DIR/plugins/k8s-rebase/evals/.repos/$(echo "$REPO_URL" | sed -E 's#https?://##; s#[^A-Za-z0-9]+#_#g')}"
+REPO_DIR="${EVAL_REPO_DIR:-$AI_HELPERS_DIR/plugins/k8s-rebase/evals/.repos/$(echo "$REPO_URL" | sed -E 's#https?://github\.com/##; s#/#_#g')}"
 
 # Write infra_error as the first filesystem op — SIGKILL (a plausible
 # harness timeout mechanism) won't fire any trap, so this must exist
