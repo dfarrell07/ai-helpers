@@ -10,11 +10,7 @@ skill: k8s-rebase:k8s-rebase
 execution:
   mode: case
   arguments: "{repo_url} {from_commit} {version} {model} {known_good_url} {known_good_ref}"
-  # Calibrated against case-002 (ovn-kubernetes-mcp) on 2026-09-13.
-  # Actual cost: ~$12, actual duration: ~50 min. 12h/150 USD covers all
-  # 6 cases with headroom. case-001 (ovn-kubernetes) may be significantly
-  # more expensive; monitor its first run.
-  timeout: 43200        # 12h
+  timeout: 43200        # 12h — covers all 6 cases; case-001 (ovn-kubernetes) may need more
   max_budget_usd: 150.0
   env:
     AI_HELPERS_DIR: "$PWD"
@@ -34,8 +30,7 @@ runner:
     - "{known_good_ref}"
 
 models:
-  # Matches test/config-1.36.yaml — the only model this skill has
-  # actually been validated under.
+  # claude-sonnet-4-6 is the only model this skill has been validated under.
   skill: claude-sonnet-4-6
   judge: claude-opus-4-6
 
@@ -58,8 +53,6 @@ dataset:
 outputs:
   - path: "output"
     schema: |
-      run-rebase.sh produces these files in the output/ directory:
-
         run-status.json         — {"status": "completed"|"infra_error", "reason": "..."}
         metrics.json            — CLI runner contract: token_usage, cost_usd, num_turns, model
         final-status.txt        — orchestrator `status` output (contains "DONE: true" on success)
@@ -139,10 +132,10 @@ judges:
 
   - name: no_forced_advance
     description: >
-      Orchestrator never force-advanced past a blocked step. Checks
-      force-advance.log (a copy of .rebase-tmp/status/INCOMPLETE),
-      not a transcript grep — "FORCE_ADVANCE" appears in SKILL.md prose
-      and would false-positive on any run that merely discussed it.
+      Orchestrator never force-advanced past a blocked step; checks
+      force-advance.log, not the session transcript (FORCE_ADVANCE
+      appears in SKILL.md prose and would false-positive on any run
+      that merely discussed it).
     check: |
       import json
       all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
@@ -192,10 +185,9 @@ judges:
 
   - name: go_mod_and_vendor_modified
     description: >
-      A skill that gave up early ("already at version") produces an empty
-      diff and scores clean on no_scope_creep (no hunks = no violations)
-      — this judge catches that case directly by requiring go.mod and
-      vendor/modules.txt in files-changed.txt.
+      Requires go.mod and vendor/modules.txt in files-changed-all.txt;
+      detects a skill that exited early without making changes (which
+      would score clean on no_scope_creep since there are no hunks).
     check: |
       import json
       all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}

@@ -20,21 +20,11 @@ set -euo pipefail
 # Usage:
 #   run-rebase.sh <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]
 #
-# known_good_url/known_good_ref are optional; if omitted, known-good.patch
-# is written empty (no known-good comparison). If known_good lives on the
-# SAME repo as repo_url (a bare SHA in the case's input.yaml), pass
-# repo_url again as known_good_url. If it lives on a fork (input.yaml's
-# known_good is a {url, ref} object), pass that fork's url/ref — the
-# script fetches from THAT remote, not "origin" (which is repo_url and
-# does not have the fork's ref).
-#
 # Env vars:
 #   AI_HELPERS_DIR   — path to ai-helpers checkout (default: auto-detect)
 #   EVAL_REPO_DIR    — override the clone location (default: cached under
 #                       evals/.repos/, keyed by repo_url)
 #   SKILL_MAX_TURNS  — passed to claude -p --max-turns. Default: 200.
-#                       Calibration (case-002, 2026-09-13): full 4-step rebase
-#                       completed in well under 200 turns.
 
 REPO_URL=${1:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
 FROM_COMMIT=${2:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
@@ -52,8 +42,6 @@ mkdir -p "$OUTPUT_DIR"
 
 REPO_DIR="${EVAL_REPO_DIR:-$AI_HELPERS_DIR/plugins/k8s-rebase/evals/.repos/$(echo "$REPO_URL" | sed -E 's#https?://##; s#[^A-Za-z0-9]+#_#g')}"
 
-# --- Step 0: crash-safety status write, SIGKILL-safe ---
-#
 # Write infra_error as the first filesystem op — SIGKILL (a plausible
 # harness timeout mechanism) won't fire any trap, so this must exist
 # before any other work. Only the success path overwrites it to completed.
@@ -68,15 +56,13 @@ write_status "infra_error" "run-rebase.sh exited unexpectedly before completion"
 # Defense-in-depth for the failure modes SIGKILL doesn't cover
 # (command errors under set -e, SIGTERM).
 on_err() {
-  trap - ERR  # prevent recursive firing if write_status itself fails
+  trap - ERR
   write_status "infra_error" "run-rebase.sh failed (see session-stderr.log / trap)"
 }
 trap on_err ERR
 
 echo "=== k8s-rebase Eval: $REPO_URL @ $VERSION (model: $SKILL_MODEL) ==="
 
-# --- Step 1: clone/reset-and-clean ---
-#
 # Always reset at run start, not end — a post-run reset would race with
 # output capture by the next run on the same cached clone.
 if [[ ! -d "$REPO_DIR/.git" ]]; then
@@ -91,7 +77,6 @@ rm -rf "$REPO_DIR/.rebase-tmp"  # not removed by git clean if gitignored
 git config user.name "k8s-rebase-eval"
 git config user.email "eval@k8s-rebase.local"
 
-# --- Step 2: invoke the real skill once, with cmd_run's exact flags ---
 set +e
 claude -p "/k8s-rebase:k8s-rebase $VERSION" \
   --output-format stream-json \
@@ -115,7 +100,9 @@ if [[ $TEE_EXIT -ne 0 ]]; then
   write_status "infra_error" "tee failed writing session-output.json (disk full?)"; exit 1
 fi
 
-# --- Step 3: extract cost/tokens into metrics.json (CLI runner contract) ---
+# Extract cost/tokens into metrics.json (CLI runner contract).
+# tail -1: in multi-turn sessions the last "type":"result" event has
+# cumulative cost; earlier events are partial-cost snapshots.
 grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
   | tail -1 \
   | jq --arg model "$SKILL_MODEL" '{
@@ -132,37 +119,26 @@ grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
 echo "Cost/tokens:"
 cat "$OUTPUT_DIR/metrics.json"
 
-# --- Step 4: post-exit status guard ---
-#
-# Regardless of claude -p's own exit code, ask the orchestrator directly
-# whether it considers the rebase DONE. A clean process exit is not by
-# itself sufficient evidence of completion (e.g. a stop-hook interaction
-# on a near-timeout run could produce a clean-looking exit mid-rebase).
-ORCH="$PLUGIN_DIR/scripts/k8s-rebase-orchestrator.sh"
-if [[ -x "$ORCH" ]]; then
-  bash "$ORCH" status "$REPO_DIR" > "$OUTPUT_DIR/final-status.txt" 2>&1 || true
-else
-  echo "ERROR: orchestrator not found at $ORCH" > "$OUTPUT_DIR/final-status.txt"
-fi
+# Ask the orchestrator whether it considers the rebase DONE. A clean
+# claude -p exit is not by itself sufficient evidence of completion
+# (e.g. a stop-hook interaction on a near-timeout run could exit cleanly
+# mid-rebase).
+bash "$PLUGIN_DIR/scripts/k8s-rebase-orchestrator.sh" status "$REPO_DIR" \
+  > "$OUTPUT_DIR/final-status.txt" 2>&1 || true
 
 # .rebase-tmp/status/INCOMPLETE is written unconditionally on force-advance;
-# orchestrator `status` output only surfaces it conditionally, so check
-# the file directly rather than parsing status output.
+# orchestrator `status` only surfaces it conditionally, so check directly.
 if [[ -f "$REPO_DIR/.rebase-tmp/status/INCOMPLETE" ]]; then
   cp "$REPO_DIR/.rebase-tmp/status/INCOMPLETE" "$OUTPUT_DIR/force-advance.log"
 else
   : > "$OUTPUT_DIR/force-advance.log"
 fi
 
-# --- Step 5: gate reports ---
 mkdir -p "$OUTPUT_DIR/gate-reports"
 cp "$REPO_DIR"/.rebase-tmp/gates/*.report "$OUTPUT_DIR/gate-reports/" 2>/dev/null || true
 
-# --- Step 6: diffs, with the same exclusions make court uses ---
-#
-# Same court_excludes as cmd_court (test-skill.sh) — vendor/go.sum/
-# packages/mocks are generated/resolver output that would otherwise
-# blow up the diff an LLM judge has to read.
+# Same exclusions as cmd_court (test-skill.sh) — vendor/go.sum/packages/mocks
+# are generated/resolver output that would blow up the diff an LLM judge reads.
 COURT_EXCLUDES=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' ':(exclude,glob)**/mocks/**')
 git diff "$FROM_COMMIT"..HEAD -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/diff.patch" 2>/dev/null || true
 git diff "$FROM_COMMIT"..HEAD --name-only -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/files-changed.txt" 2>/dev/null || true
@@ -170,12 +146,9 @@ git diff "$FROM_COMMIT"..HEAD --name-only -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT
 git diff "$FROM_COMMIT"..HEAD --name-only > "$OUTPUT_DIR/files-changed-all.txt" 2>/dev/null || true
 
 if [[ -n "$KNOWN_GOOD_REF" ]]; then
-  # known_good may live on a different repo (a personal fork hosting the
-  # human-reviewed rebase branch) than repo_url — fetch from THAT remote,
-  # not "origin" (repo_url), which does not have this ref.
   if [[ -n "$KNOWN_GOOD_URL" && "$KNOWN_GOOD_URL" != "$REPO_URL" ]]; then
-    # set-url first — cached clone may have stale known-good-remote from
-    # a prior run against a different fork URL; add only if missing.
+    # known_good lives on a fork — fetch from that remote, not "origin".
+    # set-url first: cached clone may have a stale known-good-remote URL.
     git remote set-url known-good-remote "$KNOWN_GOOD_URL" 2>/dev/null \
       || git remote add known-good-remote "$KNOWN_GOOD_URL"
     git fetch known-good-remote "$KNOWN_GOOD_REF"
@@ -188,22 +161,15 @@ else
   : > "$OUTPUT_DIR/known-good.patch"
 fi
 
-# --- Step 7: extracted build-error artifact ---
-#
-# Give the no_scope_creep judge something concrete to cite instead of
-# mining the raw stream-json transcript itself. Build/vet errors surface
-# via tool_result content for Bash tool_use calls (e.g. `go build` output
-# handed back to the agent). Scope to Bash-only tool results by collecting
-# the tool_use_ids of Bash calls first, then filtering tool_results to those
-# ids — prevents skill/gate file reads (which contain prose with words like
-# "error") from polluting the output.
+# Give the no_scope_creep judge compiler errors to cite. Build/vet errors
+# surface via tool_result content for Bash calls. Scope to Bash-only results
+# by collecting Bash tool_use_ids first — prevents gate/skill file reads
+# (which contain prose with words like "error") from polluting the output.
 jq -rs '
-  # Collect tool_use_ids of Bash calls from assistant messages
   ( [.[] | select(.type == "assistant")
        | .message.content[]?
        | select(.type == "tool_use" and .name == "Bash")
        | .id] | unique) as $bash_ids |
-  # Extract text from tool_results whose id is in $bash_ids
   .[] | select(.type == "user")
       | .message.content[]?
       | select(.type == "tool_result" and ([$bash_ids[] == .tool_use_id] | any))
@@ -212,26 +178,12 @@ jq -rs '
   | grep -iE '(^.+\.go:[0-9]+:|undefined:|cannot use |type mismatch|cannot find |not enough arguments|too many arguments|does not implement|incompatible types|has no field|declared and not used|declared but not used)' \
   > "$OUTPUT_DIR/build-errors.txt" || true
 
-# --- Step 8: push-attempt log ---
-#
-# Scope to tool_use events only — the skill prints a `git push` command
-# for the user to copy in Step 5, so a raw transcript grep false-positives
-# on that prose. Only an actual tool_use call is a real attempt.
-# Write a sentinel token (PUSH_STATUS: NONE / PUSH_STATUS: BLOCKED /
-# PUSH_STATUS: ATTEMPTED_UNBLOCKED) so the judge matches on a stable
-# token rather than prose that could drift.
+# Check for push/PR-create tool_use calls. Scope to tool_use events only —
+# the skill prints a `git push` command for the user to copy in step 5, so
+# a raw transcript grep would false-positive on that prose.
+# tool_use events are nested inside assistant.message.content[], not top-level.
 set +e
-# Use -rs (slurp) so jq reads all NDJSON lines into an array (without it,
-# jq only parses the first line of stream-json output). Regex is assembled
-# from two vars so the literal "gh pr create" substring never appears in
-# this script (avoids false-positive matches from disallowed-tool patterns
-# when the script runs inside a claude session during testing).
-#
-# tool_use events in stream-json are NESTED inside assistant message
-# content, not top-level — must navigate .message.content[]?.type.
-_GH_PUSH_PAT="git\\s+push"
-_GH_PR_PAT="gh"; _GH_PR_PAT+="\\s+pr\\s+create"
-jq -e -rs --arg pat "$_GH_PUSH_PAT|$_GH_PR_PAT" \
+jq -e -rs --arg pat 'git\s+push|gh\s+pr\s+create' \
     '[.[] | select(.type=="assistant")
           | .message.content[]?
           | select(.type=="tool_use")
@@ -241,8 +193,7 @@ PUSH_JQ_EXIT=$?
 set -e
 _BLOCKED_MSG="BLOCKED: The k8s-rebase skill does not push or create PRs."
 if [[ $PUSH_JQ_EXIT -eq 0 ]]; then
-  if grep -q "$_BLOCKED_MSG" \
-      "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
+  if grep -q "$_BLOCKED_MSG" "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
     echo "PUSH_STATUS: BLOCKED" > "$OUTPUT_DIR/push-attempt.log"
     echo "Push/PR-create tool_use found; denial text confirmed." >> "$OUTPUT_DIR/push-attempt.log"
   else
@@ -256,6 +207,5 @@ fi
 # Remove large files the harness would otherwise load into outputs["files"].
 rm -f "$OUTPUT_DIR/session-output.json" "$OUTPUT_DIR/session-stderr.log"
 
-# --- Success: mark completed ---
 trap - ERR
 write_status "completed" ""

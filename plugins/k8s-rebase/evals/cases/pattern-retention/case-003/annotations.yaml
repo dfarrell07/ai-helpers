@@ -1,3 +1,7 @@
 notes: >
-  openshift/multus-cni — small repo, alternative candidate for cheap
-  wrapper calibration alongside case-002.
+  openshift/multus-cni — small CNI meta-plugin repo. k8s API surface is
+  narrow; expect go.mod/vendor changes plus a small number of .go
+  changes at call sites. OpenShift-specific wiring (openshift/api
+  imports) should not be touched by the rebase unless it directly fails
+  compilation. Any diff touching files outside go.mod, vendor/, and
+  direct k8s API call sites is worth scrutinizing.

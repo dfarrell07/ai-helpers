@@ -1,4 +1,6 @@
 notes: >
-  openshift/cloud-network-config-controller — this fixture's
-  known_good branch has flaked (404) before; pinned to SHA as of
-  2026-09-09 to avoid future drift.
+  openshift/cloud-network-config-controller — manages cloud EgressIP
+  (AWS/Azure/GCP). known_good_ref is pinned to a SHA on a personal
+  fork; fetch failures from the fork URL have occurred before, but the
+  SHA pin makes the reference immutable. If fetch fails, it is an
+  infra_error, not a judge failure.
