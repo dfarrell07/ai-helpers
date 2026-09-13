@@ -3,5 +3,5 @@ notes: >
   OpenShift. Heavy openshift/api and operator-framework dependencies
   mean more .go call-site changes are expected than in smaller repos.
   CNO-specific operator wiring (reconciler logic, status conditions)
-  should not be touched unless it directly fails compilation post-bump;
-  any diff in those areas warrants scrutiny.
+  is out-of-scope for a k8s bump — a diff touching those areas is a
+  scope-creep signal.

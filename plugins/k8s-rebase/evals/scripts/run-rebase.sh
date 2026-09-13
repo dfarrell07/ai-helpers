@@ -9,14 +9,6 @@ set -euo pipefail
 # hooks load and enforce in a headless session), but synchronously
 # (claude -p, not claude --bg) so cost/tokens are directly capturable.
 #
-# Produces output files for agent-eval-harness judges to evaluate.
-# Does NOT push or create PRs — --disallowed-tools blocks it as a
-# second, independent layer on top of the skill's own hooks.
-#
-# Called by the eval harness via runner.type: cli. The harness sets cwd
-# to the case workspace, which contains input.yaml and a pre-created
-# output/ dir.
-#
 # Usage:
 #   run-rebase.sh <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]
 #
@@ -49,7 +41,7 @@ write_status() {
   local status="$1" reason="$2"
   jq -n --arg status "$status" --arg reason "$reason" \
     '{status: $status, reason: $reason}' > "$OUTPUT_DIR/run-status.json.tmp"
-  mv "$OUTPUT_DIR/run-status.json.tmp" "$OUTPUT_DIR/run-status.json"
+  mv "$OUTPUT_DIR/run-status.json.tmp" "$OUTPUT_DIR/run-status.json"  # atomic
 }
 write_status "infra_error" "run-rebase.sh exited unexpectedly before completion"
 
@@ -116,10 +108,8 @@ grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
 echo "Cost/tokens:"
 cat "$OUTPUT_DIR/metrics.json"
 
-# Ask the orchestrator whether it considers the rebase DONE. A clean
-# claude -p exit is not by itself sufficient evidence of completion
-# (e.g. a stop-hook interaction on a near-timeout run could exit cleanly
-# mid-rebase).
+# cmd_status exits 0 in both DONE:true and DONE:false paths; the judge
+# reads the output text, not the exit code.
 bash "$PLUGIN_DIR/scripts/k8s-rebase-orchestrator.sh" status "$REPO_DIR" \
   > "$OUTPUT_DIR/final-status.txt" 2>&1
 
@@ -139,7 +129,6 @@ cp "$REPO_DIR"/.rebase-tmp/gates/*.report "$OUTPUT_DIR/gate-reports/" 2>/dev/nul
 COURT_EXCLUDES=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' ':(exclude,glob)**/mocks/**')
 git diff "$FROM_COMMIT"..HEAD -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/diff.patch" 2>/dev/null || true
 git diff "$FROM_COMMIT"..HEAD --name-only -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/files-changed.txt" 2>/dev/null || true
-# Unfiltered list (includes vendor/) used by go_mod_and_vendor_modified judge.
 git diff "$FROM_COMMIT"..HEAD --name-only > "$OUTPUT_DIR/files-changed-all.txt" 2>/dev/null || true
 
 if [[ -n "$KNOWN_GOOD_REF" ]]; then

@@ -29,10 +29,8 @@ claude plugin eval evals/eval-k8s-rebase-pattern-retention.yaml
 
 ## Potential follow-on (not blocking)
 
-- **`go mod`/`go run`/`go get` blocks** should be verified during calibration —
-  confirm the skill doesn't try to call them. A block returns a tool error (not
-  a process exit), so it won't cause `infra_error`, but repeated blocks could
-  confuse the skill's step loop.
+- **`go mod`/`go run`/`go get` blocks** verified in case-002 calibration — no
+  disruptions observed; skill did not attempt any blocked operations.
 - **`rebase_correctness` / `no_scope_creep` are weaker than `make court`** —
   single LLM pass, no adversarial jury. A legitimate skill improvement that
   scores lower here without regressing should trigger recalibration, not a revert.

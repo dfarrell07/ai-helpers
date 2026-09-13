@@ -1,7 +1,5 @@
 notes: >
-  openshift/multus-cni — small CNI meta-plugin repo. k8s API surface is
-  narrow; expect go.mod/vendor changes plus a small number of .go
-  changes at call sites. OpenShift-specific wiring (openshift/api
-  imports) should not be touched by the rebase unless it directly fails
-  compilation. Any diff touching files outside go.mod, vendor/, and
-  direct k8s API call sites is worth scrutinizing.
+  openshift/multus-cni — CNI meta-plugin that delegates configuration
+  via a CNI conf list. The primary k8s API consumer is the admission
+  controller in pkg/. Narrow k8s API surface; expect go.mod/vendor
+  changes plus a small number of .go call-site fixes.

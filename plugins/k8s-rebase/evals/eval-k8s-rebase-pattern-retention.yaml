@@ -195,8 +195,6 @@ judges:
       if status != "completed":
           return (True, f"infra_error run excluded from this check (status={status})")
       diff_files = {k: v for k, v in all_f.items() if k.endswith("diff.patch")}
-      # Use files-changed-all.txt (unfiltered) so vendor/modules.txt is visible.
-      # files-changed.txt has COURT_EXCLUDES applied and will never contain vendor/.
       all_changed_files = {k: v for k, v in all_f.items() if k.endswith("files-changed-all.txt")}
       if not diff_files:
           return (False, "No diff.patch found")
@@ -225,10 +223,9 @@ judges:
       an AI agent, comparing it against a human-reviewed reference
       rebase ("known-good").
 
-      DIFF DIRECTION: 'git diff known_good result' semantics — this
-      prompt shows you the result's diff.patch (vs from_commit) and
-      known-good.patch (vs from_commit) separately; compare their
-      shape and content.
+      DIFF DIRECTION: 'git diff known_good result' semantics — compare
+      diff.patch and known-good.patch as two independent diffs from
+      from_commit.
 
       PASS/FAIL CRITERIA: PASS means the result is a valid, correct k8s
       rebase. FAIL means it has a data-correctness regression that
