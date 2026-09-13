@@ -192,14 +192,24 @@ fi
 #
 # Give the no_scope_creep judge something concrete to cite instead of
 # mining the raw stream-json transcript itself. Build/vet errors surface
-# via tool_result content (e.g. `go build` output handed back to the
-# agent) — extract only that, not assistant prose (which summarizes
-# errors the agent already saw and adds noise, not signal).
-jq -r '
-  select(.type == "user") | .message.content[]? | select(.type == "tool_result") |
-  (.content[]? | select(.type == "text") | .text) // (.content // empty)
+# via tool_result content for Bash tool_use calls (e.g. `go build` output
+# handed back to the agent). Scope to Bash-only tool results by collecting
+# the tool_use_ids of Bash calls first, then filtering tool_results to those
+# ids — prevents skill/gate file reads (which contain prose with words like
+# "error") from polluting the output.
+jq -rs '
+  # Collect tool_use_ids of Bash calls from assistant messages
+  ( [.[] | select(.type == "assistant")
+       | .message.content[]?
+       | select(.type == "tool_use" and .name == "Bash")
+       | .id] | unique) as $bash_ids |
+  # Extract text from tool_results whose id is in $bash_ids
+  .[] | select(.type == "user")
+      | .message.content[]?
+      | select(.type == "tool_result" and ([$bash_ids[] == .tool_use_id] | any))
+      | (.content[]? | select(.type == "text") | .text) // (.content // empty)
 ' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
-  | grep -iE '(error|failed|undefined|cannot use|type mismatch|cannot find|not enough arguments|too many arguments|does not implement|incompatible types|has no field|declared (and not used|but not used))' \
+  | grep -iE '(^.+\.go:[0-9]+:|undefined:|cannot use |type mismatch|cannot find |not enough arguments|too many arguments|does not implement|incompatible types|has no field|declared and not used|declared but not used)' \
   > "$OUTPUT_DIR/build-errors.txt" || true
 
 # --- Step 8: push-attempt log ---
