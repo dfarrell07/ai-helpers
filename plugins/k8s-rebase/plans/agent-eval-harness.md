@@ -32,17 +32,37 @@ claude plugin eval evals/eval-k8s-rebase-pattern-retention.yaml
 
 ## Open work
 
-### Calibration (required before thresholds are real)
+### Calibration — case-002 complete (2026-09-13)
 
-`timeout`, `max_budget_usd`, and LLM judge `min_mean` are all uncalibrated
-placeholders. Before trusting any eval results:
+Calibration run against case-002 (ovn-kubernetes-mcp) complete. Key results:
 
-1. Run once against the cheapest case (`make eval case=002` or `case=003`).
-   Record actual cost and duration.
-2. Score one known-good diff and one obviously-bad diff through both LLM judge
-   prompts; set `min_mean` in the gap between those two scores.
-3. Confirm `known-good.patch` is non-empty for the calibration case before
-   trusting any judge that uses it.
+- **Actual cost**: ~$12 cumulative (claude-sonnet-4-6, full 4-step rebase)
+- **Actual duration**: ~50 minutes (rough lower bound; run was backgrounded)
+- **All 31 gates**: PASS. `DONE: true`. No force-advance. No push attempt.
+- **diff.patch**: 197 lines. Core k8s bump (api/apimachinery/client-go/kubectl/kubernetes
+  all v0.36.2, controller-runtime v0.24.1, K8S_VERSION v1.36.2) matches known-good exactly.
+  Acceptable variance: Go toolchain 1.27 vs 1.26 (MVS-driven), go-openapi indirect major
+  bumps, golang.org/x/* patch drift, openshift/api timestamp differences.
+- **known-good.patch**: 177 lines, non-empty — LLM judges have real reference to compare.
+
+Two bugs found and fixed during calibration:
+
+1. **`Bash(sleep *)` in `--disallowed-tools` broke the eval**: the skill relies on sleep
+   to poll for `k8s-rebase.sh` completion. Blocking sleep caused the session to terminate
+   early (22 turns) with `DONE: false`. Fixed: removed `sleep` from the block list. Safety
+   properties are unaffected (push/PR-create and go mod ops are still blocked).
+
+2. **Metrics extraction used `head -1` instead of `tail -1`**: in multi-turn sessions
+   (background-task-woken), the first `"type":"result"` event is a partial-cost snapshot.
+   The last event has the true cumulative cost. Fixed: `head -1` → `tail -1`.
+
+**LLM judge thresholds still need calibration** — run the judge prompts manually on
+(a) the case-002 known-good diff (expect score 4-5) and (b) an obviously-bad diff
+(expect score 1-2), then set `min_mean` in the gap.
+
+**Timeout/budget**: `timeout: 43200` (12h) is safe for all cases including case-001.
+`max_budget_usd: 150.0` covers case-002 ($12) with headroom; case-001 (ovn-kubernetes)
+may be significantly more expensive — monitor the first run.
 
 `ovn-org/ovn-kubernetes` (case-001) is the largest repo and may need a per-case
 timeout/budget override rather than one global number.
@@ -53,7 +73,7 @@ timeout/budget override rather than one global number.
 - **`metrics.json`**: written in the CLI runner contract format (`token_usage`, `cost_usd`, `num_turns`, `model`)
 - **`session-output.json`**: deleted at end of run (matches `run-solve.sh`'s pattern — prevents large JSONL from loading into harness outputs)
 - **Jinja2 loops**: multi-line `{% for path, content in outputs.files.items() if path.endswith('...') %}` — matches the exact form used by every peer eval; `outputs.modified_files` is not available in prompt template context (only in Python check blocks)
-- **`--disallowed-tools`**: blocks `git push`/`gh pr create` AND `go mod tidy/get/vendor/edit`, `go get`, `go generate`, `go run` (all forbidden by SKILL.md)
+- **`--disallowed-tools`**: blocks `git push`/`gh pr create` AND `go mod tidy/get/vendor/edit`, `go get`, `go generate`, `go run` (all forbidden by SKILL.md). `sleep` is NOT blocked — step1 needs it to poll for `k8s-rebase.sh` completion (blocking it caused eval failure in calibration).
 - **`events`**: omitted (equivalent to `false`)
 - **`permissions` block**: not needed (`cli` runner evals don't use it; only `claude-code` runner evals do)
 

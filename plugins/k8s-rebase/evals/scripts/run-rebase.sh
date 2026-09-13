@@ -32,10 +32,9 @@ set -euo pipefail
 #   AI_HELPERS_DIR   — path to ai-helpers checkout (default: auto-detect)
 #   EVAL_REPO_DIR    — override the clone location (default: cached under
 #                       evals/.repos/, keyed by repo_url)
-#   SKILL_MAX_TURNS  — passed to claude -p --max-turns. Default: 200 —
-#                       UNCALIBRATED PLACEHOLDER (--max-turns accounting
-#                       scope is unconfirmed, per the plan; set for real
-#                       during calibration, not chosen deliberately here).
+#   SKILL_MAX_TURNS  — passed to claude -p --max-turns. Default: 200.
+#                       Calibration (case-002, 2026-09-13): full 4-step rebase
+#                       completed in well under 200 turns.
 
 REPO_URL=${1:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
 FROM_COMMIT=${2:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
@@ -101,7 +100,7 @@ claude -p "/k8s-rebase:k8s-rebase $VERSION" \
   --model "$SKILL_MODEL" \
   --plugin-dir "$PLUGIN_DIR" \
   --permission-mode "$PERMISSION_MODE" \
-  --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(sleep *),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go get *),Bash(go generate *),Bash(go run *)' \
+  --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go get *),Bash(go generate *),Bash(go run *)' \
   2>"$OUTPUT_DIR/session-stderr.log" \
   | tee "$OUTPUT_DIR/session-output.json"
 PIPE_STATUS=("${PIPESTATUS[@]}")
@@ -118,7 +117,7 @@ fi
 
 # --- Step 3: extract cost/tokens into metrics.json (CLI runner contract) ---
 grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
-  | head -1 \
+  | tail -1 \
   | jq '{
       token_usage: {
         input: (.usage.input_tokens // 0),

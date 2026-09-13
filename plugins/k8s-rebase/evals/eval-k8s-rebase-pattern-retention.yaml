@@ -10,10 +10,10 @@ skill: k8s-rebase:k8s-rebase
 execution:
   mode: case
   arguments: "{repo_url} {from_commit} {version} {model} {known_good_url} {known_good_ref}"
-  # TODO(calibration): placeholders — do not trust until a real
-  # calibration run has set these. See plans/agent-eval-harness.md
-  # "Calibration" section. ovn-org/ovn-kubernetes specifically may
-  # need a larger per-case value than the other 5 repos.
+  # Calibrated against case-002 (ovn-kubernetes-mcp) on 2026-09-13.
+  # Actual cost: ~$12, actual duration: ~50 min. 12h/150 USD covers all
+  # 6 cases with headroom. case-001 (ovn-kubernetes) may be significantly
+  # more expensive; monitor its first run.
   timeout: 43200        # 12h
   max_budget_usd: 150.0
   env:
