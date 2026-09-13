@@ -56,9 +56,10 @@ Two bugs found and fixed during calibration:
    (background-task-woken), the first `"type":"result"` event is a partial-cost snapshot.
    The last event has the true cumulative cost. Fixed: `head -1` → `tail -1`.
 
-**LLM judge thresholds still need calibration** — run the judge prompts manually on
-(a) the case-002 known-good diff (expect score 4-5) and (b) an obviously-bad diff
-(expect score 1-2), then set `min_mean` in the gap.
+**LLM judge thresholds calibrated**: scored case-002 good diff (4/3) and an
+obviously-bad diff (1/1) through both judges. Gap is 3 points; `min_mean: 2.5`
+set for both. `no_scope_creep` good score is 3 not 4 because `build-errors.txt`
+captures skill prose rather than real compiler output — known limitation.
 
 **Timeout/budget**: `timeout: 43200` (12h) is safe for all cases including case-001.
 `max_budget_usd: 150.0` covers case-002 ($12) with headroom; case-001 (ovn-kubernetes)
