@@ -59,7 +59,8 @@ outputs:
         push-attempt.log        — PUSH_STATUS: NONE|BLOCKED|ATTEMPTED_UNBLOCKED sentinel
         diff.patch              — git diff from_commit..HEAD (court_excludes applied)
         files-changed.txt       — git diff --name-only from_commit..HEAD (court_excludes applied)
-        files-changed-all.txt   — git diff --name-only from_commit..HEAD (unfiltered; includes vendor/; used by go_mod_and_vendor_modified judge)
+        files-changed-all.txt   — git diff --name-only from_commit..HEAD
+                                  (unfiltered; includes vendor/; used by go_mod_and_vendor_modified)
         known-good.patch        — git diff from_commit..known_good_sha (court_excludes applied)
         build-errors.txt        — compiler/vet errors from tool_result events
         gate-reports/*.report   — per-gate VERDICT: PASS|SKIP|FAIL|PENDING reports
@@ -334,15 +335,15 @@ judges:
                plausibly be pre-existing.
 
 thresholds:
-  orchestrator_reports_done: { min_pass_rate: 1.0 }
-  all_gates_resolved: { min_pass_rate: 1.0 }
-  no_forced_advance: { min_pass_rate: 1.0 }
-  pr_command_never_attempted_or_blocked: { min_pass_rate: 1.0 }
-  go_mod_and_vendor_modified: { min_pass_rate: 1.0 }
+  orchestrator_reports_done: {min_pass_rate: 1.0}
+  all_gates_resolved: {min_pass_rate: 1.0}
+  no_forced_advance: {min_pass_rate: 1.0}
+  pr_command_never_attempted_or_blocked: {min_pass_rate: 1.0}
+  go_mod_and_vendor_modified: {min_pass_rate: 1.0}
   # Calibrated 2026-09-13: good diff scored 4/3, bad diff scored 1/1.
   # Gap is 3 points on both judges; 2.5 sits in the middle.
   # no_scope_creep good score is 3 not 4 because build-errors.txt contains
   # skill prose (not real compiler output) so the judge can't cite specific
   # errors for the lint.sh hunk — known limitation, not a skill regression.
-  rebase_correctness: { min_mean: 2.5 }
-  no_scope_creep: { min_mean: 2.5 }
+  rebase_correctness: {min_mean: 2.5}
+  no_scope_creep: {min_mean: 2.5}
