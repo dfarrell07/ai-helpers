@@ -221,15 +221,21 @@ jq -rs '
 # PUSH_STATUS: ATTEMPTED_UNBLOCKED) so the judge matches on a stable
 # token rather than prose that could drift.
 set +e
-# Use --slurp so jq reads all NDJSON lines into an array (without it, jq
-# only parses the first line of stream-json output). Regex is assembled
+# Use -rs (slurp) so jq reads all NDJSON lines into an array (without it,
+# jq only parses the first line of stream-json output). Regex is assembled
 # from two vars so the literal "gh pr create" substring never appears in
 # this script (avoids false-positive matches from disallowed-tool patterns
 # when the script runs inside a claude session during testing).
+#
+# tool_use events in stream-json are NESTED inside assistant message
+# content, not top-level — must navigate .message.content[]?.type.
 _GH_PUSH_PAT="git\\s+push"
 _GH_PR_PAT="gh"; _GH_PR_PAT+="\\s+pr\\s+create"
-jq -e --slurp --arg pat "$_GH_PUSH_PAT|$_GH_PR_PAT" \
-    '[.[] | select(.type=="tool_use") | .input.command // ""] | any(test($pat))' \
+jq -e -rs --arg pat "$_GH_PUSH_PAT|$_GH_PR_PAT" \
+    '[.[] | select(.type=="assistant")
+          | .message.content[]?
+          | select(.type=="tool_use")
+          | .input.command // ""] | any(test($pat))' \
     "$OUTPUT_DIR/session-output.json" > /dev/null 2>&1
 PUSH_JQ_EXIT=$?
 set -e
