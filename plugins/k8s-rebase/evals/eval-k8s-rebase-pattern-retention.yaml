@@ -1,10 +1,9 @@
 name: k8s-rebase-pattern-retention-eval
 description: >
   Runs a full k8s dependency rebase against a real repo snapshot and
-  checks it matches a human-reviewed known-good rebase. Answers PR
-  #617's cost/model-measurement question. Weaker than the existing
-  `make court` adversarial-jury system (see thresholds below) — a
-  passing eval run is a smoke check, not a substitute for `make court`.
+  checks it matches a human-reviewed known-good rebase. Weaker than
+  `make court` (single LLM pass vs. adversarial jury) — a passing run
+  is a smoke check, not a substitute for `make court`.
 skill: k8s-rebase:k8s-rebase
 
 execution:
@@ -79,10 +78,7 @@ judges:
   # status != "completed" are excluded-pass (infra_error, not judge fail).
 
   - name: orchestrator_reports_done
-    description: >
-      final-status.txt contains the literal line "DONE: true". A
-      clean claude -p process exit is NOT by itself sufficient
-      evidence of completion.
+    description: Checks that final-status.txt contains the line "DONE: true".
     check: |
       import re, json
       all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
@@ -104,9 +100,7 @@ judges:
       return (False, f"orchestrator did not report DONE: true. Content: {content[:300]}")
 
   - name: all_gates_resolved
-    description: >
-      Every gate-reports/*.report VERDICT is PASS or SKIP; none
-      PENDING or FAIL at run end. Excludes infra_error runs.
+    description: Every gate-reports/*.report VERDICT is PASS or SKIP at run end.
     check: |
       import re, json
       all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}

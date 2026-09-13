@@ -15,10 +15,10 @@ already tuned against.
 
 | Case | Repo | Description |
 |------|------|-------------|
-| case-001 | ovn-org/ovn-kubernetes | Largest, most complex repo in the matrix |
-| case-002 | ovn-kubernetes/ovn-kubernetes-mcp | Small repo; cheap calibration candidate |
-| case-003 | openshift/multus-cni | Small repo; cheap calibration candidate |
-| case-004 | openshift/ingress-node-firewall | Medium-sized repo; good mid-tier case |
-| case-005 | openshift/cloud-network-config-controller | known_good fixture has flaked before — re-verify before trusting |
-| case-006 | openshift/cluster-network-operator | Larger downstream repo; stress test for scope-creep detection |
+| case-001 | ovn-org/ovn-kubernetes | Largest, most complex repo; sub-module go-controller/ layout |
+| case-002 | ovn-kubernetes/ovn-kubernetes-mcp | Small MCP server; minimal k8s API surface |
+| case-003 | openshift/multus-cni | Small CNI meta-plugin; narrow k8s API surface |
+| case-004 | openshift/ingress-node-firewall | EgressFirewall node rules; narrow k8s API surface |
+| case-005 | openshift/cloud-network-config-controller | EgressIP management (AWS/Azure/GCP) |
+| case-006 | openshift/cluster-network-operator | Larger downstream repo; heavy openshift/api usage |
 </content>

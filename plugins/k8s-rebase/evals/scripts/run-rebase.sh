@@ -53,8 +53,6 @@ write_status() {
 }
 write_status "infra_error" "run-rebase.sh exited unexpectedly before completion"
 
-# Defense-in-depth for the failure modes SIGKILL doesn't cover
-# (command errors under set -e, SIGTERM).
 on_err() {
   trap - ERR
   write_status "infra_error" "run-rebase.sh failed (see session-stderr.log / trap)"
@@ -88,9 +86,8 @@ claude -p "/k8s-rebase:k8s-rebase $VERSION" \
   --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go get *),Bash(go generate *),Bash(go run *)' \
   2>"$OUTPUT_DIR/session-stderr.log" \
   | tee "$OUTPUT_DIR/session-output.json"
-PIPE_STATUS=("${PIPESTATUS[@]}")
-SKILL_EXIT=${PIPE_STATUS[0]}
-TEE_EXIT=${PIPE_STATUS[1]}
+SKILL_EXIT=${PIPESTATUS[0]}
+TEE_EXIT=${PIPESTATUS[1]}
 set -e
 
 if [[ $SKILL_EXIT -ne 0 ]]; then
@@ -124,7 +121,7 @@ cat "$OUTPUT_DIR/metrics.json"
 # (e.g. a stop-hook interaction on a near-timeout run could exit cleanly
 # mid-rebase).
 bash "$PLUGIN_DIR/scripts/k8s-rebase-orchestrator.sh" status "$REPO_DIR" \
-  > "$OUTPUT_DIR/final-status.txt" 2>&1 || true
+  > "$OUTPUT_DIR/final-status.txt" 2>&1
 
 # .rebase-tmp/status/INCOMPLETE is written unconditionally on force-advance;
 # orchestrator `status` only surfaces it conditionally, so check directly.
@@ -161,10 +158,8 @@ else
   : > "$OUTPUT_DIR/known-good.patch"
 fi
 
-# Give the no_scope_creep judge compiler errors to cite. Build/vet errors
-# surface via tool_result content for Bash calls. Scope to Bash-only results
-# by collecting Bash tool_use_ids first — prevents gate/skill file reads
-# (which contain prose with words like "error") from polluting the output.
+# Scope to Bash-only tool_results by collecting Bash tool_use_ids first —
+# prevents gate/skill file reads (prose with "error") from polluting the output.
 jq -rs '
   ( [.[] | select(.type == "assistant")
        | .message.content[]?
@@ -178,9 +173,8 @@ jq -rs '
   | grep -iE '(^.+\.go:[0-9]+:|undefined:|cannot use |type mismatch|cannot find |not enough arguments|too many arguments|does not implement|incompatible types|has no field|declared and not used|declared but not used)' \
   > "$OUTPUT_DIR/build-errors.txt" || true
 
-# Check for push/PR-create tool_use calls. Scope to tool_use events only —
-# the skill prints a `git push` command for the user to copy in step 5, so
-# a raw transcript grep would false-positive on that prose.
+# Scope to tool_use events only — the skill prints a `git push` command for
+# the user to copy in step 5, so a raw transcript grep would false-positive.
 # tool_use events are nested inside assistant.message.content[], not top-level.
 set +e
 jq -e -rs --arg pat 'git\s+push|gh\s+pr\s+create' \
@@ -191,9 +185,9 @@ jq -e -rs --arg pat 'git\s+push|gh\s+pr\s+create' \
     "$OUTPUT_DIR/session-output.json" > /dev/null 2>&1
 PUSH_JQ_EXIT=$?
 set -e
-_BLOCKED_MSG="BLOCKED: The k8s-rebase skill does not push or create PRs."
 if [[ $PUSH_JQ_EXIT -eq 0 ]]; then
-  if grep -q "$_BLOCKED_MSG" "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
+  if grep -q "BLOCKED: The k8s-rebase skill does not push or create PRs." \
+      "$OUTPUT_DIR/session-output.json" 2>/dev/null; then
     echo "PUSH_STATUS: BLOCKED" > "$OUTPUT_DIR/push-attempt.log"
     echo "Push/PR-create tool_use found; denial text confirmed." >> "$OUTPUT_DIR/push-attempt.log"
   else

@@ -1,5 +1,7 @@
 notes: >
-  ovn-org/ovn-kubernetes — the largest, most complex repo in the
-  matrix (largest vendor tree, sub-module go-controller/ layout).
-  Also the most expensive/slowest case; not the one to use for cheap
-  wrapper calibration.
+  ovn-org/ovn-kubernetes — largest, most complex repo in the matrix.
+  Sub-module layout: go-controller/ is the primary Go module; expect
+  the bulk of go.mod and source changes there. Large vendor tree means
+  vendor/modules.txt changes are substantial. OpenShift-specific files
+  live under openshift/ and should not be touched unless they directly
+  fail compilation post-bump.
