@@ -78,7 +78,7 @@ judges:
   # status != "completed" are excluded-pass (infra_error, not judge fail).
 
   - name: orchestrator_reports_done
-    description: Checks that final-status.txt contains the line "DONE: true".
+    description: 'Checks that final-status.txt contains the line "DONE: true".'
     check: |
       import re, json
       all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
