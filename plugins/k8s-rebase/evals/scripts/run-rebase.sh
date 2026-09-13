@@ -118,17 +118,17 @@ fi
 # --- Step 3: extract cost/tokens into metrics.json (CLI runner contract) ---
 grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
   | tail -1 \
-  | jq '{
+  | jq --arg model "$SKILL_MODEL" '{
       token_usage: {
         input: (.usage.input_tokens // 0),
         output: (.usage.output_tokens // 0)
       },
       cost_usd: (.total_cost_usd // 0),
       num_turns: (.num_turns // 0),
-      model: ((.modelUsage // {} | keys | first) // "unknown")
+      model: $model
     }' 2>/dev/null \
   > "$OUTPUT_DIR/metrics.json" \
-  || echo '{"token_usage":{"input":0,"output":0},"cost_usd":0,"num_turns":0,"model":"unknown"}' > "$OUTPUT_DIR/metrics.json"
+  || echo "{\"token_usage\":{\"input\":0,\"output\":0},\"cost_usd\":0,\"num_turns\":0,\"model\":\"$SKILL_MODEL\"}" > "$OUTPUT_DIR/metrics.json"
 echo "Cost/tokens:"
 cat "$OUTPUT_DIR/metrics.json"
 
@@ -239,7 +239,7 @@ jq -e -rs --arg pat "$_GH_PUSH_PAT|$_GH_PR_PAT" \
     "$OUTPUT_DIR/session-output.json" > /dev/null 2>&1
 PUSH_JQ_EXIT=$?
 set -e
-_BLOCKED_MSG="BLOCKED: The k8s-rebase skill does not push or create PRs"
+_BLOCKED_MSG="BLOCKED: The k8s-rebase skill does not push or create PRs."
 if [[ $PUSH_JQ_EXIT -eq 0 ]]; then
   if grep -q "$_BLOCKED_MSG" \
       "$OUTPUT_DIR/session-output.json" 2>/dev/null; then

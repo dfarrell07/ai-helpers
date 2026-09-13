@@ -66,7 +66,8 @@ outputs:
         force-advance.log       — empty on a clean run; non-empty if orchestrator force-advanced
         push-attempt.log        — PUSH_STATUS: NONE|BLOCKED|ATTEMPTED_UNBLOCKED sentinel
         diff.patch              — git diff from_commit..HEAD (court_excludes applied)
-        files-changed.txt       — git diff --name-only from_commit..HEAD
+        files-changed.txt       — git diff --name-only from_commit..HEAD (court_excludes applied)
+        files-changed-all.txt   — git diff --name-only from_commit..HEAD (unfiltered; includes vendor/; used by go_mod_and_vendor_modified judge)
         known-good.patch        — git diff from_commit..known_good_sha (court_excludes applied)
         build-errors.txt        — compiler/vet errors from tool_result events
         gate-reports/*.report   — per-gate VERDICT: PASS|SKIP|FAIL|PENDING reports
