@@ -9,12 +9,40 @@ session (up to 200 turns) plus `go mod vendor` on the target repo. The
 harness already runs `-j 1` (sequential), but all 16 cases sequentially
 can take 24h+ and exhaust RAM on the heavy cases.
 
+### Single-case runs (recommended for development)
+
+> **Note:** `claude plugin eval --case <name>` does **not** work with
+> this eval — the `--case` filter is only supported for prompt-file
+> dataset mode, not the cli runner dataset mode used here. Use the
+> runner script directly instead.
+
 ```bash
-# Recommended: run individual cases
-claude plugin eval --case case-002 plugins/k8s-rebase  # fast, ~30min
-claude plugin eval --case case-012 plugins/k8s-rebase  # fast
-claude plugin eval --case case-001 plugins/k8s-rebase  # heaviest; save for last
+# From the ai-helpers repo root:
+cd /path/to/ai-helpers
+
+# case-012: ovn-kubernetes-mcp @ 1.35.3 (light, ~30min)
+AI_HELPERS_DIR=$PWD \
+EVAL_REPO_DIR=$PWD/plugins/k8s-rebase/evals/.repos/ovn-kubernetes_ovn-kubernetes-mcp \
+plugins/k8s-rebase/evals/scripts/run-rebase.sh \
+  https://github.com/ovn-kubernetes/ovn-kubernetes-mcp \
+  36ac87c1aec7bc8f62e47ecbe161a1c972945773 \
+  1.35.3 \
+  claude-sonnet-4-6 \
+  https://github.com/ovn-kubernetes/ovn-kubernetes-mcp \
+  47c72f75684f435efe28ea3c20e1589430cd603c
 ```
+
+Output lands in `$(pwd)/output/`. The repo is cached under `EVAL_REPO_DIR`
+and reused on subsequent runs. Both are gitignored via `.gitignore`.
+
+SHA arguments come from the case's `input.yaml`.
+
+### Full-suite runs
+
+`claude plugin eval plugins/k8s-rebase` runs all 16 cases sequentially.
+Intended for CI or a dedicated workstation with ≥ 32GB RAM. The
+`eval-k8s-rebase-pattern-retention.yaml` timeout is set to 24h to
+cover all 16 cases.
 
 **Case weight order** (lightest → heaviest, by vendor tree size and API
 surface):
@@ -25,11 +53,6 @@ surface):
   (005, 006, 009, 010, 015, 016)
 - **Slowest:** ovn-org/ovn-kubernetes (001, 007, 011) — sub-module layout,
   ~350MB vendor tree, expect 1–3h per run
-
-**Full-suite runs** (`claude plugin eval plugins/k8s-rebase`) are
-intended for CI or a dedicated workstation with ≥ 32GB RAM. The
-`eval-k8s-rebase-pattern-retention.yaml` timeout is set to 24h to
-cover all 16 cases sequentially.
 
 ## pattern-retention (`cases/pattern-retention`)
 
