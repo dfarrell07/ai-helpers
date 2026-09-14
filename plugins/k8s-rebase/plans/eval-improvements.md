@@ -85,7 +85,7 @@ return (True, f"k8s bumped to v0.{diff_minor}.x")
   returns True — acceptable since `go_mod_and_vendor_modified` already confirms
   changes occurred.
 
-**Threshold:** `go_mod_version_correct: {{min_pass_rate: 1.0}}`
+**Threshold:** `go_mod_version_correct: {min_pass_rate: 1.0}`
 
 ---
 
@@ -128,19 +128,19 @@ lines = content.splitlines()
 cmd_idx = next((i for i, l in enumerate(lines) if "gh pr create" in l), None)
 if cmd_idx is None:
     return (False, "No 'gh pr create' found in assistant text")
-# --title may be on the same line (inline form) or the next 1-3 lines
-# (heredoc form: "gh pr create --body \"$(cat <<'EOF'"\n"--title ..." pattern
-# puts --title after --body on a dedicated line).
+# In practice step5 outputs: gh pr create --title "..." --body "$(cat <<'EOF'
+# so --title is on the same line as gh pr create. The 4-line window handles
+# any variant where flags are split across lines.
 title_window = lines[cmd_idx:cmd_idx + 4]
 if not any("--title" in l for l in title_window):
-    return (False, f"'--title' not found within 3 lines of 'gh pr create'")
+    return (False, f"'--title' not found within 4 lines of 'gh pr create'")
 body_window = lines[cmd_idx:cmd_idx + 5]
 if not any("--body" in l for l in body_window):
-    return (False, f"'--body' not found within 4 lines of 'gh pr create'")
+    return (False, f"'--body' not found within 5 lines of 'gh pr create'")
 return (True, "gh pr create command with --title and --body found")
 ```
 
-**Threshold:** `step5_pr_command_printed: {{min_pass_rate: 1.0}}`
+**Threshold:** `step5_pr_command_printed: {min_pass_rate: 1.0}`
 
 ---
 
@@ -169,8 +169,12 @@ Runner (`evals/scripts/run-synthetic-bad.sh`):
 
 ```bash
 # Plants pre-baked bad artifacts; does not invoke the skill.
+# $CASE_DIR is NOT provided by the harness — fixtures must be referenced
+# via $AI_HELPERS_DIR (declared in the eval YAML env: block) or as an
+# explicit runner argument (e.g. pass the case dir path as $1).
+FIXTURES_DIR="$AI_HELPERS_DIR/plugins/k8s-rebase/evals/cases/negative/${1}/fixtures"
 mkdir -p output
-cp "$CASE_DIR/fixtures/"* output/
+cp "$FIXTURES_DIR/"* output/
 echo '{"status":"completed","reason":""}' > output/run-status.json
 echo '{"token_usage":{"input":0,"output":0},"cost_usd":0,"num_turns":0,"model":"synthetic"}' \
   > output/metrics.json
@@ -229,11 +233,11 @@ You are reviewing a Kubernetes dependency rebase for correctness gaps.
 Work in two phases before scoring:
 
 If known-good.patch is empty, skip Phase 1 and score on Phase 2 only.
-For large diffs, cap Phase 1 enumeration at the first 20 files —
-note the cap if reached, then sample representative hunks.
+For large diffs, enumerate at most 20 files in Phase 1 — note if you
+reached the cap, then sample representative hunks from each.
 
 PHASE 1 — MISSING: List files changed in known-good.patch that have no
-counterpart change in diff.patch (cap at 20). For each, state whether
+counterpart change in diff.patch (stop at 20 files). For each, state whether
 its absence is acceptable (style difference, scope choice, equivalent
 path) or suspicious (missing fix, dropped behavior, absent error
 handling).
@@ -256,7 +260,15 @@ Score 4: All gaps explained with specific, plausible justification.
 Score 5: No unexplained gaps; differences are all acceptable variance.
 ```
 
-**Threshold:** `rebase_gap_analysis: {{min_mean: 2.5}}`
+**Note on the 20-file cap:** This is a best-effort instruction — the
+LLM has no tool access and cannot mechanically enforce it. For very
+large diffs (e.g., case-001's ovn-kubernetes vendor tree) the model may
+enumerate more than 20 or stop arbitrarily. If context explosion becomes
+a real problem, the fix is runner-side truncation: pass only the first N
+file hunks of known-good.patch to the judge rather than the full text.
+For the current 6 cases this is not expected to be an issue.
+
+**Threshold:** `rebase_gap_analysis: {min_mean: 2.5}`
 
 **WARNING — calibrate before merging threshold.** Current calibration
 (2026-09-13) used only the holistic judge. After implementing, run on
@@ -275,11 +287,9 @@ failure mode this addresses.
 
 ---
 
----
-
 ## P2 — Eval suite operational improvements
 
-### 5. Document case weight order and full-suite runtime expectations
+### 5. Document case weight order and full-suite runtime expectations ✓ DONE
 
 **Context:** The harness defaults to `-j 1` (sequential, never
 parallel) — running `claude plugin eval plugins/k8s-rebase` is safe;
@@ -313,55 +323,53 @@ has no automated coverage for:
 **Target versions:** k8s 1.34.x (`v0.34.*`) and 1.35.x (`v0.35.*`).
 These are the two immediately prior minor versions.
 
-**Repo selection:** Use the two smallest, cleanest repos — less
-variance, faster run, same skill code path:
-- `ovn-kubernetes/ovn-kubernetes-mcp` (case-002 equivalent)
-- `openshift/multus-cni` (case-003 equivalent)
+**Repo selection:** Use the smallest, cleanest repos — less variance,
+faster run, same skill code path. `openshift/multus-cni` is the primary
+candidate for both 1.34.x and 1.35.x; narrow k8s API surface means a
+wrong version bump shows up clearly in go.mod.
 
-These have narrow k8s API surface, so a wrong version bump shows up
-clearly in go.mod rather than being buried in .go call-site fixes.
+**Constraint on ovn-kubernetes-mcp:** The oldest commit in that repo's
+`go.mod` history already has `k8s.io/api v0.34.1` — the repo was
+created at k8s 1.34. There is no v0.33.x state to use as `from_commit`
+for a 1.34 target. `ovn-kubernetes-mcp` can only be used for 1.35.x
+cases (v0.34.x → v0.35.x); for 1.34.x use a different repo.
 
 **Finding `from_commit` and `known_good_ref`:**
 
-For each repo, need:
-1. A `from_commit` — a pre-rebase SHA where `k8s.io/api` is at
-   `v0.N-1.*` (e.g., `v0.33.*` for a 1.34 target)
-2. A `known_good_ref` — a SHA where `k8s.io/api` was bumped to
-   `v0.N.*` and the rebase was clean
-
-These cannot be derived without inspecting git history. The workflow:
+For each case:
+1. `from_commit` — a SHA where `k8s.io/api` is at `v0.N-1.*`
+   (e.g., `v0.33.*` for a 1.34 target, `v0.34.*` for a 1.35 target)
+2. `known_good_ref` — a SHA where `k8s.io/api` was bumped to `v0.N.*`
+   and the rebase was clean
 
 ```bash
-# Find the pre-1.34 state of ovn-kubernetes-mcp:
+# Find the 1.35 boundary in ovn-kubernetes-mcp:
 git -C ~/ovnk/ovn-kubernetes/ovn-kubernetes-mcp log --oneline \
   --all -- go.mod | head -20
-# Look for the commit that bumped k8s.io/api from v0.33.* to v0.34.*
-# That commit is known_good_ref.
-# The commit immediately before it is from_commit.
+# Look for commit bumping k8s.io/api from v0.34.* to v0.35.*
+# That commit = known_good_ref; immediately prior commit = from_commit.
 
-# Repeat for multus-cni at pre-1.35 → 1.35 boundary.
+# Find the 1.34 boundary in multus-cni (or another older repo):
+git -C ~/ovnk/openshift/multus-cni log --oneline --all -- go.mod | head -20
+# Look for commit bumping k8s.io/api from v0.33.* to v0.34.*
 ```
 
-**Case structure:** Add two new case directories per target version,
-or use a second dataset path. Preferred: extend
-`cases/pattern-retention` with new case numbers (007–010):
+**Case structure:** Extend `cases/pattern-retention` with new numbers:
 
-| Case | Repo | Version |
-|------|------|---------|
-| case-007 | ovn-kubernetes/ovn-kubernetes-mcp | 1.34.x |
-| case-008 | openshift/multus-cni | 1.34.x |
-| case-009 | ovn-kubernetes/ovn-kubernetes-mcp | 1.35.x |
-| case-010 | openshift/multus-cni | 1.35.x |
+| Case | Repo | Version | Notes |
+|------|------|---------|-------|
+| case-007 | openshift/multus-cni | 1.34.x | Needs v0.33.x from_commit |
+| case-008 | openshift/ingress-node-firewall | 1.34.x | Backup if multus lacks history |
+| case-009 | ovn-kubernetes/ovn-kubernetes-mcp | 1.35.x | v0.34.x → v0.35.x |
+| case-010 | openshift/multus-cni | 1.35.x | Backup / second 1.35 case |
 
-**Prerequisite:** The known-good rebases for 1.34 and 1.35 must be
-pinned to immutable SHAs (not mutable branch heads). Fork the repos
-if needed (as was done for case-002, case-003, case-005). Verify that
-the known-good rebase actually compiles at the target version before
-adding the case — a bad known-good is worse than no case.
+**Prerequisite:** Known-good rebases must be pinned to immutable SHAs
+(not mutable branch heads). Fork repos if needed (as done for case-002,
+case-003, case-005). Verify the known-good actually compiles at the
+target version before adding the case.
 
-**Not yet actionable:** This item requires manual git archaeology per
-repo before cases can be written. Track as a backlog item; do not
-block the current PR on it.
+**Not yet actionable:** Requires manual git archaeology per repo.
+Track as backlog; do not block the current PR on it.
 
 ---
 
