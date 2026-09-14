@@ -52,8 +52,15 @@ repo using invocation-only trust after inspecting the loaded definitions.
 The generic skill validator rejects existing Claude metadata that the actual
 Codex loader accepts; it is intentionally retained.
 
-Full representative rebases remain a separate acceptance check. Repository
-lint still reports 77 unrelated errors under
+End-to-end qualification remains blocked. Bounded Codex 0.154.0 and Claude
+2.1.270 probes of pinned ovn-kubernetes-mcp to 1.35.3 both failed in the unchanged
+Step 1 dependency selection: API modules drifted to v0.36.2 while kubectl stayed
+at v0.35.3. Commit `258dfab8` clarified the existing Step 1 stop rule after
+Claude incorrectly attempted advancement; fresh-session recovery checks then
+stopped correctly in both agents without changing files or retry counts.
+Steps 2–5 and their real independent reviews remain unqualified.
+
+Repository lint still reports 77 unrelated errors under
 `.claude/worktrees/purrfect-beaming-haven/`. The pre-existing root-vendor
 exclusion defect in the Step 4 review diff is also outside this change.
 
@@ -166,9 +173,10 @@ Correct the shared caller instructions to match the existing orchestrator:
    Preserve existing retry/force-advance policy and step-specific stop conditions.
    Do not multiply retries through nested parent/worker fix loops.
    Never call `advance` as a status poll or repeat it after a handoff has
-   already advanced state. If the fix budget is exhausted while advancement
-   is BLOCKED, explicitly submit the remaining blocked attempts to the
-   existing force-advance policy without adding another fix loop.
+   already advanced state. In Steps 2–4, if the fix budget is exhausted while
+   advancement is BLOCKED, submit the remaining blocked attempts to the
+   existing force-advance policy without adding another fix loop. Step 1
+   structural failures stop without calling `advance`, even to record failure.
    On FORCE_ADVANCE, report the warning and INCOMPLETE record, then use
    `status` to find the current step or completion. An ERROR is a hard stop.
    DONE does not mean all gates passed: retain unresolved findings in the
@@ -237,19 +245,32 @@ not their policies.
 
 ### 4. Validate both agents without porting the eval framework
 
+Validate from small to large: static checks, one focused fixture, the full
+offline suite, installed-agent interface fixtures, then a bounded rebase pair.
+Reuse matching recorded evidence; stop escalation on a new failure and fix
+the smallest reproducer before retrying. Do not launch full rebases to debug
+a local interface defect.
+
+Freeze the source revision and installed contents; record CLI/model versions
+and hook trust mode. Keep logs, reviewed SHAs/scopes, reports, and outcomes in
+`.work/claude-codex-compatibility/`, outside installed packages and target branches.
+Give agents the skill and raw fixture state, not the expected answer.
+
 Keep tests targeted at the changed interfaces:
 
 - Verify existing-package installation and invocation in a disposable target
   repo outside the plugin checkout. Check two separate command calls resolve
   the same plugin root without home-directory searches; cover argument
-  forwarding, missing/invalid arguments, quoted paths, and `--bump-tools`.
+  forwarding, missing/invalid/extra arguments, question-only requests,
+  quoted paths, and `--bump-tools`.
   Verify a subdirectory-started session stops before `init`, even when a
   command's workdir is overridden to the repo root; a root-started session
   must retain hook activation during module-local commands.
 - Exercise ordinary inline fallback, long-running command completion, resume
   (including version mismatch and completed state), cached non-PASS verdicts,
   stale reports after a commit, and FORCE_ADVANCE handoff. Assert no duplicate
-  advancement or deletion of prior-step reports.
+  advancement or deletion of prior-step reports. Cover sequential cross-agent
+  handoffs in fixtures and Step 1 stopping without advancement.
 - Test both review preparations, APPROVE/REJECT/missing-verdict outcomes,
   and stopping when no independent reviewer is available.
   Cover invalid commit/base references, failed evidence commands, and valid
@@ -260,22 +281,40 @@ Keep tests targeted at the changed interfaces:
 - Test hook payloads for both agents with active and inactive session guards.
   Verify trusted-hook behavior in Codex, including vendor edits, module
   commands, push/PR blocking, prior-step report deletion, and the Stop hook.
-  Use disposable fixtures; do not push or publish anything.
+  Use harmless stubs without publishing access and require actual hook denial,
+  not just an agent declining the command. Do not push or publish anything.
 - Scan the shared skill, all steps, and all gate prompts for remaining
   Claude-only execution assumptions. Explicit Claude review branches and
   compatible hook-root references are intentional exceptions, not scan failures.
 
-Run repository lint, shell syntax checks for changed scripts, and
-`make -C plugins/k8s-rebase assert-evidence-paths`. Run `make site-build`
-for documentation changes. Extend existing focused checks where practical;
-do not introduce a new evaluation framework.
+Run `git diff --check`, Bash syntax/ShellCheck for changed scripts,
+`make -C plugins/k8s-rebase test-compatibility`, and
+`make -C plugins/k8s-rebase assert-evidence-paths`. Run repository `make lint`
+and `make site-build` for documentation changes. Record known unrelated lint
+failures separately; new failures block escalation. Do not introduce a new
+evaluation framework.
 
-Before claiming end-to-end support, run one bounded representative rebase
-per agent, from the same starting revision in separate disposable checkouts.
-Use the installed skill, exercise all four gated steps and Step 5, include
-resume coverage, and retain reports and review outcomes. Verify Step 5 only
-prints push/PR commands and that existing Claude trailer expectations hold.
-Report force-advanced or blocked outcomes honestly, not as all-gates-passing.
+For the remaining qualification pair, use the existing `openshift/multus-cni`
+case in [config-1.36.yaml](../test/config-1.36.yaml): baseline
+`b4ec7d8239ce4bd3ed949bce9816a013377b44c7`, target 1.36.2, tools flag false.
+Use separate clean clones, matching Go/tooling environments, and the same
+installed candidate. Start detached at the baseline, as the eval harness does;
+also pin the local default branch there for review-base discovery. Starting on
+the default branch allows the script to fast-forward away from the baseline.
+
+Run Codex first, then Claude after it passes; a targeted diagnostic comparison
+is an exception. Set a wall-time/cost cap before starting and preserve blocked
+runs without switching repositories to seek a pass. Use the installed skill
+through all four gated steps and Step 5, with real companions and independent
+reviews. Pause at a safe committed boundary with no child process running,
+then resume in a new session. Verify no duplicated work or lost reports.
+
+Qualification requires both agents to reach Step 5 with applicable gates
+passing and independent reviews completed, without compatibility-related
+manual rescue. Different valid fixes are acceptable. Verify existing trailers,
+printed-only push/PR commands, retained reports, and pre-push-hook restoration.
+Force-advanced completion proves traversal, not an all-gates-passing rebase;
+missing reviewers, prerequisites, or remaining workflow coverage mean unqualified.
 
 The full multi-repository Claude harness/matrix is not a prerequisite for
 this compatibility change. A metadata check or single passing gate is also
