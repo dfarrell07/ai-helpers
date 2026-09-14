@@ -61,6 +61,10 @@ if [[ ! -d "$REPO_DIR/.git" ]]; then
 fi
 cd "$REPO_DIR"
 git fetch origin "$FROM_COMMIT"
+# Detach HEAD before deleting stale bump branches — avoids "cannot delete
+# checked-out branch" if a prior run left us on a bump* branch.
+git checkout --detach "$FROM_COMMIT"
+git branch | grep -E '^\s*(bump|rebase-)' | xargs -r git branch -D || true
 git reset --hard "$FROM_COMMIT"
 git clean -fdx
 rm -rf "$REPO_DIR/.rebase-tmp"  # not removed by git clean if gitignored
