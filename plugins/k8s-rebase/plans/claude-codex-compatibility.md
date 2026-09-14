@@ -11,6 +11,12 @@ handoff, existing hook input formats, documentation, and focused validation.
 Only one session may mutate a rebase at a time. Use separate clones for
 concurrent checks: worktrees share Git hooks, so they are not fully isolated.
 
+This is the canonical tracked compatibility plan, including audit findings,
+validation results, and remaining work. It supersedes compatibility planning
+notes in `.work/claude-codex-compatibility/`; raw logs and disposable fixtures
+remain there as local evidence, not prerequisites for understanding this plan.
+Unrelated eval and observability plans remain separate.
+
 ## Verified starting point
 
 The compatibility review on 2026-09-14 established:
@@ -41,7 +47,9 @@ Shared instructions, gate handoffs, review preparation, and vendor-patch input
 support are implemented. Step 5's existing rubric was extracted into the small
 `scripts/k8s-rebase-pr-review.sh` helper; no orchestrator, migration, manifest,
 gate-policy, or attribution changes were needed. This plugin is new relative
-to `origin/main`, so its initial version remains 0.0.1.
+to `origin/main`, so its initial version remains 0.0.1. **Not yet qualified:**
+the deeper audit found a Codex preparation bug, repeated Claude review-routing
+failure, and one incorrect Claude PR summary. Closeout work is listed below.
 
 Verified: 15 offline tests (`python3 test/test_compatibility.py`), all eight
 evidence/template pairs, shell syntax/ShellCheck, and strict site build.
@@ -52,9 +60,22 @@ repo using invocation-only trust after inspecting the loaded definitions.
 The generic skill validator rejects existing Claude metadata that the actual
 Codex loader accepts; it is intentionally retained.
 
+The deeper audit compared `69ff8893` through `38e6f58c`; runtime files still
+match the installed `258dfab8` candidate. All 32 gate criteria, fix guidance,
+and read-only rules were preserved after runtime-path substitutions. All 32
+report examples passed filename/schema checks; stale-HEAD and missing-helper
+checks passed. Eight companions and three backend/interface scripts are
+byte-identical to baseline. Seven additional shell probes checked Claude
+default-path parity, immutable evidence during HEAD movement, hook payloads,
+and the template failure described below.
+
 Real Codex native reviewers and Claude's existing nested reviewers returned
 matching reject/approve decisions on selected-commit and full-range fixtures.
 Codex used separate fresh contexts; no new reviewer configuration was needed.
+Later synthetic Step 5 runs completed cleanup, retained reports/state, restored
+the original executable Git hook, and printed PR commands without publishing.
+These establish finalization mechanics, not a clean behavioral pass: both
+Claude sessions chose the wrong review branch, and one mislabeled a gate.
 
 End-to-end qualification remains blocked. Bounded Codex 0.154.0 and Claude
 2.1.270 probes of pinned ovn-kubernetes-mcp to 1.35.3 both failed in the unchanged
@@ -65,9 +86,61 @@ including both cross-agent handoff directions, then stopped correctly without
 changing files or retry counts. Complete Steps 2–5 runs remain unqualified;
 the review-boundary fixtures do not establish an end-to-end pass.
 
-Repository lint still reports 77 unrelated errors under
-`.claude/worktrees/purrfect-beaming-haven/`. The pre-existing root-vendor
-exclusion defect in the Step 4 review diff is also outside this change.
+Repository lint now passes after fixing custom eval discovery to honor
+configured exclusions and excluding independent agent worktrees. The 77
+errors came from a nested checkout; validation criteria and the existing
+baseline were not relaxed. The pre-existing root-vendor exclusion defect
+in the Step 4 review diff remains outside this change.
+The green working-tree lint result includes separate, uncommitted linter/test
+changes; it is not attributed to the compatibility candidate.
+
+### Remaining closeout — do before further qualification
+
+1. **P2 — Fail closed on every Codex template failure.** In
+   `scripts/k8s-rebase-review.sh`, the early `-r` check accepts a readable
+   directory; the later missing-file fallback then returns exit 0 and
+   `APPROVE: template not found, skipping` in `--print-prompt` mode. A valid
+   template disappearing during evidence collection reaches the same fallback.
+   Require a readable regular file and make the later fallback an error for
+   print-only mode, preserving default Claude behavior. Add both regression
+   cases to `test/test_compatibility.py`: nonzero exit, no approval or populated
+   prompt, and no model invocation. The existing initially-missing-file test
+   does not cover these cases.
+
+   Reproduce without changing installed sources: create a disposable Git repo
+   with an empty `main` commit and a child commit on a fix branch; copy the
+   review script into an isolated scripts directory, then create a directory
+   named `k8s-rebase-review-prompt.md` beside it. From that repo, run the copy
+   with `--print-prompt HEAD context`. For the disappearing-file case, start
+   with the real template and use a test-only Git shim to move it aside when
+   collecting `git show` evidence. Both currently produce the false approval.
+2. **P2 — Make review branches exclusive to the host runtime.** Two live
+   Claude sessions followed Step 5's Codex `--print-prompt`/native `Agent`
+   branch rather than the prescribed default helper/nested `claude -p` path.
+   This repeated with byte-identical sources at a neutral installation path.
+   The first also piped preparation through `head -100` without pipefail.
+   Make the runtime choice explicit in the shared Step 4/5 review instructions;
+   do not infer it from the plugin path, model vendor, or installed CLI names.
+   Re-run installed-agent fixtures and verify actual tool calls, including
+   direct preparation exit-status handling. Default-helper parity tests pass;
+   they do not establish that Claude selects that helper path.
+3. **Verify PR claims against retained verdicts.** One Claude PR body said
+   `Gates passed: dep-release-notes (step 3)` while also listing that gate as
+   INCONCLUSIVE. The report stayed INCONCLUSIVE throughout. This is an observed
+   output failure, not a proven new deterministic regression. Require each
+   claimed PASS in the final body to agree with its retained report; review
+   approval, DONE, and force-advancement do not turn another gate into PASS.
+   Repeat the synthetic finalization fixture with a prior-step INCONCLUSIVE,
+   a final-step FAIL, and an INCOMPLETE record for only the final step. Assert
+   both findings remain non-PASS in the PR body as well as the chat summary.
+4. Correct the leftover reference to a `find` result in
+   `gates/step4-verification/ci-readiness.md` after its command became
+   `test -f && cat`. Preserve the existing missing-document NOTE/skip policy.
+
+Keep these corrections within existing helpers, instructions, and focused
+tests. Do not add provider configuration, persistent review state, or a new
+reporting framework. Re-run the smallest failing cases before escalating to
+the real-rebase qualification below.
 
 ### 1. Reuse the existing package and document invocation
 
@@ -196,6 +269,8 @@ freshness checks, or retry thresholds to implement these caller corrections.
 #### Independent review
 
 Keep Claude's current nested review path and its existing verdict format.
+Choose exactly one branch by the current host runtime: Claude uses the default
+helper/nested CLI; Codex uses print-only preparation and a native reviewer.
 For Codex, use a fresh-context, read-only native reviewer, supplied with the
 review rubric and evidence rather than the parent's reasoning history.
 A parent self-check is not an independent review. If no independent reviewer
@@ -275,14 +350,19 @@ Keep tests targeted at the changed interfaces:
   (including version mismatch and completed state), cached non-PASS verdicts,
   stale reports after a commit, and FORCE_ADVANCE handoff. Assert no duplicate
   advancement or deletion of prior-step reports. Cover sequential cross-agent
-  handoffs in fixtures and Step 1 stopping without advancement.
+  handoffs in fixtures at both a blocked Step 1 and a successful committed
+  boundary; only the blocked handoffs have been recorded so far. Step 1
+  structural failures must stop without advancement.
 - Test both review preparations, APPROVE/REJECT/missing-verdict outcomes,
   and stopping when no independent reviewer is available.
   Cover invalid commit/base references, failed evidence commands, and valid
-  empty filtered diffs; failed collection must never yield successful Codex
+  empty filtered diffs, plus both template failures in the closeout list.
+  Failed collection must never yield successful Codex
   preparation or reach the reviewer as if evidence were complete.
-  Prove the Codex path never invokes Claude and the Claude path still does;
-  verify Step 5 retains its separate rubric.
+  Prove the Codex path never invokes Claude and the Claude path still does,
+  including actual agent branch selection, not just direct helper tests.
+  Verify Step 5 retains its separate rubric and that every final PR verdict
+  claim agrees with the retained report, including unresolved prior steps.
 - Test hook payloads for both agents with active and inactive session guards.
   Verify trusted-hook behavior in Codex, including vendor edits, module
   commands, push/PR blocking, prior-step report deletion, and the Stop hook.
@@ -317,13 +397,72 @@ then resume in a new session. Verify no duplicated work or lost reports.
 Qualification requires both agents to reach Step 5 with applicable gates
 passing and independent reviews completed, without compatibility-related
 manual rescue. Different valid fixes are acceptable. Verify existing trailers,
-printed-only push/PR commands, retained reports, and pre-push-hook restoration.
+printed-only push/PR commands, accurate final verdict claims, retained reports,
+and pre-push-hook restoration. Keep the two full runs agent-specific;
+cross-agent handoff checks can use the focused fixtures above.
 Force-advanced completion proves traversal, not an all-gates-passing rebase;
 missing reviewers, prerequisites, or remaining workflow coverage mean unqualified.
 
 The full multi-repository Claude harness/matrix is not a prerequisite for
 this compatibility change. A metadata check or single passing gate is also
 not evidence that the complete workflow works.
+
+## Validation provenance and limits
+
+Recorded runtime implementations: `a497f9d6` (interfaces), `d21f971c` (shared
+workflow), and `258dfab8` (Step 1 stopping). The clean local marketplace and
+installed Codex package match `258dfab8` byte-for-byte. The deeper review used
+`38e6f58c` as its tip; subsequent compatibility changes up to that tip were
+plan-only. All probes below have ended; none pushed or created a PR.
+
+- **Installed interfaces:** Codex CLI 0.154.0 discovered the existing package,
+  skill metadata, and five hooks. Actual tool denials covered vendor edits,
+  module commands, push/PR commands, prior-report deletion, and Stop. Trust
+  was invocation-only after inspecting exact definitions, not a persisted
+  grant. A subdirectory-started session refused before init even though shell
+  commands could override their workdir.
+- **Real Step 1 probes:** Codex CLI 0.154.0 / `gpt-6-astra` and Claude CLI
+  2.1.270 / `claude-sonnet-4-6`, target 1.35.3, tools=false, 20-minute caps,
+  GOMAXPROCS=2 and GOFLAGS=-p=2. The first historical-default-branch pair was
+  invalidated by an upstream fast-forward. The corrected ovn-kubernetes-mcp
+  pair started detached with local main pinned to
+  `36ac87c1aec7bc8f62e47ecbe161a1c972945773`; both scripts exited 1 before
+  commits after dependency drift and missing `scheduling/v1alpha1`. Module
+  edits and FAIL reports were preserved. After the Step 1 clarification,
+  same-agent resumes and both cross-agent directions stopped without further
+  advancement or file changes. This is blocked recovery, not a successful
+  rebase or successful-step handoff.
+- **Review-only fixture:** Both agents rejected deletion of diagnostic output
+  at `cd2c996e4811c46d476f44cc6fe05be410dbd760`, approved explicit discarding
+  of best-effort write results at `3313d47b4b1a303866859296bb80eb8a19b5ac53`,
+  and approved the separate full-range source review from
+  `d619d9e2f0d53f24a9d3bd59b1d7680b24a70430` to that latter tip, target 1.36.0.
+  Codex's three reviewers used actual `fork_turns: none`; Claude's direct
+  nested helpers returned real verdicts, not infrastructure fallbacks.
+  No builds or rebase initialization were part of this fixture.
+- **Finalization fixture:** Separate no-remote clones of that review fixture,
+  seeded with synthetic Step 5 state, INCONCLUSIVE/FAIL reports, a Step 4
+  force-advance record, and a pre-push-hook backup. Codex used a fresh-context
+  native reviewer and completed truthful finalization. Both Claude sessions
+  completed cleanup with real source-review approvals, but failed the routing
+  check; the neutral-path run also failed PR-summary accuracy. Each run had a
+  five-minute cap; Claude had a $3 API-cost cap. Code, commits, state, reports,
+  and INCOMPLETE were preserved; temporary logs/PIDs were cleaned and the
+  original executable hook restored. Source review did not validate Go 1.23.0
+  against the fixture's k8s.io/api v0.36.0 dependency or establish a real build.
+
+Finalization sessions: Codex `01a0a0be-7186-7112-bd35-c5bc3eaf3fbf`;
+Claude `107471db-1ae3-4d10-a841-679583c5ab1c` and neutral-path Claude
+`d2090060-a645-44b5-82fe-bd6c2422dced`. Models/runtimes match those above.
+
+Local evidence under `.work/claude-codex-compatibility/` includes
+`RESULTS.md`, `DEEP-REVIEW.md`, `audit-shell-2/`, `audit-gates-2/`,
+`forward-test/`, `hook-smoke.jsonl`, `subdirectory-smoke.jsonl`,
+`rebase-*-pinned.jsonl`, `resume-*.jsonl`, `handoff-*.jsonl`,
+`native-review.jsonl`, `claude-review-*.log`, and `finalization-*.jsonl`.
+Earlier root test output and superseded draft plans were archived, not deleted,
+under `cleanup-20260914.EzzsOQ/`. Its completed Claude multus 1.35.3 run is
+historical coverage, not the planned matched 1.36.2 qualification pair.
 
 ## Scope boundaries and existing limitations
 
@@ -337,3 +476,25 @@ dependency updates, while the module-operation hook blocks direct calls.
 Record that separately; do not silently erase exceptions, conceal commands
 in prose, or invent repair wrappers in this work. If it blocks a smoke run,
 report the blocker rather than relaxing policy to obtain a pass.
+
+Other demonstrated existing issues remain separate from compatibility fixes:
+
+- Step 1's version rubric counts all k8s.io modules at the target minor,
+  while the mechanical script treats utils/klog/kube-openapi/gengo as
+  independently versioned. The recorded Codex report counted those literally;
+  an archived Claude report excepted them. Do not silently change this gate's
+  criteria to obtain qualification.
+- A legitimate SKIP (for example, no applicable type conversions) is cached
+  but blocks advancement. Feature-gate instructions also differ between
+  companion and manual paths on whether no wiring is PASS or SKIP.
+- A vet timeout can produce fresh `0 build/vet errors` evidence alongside
+  VET_TIMEOUT/crash metadata; the unchanged build-vet rubric can mistakenly
+  PASS it. A passing evidence-schema test does not validate that judgment.
+- Selected-commit review's existing root-vendor exclusion is imperfect.
+  The unchanged push-hook regex can also reject harmless reads mentioning
+  a hook filename; the finalization fixture reproduced this without disabling
+  the guard. Hooks are guardrails, not a complete enforcement boundary.
+
+These findings limit readiness claims, not the scope of authorized fixes.
+If they prevent qualification after compatibility closeout, report the blocker
+and seek separate direction rather than redesigning migrations or gate policy.
