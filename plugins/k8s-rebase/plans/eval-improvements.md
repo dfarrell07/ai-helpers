@@ -172,7 +172,38 @@ expected score range — this judge may be stricter than `rebase_correctness`.
 
 ---
 
-## 5. Add negative test case
+## 5. ✓ DONE — Fix stop-hook turn-burn during step1 background script
+
+**Gap:** The stop hook fired on every agent yield while the step1 rebase
+script ran in the background (go mod vendor on large repos: 5–30 min).
+Each block consumed a turn. Repos with large vendor trees (multus-cni:
+2086 files) exhausted the turn budget before the script finished.
+
+**Fix:** Stop hook now checks `step1.pid` liveness and `step1-result.txt`
+existence. If the PID is alive and result file not yet written, it yields
+instead of blocking. Once the script finishes (result written or PID gone),
+normal gate enforcement resumes.
+
+Also strengthened `step1-rebase.md`: single 30-min background wait instead
+of repeated short polls.
+
+**Validated:** case-013 (multus-cni @ 1.35.3) went from 20 turns / DONE:false
+to 9 turns / DONE:true after the fix.
+
+---
+
+## 6. ✓ DONE — Fix runner leaving stale bump branches in cached clone
+
+**Gap:** Cached eval repo clones accumulated stale `bump*` branches from
+prior runs. The rebase script warned "on bump1.36, not default branch main"
+and the agent mis-diagnosed the repo as already at 1.36, refusing to proceed.
+
+**Fix:** `run-rebase.sh` now detaches HEAD then deletes all `bump*` branches
+before invoking claude, so every run starts clean.
+
+---
+
+## 7. Add negative test case
 
 **Gap:** All cases are "skill succeeds." LLM judges are never tested
 against a deliberately bad diff.
@@ -210,3 +241,13 @@ case tests LLM judges only.
 `modified_files`, LLM judges receive empty diffs and score silently on
 nothing. Fix if empty diffs appear: use
 `{% for path, content in (outputs.files | combine(outputs.modified_files | default({}))).items() %}`.
+
+**`--case` flag unsupported:** `claude plugin eval --case <name>` does not
+work with cli runner dataset mode. Use `run-rebase.sh` directly for single
+case runs (see `evals/README.md`).
+
+**`openshift/api` bare go get on 1.35 targets:** Repos with `openshift/api`
+as a dependency (e.g., ovn-kubernetes-mcp) may have `go get openshift/api`
+resolve to latest, which requires k8s v0.36, breaking 1.35 rebases. Observed
+intermittently — depends on module cache state. Investigate pinning
+`openshift/api` to a 1.35-compatible SHA in the rebase script.
