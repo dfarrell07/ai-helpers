@@ -99,12 +99,15 @@ _tally_gates() {
     [[ -d "$_gdir" ]] || continue
     for _gf_file in "$_gdir"/*.report; do
       [[ -f "$_gf_file" ]] || continue
-      local _gn=$(basename "$_gf_file" .report)
+      local _gn
+      _gn=$(basename "$_gf_file" .report)
       if [[ -z "${_gate_files[$_gn]+x}" ]]; then
         _gate_files[$_gn]="$_gf_file"
       else
-        local _old_ts=$(stat -c '%Y' "${_gate_files[$_gn]}" 2>/dev/null || echo 0)
-        local _new_ts=$(stat -c '%Y' "$_gf_file" 2>/dev/null || echo 0)
+        local _old_ts
+        _old_ts=$(stat -c '%Y' "${_gate_files[$_gn]}" 2>/dev/null || echo 0)
+        local _new_ts
+        _new_ts=$(stat -c '%Y' "$_gf_file" 2>/dev/null || echo 0)
         [[ "$_new_ts" -gt "$_old_ts" ]] && _gate_files[$_gn]="$_gf_file"
       fi
     done
@@ -124,7 +127,8 @@ _tally_gates() {
       _tip_cache[$_gdir]="$_ts"
     fi
     local _branch_tip_ts="${_tip_cache[$_gdir]}"
-    local _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$_gf_file" 2>/dev/null | head -1)
+    local _gv
+    _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$_gf_file" 2>/dev/null | head -1)
     _gv="${_gv^^}"
     # If the AI wrote PASS but the companion evidence says SKIP, honour the evidence.
     local _ev_file="${_gf_file%.report}.evidence"
@@ -206,10 +210,12 @@ _resolve_known_good() {
   local _ver="${VERSION//./_}"
   local _cache="$PLUGIN_DIR/test/.matrix-state/known_good_resolved_${_rk}_${_ver}"
   if [[ -f "$_cache" ]]; then
-    local _cached=$(cat "$_cache")
+    local _cached
+    _cached=$(cat "$_cache")
     git -C "$repo_dir" rev-parse --verify "$_cached" &>/dev/null && echo "$_cached" && return 0
   fi
-  local kg=$(yq ".repos.\"$name\".known_good // \"\"" "$CONFIG_FILE")
+  local kg
+  kg=$(yq ".repos.\"$name\".known_good // \"\"" "$CONFIG_FILE")
   [[ -z "$kg" || "$kg" == "null" ]] && return 1
   local resolved=""
   # Plain-string path: $kg is a local branch or tag name.  $resolved stays a
@@ -239,7 +245,8 @@ _load_config() {
   [[ -f "$CONFIG_FILE" ]] || die "Config not found: $CONFIG_FILE"
   VERSION=$(yq '.version' "$CONFIG_FILE")
   [[ -z "$VERSION" || "$VERSION" == "null" ]] && die "version not set in $CONFIG_FILE"
-  local _mc=$(yq '.max_concurrent // ""' "$CONFIG_FILE")
+  local _mc
+  _mc=$(yq '.max_concurrent // ""' "$CONFIG_FILE")
   if [[ -n "${_MAX_CONCURRENT_FROM_ENV}" ]]; then
     MAX_CONCURRENT="$_MAX_CONCURRENT_FROM_ENV"
   elif [[ -n "$_mc" && "$_mc" != "null" ]]; then
@@ -252,10 +259,12 @@ _load_config() {
   [[ ${#DEFAULT_REPOS[@]} -gt 0 ]] || die "No repos configured in $CONFIG_FILE — 'repos' key is missing or empty"
   # Validate from_commit SHAs exist in repos
   for _repo_name in $(yq '.repos | keys | .[]' "$CONFIG_FILE"); do
-    local fc=$(_config_val "$_repo_name" "from_commit")
+    local fc
+    fc=$(_config_val "$_repo_name" "from_commit")
     if [[ -n "$fc" && -d "$REPOS_DIR/$_repo_name" ]]; then
       if ! git -C "$REPOS_DIR/$_repo_name" rev-parse --verify "$fc^{commit}" &>/dev/null; then
-        local _actual=$(git -C "$REPOS_DIR/$_repo_name" rev-parse "${fc:0:12}" 2>/dev/null)
+        local _actual
+        _actual=$(git -C "$REPOS_DIR/$_repo_name" rev-parse "${fc:0:12}" 2>/dev/null)
         if [[ -n "$_actual" && "$_actual" != "$fc" ]]; then
           die "$_repo_name: from_commit SHA mismatch — config has $fc but repo resolves ${fc:0:12} to $_actual"
         else
@@ -271,7 +280,8 @@ _repo_k8s_version() {
   local repo="$1" ref="${2:-origin/$(git -C "$1" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')}"
   [[ "$ref" == "origin/" ]] && ref="origin/main"
   git -C "$repo" rev-parse --verify "$ref" &>/dev/null || ref="origin/master"
-  local ver=$(git -C "$repo" show "${ref}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
+  local ver
+  ver=$(git -C "$repo" show "${ref}:go.mod" 2>/dev/null | grep 'k8s.io/api ' | grep -oE 'v[0-9.]+' | head -1)
   if [[ -z "$ver" ]]; then
     ver=$(git -C "$repo" ls-tree -r --name-only "$ref" 2>/dev/null \
       | grep '/go.mod$' | head -1 \
@@ -282,7 +292,8 @@ _repo_k8s_version() {
 }
 
 _set_worktree_base() {
-  local repo="$1" mode="${2:-head}" p="$repo/.claude/settings.json"
+  local repo="$1" mode="${2:-head}"
+  local p="$repo/.claude/settings.json"
   if [[ "$mode" == "remove" ]]; then
     rm -f "$p"
   else
@@ -357,7 +368,8 @@ PYEOF
 )
 
 build_session_cache() {
-  local now=$(date +%s)
+  local now
+  now=$(date +%s)
   [[ $((now - _SESSION_CACHE_AGE)) -lt 5 ]] && return 0
   command -v claude &>/dev/null || { _SESSION_CACHE_AGE=$now; return 0; }
   _SESSION_CACHE=$(claude agents --json 2>/dev/null \
@@ -503,7 +515,8 @@ cmd_run() {
       local _active_count=0
       for _rf in "$_running_dir"/*; do
         [[ -f "$_rf" ]] || continue
-        local _run_sid=$(cut -f3 "$_rf" 2>/dev/null)
+        local _run_sid
+        _run_sid=$(cut -f3 "$_rf" 2>/dev/null)
         if ! _session_alive "$_run_sid"; then
           [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
           rm -f "$_rf"
@@ -512,7 +525,8 @@ cmd_run() {
         fi
       done
       if [[ $((_active_count + ${#repos[@]})) -gt "$MAX_CONCURRENT" ]]; then
-        local _avail=$((MAX_CONCURRENT - _active_count))
+        local _avail
+        _avail=$((MAX_CONCURRENT - _active_count))
         [[ "$_avail" -le 0 ]] && { error "Already at max ($MAX_CONCURRENT concurrent). Stop a session first: make stop"; return 1; }
         warn "$_active_count already running, launching only $_avail of ${#repos[@]} (max $MAX_CONCURRENT — set in config.yaml)"
         repos=("${repos[@]:0:$_avail}")
@@ -547,10 +561,12 @@ cmd_run() {
     if [[ -n "$from_commit" ]]; then
       cd "$repo" || { warn "Skipping $short"; continue; }
       git rev-parse --verify "$from_commit" &>/dev/null || { warn "Commit not found: $from_commit"; continue; }
-      local _db=$(default_branch)
+      local _db
+      _db=$(default_branch)
       # Switch off any stale _test-from-* branch BEFORE deleting it; git refuses
       # to delete the currently-checked-out branch.
-      local _cur_branch=$(git branch --show-current 2>/dev/null)
+      local _cur_branch
+      _cur_branch=$(git branch --show-current 2>/dev/null)
       [[ "$_cur_branch" == _test-from-* ]] && { git checkout -f "$_db" &>/dev/null || true; }
       git clean -fd &>/dev/null || true
       git fetch origin --no-tags &>/dev/null || true
@@ -576,7 +592,8 @@ cmd_run() {
       _prompt="IMPORTANT: Do NOT switch to master/main. You are on a test branch at a historical commit. Work from HEAD as-is. The worktree.baseRef is set to 'head' so your worktree will branch from the current commit.
 /k8s-rebase:k8s-rebase $version"
     fi
-    local _model=$(_config_val "$short" "model")
+    local _model
+    _model=$(_config_val "$short" "model")
     local _model_args=()
     [[ -n "$_model" && "$_model" != "null" ]] && _model_args=(--model "$_model")
     session_output=$(claude --bg \
@@ -590,7 +607,8 @@ cmd_run() {
     : "${session_id:=unknown}"
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
     info "Launched $short -> $session_id"
-    local _rk=$(running_key "$version" "$repo")
+    local _rk
+    _rk=$(running_key "$version" "$repo")
     echo "$session_id" > "$PLUGIN_DIR/test/.matrix-state/.session_id_$_rk" \
       || { error "Failed to persist session ID for $short (session $session_id is orphaned — stop it manually with: claude stop $session_id)"; continue; }
     launched=$((launched + 1))
@@ -610,7 +628,8 @@ cmd_stop() {
   local killed=0
   for running_file in "$state_dir"/*; do
     [[ -f "$running_file" ]] || continue
-    local repo_key=$(basename "$running_file")
+    local repo_key
+    repo_key=$(basename "$running_file")
     local raw; raw=$(cat "$running_file")
     local sid; sid=$(cut -f3 <<< "$raw")
     if [[ -z "$sid" ]]; then rm -f "$running_file"; continue; fi
@@ -673,15 +692,18 @@ cmd_clean() {
   local cleaned_keys=()
   for repo in "${repos[@]}"; do
     repo=$(resolve_repo "$repo") || continue
-    local _ck=$(repo_key "$repo")
-    local short=$(repo_short "$repo")
+    local _ck
+    _ck=$(repo_key "$repo")
+    local short
+    short=$(repo_short "$repo")
     # Stop any active sessions for this repo before cleaning
     if [[ -d "$running_dir" ]]; then
       for rf in "$running_dir"/*"_${_ck}"; do
         [[ -f "$rf" ]] || continue
         # Version-scoped: skip sessions from other versions
         [[ -n "$version" && "$(basename "$rf")" != "${version}_${_ck}" ]] && continue
-        local _sid=$(cut -f3 "$rf" 2>/dev/null)
+        local _sid
+        _sid=$(cut -f3 "$rf" 2>/dev/null)
         if [[ -n "$_sid" ]]; then
           claude stop "$_sid" 2>/dev/null || true
           info "Stopped session on $short"
@@ -695,8 +717,13 @@ cmd_clean() {
     remove_worktrees "$repo" "$version"
     rm -rf "$repo/.rebase-tmp" 2>/dev/null || true
     # Recover to default branch first (so we can delete temp branches)
-    local _cur=$(git branch --show-current 2>/dev/null)
-    [[ -z "$_cur" || "$_cur" == _test-from-* ]] && { local _db=$(default_branch); git checkout "$_db" 2>/dev/null || true; }
+    local _cur
+    _cur=$(git branch --show-current 2>/dev/null)
+    if [[ -z "$_cur" || "$_cur" == _test-from-* ]]; then
+      local _db
+      _db=$(default_branch)
+      git checkout "$_db" 2>/dev/null || true
+    fi
     _set_worktree_base "$repo" remove
     for tb in $(git branch --no-color | tr -d ' *' | grep '^_test-from-'); do
       git branch -D "$tb" 2>/dev/null || true
@@ -752,7 +779,8 @@ declare -A TAG_TO_PATTERN=(
 # autofix functions and/or pattern sections so the agent cannot rely on them.
 # Callers must capture the printed path; never pass 'none' here (cmd_test strips it).
 mutate_plugin() {
-  local label="mutated-$(date +%s)"
+  local label
+  label="mutated-$(date +%s)"
   local dest="$RESULTS_DIR/$label"
   mkdir -p "$RESULTS_DIR" 2>/dev/null || true
   command -v rsync &>/dev/null || die "rsync required"
@@ -918,8 +946,10 @@ cmd_test_all() {
     sorted_repos+=("$repo")
   done < <(for repo in "${DEFAULT_REPOS[@]}"; do
     [[ -d "$repo" ]] || continue
-    local short=$(repo_short "$repo")
-    local last_ts=$(awk -F'\t' -v r="$short" '$4==r && ($3~/^all/ || $3=="none") {ts=$1} END{print ts}' "$tsv" 2>/dev/null)
+    local short
+    short=$(repo_short "$repo")
+    local last_ts
+    last_ts=$(awk -F'\t' -v r="$short" '$4==r && ($3~/^all/ || $3=="none") {ts=$1} END{print ts}' "$tsv" 2>/dev/null)
     echo "${last_ts:-0000}	$repo"
   done | sort | cut -f2)
   [[ ${#sorted_repos[@]} -eq 0 ]] && sorted_repos=("${DEFAULT_REPOS[@]}")
@@ -927,9 +957,11 @@ cmd_test_all() {
   # so they do not inflate 'active' before the launch loop.
   for repo in "${sorted_repos[@]}"; do
     [[ -d "$repo" ]] || continue
-    local _rk=$(running_key "$version" "$repo")
+    local _rk
+    _rk=$(running_key "$version" "$repo")
     if [[ -f "$state_dir/running/$_rk" ]]; then
-      local _pre_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
+      local _pre_sid
+      _pre_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
       if ! _session_alive "$_pre_sid"; then
         [[ -n "$_pre_sid" ]] && claude stop "$_pre_sid" 2>/dev/null || true
         rm -f "$state_dir/running/$_rk"
@@ -941,9 +973,11 @@ cmd_test_all() {
   for repo in "${sorted_repos[@]}"; do
     _ensure_repo "$(repo_short "$repo")"
     [[ -d "$repo" ]] || continue
-    local _rk=$(running_key "$version" "$repo")
+    local _rk
+    _rk=$(running_key "$version" "$repo")
     if [[ -f "$state_dir/running/$_rk" ]]; then
-      local _run_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
+      local _run_sid
+      _run_sid=$(cut -f3 "$state_dir/running/$_rk" 2>/dev/null)
       if _session_alive "$_run_sid"; then
         info "SKIP $(repo_short "$repo") (already running)"
         continue
@@ -953,14 +987,17 @@ cmd_test_all() {
         active=$((active - 1))
       fi
     fi
-    local _done_key=$(_done_key "$version" "$spec" "$(repo_key "$repo")")
+    local _done_key
+    _done_key=$(_done_key "$version" "$spec" "$(repo_key "$repo")")
     [[ -f "$state_dir/done/$_done_key" ]] && { info "SKIP $(repo_short "$repo") (already tested)"; continue; }
-    local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
+    local _fc
+    _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
     local _fc_args=()
     [[ -n "$_fc" ]] && _fc_args=(--from-commit "$_fc")
     # Skip repos already at target version with no from-commit set
     if [[ ${#_fc_args[@]} -eq 0 ]]; then
-      local _cur_ver=$(_repo_k8s_version "$repo")
+      local _cur_ver
+      _cur_ver=$(_repo_k8s_version "$repo")
       if [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]]; then
         warn "SKIP $(repo_short "$repo") (already at $_cur_ver — use: make set-from-commit repo=$(repo_short "$repo") commit=<sha>)"
         continue
@@ -982,7 +1019,8 @@ cmd_test_all() {
     local _any_done=false
     for _rf in "$state_dir/running"/*; do
       [[ -f "$_rf" ]] || continue
-      local _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
+      local _sid_check
+      _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
       _session_alive "$_sid_check" || _any_done=true
     done
     if $_any_done; then
@@ -990,7 +1028,8 @@ cmd_test_all() {
       auto_record
       for _rf in "$state_dir/running"/*; do
         [[ -f "$_rf" ]] || continue
-        local _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
+        local _sid_check
+        _sid_check=$(cut -f3 "$_rf" 2>/dev/null)
         _session_alive "$_sid_check" || { [[ -n "$_sid_check" ]] && claude stop "$_sid_check" 2>/dev/null || true; rm -f "$_rf"; }
       done
     fi
@@ -998,20 +1037,25 @@ cmd_test_all() {
     active=0
     for repo in "${sorted_repos[@]}"; do
       [[ -d "$repo" ]] || continue
-      local _rk=$(running_key "$version" "$repo")
+      local _rk
+      _rk=$(running_key "$version" "$repo")
       [[ -f "$state_dir/running/$_rk" ]] && active=$((active + 1))
     done
     for repo in "${sorted_repos[@]}"; do
       [[ -d "$repo" ]] || continue
-      local _rk=$(running_key "$version" "$repo")
+      local _rk
+      _rk=$(running_key "$version" "$repo")
       [[ -f "$state_dir/running/$_rk" ]] && continue
-      local _done_key=$(_done_key "$version" "$spec" "$(repo_key "$repo")")
+      local _done_key
+      _done_key=$(_done_key "$version" "$spec" "$(repo_key "$repo")")
       [[ -f "$state_dir/done/$_done_key" ]] && continue
-      local _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
+      local _fc
+      _fc=$(_config_val "$(repo_short "$repo")" "from_commit")
       local _fc_args=()
       [[ -n "$_fc" ]] && _fc_args=(--from-commit "$_fc")
       if [[ ${#_fc_args[@]} -eq 0 ]]; then
-        local _cur_ver=$(_repo_k8s_version "$repo")
+        local _cur_ver
+        _cur_ver=$(_repo_k8s_version "$repo")
         [[ "$_cur_ver" == "v0.${version#*.}" || "$_cur_ver" == "v$version" ]] && continue
       fi
       [[ "$active" -ge "$MAX_CONCURRENT" ]] && break
@@ -1026,7 +1070,8 @@ cmd_test_all() {
 
 _do_record_one() {
   local repo="$1" repo_key="$2" spec="$3" state_dir="$4" launch_epoch="${5:-0}" _rec_version="${6:-$VERSION}"
-  local short=$(repo_short "$repo")
+  local short
+  short=$(repo_short "$repo")
 
   local default_br
   default_br=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
@@ -1063,7 +1108,8 @@ _do_record_one() {
     [[ "$branch_tip_epoch" -gt 0 && "$branch_tip_epoch" -lt "$launch_epoch" ]] && { echo "stale branch"; return 1; }
   fi
 
-  local commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
+  local commits
+  commits=$(git -C "$repo" rev-list --count "$default_br".."$result_branch" 2>/dev/null || echo 0)
   [[ "$commits" -eq 0 ]] && { echo "no commits (no-op)"; return 1; }
 
   # Gate tally — every gate must produce a report, all must pass
@@ -1094,8 +1140,10 @@ _do_record_one() {
   kg_branch=$(_resolve_known_good "$short" "$repo")
   CONFIG_FILE="$_saved_cf"; VERSION="$_saved_ver"
   if [[ -n "$kg_branch" ]]; then
-    local kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
-    local kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+    local kg_diff_all
+    kg_diff_all=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+    local kg_diff_nv
+    kg_diff_nv=$(git -C "$repo" diff "$result_branch" "$kg_branch" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
     kg_hunks="$kg_diff_nv"
     [[ "$kg_diff_all" -gt "$kg_diff_nv" ]] && kg_vendor="$((kg_diff_all - kg_diff_nv))"
   fi
@@ -1114,9 +1162,11 @@ _do_record_one() {
     local _gmiss_names="" _gcrash_names=""
     for _gmd in "$PLUGIN_DIR/gates"/step*/*.md; do
       [[ -f "$_gmd" ]] || continue
-      local _gdir_name=$(basename "$(dirname "$_gmd")")
+      local _gdir_name
+      _gdir_name=$(basename "$(dirname "$_gmd")")
       local _gstep="${_gdir_name%%-*}"
-      local _gbase=$(basename "$_gmd" .md)
+      local _gbase
+      _gbase=$(basename "$_gmd" .md)
       local _gexpected="${_gstep}-${_gbase}"
       local _found_gate=false _found_crash=false
       for _gd in "${_GATE_DIRS[@]}"; do
@@ -1150,8 +1200,10 @@ _do_record_one() {
   else
     detail="all gates pass (no known-good set)"
   fi
-  local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
-  local done_key=$(_done_key "$_rec_version" "$spec" "$repo_key")
+  local ts
+  ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+  local done_key
+  done_key=$(_done_key "$_rec_version" "$spec" "$repo_key")
   mkdir -p "$state_dir/done"
   if [[ -f "$state_dir/done/$done_key" ]]; then
     [[ "$update_mode" != "update" ]] && { echo "already recorded (done_key exists)"; return 0; }
@@ -1199,8 +1251,10 @@ auto_record() {
     local repo
     repo=$(_repo_from_key "$repo_key") || true
     [[ -z "$repo" || ! -d "$repo" ]] && continue
-    local short=$(repo_short "$repo")
-    local done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
+    local short
+    short=$(repo_short "$repo")
+    local done_key
+    done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
     [[ -f "$state_dir/done/$done_key" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
 
     local _session_dead=false
@@ -1237,7 +1291,8 @@ auto_record() {
       info "Recorded: $result"
     elif $_session_dead; then
       local _fail_detail="${result:-session ended without result}"
-      local ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
+      local ts
+      ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_run_version" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
       mkdir -p "$state_dir/done"
       touch "$state_dir/done/$done_key"
@@ -1310,7 +1365,8 @@ cmd_court() {
   # packages/ = dependency metadata cache (LICENSE/NOTICE files), like vendor but
   # for package listings; mocks/ = mockery-generated files — neither needs review.
   local court_excludes=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' ':(exclude,glob)**/mocks/**')
-  local diff_nv=$(git diff "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
+  local diff_nv
+  diff_nv=$(git diff "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
   [[ -z "$diff_nv" ]] && { info "$_log_prefix PASS: identical (non-vendor)"; return 0; }
 
   local diff_bytes=${#diff_nv}
@@ -1322,7 +1378,8 @@ cmd_court() {
     return 2
   fi
   local hunks; hunks=$(grep -c '^@@' <<< "$diff_nv" || true)
-  local diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
+  local diff_stat
+  diff_stat=$(git diff --stat "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
   info "$_log_prefix Diff: $hunks non-vendor hunks, go.sum excluded (${diff_bytes} bytes)"
 
   local direction="DIFF DIRECTION: 'git diff known_good result'.
@@ -1398,7 +1455,8 @@ BASE_REF VERIFIED: line cannot contribute to a FAIL verdict — it can only be
 flagged as a concern."
   local _base_ref
   _base_ref=$(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo "$known_good")
-  local logs=$(git log --oneline "$_base_ref".."$result_branch" 2>/dev/null | head -15)
+  local logs
+  logs=$(git log --oneline "$_base_ref".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
 $criteria
 
@@ -1412,7 +1470,8 @@ COMMITS: $logs
 FILES: $diff_stat"
 
   local _court_dir="$PLUGIN_DIR/test/.matrix-state/court"
-  local cdir="$_court_dir/$(date +%s)_$(repo_key "$repo")"
+  local cdir
+  cdir="$_court_dir/$(date +%s)_$(repo_key "$repo")"
   mkdir -p "$cdir"
 
   # Phase A gives prosecution and defense the full $context (diff + commit history +
@@ -1556,7 +1615,8 @@ EOF_JUROR_PROMPT
 
   local pass=0 fail=0
   for j in 1 2 3; do
-    local jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL|ABSTAIN)' "$cdir/juror-$j.txt" 2>/dev/null | grep -ioE 'PASS|FAIL|ABSTAIN' | tail -1)
+    local jv
+    jv=$(grep -ioE 'VERDICT:[* ]*(PASS|FAIL|ABSTAIN)' "$cdir/juror-$j.txt" 2>/dev/null | grep -ioE 'PASS|FAIL|ABSTAIN' | tail -1)
     jv="${jv^^}"
     case "$jv" in "PASS") pass=$((pass+1)); info "$_log_prefix   Juror $j: PASS";; "FAIL") fail=$((fail+1)); info "$_log_prefix   Juror $j: FAIL";; *) info "$_log_prefix   Juror $j: ABSTAIN";; esac
   done
@@ -1589,8 +1649,10 @@ EOF_JUROR_PROMPT
     _show_fail_reasons
     return 2
   fi
-  local total=$((pass + fail))
-  local abstaining_nonempty=$(( 3 - pass - fail - empty_jurors ))
+  local total
+  total=$((pass + fail))
+  local abstaining_nonempty
+  abstaining_nonempty=$(( 3 - pass - fail - empty_jurors ))
   if [[ "$total" -lt 2 ]]; then
       error "$_log_prefix INCONCLUSIVE (no quorum — $pass pass, $fail fail, $abstaining_nonempty non-empty-abstain, $empty_jurors empty)"
       info "$_log_prefix Transcript: $cdir"
@@ -1639,14 +1701,18 @@ cmd_court_all() {
     # Natural limit is API rate limits, not system resources. Default: all repos at once.
     local max_court_concurrent=${MAX_COURT_CONCURRENT:-${#DEFAULT_REPOS[@]}}
     for repo in "${DEFAULT_REPOS[@]}"; do
-      local short=$(repo_short "$repo")
-      local _rk=$(repo_key "$repo")
+      local short
+      short=$(repo_short "$repo")
+      local _rk
+      _rk=$(repo_key "$repo")
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
       # Skip repos already courted (PASS/FAIL); retry INCONCLUSIVE.
       [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file" 2>/dev/null)" != "INCONCLUSIVE" ]] && continue
-      local latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
+      local latest_line
+      latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
       [[ -z "$latest_line" ]] && continue  # no matrix result yet
-      local verdict=$(echo "$latest_line" | cut -f5)
+      local verdict
+      verdict=$(echo "$latest_line" | cut -f5)
       # Court only PASS rebases — no point reviewing a known-FAIL run.
       [[ "$verdict" != "PASS" ]] && continue
       # Rebase still in progress — let it finish before courting.
@@ -1654,9 +1720,11 @@ cmd_court_all() {
 
       repo=$(resolve_repo "$short" 2>/dev/null) || { warn "$short ($VERSION): cannot resolve"; skipped=$((skipped + 1)); continue; }
       cd "$repo" || { warn "$short ($VERSION): cannot cd"; skipped=$((skipped + 1)); continue; }
-      local kg=$(_resolve_known_good "$short" "$repo")
+      local kg
+      kg=$(_resolve_known_good "$short" "$repo")
       [[ -z "$kg" ]] && { warn "$short ($VERSION): no known-good configured"; skipped=$((skipped + 1)); continue; }
-      local branch=$(find_newest_branch "$repo" "$VERSION")
+      local branch
+      branch=$(find_newest_branch "$repo" "$VERSION")
       if [[ -z "$branch" ]]; then
         # If verdict is INCONCLUSIVE and the result branch is gone (cleaned after PASS),
         # clear the verdict so make results shows "pending" and re-courts on next test run.
@@ -1706,7 +1774,8 @@ cmd_court_all() {
       for _idx in "${!_court_files[@]}"; do
         local _cf="${_court_files[$_idx]}" _cs="${_court_shorts[$_idx]}"
         if [[ -f "$_cf" ]]; then
-          local _v=$(cat "$_cf")
+          local _v
+          _v=$(cat "$_cf")
           case "$_v" in
             PASS) passed=$((passed + 1)); info "$_cs ($VERSION): PASS" ;;
             FAIL) failed=$((failed + 1)); warn "$_cs ($VERSION): FAIL" ;;
@@ -1770,11 +1839,14 @@ cmd_watch() {
   for running_file in "$state_dir/running"/*; do
     [[ -f "$running_file" ]] || continue
     active=$((active + 1))
-    local _running_key=$(basename "$running_file")
-    local _raw=$(cat "$running_file")
+    local _running_key
+    _running_key=$(basename "$running_file")
+    local _raw
+    _raw=$(cat "$running_file")
     local _file_spec _f2 _sid _file_version  # _f2 is field 2 of the running file; read to advance IFS position, not used
     IFS=$'\t' read -r _file_spec _f2 _sid _file_version _ <<< "$_raw"
-    local _bare_rk=$(repo_key_from_running "$_file_version" "$_running_key")
+    local _bare_rk
+    _bare_rk=$(repo_key_from_running "$_file_version" "$_running_key")
     local short="${_bare_rk//_//}"
     local repo="$REPOS_DIR/$short"
     [[ -d "$repo" ]] || continue
@@ -1800,10 +1872,12 @@ cmd_watch() {
     fi
     local gc=0 gf=0 gs=0 commit_msg="-" diff_info="-"
     if [[ -n "$wt" ]]; then
-      local _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
+      local _db
+      _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
       : "${_db:=main}"
       if [[ -n "$_branch" ]]; then
-        local n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
+        local n_commits
+        n_commits=$(git -C "$repo" rev-list --count "$_db".."$_branch" 2>/dev/null || echo 0)
         [[ "$n_commits" -gt 0 ]] && commit_msg=$(git -C "$wt" log --format="%s" -1 "$_branch" 2>/dev/null | head -c 28)
       fi
       _collect_gate_dirs "$repo"
@@ -1819,19 +1893,23 @@ cmd_watch() {
       CONFIG_FILE="$_ver_cf_watch"
       VERSION="$_file_version"
     fi
-    local kg=$(_resolve_known_good "$short" "$repo")
+    local kg
+    kg=$(_resolve_known_good "$short" "$repo")
     CONFIG_FILE="$_saved_cf_watch"
     VERSION="$_saved_ver_watch"
     if [[ -n "$kg" && -n "$wt" && -n "$_branch" ]]; then
       # Count changed hunks (each '@@...@@' header = one hunk). nv excludes vendor; nv_all includes it.
-      local nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
-      local nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
+      local nv
+      nv=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+      local nv_all
+      nv_all=$(git -C "$repo" diff "$_branch" "$kg" -- . ':!.rebase-tmp' 2>/dev/null | grep -c '^@@' || true)
       diff_info="${nv} code"
       [[ "$nv_all" -gt "$nv" ]] && diff_info="$diff_info (+$((nv_all - nv)) vendor)"
     fi
     # Show "needs-court" when session is done, gates complete, no done file yet
     if [[ "$session_state" == "done" || "$session_state" == "gone" ]]; then
-      local _done_key=$(_done_key "$_file_version" "$_file_spec" "$_bare_rk")
+      local _done_key
+      _done_key=$(_done_key "$_file_version" "$_file_spec" "$_bare_rk")
       if [[ "$gc" -ge "$EXPECTED_GATES" && ! -f "$state_dir/done/$_done_key" ]]; then
         session_state="needs-court"
       fi
@@ -1856,7 +1934,8 @@ cmd_watch() {
           -not -path '*/gates/*' \
           -exec stat -c '%Y' {} \; 2>/dev/null | sort -rn | head -1)
         if [[ -n "$_last_ts" && "$_last_ts" -gt 0 ]]; then
-          local _idle=$(( ($(date +%s) - _last_ts) / 60 ))
+          local _idle
+          _idle=$(( ($(date +%s) - _last_ts) / 60 ))
           [[ "$_idle" -gt 0 ]] && _phase="${_phase} ${_idle}m"
         fi
         session_state="$_phase"
@@ -1930,7 +2009,8 @@ _results_one() {
   local repo="$1" court="${2:-false}"
   local repo_input="$repo"
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"
-  local short=$(repo_short "$repo")
+  local short
+  short=$(repo_short "$repo")
   cd "$repo" || die "Cannot cd to $repo"
   _worktree_info "$repo" || true
   local wt="$_WT_PATH"
@@ -1961,19 +2041,23 @@ _results_one() {
     for _gd in "${_GATE_DIRS[@]}"; do
       for f in "$_gd"/*.report; do
         [[ -f "$f" ]] || continue
-        local _gn=$(basename "$f" .report)
+        local _gn
+        _gn=$(basename "$f" .report)
         if [[ -z "${_rgate_files[$_gn]+x}" ]]; then
           _rgate_files[$_gn]="$f"
         else
-          local _old_ts=$(stat -c '%Y' "${_rgate_files[$_gn]}" 2>/dev/null || echo 0)
-          local _new_ts=$(stat -c '%Y' "$f" 2>/dev/null || echo 0)
+          local _old_ts
+          _old_ts=$(stat -c '%Y' "${_rgate_files[$_gn]}" 2>/dev/null || echo 0)
+          local _new_ts
+          _new_ts=$(stat -c '%Y' "$f" 2>/dev/null || echo 0)
           [[ "$_new_ts" -gt "$_old_ts" ]] && _rgate_files[$_gn]="$f"
         fi
       done
     done
     for _gn in "${!_rgate_files[@]}"; do
       local f="${_rgate_files[$_gn]}"
-      local v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
+      local v
+      v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
       v="${v^^}"
       [[ "$v" != *"FAIL"* ]] && continue
       [[ " $INFO_GATES " == *" ${_gn#step?-} "* ]] && continue
@@ -2001,12 +2085,15 @@ _results_one() {
   local _saved_cf_ro="$CONFIG_FILE" _saved_ver_ro="$VERSION"
   local _ver_cf_ro="${PLUGIN_DIR}/test/config-${_tsv_ver%.*}.yaml"
   if [[ -f "$_ver_cf_ro" ]]; then CONFIG_FILE="$_ver_cf_ro"; VERSION="$_tsv_ver"; fi
-  local kg=$(_resolve_known_good "$short" "$repo")
+  local kg
+  kg=$(_resolve_known_good "$short" "$repo")
   CONFIG_FILE="$_saved_cf_ro"; VERSION="$_saved_ver_ro"
   if [[ -n "$kg" ]]; then
-    local branch=$(find_newest_branch "$repo" "$_tsv_ver")
+    local branch
+    branch=$(find_newest_branch "$repo" "$_tsv_ver")
     if [[ -n "$branch" ]]; then
-      local nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
+      local nv
+      nv=$(git diff "$branch" "$kg" -- . ':!.rebase-tmp' ':(exclude,glob)**/vendor/**' 2>/dev/null | grep -c '^@@' || true)
       echo ""
       if [[ "$nv" -eq 0 ]]; then
         echo "Diff vs known-good ${kg:0:12}: identical (non-vendor)"
@@ -2048,19 +2135,26 @@ _results_for_version() {
   local all_pass=true
   local -a _res_rows=()
   for repo in "${DEFAULT_REPOS[@]}"; do
-    local short=$(repo_short "$repo")
-    local _rk=$(repo_key "$repo")
-    local latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
+    local short
+    short=$(repo_short "$repo")
+    local _rk
+    _rk=$(repo_key "$repo")
+    local latest_line
+    latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
     if [[ -n "$latest_line" ]]; then
-      local ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
-      local verdict=$(echo "$latest_line" | cut -f5)
-      local detail=$(echo "$latest_line" | cut -f6)
+      local ts
+      ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
+      local verdict
+      verdict=$(echo "$latest_line" | cut -f5)
+      local detail
+      detail=$(echo "$latest_line" | cut -f6)
       local court_result="-"
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
       if [[ -f "$_court_file" ]]; then
         court_result=$(cat "$_court_file")
       elif [[ "$verdict" == "PASS" ]]; then
-        local _kg=$(yq ".repos.\"$short\".known_good // \"\"" "$CONFIG_FILE" 2>/dev/null)
+        local _kg
+        _kg=$(yq ".repos.\"$short\".known_good // \"\"" "$CONFIG_FILE" 2>/dev/null)
         if [[ -z "$_kg" || "$_kg" == "null" ]]; then
           court_result="N/A"
         else
@@ -2078,9 +2172,11 @@ _results_for_version() {
     else
       [[ "$(_config_val "$short" "expected_fail")" != "true" ]] && all_pass=false
       local _reason="not tested"
-      local _resolved=$(resolve_repo "$short" 2>/dev/null)
+      local _resolved
+      _resolved=$(resolve_repo "$short" 2>/dev/null)
       if [[ -n "$_resolved" ]]; then
-        local _ver=$(_repo_k8s_version "$_resolved")
+        local _ver
+        _ver=$(_repo_k8s_version "$_resolved")
         if [[ "$_ver" == "v0.${VERSION#*.}" || "$_ver" == "v$VERSION" ]] && [[ -z "$(_config_val "$short" "from_commit")" ]]; then
           _reason="already at $_ver — set from-commit to test"
         fi
@@ -2160,7 +2256,8 @@ cmd_set_known_good() {
   local repo_input="$repo"
   _ensure_repo "$(repo_short "$repo_input")"
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"
-  local short=$(repo_short "$repo")
+  local short
+  short=$(repo_short "$repo")
 
   if [[ -n "$url" ]]; then
     yq -i ".repos.\"$short\".known_good = {\"url\": \"$url\", \"ref\": \"$ref\"}" "$CONFIG_FILE"
@@ -2190,7 +2287,8 @@ cmd_matrix() {
 
   local saved_config="$CONFIG_FILE"
   local versions_pass=0 versions_fail=0 versions_total=0
-  local matrix_start=$(date +%s)
+  local matrix_start
+  matrix_start=$(date +%s)
 
   info "Matrix: ${#configs[@]} versions, spec=$spec, max_retries=$max_retries"
 
@@ -2199,7 +2297,8 @@ cmd_matrix() {
     _load_config
     versions_total=$((versions_total + 1))
 
-    local version_start=$(date +%s)
+    local version_start
+    version_start=$(date +%s)
     info "================================================================"
     info "MATRIX [$versions_total/${#configs[@]}]: $VERSION (spec=$spec)"
     info "================================================================"
@@ -2218,15 +2317,19 @@ cmd_matrix() {
       local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
       local failed_repos=() court_only_repos=()
       for repo in "${DEFAULT_REPOS[@]}"; do
-        local short=$(repo_short "$repo")
-        local _rk=$(repo_key "$repo")
+        local short
+        short=$(repo_short "$repo")
+        local _rk
+        _rk=$(repo_key "$repo")
 
         [[ "$(_config_val "$short" "expected_fail")" == "true" ]] && continue
 
-        local latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
+        local latest_line
+        latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
         [[ -z "$latest_line" ]] && continue
 
-        local verdict=$(echo "$latest_line" | cut -f5)
+        local verdict
+        verdict=$(echo "$latest_line" | cut -f5)
         if [[ "$verdict" == "FAIL" ]]; then
           failed_repos+=("$repo")
           continue
@@ -2235,7 +2338,8 @@ cmd_matrix() {
         # Gate-PASS but court-INCONCLUSIVE: court-only retry (no full re-test)
         local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
         if [[ -f "$_court_file" ]]; then
-          local _cv=$(cat "$_court_file")
+          local _cv
+          _cv=$(cat "$_court_file")
           if [[ "$_cv" == "INCONCLUSIVE" ]]; then
             court_only_repos+=("$repo")
           elif [[ "$_cv" == "FAIL" ]]; then
@@ -2252,7 +2356,8 @@ cmd_matrix() {
       if [[ ${#court_only_repos[@]} -gt 0 ]]; then
         info "Phase 3: Retry $retry/$max_retries — ${#court_only_repos[@]} court-only repos"
         for repo in "${court_only_repos[@]}"; do
-          local _rk=$(repo_key "$repo")
+          local _rk
+          _rk=$(repo_key "$repo")
           info "  Court retry: $(repo_short "$repo")"
           rm -f "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
         done
@@ -2264,11 +2369,14 @@ cmd_matrix() {
       if [[ ${#failed_repos[@]} -gt 0 ]]; then
         info "Phase 3: Retry $retry/$max_retries — ${#failed_repos[@]} gate-failed repos"
         for repo in "${failed_repos[@]}"; do
-          local short=$(repo_short "$repo")
-          local _rk=$(repo_key "$repo")
+          local short
+          short=$(repo_short "$repo")
+          local _rk
+          _rk=$(repo_key "$repo")
           info "  Retrying: $short"
 
-          local _done_key=$(_done_key "$VERSION" "$spec" "$_rk")
+          local _done_key
+          _done_key=$(_done_key "$VERSION" "$spec" "$_rk")
           rm -f "$PLUGIN_DIR/test/.matrix-state/done/$_done_key"
           rm -f "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
           cmd_clean "$repo" 2>/dev/null || true
@@ -2283,8 +2391,10 @@ cmd_matrix() {
     done
 
     # Version summary
-    local version_elapsed=$(( $(date +%s) - version_start ))
-    local version_min=$((version_elapsed / 60))
+    local version_elapsed
+    version_elapsed=$(( $(date +%s) - version_start ))
+    local version_min
+    version_min=$((version_elapsed / 60))
     info ""
     info "── $VERSION complete (${version_min}m) ──"
     if _results_for_version; then
@@ -2299,9 +2409,12 @@ cmd_matrix() {
   _load_config
 
   # Final summary across all versions
-  local matrix_elapsed=$(( $(date +%s) - matrix_start ))
-  local matrix_hours=$((matrix_elapsed / 3600))
-  local matrix_min=$(( (matrix_elapsed % 3600) / 60 ))
+  local matrix_elapsed
+  matrix_elapsed=$(( $(date +%s) - matrix_start ))
+  local matrix_hours
+  matrix_hours=$((matrix_elapsed / 3600))
+  local matrix_min
+  matrix_min=$(( (matrix_elapsed % 3600) / 60 ))
   info ""
   info "================================================================"
   info "MATRIX COMPLETE"
@@ -2321,7 +2434,8 @@ cmd_set_from_commit() {
   cd "$repo" || die "Cannot cd to $repo"
   local full_sha
   full_sha=$(git rev-parse --verify "$commit" 2>/dev/null) || die "Commit not found: $commit"
-  local short=$(repo_short "$repo")
+  local short
+  short=$(repo_short "$repo")
   yq -i ".repos.\"$short\".from_commit = \"$full_sha\"" "$CONFIG_FILE"
   info "Set from-commit for $short: ${full_sha:0:12}"
 }
