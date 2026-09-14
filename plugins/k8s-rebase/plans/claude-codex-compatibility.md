@@ -1,245 +1,270 @@
 # Claude/Codex Compatibility Plan
 
-## Goal and scope
+## Goal
 
-Make the existing `k8s-rebase` skill usable from either Claude Code or Codex:
-two package manifests, one `SKILL.md`, and the same steps, scripts, gates,
-and `.rebase-tmp/` state. Preserve Claude invocation and hooks. Support
-sequential handoff between runtimes, not simultaneous mutation of the same
-rebase. Separate worktrees still share Git hooks; concurrent rebases in one
-clone are not a supported isolation boundary.
+Make the existing `k8s-rebase` skill usable by both agents without duplicating
+the workflow or redesigning rebases. Keep one plugin package, one
+`SKILL.md`, and the shared scripts, step files, gates, and reports.
 
-This is a compatibility change, not a rebase redesign. The only script
-extensions planned below are prompt preparation without launching Claude and
-dependency synchronization through the existing approved helper. Correct the
-shared callers where their current assumptions prevent either runtime from
-following the workflow reliably.
+Changes are limited to invocation/instruction compatibility, independent-review
+handoff, existing hook input formats, documentation, and focused validation.
+Only one session may mutate a rebase at a time. Use separate clones for
+concurrent checks: worktrees share Git hooks, so they are not fully isolated.
 
-## 1. Package the existing skill for Codex
+## Verified starting point
 
-Add `.codex-plugin/plugin.json` beside `.claude-plugin/plugin.json`, with the
-same plugin name, description, release version, organization author, and
-`"skills": "./skills/"`. No second skill, root manifest migration, launcher,
-MCP server, or repository-wide Codex marketplace is needed.
+The compatibility review on 2026-09-14 established:
 
-Explicitly suppress Codex discovery of the Claude hook file with
-`"hooks": {"hooks": {}}` in the Codex manifest.
-Omitting `hooks` is **not** sufficient: Codex discovers `hooks/hooks.json`
-by default. The documented override supports an inline hook configuration.
-In a local Codex 0.154.0 `plugin/read` probe, omission and `"hooks": []` both
-exposed all five existing hooks; the explicit empty configuration exposed
-zero. Do not substitute an empty array or rely on hooks being untrusted or
-globally disabled. Recheck discovery in the installed-package smoke test.
-See [OpenAI plugin packaging](https://developers.openai.com/plugins/build/plugins).
+- The repository already documents Codex installation through its existing
+  marketplace in [getting-started.md](../../../site/docs/getting-started.md).
+  Both container definitions use that same marketplace.
+- Codex CLI 0.154.0 lists `k8s-rebase@ai-helpers` and reads its existing
+  Claude plugin manifest. Its plugin-details response discovers
+  `k8s-rebase:k8s-rebase`, the existing skill frontmatter, and all five hooks.
+- Codex supports the existing hook file location and Claude-compatible
+  plugin-root variables for hooks. Hook execution requires trust; discovery
+  is not proof of enforcement. See the
+  [official hook documentation](https://learn.chatgpt.com/docs/hooks#plugin-bundled-hooks).
+- Isolated checks reproduced two interface concerns: `gates` can exit 0
+  with a cached FAIL, and the vendor-edit hook ignores Codex patch payloads.
+  A FORCE_ADVANCE result already moves state to the next step.
 
-Keep Claude frontmatter (`argument-hint`, `user-invocable`, `allowed-tools`):
-both the local plugin validator and runtime discovery probe accept the
-existing shared skill. Still exercise invocation in a real session.
-The validator's rejection of manifest `hooks` conflicts with runtime behavior,
-so it is not the authority for hook isolation. Record the installed runtime
-and validator results separately; do not modify the system validator or drop
-the hook override to make an outdated validator pass.
+These checks establish the implementation baseline, not completed installation,
+live hook enforcement, or end-to-end rebase compatibility. Record the runtime
+versions actually tested; do not infer support for every Codex version or client.
 
-Document one personal-marketplace route: register the **whole plugin root**
-through `~/.agents/plugins/marketplace.json`, with `./plugins/k8s-rebase`
-resolving to `~/plugins/k8s-rebase` (a link to this checkout's plugin directory
-is sufficient). Preserve other entries and existing source files. Read the
-marketplace's actual name, install with `codex plugin add k8s-rebase@<name>`,
-and test in a new session. Document cache refresh for subsequent edits; local
-Codex cachebuster suffixes need not become release-version changes. Keep this
-registration outside the repository. Leave Claude registration intact; apply
-the repository's normal version-bump and `make update` rules when implementing
-skill/manifest changes, keeping both manifest versions aligned.
+## Implementation
 
-## 2. Bind paths and arguments explicitly
+### 1. Reuse the existing package and document invocation
 
-Codex receives the loaded skill's file path in its skill listing. Resolve
-aliases/symlinks to that source and derive `PLUGIN_ROOT` two directories above
-the directory containing `skills/k8s-rebase/SKILL.md`. Verify the orchestrator
-and shared skill directory exist there. Claude may use the same convention
-or its documented plugin-root substitution in a Claude-only bootstrap branch.
-See [OpenAI skill loading](https://learn.chatgpt.com/docs/build-skills).
+Use the repository's existing installation route:
 
-Keep `REPO_ROOT` separate: resolve it with `git rev-parse --show-toplevel`
-from the user's target checkout/worktree, never from the installed plugin.
-Run repo operations there, and module-local repairs in the affected module.
-Rebind absolute paths and required arguments in each shell call, or pass them
-explicitly in task context. Shell exports and changes of directory do not
-establish a cross-call contract. Self-locating scripts using `BASH_SOURCE`
-remain unchanged. A manifest neither runs bootstrap nor sets shell variables.
+```bash
+codex plugin marketplace add openshift-eng/ai-helpers
+codex plugin add k8s-rebase@ai-helpers
+```
 
-Replace home-directory searches throughout `SKILL.md`, Steps 1–5, `rules.md`,
-and gate prompts with these bound paths. Include recovery and report-writing
-footers; finding an arbitrary cached copy is not reliable discovery. Do not
-remove unrelated exclusions of `.claude/` from target-repo file scans.
+For local development, add the checkout as a local marketplace using the same
+layout. Verify installation and skill discovery from a separate target repo.
+Document the repo-root session, hook trust, and fresh-reviewer prerequisites,
+plus both namespaced invocations, in the plugin README:
 
-Normalize invocation inputs once: exactly one supported Kubernetes version
-and optional `--bump-tools`. Claude can obtain them from its skill arguments;
-Codex extracts them from the user's explicit rebase request. `$ARGUMENTS`
-is not a Codex shell contract. Pass validated, quoted arguments to Step 1
-(no `eval` or unquoted free-text expansion), and retain the tools flag through
-Step 4d and delegation. Selecting the skill to ask a question is not approval
-to start a rebase. README examples should retain Claude's namespaced command
-and show selecting the Codex skill followed by a request with these inputs.
+```text
+Claude: /k8s-rebase:k8s-rebase [--bump-tools] <version>
+Codex:  $k8s-rebase:k8s-rebase [--bump-tools] <version>
+```
 
-On resume, use existing state as the step/version authority and reconcile it
-with the requested version before mutation: `init` currently ignores a new
-version when state exists. The tools flag is not persisted; recover it from
-session context or ask if unknown, without adding state fields. Do not
-fresh-initialize over interrupted artifacts when state is missing: `status`
-reconstruction is advisory and does not restore `state.json`. Report that
-recovery ambiguity instead of clearing evidence or rerunning Step 1 blindly.
+Keep the existing manifest and skill frontmatter, including Claude metadata.
+The actual Codex loader accepts it; it must not be treated as granting tools
+or permissions. Do not add another manifest, marketplace, skill copy, or
+provider entry point. Follow repository version-bump and marketplace-sync
+rules when implementation changes require them, not a separate cachebuster scheme.
 
-## 3. Share execution and gate handling
+### 2. Normalize shared instructions
 
-Describe capabilities rather than requiring `Agent`, `Read`, `Explore`,
-`run_in_background`, or Claude-specific timeout settings. Use native subagents
-when available; otherwise perform the same work inline. This applies to whole
-steps, investigations, test shards, type-conversion reviews, and gates—not
-just pending gate prompts. Codex need not be forced into serial execution.
+Apply these conventions to `SKILL.md`, `steps/rules.md`, all five step files,
+and all gate prompts. Keep migration guidance and gate criteria unchanged.
 
-For long-running scripts, use the host's supported execution/wait mechanism
-or the existing detached launch with bounded status checks. Preserve logs,
-PID/result files and recovery instructions. A single check reporting “still
-running” is not a completion notification. Do not launch twice. Preserve
-Step 1's unusual outcomes: exit 2 means mechanical success needing validation,
-0 means no rebase needed, and 1 means error; a missing result requires recovery,
-not presumed success.
+#### Invocation and paths
 
-Use one gate procedure in `rules.md`, referenced by each step:
+- Derive the installed plugin root from the actual loaded skill path, resolving
+  runtime aliases/symlinks. `skills/k8s-rebase/SKILL.md` is inside that root.
+  Verify the orchestrator and skill directory exist there. Replace home-directory
+  searches with this known root; do not select an arbitrary installed copy.
+- Derive the target repo root separately with `git rev-parse --show-toplevel`.
+  Before `init`, verify the session cwd is that checkout/worktree root (compare
+  resolved paths). Otherwise stop and ask for a session started at the root.
+  Existing hooks look for `.rebase-tmp/.session-active` under the session cwd;
+  a shell `cd` or per-command workdir override does not change Codex's hook cwd.
+  Keep those guards unchanged. See the
+  [hook session-cwd contract](https://learn.chatgpt.com/docs/hooks#common-input-fields).
+  Run repo-level commands at the root and module-local operations in the
+  affected module; neither changes the session-root prerequisite.
+- Pass absolute paths and invocation arguments to workers. Set needed shell
+  variables in each command call; do not assume prior exports or cwd survive.
+  Existing self-locating scripts remain unchanged.
+- Take the version and optional `--bump-tools` from the user's invocation.
+  Do not depend on Claude's `$ARGUMENTS` substitution or a shell variable of
+  that name. Pass quoted argv to existing scripts, without `eval`; stop on
+  missing/invalid arguments before initialization. Preserve the flag through
+  Step 1 and Step 4d, including delegated work.
+- On resume, read existing state before `init` and reconcile the requested
+  version with it; `init` currently ignores a new version when state exists.
+  Recover the unrecorded tools flag from context or ask if unknown. If state
+  is missing but interrupted artifacts remain, report the recovery ambiguity:
+  `status` reconstruction is advisory and does not restore `state.json`.
+  Do not fresh-initialize over those artifacts or add provider state.
 
-1. Commit fixes before collecting evidence; reviewers must not race mutations.
-   Run orchestrator `gates` for the current step, not companion scripts directly.
-2. Inspect both pending gates and cached non-passing reports. `EXISTING` can
-   mean FAIL, SKIP, or INCONCLUSIVE; `gates` exit 0 means no pending judgments,
-   not that everything passed.
-3. Give delegated and inline reviewers the same repo/root/version context,
-   gate prompt, and companion evidence. Check evidence `HEAD`; if absent or
-   stale after a companion crash, gather fresh read-only evidence as the gate
-   permits or report inability to judge. Do not relabel old evidence as current.
-4. Keep judgment read-only except for its report. Write through
-   `write-gate-report.sh`, preserving names and verdicts. Replace handwritten
-   fallback reports that omit `HEAD`, and clarify that `PASS|FAIL|SKIP` means
-   select one verdict, not execute a shell pipeline. Verify HEAD has not
-   changed during review before the helper stamps the report.
-5. Triage concerns, fix, commit, and rerun current-step gates. Every current-step
-   report becomes stale after a commit, including prior PASS reports. If a
-   fresh cached judgment needs retrying without a commit, remove only that
-   report **before** requesting gates again. Preserve prior-step reports.
+There is no manifest-injected runtime value. Use short agent-specific
+instructions only for actual differences, not CLI-presence detection or a
+provider environment-variable protocol. Hook-root variables are scoped to
+hooks; the shared shell workflow must not assume they are available.
+Keep unrelated `.claude/` exclusions in target-repo file scans.
 
-Make the parent the sole caller of `advance`; step workers return results
-instead of advancing too. Read the new step from successful output or
-`status`. After `FORCE_ADVANCE`, call `status`, **not another `advance`**.
-Route completed state (`current_step: 5` / `DONE`) directly to Step 5, including
-on resume; do not resolve an empty step filename or advance past completion.
+#### Execution capabilities
 
-Preserve the existing force-advance threshold, verdict interpretation, and
-step-specific stopping rules (in particular, Step 1 structural failures stop).
-Do not spend advance attempts simply to bypass unresolved work. `DONE` does
-not certify all gates passed: carry unresolved reports and `status/INCOMPLETE`
-into the final verification summary. The marker records only the latest
-force-advance; retained reports remain necessary context. These are caller
-corrections, not orchestrator/state-machine changes.
+Describe file reading, editing, delegation, and process waiting by capability,
+not mandatory Claude tool names or tool arguments.
 
-## 4. Reuse reviews without requiring the other CLI
+Use native subagents when available; otherwise run ordinary step work,
+investigation, tests, and gates inline. Remove unconditional instructions
+forbidding the parent from reading gate prompts. Preserve read-only reviewer
+roles and the existing report-only write allowance for gate reviewers; the
+parent applies fixes. Independent review has the stricter requirement below.
 
-Keep Claude's nested `claude -p` calls. In Codex, prefer a native reviewer when
-available, otherwise perform an explicitly labeled inline self-review. Do not
-claim fresh-context independence for parent self-review, or launch nested
-Codex/Claude CLIs just to obtain a verdict. Choose the host branch directly in
-the shared instructions; no provider environment variable or persisted identity.
+Use the runtime's supported long-running process/session mechanism and wait
+for actual completion before dependent work. Preserve Step 1's exit meanings:
+0 means no work needed, 2 means success, and 1 means error. Its result marker
+is written before optional tooling finishes and must not substitute for process
+completion. Do not introduce a polling service or monitoring framework.
+Keep Claude's `/loop` suggestion conditional; do not create Codex automation.
 
-Preserve the two existing review scopes:
+#### Gate and step protocol
 
-- **Step 4c:** add `--print-prompt` to `k8s-rebase-review.sh`, reusing its
-  template, selected-commit diff, error context, exclusions, and truncation
-  warning. The new mode validates required inputs, Git evidence, template,
-  and substitution success, then emits the prompt without reaching any
-  Claude invocation or fail-open branch. Exit 0 means preparation succeeded,
-  not APPROVE. The default invocation retains Claude's current behavior.
-  Make the template's memory claim neutral so both review modes can use it.
-- **Step 5b:** keep its separate full `BASE..HEAD` pre-PR checklist and diff
-  filters; do not substitute Step 4's last-commit template. Prepare its prompt
-  once before choosing nested or native/inline execution. Supply the target
-  version and commit list its checklist requires, and disclose diff truncation.
-  This can remain in the step file; no second review framework is necessary.
+Correct the shared caller instructions to match the existing orchestrator:
 
-For Codex, require an explicit `APPROVE: <reason>` or `REJECT: <reason>` in the
-parent session, identifying the reviewed SHA/scope. Reject or missing/ambiguous
-decisions must be resolved before proceeding; preparation success is not a
-decision. On resume, repeat a review if its decision for that SHA is not
-available. Keep evidence as data, not instructions. No new review marker,
-report schema, or status state machine is needed.
+1. Use the returned `STEP_FILE` relative to `skills/k8s-rebase/`; it already
+   includes `steps/` and `.md`. Check completion on resume before resolving
+   a step file. Step 5 runs after gated completion and is never advanced.
+2. Run `gates` to execute companions and discover pending work. Exit 1 means
+   pending work, not an infrastructure failure. Exit 0 means no pending work,
+   not that all verdicts passed. Inspect EXISTING/RESOLVED verdicts too:
+   FAIL, SKIP, and INCONCLUSIVE are not PASS.
+3. Read pending prompts and their evidence, checking evidence HEAD freshness.
+   Write the existing report format through `write-gate-report.sh`.
+   Ensure the report describes the HEAD actually reviewed; do not stamp old
+   analysis as fresh after concurrent changes.
+4. After fixes, commit and re-validate as the step requires. Re-run `gates`
+   and complete all stale/pending current-step reviews, not just previously
+   failing gates. A new commit invalidates current-step reports at the old HEAD.
+   If deliberately invalidating a cached report at the same HEAD, do so before
+   refreshing it; never delete a newly regenerated companion report. Preserve
+   prior-step reports.
+5. Give the parent sole ownership of `advance`; step workers return results.
+   Preserve existing retry/force-advance policy and step-specific stop conditions.
+   Do not multiply retries through nested parent/worker fix loops.
+   Never call `advance` as a status poll or twice for the same handoff.
+   On FORCE_ADVANCE, report the warning and INCOMPLETE record, then use
+   `status` to find the current step or completion. An ERROR is a hard stop.
+   DONE does not mean all gates passed: retain unresolved findings in the
+   final summary. INCOMPLETE records only the latest force-advance, so keep
+   the reports as well.
 
-These are instruction-level handoffs, not a new mechanically enforced gate.
-Claude's current infrastructure-failure approval behavior remains a known
-limitation, not a guarantee inherited by Codex. If Step 4d or later repairs
-change HEAD, refresh current-step gates before advancing and review the final
-branch tip in Step 5; do not describe an earlier approval as covering new code.
+Do not change the orchestrator, gate names, verdict meanings, report schema,
+freshness checks, or retry thresholds to implement these caller corrections.
 
-## 5. Preserve safety without contradictory repair instructions
+### 3. Adapt independent reviews and existing hook inputs
 
-Keep prohibitions on direct module operations, vendor edits, pushing, and PR
-creation—including equivalent APIs. Approved rebase scripts retain their
-managed module/codegen operations. Codex has instruction-level restrictions;
-do not claim Claude hook-equivalent enforcement.
+#### Independent review
 
-The shared instructions currently both forbid direct tidy/vendor operations
-and require them after a dependency or replace fix; the Claude hook blocks
-those commands. Resolve this narrowly: add `--sync` to the existing
-`k8s-rebase-depfix.sh` to run its tidy/vendor portion without `go get`.
-Use it only for the existing post-go.mod-change synchronization requirement,
-in each affected module. Ordinary depfix already synchronizes; do not repeat
-it. Preserve its normal dependency-bump behavior and conditional vendoring.
-Do not turn synchronization into an unrequested `@latest` dependency update.
-Update `rules.md`, Steps 2–3, and actionable gate repair hints consistently;
-merely hiding a forbidden command in prose does not resolve the contradiction.
+Keep Claude's current nested review path and its existing verdict format.
+For Codex, use a fresh-context, read-only native reviewer, supplied with the
+review rubric and evidence rather than the parent's reasoning history.
+A parent self-check is not an independent review. If no independent reviewer
+is available, stop at the review boundary and report the missing capability.
 
-Step 5 still prints, never executes, the push/PR commands; cleanup retains
-gate reports and restores the existing pre-push hook as today. Keep `/loop`
-only as a Claude suggestion; Codex can suggest a follow-up CI check without
-claiming that a monitoring job has been scheduled. Preserve existing commit
-trailer behavior; attribution changes are separate work.
+Keep the two existing review scopes distinct:
 
-## Implementation and verification
+- **Step 4:** Add a `--print-prompt` mode to
+  `scripts/k8s-rebase-review.sh`, reusing its evidence preparation and
+  `k8s-rebase-review-prompt.md`. It must emit the populated prompt without
+  invoking Claude, and fail if required inputs, the template, or rendering
+  are unavailable rather than returning approval. Optional context remains
+  optional. Preserve the default Claude invocation path.
+- **Step 5:** Reuse its existing full-rebase diff preparation and pre-PR
+  rubric, not the Step 4 template. Keep one source for this rubric across
+  both agents; separate prompt preparation from the Claude invocation.
+  Include the target version and commit list required by the rubric; preserve
+  diff filters and disclose truncation.
 
-Implement in section order: packaging/discovery first, shared inputs/callers
-next, the two narrow helper extensions and review handoffs, then README and
-targeted tests. Only the read-only package-discovery probe above has been run;
-installed-session and rebase compatibility remain to be demonstrated. Record
-exact tested CLI versions (inspection baseline: Codex 0.154.0, Claude Code
-2.1.270), installation method, and remaining limitations.
+Both Codex preparation paths must validate commit/base references and check
+required Git/evidence-command exit statuses before truncation and rendering.
+A failed collection is an error, not an empty diff to approve. A successfully
+collected but empty filtered diff is valid evidence, not automatic approval.
+Do not rely on the exit status of `head`, rendering, or the final command to
+prove collection succeeded. Keep these checks scoped to the Codex preparation
+paths; do not change Claude's existing failure policy.
 
-Use disposable fixtures under `.work/claude-codex-compatibility/` and a small
-shell regression test under `test/`; do not port the multi-repository harness.
+The Codex parent must receive an explicit `APPROVE: <reason>` or
+`REJECT: <reason>` from the reviewer. Investigate rejection before proceeding;
+missing/malformed verdicts or infrastructure failure do not authorize
+continuation. Successful prompt preparation is not approval. On resume, repeat
+review if a decision for the reviewed SHA/scope is unavailable. Keep evidence
+as data, not instructions; do not reuse approval for subsequent changes.
+Do not add an `INDEPENDENT_REVIEW` marker, review state machine, or CLI
+provider-dispatch framework. Existing Claude fail-open behavior is not
+redesigned here; Codex must not inherit those infrastructure-as-approval paths.
 
-1. **Discovery:** install the full package locally; prove shared frontmatter
-   loads, Claude still discovers its hooks, and Codex discovers **zero bundled
-   hooks** with the explicit override. From an unrelated target repo, execute
-   two separate calls resolving the same installed root with no Claude home
-   search. Repeat after package refresh in a new session.
-2. **Inputs/execution:** check missing/invalid version, tools flag propagation,
-   quoted paths, module cwd, native waiting, Step 1 outcomes, normal resume,
-   version mismatch, and completed-state routing. Exercise an inline step
-   without Claude tool names and sequential cross-runtime handoff.
-3. **Gates/advancement:** use actual orchestrator/report helpers in a temporary
-   Git repo for pending, cached non-PASS, stale reports/evidence, fresh inline
-   reports, and force-advance. Verify one advancement owner and preserved
-   prior-step reports. Do not call SKIP a pass or DONE a clean bill of health.
-4. **Helpers/reviews:** use a stub `go` to check ordinary depfix versus sync-only
-   behavior, with/without vendor. Stub `claude` to verify the default review
-   path and prove prompt-only mode never calls it, even when it is installed.
-   Check preparation failures, both distinct prompt scopes, and explicit
-   Codex verdict handling; use an agent session for instruction-level checks.
-5. **End-to-end/regression:** run one representative rebase per runtime from
-   the same baseline in separate disposable clones, through Step 5, without
-   push/PR execution. Include Codex without subagents. Reuse the existing
-   Claude single-repo test and evidence-path assertion where applicable;
-   a mocked fixture is not proof that the whole rebase works.
+#### Hooks
 
-Scan shared instructions for leftover Claude root/tool dependencies and
-contradictory module commands, distinguishing Claude-only branches and quoted
-evidence from actionable instructions. Run `make lint` before commits and
-`make site-build` for documentation. Do not require the full matrix, new
-evaluation framework, hook port, migration fixes, provider abstraction,
-locking scheme, or force-advance policy changes for this compatibility work.
+Reuse `hooks/hooks.json` and the existing scripts. Document Codex hook trust
+and verify effective loading/execution in the supported runtime.
+Do not disable the hooks or assume they are Claude-only.
+
+Adapt `block-vendor-edit.sh` to recognize both Claude `file_path` input and
+Codex `apply_patch` input in `tool_input.command`, checking all affected
+paths, including move destinations. Preserve the session guard and existing
+block response. The
+[Codex hook input contract](https://learn.chatgpt.com/docs/hooks#pretooluse)
+defines the payload difference. Test other existing hooks against each
+runtime's actual inputs; change only demonstrated format incompatibilities,
+not their policies.
+
+### 4. Validate both agents without porting the eval framework
+
+Keep tests targeted at the changed interfaces:
+
+- Verify existing-package installation and invocation in a disposable target
+  repo outside the plugin checkout. Check two separate command calls resolve
+  the same plugin root without home-directory searches; cover argument
+  forwarding, missing/invalid arguments, quoted paths, and `--bump-tools`.
+  Verify a subdirectory-started session stops before `init`, even when a
+  command's workdir is overridden to the repo root; a root-started session
+  must retain hook activation during module-local commands.
+- Exercise ordinary inline fallback, long-running command completion, resume
+  (including version mismatch and completed state), cached non-PASS verdicts,
+  stale reports after a commit, and FORCE_ADVANCE handoff. Assert no duplicate
+  advancement or deletion of prior-step reports.
+- Test both review preparations, APPROVE/REJECT/missing-verdict outcomes,
+  and stopping when no independent reviewer is available.
+  Cover invalid commit/base references, failed evidence commands, and valid
+  empty filtered diffs; failed collection must never yield successful Codex
+  preparation or reach the reviewer as if evidence were complete.
+  Prove the Codex path never invokes Claude and the Claude path still does;
+  verify Step 5 retains its separate rubric.
+- Test hook payloads for both agents with active and inactive session guards.
+  Verify trusted-hook behavior in Codex, including vendor edits, module
+  commands, push/PR blocking, prior-step report deletion, and the Stop hook.
+  Use disposable fixtures; do not push or publish anything.
+- Scan the shared skill, all steps, and all gate prompts for remaining
+  Claude-only execution assumptions. Explicit Claude review branches and
+  compatible hook-root references are intentional exceptions, not scan failures.
+
+Run repository lint, shell syntax checks for changed scripts, and
+`make -C plugins/k8s-rebase assert-evidence-paths`. Run `make site-build`
+for documentation changes. Extend existing focused checks where practical;
+do not introduce a new evaluation framework.
+
+Before claiming end-to-end support, run one bounded representative rebase
+per agent, from the same starting revision in separate disposable checkouts.
+Use the installed skill, exercise all four gated steps and Step 5, include
+resume coverage, and retain reports and review outcomes. Verify Step 5 only
+prints push/PR commands and that existing Claude trailer expectations hold.
+Report force-advanced or blocked outcomes honestly, not as all-gates-passing.
+
+The full multi-repository Claude harness/matrix is not a prerequisite for
+this compatibility change. A metadata check or single passing gate is also
+not evidence that the complete workflow works.
+
+## Scope boundaries and existing limitations
+
+Do not change Kubernetes/OCP migration logic, fix patterns, gate criteria,
+force-advance policy, or commit attribution. Do not add package duplication,
+provider persistence/configuration, new monitoring, or another hook system.
+
+Preserve module-safety rules and their documented exceptions. There is an
+existing conflict: `rules.md` permits tidy/vendor after certain replace or
+dependency updates, while the module-operation hook blocks direct calls.
+Record that separately; do not silently erase exceptions, conceal commands
+in prose, or invent repair wrappers in this work. If it blocks a smoke run,
+report the blocker rather than relaxing policy to obtain a pass.
