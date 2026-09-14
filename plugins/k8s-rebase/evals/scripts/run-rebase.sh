@@ -188,6 +188,17 @@ else
   echo "PUSH_STATUS: NONE" > "$OUTPUT_DIR/push-attempt.log"
 fi
 
+# Extract all assistant text before deleting session-output.json.
+# step5 outputs "gh pr create" as assistant text (not a tool_use), so
+# the push-attempt.log check above won't capture it. Join all assistant
+# text blocks for the step5_pr_command_printed judge.
+jq -rs '[.[] | select(.type=="assistant")
+             | .message.content[]?
+             | select(.type=="text")
+             | .text] | join("\n")' \
+  "$OUTPUT_DIR/session-output.json" \
+  > "$OUTPUT_DIR/pr-command.txt" 2>/dev/null || true
+
 # Remove large files the harness would otherwise load into outputs["files"].
 rm -f "$OUTPUT_DIR/session-output.json" "$OUTPUT_DIR/session-stderr.log"
 

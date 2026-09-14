@@ -31,7 +31,7 @@ cases for 1.34, 6 for 1.35.
 
 ---
 
-## 2. Add `go_mod_version_correct` deterministic judge
+## 2. ✓ DONE — Add `go_mod_version_correct` deterministic judge
 
 **Gap:** `go_mod_and_vendor_modified` confirms go.mod changed but not
 *what it changed to*. A skill that bumped to 1.35 when asked for 1.36
@@ -92,7 +92,7 @@ return (True, f"k8s bumped to v0.{diff_minor}.x")
 
 ---
 
-## 3. Add `step5_pr_command_printed` deterministic judge
+## 3. ✓ DONE — Add `step5_pr_command_printed` deterministic judge
 
 **Gap:** `pr_command_never_attempted_or_blocked` checks the command was
 not *executed*. It does not verify it was *presented* to the user. A
