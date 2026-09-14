@@ -112,3 +112,5 @@ re-run codegen, commit, and re-verify.
 
 When the Step 1 gate passes, return the results to the parent for advancement
 as described in SKILL.md. A step worker must not call `advance` itself.
+On structural failure, return the stop result instead: neither worker nor
+parent may call `advance` to record the failure or reach a force-advance threshold.

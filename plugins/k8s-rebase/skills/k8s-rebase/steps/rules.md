@@ -86,9 +86,11 @@ stop condition (Step 1 structural failure stops). The parent alone calls
 `advance` and handles its retry/force-advance output as in SKILL.md. Workers
 return verdicts, unresolved issues, and attempts already used. Never call a
 gate passed until a fresh report says PASS or spend advances as status polls.
-If the fix budget is exhausted, the parent may retry a BLOCKED handoff to
-reach the existing force-advance threshold; do not add another fix loop,
-overwrite non-PASS findings, or retry after state has already advanced.
+For Steps 2–4 only, if the fix budget is exhausted, the parent may retry a
+BLOCKED handoff to reach the existing force-advance threshold. Step 1
+structural failures must not call `advance`, even to record the failure.
+Do not add another fix loop, overwrite non-PASS findings, or retry after
+state has already advanced.
 
 ## Never Add Test Skips
 

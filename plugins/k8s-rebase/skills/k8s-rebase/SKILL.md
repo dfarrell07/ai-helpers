@@ -94,10 +94,11 @@ the completed state's empty step filename is not a file to load.
    - Exit 0 → read the next step file and continue
    - Exit 1 → shared gate-fix loop in rules.md; keep its retry budget
      across worker/parent handoffs, not another nested fix loop. If that
-     budget is exhausted, report unresolved gates and submit the remaining
-     blocked advancement attempts to the existing force-advance policy,
+     budget is exhausted in Steps 2–4, report unresolved gates and submit
+     remaining blocked advancement attempts to the existing force-advance policy,
      without starting another fix cycle. These are deliberate retries,
-     not status polls; stop retrying as soon as state advances.
+     not status polls; stop retrying as soon as state advances. Step 1
+     structural failures stop; never submit them to force-advance.
    - Exit 2 with FORCE_ADVANCE in output → force-advance: read and report the
      WARNING output and .rebase-tmp/status/INCOMPLETE, then run `status` to
      find the new step or completion. State has already advanced.

@@ -100,8 +100,15 @@ module-safety policy and commit trailers unchanged.
 Focused offline checks: `python3 test/test_compatibility.py` (no models or
 builds). Installation and live enforcement of all five hooks were checked
 with Codex CLI 0.154.0 in a disposable repo, using invocation-only trust
-after inspecting the loaded hooks. End-to-end rebase qualification remains
-separate; do not infer it from package discovery or interface tests.
+after inspecting the loaded hooks.
+
+End-to-end qualification remains blocked. On 2026-09-14, bounded Codex
+0.154.0 and Claude 2.1.270 rebases of a pinned ovn-kubernetes-mcp checkout
+to 1.35.3 both failed in the unchanged Step 1 script: dependency resolution
+selected API modules at v0.36.2 alongside kubectl v0.35.3, then tidy failed
+on the missing `scheduling/v1alpha1` package. Steps 2–5 remain unqualified;
+interface checks are not proof of a complete rebase. Fixing dependency
+selection is separate from this compatibility change.
 
 ## Contents
 
