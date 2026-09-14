@@ -10,8 +10,8 @@ execution:
   mode: case
   # arguments: is used by claude-code runner type only; ignored for cli runners.
   # Args are passed explicitly via runner.command array below.
-  timeout: 43200        # 12h — covers all 6 cases; case-001 (ovn-kubernetes) may need more
-  max_budget_usd: 250.0 # observed $17-27/case; case-001 may be $40-60+; 6 cases * ~$40 avg
+  timeout: 86400        # 24h — covers all 16 cases sequentially; case-001/007/011 are heaviest
+  max_budget_usd: 650.0  # observed $17-27/case light, ~$40-60 heavy; 16 cases * ~$40 avg
   env:
     AI_HELPERS_DIR: "$PWD"  # harness sets cwd to the case workspace; $PWD resolves at runtime
 
@@ -64,6 +64,7 @@ outputs:
                                   (unfiltered; includes vendor/; used by go_mod_and_vendor_modified)
         known-good.patch        — git diff from_commit..known_good_sha (court_excludes applied)
         build-errors.txt        — compiler/vet errors from tool_result events
+        pr-command.txt          — all assistant text joined; used by step5_pr_command_printed
         gate-reports/*.report   — per-gate VERDICT: PASS|SKIP|FAIL|PENDING reports
 
 traces:
@@ -335,16 +336,155 @@ judges:
                base-branch verification for any hunk that could
                plausibly be pre-existing.
 
+  - name: go_mod_version_correct
+    description: >
+      Verifies the k8s minor version in diff.patch matches known-good.patch.
+      Uses k8s.io/api then k8s.io/client-go as anchors; skips (returns True)
+      when neither anchor is present to avoid false failures on unusual repos.
+    check: |
+      import json, re
+      all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
+      status_files = {k: v for k, v in all_f.items() if k.endswith("run-status.json")}
+      if not status_files:
+          return (True, "infra_error run excluded (no run-status.json)")
+      try:
+          status = json.loads(list(status_files.values())[0]).get("status")
+      except json.JSONDecodeError:
+          return (True, "infra_error run excluded (malformed run-status.json)")
+      if status != "completed":
+          return (True, f"infra_error run excluded from this check (status={status})")
+      diff_files = {k: v for k, v in all_f.items() if k.endswith("diff.patch")}
+      kg_files = {k: v for k, v in all_f.items() if k.endswith("known-good.patch")}
+      if not diff_files:
+          return (False, "No diff.patch found")
+      diff = list(diff_files.values())[0]
+      _anchors = ["k8s.io/api ", "k8s.io/client-go "]
+      diff_minor = None
+      for _anchor in _anchors:
+          _m = re.search(
+              r'^\+\s+' + re.escape(_anchor) + r'v0\.(\d+)\.', diff, re.MULTILINE)
+          if _m:
+              diff_minor = int(_m.group(1))
+              break
+      if diff_minor is None:
+          return (True, "No k8s.io/api or k8s.io/client-go anchor in diff.patch — skip")
+      kg_minor = None
+      if kg_files:
+          kg_text = list(kg_files.values())[0]
+          for _anchor in _anchors:
+              _m = re.search(
+                  r'^\+\s+' + re.escape(_anchor) + r'v0\.(\d+)\.', kg_text, re.MULTILINE)
+              if _m:
+                  kg_minor = int(_m.group(1))
+                  break
+      if kg_minor is not None and diff_minor != kg_minor:
+          return (False,
+                  f"k8s minor mismatch: diff=v0.{diff_minor}.x, known-good=v0.{kg_minor}.x")
+      if kg_minor is None:
+          _removed = re.search(
+              r'^-\s+k8s\.io/(?:api|client-go)\s+v0\.(\d+)\.', diff, re.MULTILINE)
+          if _removed and int(_removed.group(1)) >= diff_minor:
+              return (False,
+                      f"k8s minor not increased: was v0.{_removed.group(1)}.x,"
+                      f" now v0.{diff_minor}.x")
+      return (True, f"k8s bumped to v0.{diff_minor}.x")
+
+  - name: step5_pr_command_printed
+    description: >
+      Verifies the skill printed a "gh pr create --title ... --body ..." command
+      in assistant text (step5). Checks pr-command.txt extracted by run-rebase.sh
+      before session-output.json is deleted.
+    check: |
+      import json
+      all_f = {**outputs.get("files", {}), **outputs.get("modified_files", {})}
+      status_files = {k: v for k, v in all_f.items() if k.endswith("run-status.json")}
+      if not status_files:
+          return (True, "infra_error run excluded (no run-status.json)")
+      try:
+          status = json.loads(list(status_files.values())[0]).get("status")
+      except json.JSONDecodeError:
+          return (True, "infra_error run excluded (malformed run-status.json)")
+      if status != "completed":
+          return (True, f"infra_error run excluded from this check (status={status})")
+      pr_files = {k: v for k, v in all_f.items() if k.endswith("pr-command.txt")}
+      if not pr_files:
+          return (False, "No pr-command.txt found (run-rebase.sh extraction missing)")
+      content = list(pr_files.values())[0]
+      lines = content.splitlines()
+      cmd_idx = next((i for i, l in enumerate(lines) if "gh pr create" in l), None)
+      if cmd_idx is None:
+          return (False, "No 'gh pr create' found in assistant text")
+      title_window = lines[cmd_idx:cmd_idx + 4]
+      if not any("--title" in l for l in title_window):
+          return (False, "'--title' not found within 4 lines of 'gh pr create'")
+      body_window = lines[cmd_idx:cmd_idx + 5]
+      if not any("--body" in l for l in body_window):
+          return (False, "'--body' not found within 5 lines of 'gh pr create'")
+      return (True, "gh pr create command with --title and --body found")
+
+  - name: rebase_gap_analysis
+    description: >
+      Two-phase gap analysis: enumerates files MISSING from result vs known-good,
+      then files EXTRA in result vs known-good. Structurally different from
+      rebase_correctness (holistic) — forces explicit enumeration before scoring.
+    prompt: |
+      You are reviewing a Kubernetes dependency rebase for correctness gaps.
+      Work in two phases before scoring.
+
+      CONSTRAINT: You have no tool access. Work from diff evidence only.
+      Do not instruct yourself to verify at the base branch — you cannot.
+
+      If known-good.patch is empty, skip Phase 1 and score on Phase 2 only.
+      For large diffs, enumerate at most 20 files in Phase 1 — note if you
+      reached the cap, then sample representative hunks from each.
+
+      PHASE 1 — MISSING: List files changed in known-good.patch that have no
+      counterpart change in diff.patch (stop at 20 files). For each, state
+      whether its absence is acceptable (style difference, scope choice,
+      equivalent path) or suspicious (missing fix, dropped behavior, absent
+      error handling).
+
+      PHASE 2 — EXTRA: List every file changed in diff.patch that has no
+      counterpart change in known-good.patch. For each, state whether it is
+      justified (required by a build error, MVS version resolution, equivalent
+      API path) or suspicious (unexplained change, possible scope creep).
+
+      === diff.patch (agent result vs from_commit) ===
+      {% for path, content in outputs.files.items() if path.endswith('diff.patch') %}
+      {{ content }}
+      {% endfor %}
+
+      === known-good.patch (human reference vs from_commit) ===
+      {% for path, content in outputs.files.items() if path.endswith('known-good.patch') %}
+      {{ content }}
+      {% endfor %}
+
+      {{ annotations }}
+
+      Score 1: Unexplained MISSING items LIKELY to break compilation or runtime
+               based on diff evidence, or EXTRA items that introduce regressions.
+               Score 1 only when evidence is strongly indicative (e.g. removed
+               interface implementations) — compilation cannot be verified
+               without tooling.
+      Score 2: Suspicious gaps with weak justification.
+      Score 3: All gaps explained, but explanations are vague or unverifiable.
+      Score 4: All gaps explained with specific, plausible justification.
+      Score 5: No unexplained gaps; all differences are acceptable variance.
+
 thresholds:
   orchestrator_reports_done: {min_pass_rate: 1.0}
   all_gates_resolved: {min_pass_rate: 1.0}
   no_forced_advance: {min_pass_rate: 1.0}
   pr_command_never_attempted_or_blocked: {min_pass_rate: 1.0}
   go_mod_and_vendor_modified: {min_pass_rate: 1.0}
-  # Calibrated 2026-09-13: good diff scored 4/3, bad diff scored 1/1.
-  # Gap is 3 points on both judges; 2.5 sits in the middle.
-  # no_scope_creep good score is 3 not 4 because build-errors.txt contains
-  # skill prose (not real compiler output) so the judge can't cite specific
-  # errors for the lint.sh hunk — known limitation, not a skill regression.
+  go_mod_version_correct: {min_pass_rate: 1.0}
+  step5_pr_command_printed: {min_pass_rate: 1.0}
+  # Calibrated 2026-09-13 on case-002: good diff scored 4/3, bad diff scored 1/1.
+  # no_scope_creep scores 3 not 4 because build-errors.txt contains skill prose
+  # (not real compiler output) — judge can't cite specific errors for the lint.sh
+  # hunk. Known limitation, not a skill regression.
+  # rebase_gap_analysis threshold: not yet calibrated across all cases. 2.5 is
+  # a placeholder — run full suite before treating this as a hard gate.
   rebase_correctness: {min_mean: 2.5}
   no_scope_creep: {min_mean: 2.5}
+  rebase_gap_analysis: {min_mean: 2.5}

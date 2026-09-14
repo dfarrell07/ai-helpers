@@ -5,7 +5,7 @@ implementation priority.
 
 ---
 
-## 1. Expand to full repo×version matrix (16 total cases)
+## 1. ✓ DONE — Expand to full repo×version matrix (16 total cases)
 
 Current eval has 6 cases, all targeting k8s 1.36.2. The test configs
 already have every SHA needed for a full matrix:
