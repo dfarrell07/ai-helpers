@@ -142,6 +142,8 @@ custom-rules:
 # Use exclude: [] to disable all excludes including defaults
 exclude:
   - ".work/**"
+  # Agent worktrees are independent checkouts, not this repository's sources.
+  - "**/.claude/worktrees/**"
   - "**/__pycache__/**"
   - "node_modules/**"
   - "**/template/**"
