@@ -10,10 +10,21 @@ INPUT=$(cat)
 REPO_CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 [[ -f "$REPO_CWD/.rebase-tmp/.session-active" ]] || exit 0
 
-FILEPATH=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
-[[ -z "$FILEPATH" ]] && exit 0
+# Claude sends one file_path. Codex apply_patch sends the whole patch in
+# command; only patch headers name affected files (not added/context lines).
+# Include move destinations as well as sources, and inspect every file.
+# Codex strips control characters from patch paths; preserve ordinary spaces.
+PATHS=$(echo "$INPUT" | jq -r '.tool_input.file_path // empty' 2>/dev/null)
+if [[ -z "$PATHS" ]]; then
+  PATHS=$(echo "$INPUT" | jq -r '.tool_input.command // empty' | awk '
+    /^\*\*\* (Add|Update|Delete) File: / { sub(/^\*\*\* (Add|Update|Delete) File: /, ""); gsub(/[[:cntrl:]]/, ""); print }
+    /^\*\*\* Move to: / { sub(/^\*\*\* Move to: /, ""); gsub(/[[:cntrl:]]/, ""); print }
+  ')
+fi
 
-if [[ "$FILEPATH" == */vendor/* ]]; then
+while IFS= read -r filepath; do
+  [[ -n "$filepath" ]] || continue
+  if [[ "$filepath" == vendor/* || "$filepath" == */vendor/* ]]; then
   jq -n --arg reason "$(cat <<'MSG'
 BLOCKED: Direct edits to vendor/ files are forbidden during k8s-rebase.
 Vendor files are managed by go mod vendor inside the rebase scripts.
@@ -24,6 +35,7 @@ bump the dep version, and re-vendor.
 MSG
 )" '{"decision":"block","reason":$reason}'
   exit 0
-fi
+  fi
+done <<< "$PATHS"
 
 exit 0

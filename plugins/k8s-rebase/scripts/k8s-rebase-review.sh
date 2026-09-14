@@ -5,9 +5,10 @@
 # variables with pre-fetched evidence, invokes claude -p as a separate
 # process (fresh context), and parses the APPROVE/REJECT verdict.
 #
-# Usage: k8s-rebase-review.sh <commit-hash> <original-error...>
+# Usage: k8s-rebase-review.sh [--print-prompt] <commit-hash> <original-error...>
 #
 # Exit codes: 0 = APPROVE, 1 = REJECT (reason on stdout)
+# --print-prompt: 0 = prompt prepared (NOT approval), 1 = preparation error.
 
 set -uo pipefail
 
@@ -18,14 +19,28 @@ TEMPLATE="$SCRIPT_DIR/k8s-rebase-review-prompt.md"
 PATTERNS="$SCRIPT_DIR/../docs/k8s-rebase-patterns.md"
 [[ -f "$PATTERNS" ]] || PATTERNS="$REPO_ROOT/docs/k8s-rebase-patterns.md"
 
+PRINT_PROMPT=false
+if [[ "${1:-}" == --print-prompt ]]; then
+  PRINT_PROMPT=true
+  shift
+fi
+
 if [[ $# -lt 2 ]]; then
-  echo "Usage: $(basename "$0") <commit-hash> <original-error>"
+  echo "Usage: $(basename "$0") [--print-prompt] <commit-hash> <original-error>" >&2
   exit 1
 fi
 
 COMMIT="$1"
 shift
 ORIGINAL_ERROR="$*"
+
+if [[ "$PRINT_PROMPT" == true ]]; then
+  set -e
+  [[ -n "$ORIGINAL_ERROR" && -r "$TEMPLATE" ]] || { echo "ERROR: Missing error context or review template" >&2; exit 1; }
+  command -v envsubst >/dev/null || { echo "ERROR: envsubst is required to prepare review" >&2; exit 1; }
+  COMMIT=$(git -C "$REPO_ROOT" rev-parse --verify --end-of-options "${COMMIT}^{commit}") \
+    || { echo "ERROR: Invalid review commit" >&2; exit 1; }
+fi
 
 # Pre-fetch evidence deterministically
 MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null \
@@ -37,15 +52,31 @@ if ! git -C "$REPO_ROOT" rev-parse "$MERGE_BASE" &>/dev/null; then
   MERGE_BASE="$COMMIT~1"
 fi
 
+if [[ "$PRINT_PROMPT" == true ]]; then
+  MERGE_BASE=$(git -C "$REPO_ROOT" rev-parse --verify --end-of-options "${MERGE_BASE}^{commit}") \
+    || { echo "ERROR: Cannot resolve review base" >&2; exit 1; }
+fi
+
 # Verify COMMIT is on the rebase branch (not a master/main commit)
-if git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" "$MERGE_BASE" 2>/dev/null; then
+_ANCESTOR_RC=0
+git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" "$MERGE_BASE" 2>/dev/null || _ANCESTOR_RC=$?
+if [[ "$_ANCESTOR_RC" -eq 0 ]]; then
   echo "ERROR: commit $COMMIT is on master/main, not the rebase branch" >&2
   echo "ERROR: Current branch: $(git -C "$REPO_ROOT" branch --show-current), HEAD: $(git -C "$REPO_ROOT" rev-parse --short HEAD)" >&2
   exit 1
 fi
+if [[ "$PRINT_PROMPT" == true && "$_ANCESTOR_RC" -ne 1 ]]; then
+  echo "ERROR: Cannot verify review commit ancestry" >&2
+  exit 1
+fi
+_DIFF_RC=0
 _DIFF_FULL=$(git -C "$REPO_ROOT" show "$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" "go.mod" \
   ':!*/vendor/*' ':!*generated*' ':!*clientset*' ':!*informer*' ':!*lister*' \
-  ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*')
+  ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*') || _DIFF_RC=$?
+if [[ "$PRINT_PROMPT" == true && "$_DIFF_RC" -ne 0 ]]; then
+  echo "ERROR: Cannot collect review diff" >&2
+  exit 1
+fi
 DIFF=$(head -2000 <<< "$_DIFF_FULL")
 _DIFF_LINES=$(wc -l <<< "$_DIFF_FULL")
 export DIFF
@@ -81,7 +112,14 @@ if [[ ! -f "$TEMPLATE" ]]; then
   exit 0
 fi
 
-PROMPT=$(envsubst '$DIFF $ORIGINAL_ERROR $K8S_CHANGELOG $PATTERN_HINT $TRUNCATION_WARNING' < "$TEMPLATE")
+_RENDER_RC=0
+PROMPT=$(envsubst '$DIFF $ORIGINAL_ERROR $K8S_CHANGELOG $PATTERN_HINT $TRUNCATION_WARNING' < "$TEMPLATE") || _RENDER_RC=$?
+
+if [[ "$PRINT_PROMPT" == true ]]; then
+  [[ "$_RENDER_RC" -eq 0 && -n "$PROMPT" ]] || { echo "ERROR: Cannot render review prompt" >&2; exit 1; }
+  printf 'REVIEW COMMIT: %s\n\n%s\n' "$COMMIT" "$PROMPT"
+  exit 0
+fi
 
 # Invoke review agent
 if ! command -v claude &>/dev/null; then
