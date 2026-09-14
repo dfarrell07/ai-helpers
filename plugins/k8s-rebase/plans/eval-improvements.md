@@ -7,27 +7,8 @@ implementation priority.
 
 ## 1. ✓ DONE — Expand to full repo×version matrix (16 total cases)
 
-Current eval has 6 cases, all targeting k8s 1.36.2. The test configs
-already have every SHA needed for a full matrix:
-
-| Version | Repos | Cases |
-|---------|-------|-------|
-| 1.34.1 | ovn-org/ovn-kubernetes, openshift/multus-cni, openshift/cloud-network-config-controller, openshift/cluster-network-operator | 4 |
-| 1.35.3 | all 6 repos | 6 |
-| 1.36.2 | all 6 repos (current) | 6 |
-
-Source configs: `test/config-1.34.yaml`, `test/config-1.35.yaml`,
-`test/config-1.36.yaml`. All `from_commit` and `known_good` SHAs are
-already pinned and verified — the 1.34/1.35 rebases have been run
-many times.
-
-**Work:** Create `cases/pattern-retention/case-007` through
-`case-016`, one per repo/version pair not already covered. Follow the
-existing `input.yaml` + `annotations.yaml` pattern from case-001–006.
-
-The 1.34 config has no `ovn-kubernetes-mcp` or `ingress-node-firewall`
-entries (those repos didn't exist or weren't rebased at 1.34) — 4
-cases for 1.34, 6 for 1.35.
+16 cases across 1.34.1 (4 repos), 1.35.3 (6 repos), 1.36.2 (6 repos).
+See `evals/README.md` for the case table. SHAs from `test/config-1.3{4,5,6}.yaml`.
 
 ---
 
@@ -84,7 +65,6 @@ return (True, f"k8s bumped to v0.{diff_minor}.x")
 **Design notes:**
 - Returns True (skip) when neither anchor found — avoids false failures
   on unusual repos.
-- Flattened imperative style — no inner `def`, matches existing judges.
 - Brand-new dependency (no removal line): direction check skipped,
   returns True — `go_mod_and_vendor_modified` already confirms changes.
 
