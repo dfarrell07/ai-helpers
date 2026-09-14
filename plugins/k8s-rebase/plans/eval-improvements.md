@@ -233,6 +233,56 @@ case tests LLM judges only.
 
 ---
 
+## 8. ✓ DONE — Fix orchestrator rejecting SKIP verdict as non-passing
+
+**Gap (found 2026-09-14 via case-012 live run):** `report_has_pass` in
+`k8s-rebase-orchestrator.sh` only matched `VERDICT: PASS`. Any gate that
+correctly wrote `VERDICT: SKIP` (e.g. `step2-type-conversions` when the
+rebase has no type conversion changes) was treated as FAILING. The
+orchestrator blocked 3 times then force-advanced, wasting turns and
+writing `FORCE_ADVANCE` to `force-advance.log`.
+
+**Fix:** `report_has_pass` now matches `VERDICT: (PASS|SKIP)`.
+
+**Evidence:** `eval judge all_gates_resolved` already accepted SKIP (correct);
+only the orchestrator gate check was wrong. Single-line fix, no test needed
+beyond the next eval run.
+
+---
+
+## 9. ✓ DONE — Fix openshift/client-go @latest pulling wrong k8s minor
+
+**Gap (found 2026-09-14 via case-012 live run):** When the Go proxy
+returned empty for `release-4.22.info` (or the branch info was unavailable),
+`k8s-rebase.sh` fell back to bare `go get github.com/openshift/client-go`
+(`@latest`). The `@latest` version at run time was
+`v0.0.0-20260810202730-ddca5e0b7146`, which requires `k8s.io/api v0.36.2`.
+MVS upgraded `k8s.io/api` to v0.36.2, conflicting with `k8s.io/kubectl
+v0.35.3` (which imports `scheduling/v1alpha1` removed in k8s 1.36). The
+`go mod tidy` retry loop only handles `unknown revision v0.0.0` errors, so
+the conflict was fatal and the rebase script exited 1.
+
+**Root cause:** The `@latest` fallback for k8s-version-locked packages
+(`client-go`, `api`) is unsafe. These packages use timestamp pseudoversions
+across multiple OCP branches; `@latest` picks the newest commit regardless
+of which k8s minor it targets.
+
+**Fix (two parts):**
+
+1. `_validate_openshift_k8s_minor` — after resolving the branch version,
+   fetches the package's `go.mod` from the proxy and checks that its
+   `k8s.io/api` requirement matches the target minor. Rejects versions that
+   pin a different minor; falls back to the `@latest`-skip path below.
+
+2. In `derive_go_gets` Rule 2b: when `_os_ver` is empty for `client-go` or
+   `api` (either proxy lookup failed or the validated version was rejected),
+   skip the `go get` entirely rather than emitting bare `go get`. `go mod
+   tidy` retains the existing version, which is safer than @latest pulling
+   the wrong k8s minor. `library-go` and `build-machinery-go` do not pin
+   k8s directly and continue to use bare `go get` when unresolved.
+
+---
+
 ## Latent risks
 
 **LLM judge `outputs.files` only:** `prompt:` judges iterate
@@ -246,8 +296,8 @@ nothing. Fix if empty diffs appear: use
 work with cli runner dataset mode. Use `run-rebase.sh` directly for single
 case runs (see `evals/README.md`).
 
-**`openshift/api` bare go get on 1.35 targets:** Repos with `openshift/api`
-as a dependency (e.g., ovn-kubernetes-mcp) may have `go get openshift/api`
-resolve to latest, which requires k8s v0.36, breaking 1.35 rebases. Observed
-intermittently — depends on module cache state. Investigate pinning
-`openshift/api` to a 1.35-compatible SHA in the rebase script.
+**Turn budget on gate-heavy repos:** case-012 hit the 200-turn limit during
+step 3/4 gate reviews. Root cause: the force-advance bug (now fixed in item 8)
+consumed extra turns. Verify the 200-turn budget is sufficient after the fix.
+If light cases still hit the limit, investigate whether step 3/4 gate counts
+can be reduced or batched more efficiently.

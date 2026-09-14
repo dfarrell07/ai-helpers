@@ -342,6 +342,89 @@ else
   info "Controller-runtime: v0.${CR_MINOR}.x not on proxy — may not be released yet. Will use latest available."
 fi
 
+# Discover openshift/* versions — use release-4.X/5.X branches to avoid pulling
+# k8s deps beyond the target minor. @latest sorts by timestamp and may pick a commit
+# from a newer OCP branch, causing go mod tidy to fail with removed API packages.
+# k8s 1.N maps to OCP 4.(N-13) for N<=35 and 5.(N-36) for N>=36.
+if [[ "$K8S_MINOR" -le 35 ]]; then
+  OCP_MINOR=$((K8S_MINOR - 13))
+  OPENSHIFT_BRANCH="release-4.${OCP_MINOR}"
+else
+  OCP_MINOR=$((K8S_MINOR - 36))
+  OPENSHIFT_BRANCH="release-5.${OCP_MINOR}"
+fi
+
+_resolve_openshift_version() {
+  local pkg="$1"
+  local _info
+  _info=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
+    "https://proxy.golang.org/${pkg}/@v/${OPENSHIFT_BRANCH}.info" 2>/dev/null || true)
+  if [[ -n "$_info" ]]; then
+    echo "$_info" | grep -o '"Version":"[^"]*"' | head -1 | sed 's/"Version":"//;s/"//'
+  fi
+}
+
+# Cross-validate that a resolved openshift/* version's k8s.io/api requirement
+# matches the target minor. Returns the version on success, empty on mismatch.
+# Used only for client-go and api, which pin k8s directly.
+_validate_openshift_k8s_minor() {
+  local pkg="$1" ver="$2"
+  [[ -z "$ver" ]] && return
+  local _mod
+  _mod=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
+    "https://proxy.golang.org/${pkg}/@v/${ver}.mod" 2>/dev/null || true)
+  if [[ -z "$_mod" ]]; then
+    # proxy unavailable — accept the version with a warning
+    info "WARNING: could not fetch go.mod for ${pkg}@${ver} — accepting without k8s minor validation"
+    echo "$ver"
+    return
+  fi
+  local _api_ver
+  _api_ver=$(echo "$_mod" | grep -E '^\s+k8s\.io/api ' | awk '{print $2}' | head -1)
+  if [[ -z "$_api_ver" ]]; then
+    # no k8s.io/api dep — package doesn't pin k8s, accept it
+    echo "$ver"
+    return
+  fi
+  local _resolved_minor
+  _resolved_minor=$(echo "$_api_ver" | grep -oE 'v0\.([0-9]+)\.' | grep -oE '[0-9]+\.' | tr -d '.' | head -1)
+  if [[ -n "$_resolved_minor" ]] && [[ "$_resolved_minor" -ne "$K8S_MINOR" ]]; then
+    info "WARNING: ${pkg}@${ver} requires k8s.io/api v0.${_resolved_minor}.x but target is v0.${K8S_MINOR}.x — skipping this version"
+    return
+  fi
+  echo "$ver"
+}
+
+OPENSHIFT_CLIENT_GO_VERSION=$(_resolve_openshift_version "github.com/openshift/client-go")
+OPENSHIFT_CLIENT_GO_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/client-go" "$OPENSHIFT_CLIENT_GO_VERSION")
+OPENSHIFT_API_VERSION=$(_resolve_openshift_version "github.com/openshift/api")
+OPENSHIFT_API_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/api" "$OPENSHIFT_API_VERSION")
+OPENSHIFT_LIBRARY_GO_VERSION=$(_resolve_openshift_version "github.com/openshift/library-go")
+OPENSHIFT_BUILD_MACHINERY_VERSION=$(_resolve_openshift_version "github.com/openshift/build-machinery-go")
+
+[[ -n "$OPENSHIFT_CLIENT_GO_VERSION" ]] && \
+  info "openshift/client-go: $OPENSHIFT_CLIENT_GO_VERSION (branch $OPENSHIFT_BRANCH)" || \
+  info "openshift/client-go: branch $OPENSHIFT_BRANCH not on proxy — will use @latest"
+[[ -n "$OPENSHIFT_API_VERSION" ]] && \
+  info "openshift/api: $OPENSHIFT_API_VERSION (branch $OPENSHIFT_BRANCH)" || \
+  info "openshift/api: branch $OPENSHIFT_BRANCH not on proxy — will use @latest"
+
+# Discover the kube-openapi version required by k8s.io/apimachinery at the target version.
+# kube-openapi uses date-based pseudo-versions and @latest may jump to a version that
+# requires structured-merge-diff/v7 while apimachinery v0.35.x still requires v6.
+# Pinning kube-openapi to what apimachinery requires prevents vendor inconsistencies.
+KUBE_OPENAPI_VERSION=""
+_apimachinery_mod=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
+  "https://proxy.golang.org/k8s.io/apimachinery/@v/${API_VERSION}.mod" 2>/dev/null || true)
+if [[ -n "$_apimachinery_mod" ]]; then
+  KUBE_OPENAPI_VERSION=$(echo "$_apimachinery_mod" | grep "k8s.io/kube-openapi " | awk '{print $2}' | head -1)
+fi
+if [[ -n "$KUBE_OPENAPI_VERSION" ]]; then
+  info "kube-openapi: $KUBE_OPENAPI_VERSION (from apimachinery $API_VERSION)"
+else
+  info "kube-openapi: could not resolve from apimachinery — will use @latest"
+fi
+
 # Ensure default branch is current with remote
 CURRENT_BRANCH=$(git branch --show-current 2>/dev/null || true)
 DEFAULT_BRANCH=$(git symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||' || true)
@@ -410,6 +493,40 @@ derive_go_gets() {
     fi
   fi
 
+  # Rule 2b: openshift/* packages
+  # Versions are resolved earlier via the release-4.X/5.X branch to avoid @latest
+  # picking a commit from a newer OCP branch that pulls k8s.io/api beyond the target.
+  # client-go and api pin k8s directly: if no safe version was resolved, skip the
+  # go get entirely (go mod tidy keeps the existing version) rather than falling back
+  # to @latest which may pull an incompatible k8s minor via MVS.
+  # library-go and build-machinery-go do not pin k8s directly, so @latest is safe.
+  local _os_pkg _os_ver
+  for _os_pkg in "github.com/openshift/client-go" "github.com/openshift/api" \
+                  "github.com/openshift/library-go" "github.com/openshift/build-machinery-go"; do
+    if grep -q "$_os_pkg" "$gomod"; then
+      case "$_os_pkg" in
+        *client-go)        _os_ver="$OPENSHIFT_CLIENT_GO_VERSION" ;;
+        */api)             _os_ver="$OPENSHIFT_API_VERSION" ;;
+        *library-go)       _os_ver="$OPENSHIFT_LIBRARY_GO_VERSION" ;;
+        *build-machinery*) _os_ver="$OPENSHIFT_BUILD_MACHINERY_VERSION" ;;
+        *)                 _os_ver="" ;;
+      esac
+      if [[ -n "$_os_ver" ]]; then
+        cmds+=("go get ${_os_pkg}@${_os_ver}")
+      else
+        case "$_os_pkg" in
+          *client-go|*/api)
+            # k8s-version-locked: @latest risks pulling wrong k8s minor; skip.
+            info "WARNING: no safe ${OPENSHIFT_BRANCH} version found for ${_os_pkg} — skipping go get (existing version kept by go mod tidy)"
+            ;;
+          *)
+            cmds+=("go get ${_os_pkg}")
+            ;;
+        esac
+      fi
+    fi
+  done
+
   # Rule 3: everything else in k8s ecosystem
   # Filter out go.mod keywords (module, replace, require, exclude) and
   # the module's own name to avoid self-referencing go gets.
@@ -425,6 +542,19 @@ derive_go_gets() {
     esac
     [[ "$pkg" == *controller-runtime* ]] && continue
     [[ "$pkg" == *network-policy-api* ]] && continue
+    [[ "$pkg" == "github.com/openshift/client-go" ]] && continue
+    [[ "$pkg" == "github.com/openshift/api" ]] && continue
+    [[ "$pkg" == "github.com/openshift/library-go" ]] && continue
+    [[ "$pkg" == "github.com/openshift/build-machinery-go" ]] && continue
+    # Pin kube-openapi to the version required by apimachinery to avoid v6/v7 conflicts.
+    if [[ "$pkg" == "k8s.io/kube-openapi" ]]; then
+      if [[ -n "$KUBE_OPENAPI_VERSION" ]]; then
+        cmds+=("go get k8s.io/kube-openapi@${KUBE_OPENAPI_VERSION}")
+      else
+        cmds+=("go get k8s.io/kube-openapi")
+      fi
+      continue
+    fi
     if [[ "$pkg" =~ ^k8s\.io/ ]] && \
        ! [[ "$pkg" =~ kube-openapi|k8s\.io/utils|k8s\.io/klog|k8s\.io/gengo ]] && \
        [[ "$ver" =~ ^v0\.[1-9][0-9]*\.[0-9]+$ ]]; then

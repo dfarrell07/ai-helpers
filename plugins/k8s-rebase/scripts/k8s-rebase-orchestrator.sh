@@ -94,7 +94,7 @@ report_path() {
 
 report_has_pass() {
   local rpt="$1"
-  [[ -f "$rpt" ]] && grep -q '^VERDICT: PASS' "$rpt"
+  [[ -f "$rpt" ]] && grep -qE '^VERDICT: (PASS|SKIP)' "$rpt"
 }
 
 report_has_verdict() {
