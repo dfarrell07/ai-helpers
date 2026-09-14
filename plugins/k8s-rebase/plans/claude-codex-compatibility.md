@@ -52,13 +52,18 @@ repo using invocation-only trust after inspecting the loaded definitions.
 The generic skill validator rejects existing Claude metadata that the actual
 Codex loader accepts; it is intentionally retained.
 
+Real Codex native reviewers and Claude's existing nested reviewers returned
+matching reject/approve decisions on selected-commit and full-range fixtures.
+Codex used separate fresh contexts; no new reviewer configuration was needed.
+
 End-to-end qualification remains blocked. Bounded Codex 0.154.0 and Claude
 2.1.270 probes of pinned ovn-kubernetes-mcp to 1.35.3 both failed in the unchanged
 Step 1 dependency selection: API modules drifted to v0.36.2 while kubectl stayed
 at v0.35.3. Commit `258dfab8` clarified the existing Step 1 stop rule after
-Claude incorrectly attempted advancement; fresh-session recovery checks then
-stopped correctly in both agents without changing files or retry counts.
-Steps 2–5 and their real independent reviews remain unqualified.
+Claude incorrectly attempted advancement; fresh-session recovery checks,
+including both cross-agent handoff directions, then stopped correctly without
+changing files or retry counts. Complete Steps 2–5 runs remain unqualified;
+the review-boundary fixtures do not establish an end-to-end pass.
 
 Repository lint still reports 77 unrelated errors under
 `.claude/worktrees/purrfect-beaming-haven/`. The pre-existing root-vendor
