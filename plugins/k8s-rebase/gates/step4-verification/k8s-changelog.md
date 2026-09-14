@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 Determine K8S_MINOR from go.mod — check api, apimachinery, or client-go
 (use whichever is a direct dependency):
   `K8S_MINOR=$(grep -E 'k8s\.io/(api|apimachinery|client-go) ' go.mod | grep -v '=>' | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')`

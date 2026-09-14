@@ -60,9 +60,11 @@ bash "$ORCH" init "$REPO_ROOT" "$VERSION"
    file path, and the gate directory path.
 
 4. When the step agent completes, run:
+
    ```bash
    bash "$ORCH" advance "$REPO_ROOT"
    ```
+
    - Exit 0 → read the next step file and continue
    - Exit 1 → gate-fix loop (fix, commit, re-run gates, retry advance)
    - Exit 2 with FORCE_ADVANCE in output → force-advance: read and report the
@@ -80,6 +82,7 @@ bash "$ORCH" init "$REPO_ROOT" "$VERSION"
 ## Recovery
 
 If resuming a crashed or interrupted session (Bootstrap has not been run yet):
+
 ```bash
 PLUGIN_ROOT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/scripts" -type d 2>/dev/null | head -1 | sed 's|/scripts$||')
 [[ -n "$PLUGIN_ROOT" ]] || { echo "ERROR: k8s-rebase plugin not found under $HOME — is it installed?"; exit 1; }
@@ -87,6 +90,7 @@ ORCH="$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh"
 REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "$ORCH" status "$REPO_ROOT"
 ```
+
 This shows the current step and gate progress. Set `VERSION` from the rebase branch
 name (`git branch --show-current | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'`), then
 continue from Execute Current Step.

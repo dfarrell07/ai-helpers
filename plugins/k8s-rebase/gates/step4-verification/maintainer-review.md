@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 Review the branch as a maintainer would. Does every change serve the k8s
 version bump, or are there unrelated cleanups, style changes, or logic alterations?
 

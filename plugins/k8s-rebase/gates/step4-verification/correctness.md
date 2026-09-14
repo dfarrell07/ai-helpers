@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 This gate owns mechanical correctness checks that other gates
 do NOT cover. Do not duplicate semantic review (logical-consistency
 handles that). Focus on these unique checks:

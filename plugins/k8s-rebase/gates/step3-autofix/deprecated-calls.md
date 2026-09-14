@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 Detect deprecated function and type usage via static analysis.
 This catches deprecated-but-compiling code that go build and
 go vet miss — the most common cause of gate failures.

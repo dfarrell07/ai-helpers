@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 # Rebase Rules
 
 Read this file at the start of every step.

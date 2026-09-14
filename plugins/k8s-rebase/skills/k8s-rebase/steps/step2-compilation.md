@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 PROGRESS: 40% complete
 
 **Read `rules.md` first** — it defines scope, module safety, commit discipline, and gate-fix sequencing that apply to every step.

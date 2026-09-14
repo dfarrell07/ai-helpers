@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 EVIDENCE (read before judging): if `.rebase-tmp/gates/step4-go-version-check.evidence` exists,
 run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 

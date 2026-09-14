@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 Identify all non-k8s dependencies whose minor version changed in this rebase:
   `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- go.mod | grep '^[+-]' | grep -v 'k8s.io\|sigs.k8s.io\|^[+-][+-]' | sort`
 For any dep where the minor version changed (e.g., v1.2→v1.4, not v1.2.3→v1.2.5),

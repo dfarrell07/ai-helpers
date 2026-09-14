@@ -1,3 +1,4 @@
+<!-- markdownlint-disable MD013 -->
 Step 3 already verified autofix patterns (deprecated APIs, CRD
 validation, feature gates, e2e infra). Do NOT re-check those —
 focus on CI-specific gaps that only matter at ship time:
