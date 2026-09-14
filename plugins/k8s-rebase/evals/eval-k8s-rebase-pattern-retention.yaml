@@ -8,9 +8,10 @@ skill: k8s-rebase:k8s-rebase
 
 execution:
   mode: case
-  arguments: "{repo_url} {from_commit} {version} {model} {known_good_url} {known_good_ref}"
+  # arguments: is used by claude-code runner type only; ignored for cli runners.
+  # Args are passed explicitly via runner.command array below.
   timeout: 43200        # 12h — covers all 6 cases; case-001 (ovn-kubernetes) may need more
-  max_budget_usd: 150.0
+  max_budget_usd: 250.0 # observed $17-27/case; case-001 may be $40-60+; 6 cases * ~$40 avg
   env:
     AI_HELPERS_DIR: "$PWD"  # harness sets cwd to the case workspace; $PWD resolves at runtime
 

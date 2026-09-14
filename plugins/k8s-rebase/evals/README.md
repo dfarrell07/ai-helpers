@@ -22,6 +22,7 @@ claude plugin eval --case case-001 plugins/k8s-rebase  # heaviest; save for last
 
 **Case weight order** (lightest → heaviest, by vendor tree size and API
 surface):
+
 - **Fastest:** case-002, case-003, case-004 — small repos, narrow API
 - **Medium:** case-005, case-006 — larger repos
 - **Slowest:** case-001 (ovn-org/ovn-kubernetes) — sub-module layout,
@@ -55,4 +56,3 @@ cases (1.34.x, 1.35.x) are tracked in `plans/eval-improvements.md`
 | case-004 | openshift/ingress-node-firewall | 1.36.2 | Light — narrow API surface |
 | case-005 | openshift/cloud-network-config-controller | 1.36.2 | Medium |
 | case-006 | openshift/cluster-network-operator | 1.36.2 | Medium-heavy — heavy openshift/api usage |
-</content>

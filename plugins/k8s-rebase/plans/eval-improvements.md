@@ -373,6 +373,21 @@ Track as backlog; do not block the current PR on it.
 
 ---
 
+## Latent risks (not blocking, monitor)
+
+**LLM judge `outputs.files` vs `outputs.modified_files`:** The two
+`prompt:` judges (`rebase_correctness`, `no_scope_creep`) iterate only
+`outputs.files.items()` in their Jinja2 templates. The five `check:`
+judges defensively merge both with `{**outputs.get("files", {}),
+**outputs.get("modified_files", {})}`. If the harness places output
+files in `modified_files` (instead of or in addition to `files`), the
+LLM judges would receive empty diffs and score silently on nothing.
+Low-probability under the current harness but a silent failure mode.
+Fix when/if a case produces unexpected empty diffs: change `prompt:`
+templates to `{% for path, content in (outputs.files | combine(outputs.modified_files | default({}))).items() %}`.
+
+---
+
 ## Items considered and rejected
 
 **Gate count check** — redundant. If a gate report is missing,
