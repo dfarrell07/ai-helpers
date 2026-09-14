@@ -35,12 +35,13 @@ echo $! > "$REPO_ROOT/.rebase-tmp/step1.pid"
 echo "Launched PID $(cat "$REPO_ROOT/.rebase-tmp/step1.pid")"
 ```
 
-**Check** (use `run_in_background: true` on Bash, NOT sleep loops):
-Do NOT use `sleep` commands to poll for completion. Each sleep +
-check cycle wastes context budget. Instead, run the check command
-with `run_in_background: true` and `timeout: 300000` — the system
-notifies you when it finishes. If you must check manually, run
-the check ONCE, not in a loop.
+**Check** — run this ONCE with `run_in_background: true` and
+`timeout: 1800000` (30 min). Do NOT poll in a loop; do NOT use
+`sleep`. One background wait — you will be notified when it
+finishes. Repeated short polls burn turns and trigger the stop
+hook unnecessarily. If the first check shows "Still running",
+issue ONE more background wait with `timeout: 1800000` and wait
+for the notification before proceeding.
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)

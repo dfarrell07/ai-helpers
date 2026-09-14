@@ -19,6 +19,18 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 # Activation guard: only enforce during active rebase sessions
 [[ -f "$CWD/.rebase-tmp/.session-active" ]] || exit 0
 
+# Allow exit while step1 background script is still running.
+# Once step1-result.txt exists the script has finished — fall through to normal
+# gate checks. Without this, stop-hook blocks burn turns during go mod vendor.
+STEP1_RESULT="$CWD/.rebase-tmp/step1-result.txt"
+STEP1_PID_FILE="$CWD/.rebase-tmp/step1.pid"
+if [[ ! -f "$STEP1_RESULT" && -f "$STEP1_PID_FILE" ]]; then
+  STEP1_PID=$(cat "$STEP1_PID_FILE" 2>/dev/null)
+  if [[ -n "$STEP1_PID" ]] && kill -0 "$STEP1_PID" 2>/dev/null; then
+    exit 0
+  fi
+fi
+
 # Delegate to orchestrator
 STATUS=$(bash "$ORCH" status "$CWD" 2>/dev/null) || true
 
