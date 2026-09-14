@@ -279,39 +279,22 @@ failure mode this addresses.
 
 ## P2 — Eval suite operational improvements
 
-### 5. Run one case at a time on a laptop (don't crash the machine)
+### 5. Document case weight order and full-suite runtime expectations
 
-**Problem:** Running `claude plugin eval` with all 6 cases on a
-developer laptop risks OOM / thermal throttle. Each case spawns a
-full Claude session (up to 200 turns) plus `go mod vendor` on a
-potentially large tree. Case-001 (ovn-org/ovn-kubernetes) has a ~350MB
-vendor tree and a sub-module layout; it alone can saturate RAM while
-cloning and vendoring.
+**Context:** The harness defaults to `-j 1` (sequential, never
+parallel) — running `claude plugin eval plugins/k8s-rebase` is safe;
+all 6 cases run one after another, not simultaneously. No structural
+change needed to prevent parallel execution.
 
-**Harness defaults:** The harness already runs `-j 1` (sequential,
-one case at a time). The issue is not parallelism within a run — it's
-running all 6 cases in a single multi-hour invocation that leaves
-the machine unattended and can accumulate memory pressure.
+**Remaining gap:** Developers don't know which cases are heavy vs.
+light, or that the full suite can take 12+ hours. Case-001
+(ovn-org/ovn-kubernetes) has a ~350MB vendor tree and sub-module layout
+and is the most expensive by far.
 
-**Fix:** Document the `--case` flag pattern in `evals/README.md` so
-developers know to run individual cases rather than the full suite:
-
-```bash
-# Run one case at a time — each is a full Claude session
-claude plugin eval --case case-002 plugins/k8s-rebase
-claude plugin eval --case case-003 plugins/k8s-rebase
-# etc.
-```
-
-**Case ordering:** Lighter cases (002, 003, 004 — small repos, narrow
-k8s API surface) should run before heavier ones (006 cluster-network-
-operator, 001 ovn-kubernetes). The existing numbering already reflects
-this roughly — document it explicitly so developers know case-001 is the
-expensive one to save for last.
-
-**Full-suite runs:** Reserve for CI (where resource limits are
-pre-configured) or a dedicated workstation with ≥ 32GB RAM. Document
-this constraint in the eval README.
+**Done (f744c0c6):** `evals/README.md` now documents:
+- Case weight order (002/003/004 fast, 005/006 medium, 001 heaviest)
+- `--case` flag for running a single case during development
+- Full-suite runtime expectation and RAM guidance
 
 ---
 
