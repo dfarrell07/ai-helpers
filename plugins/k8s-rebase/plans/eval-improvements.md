@@ -136,7 +136,7 @@ return (True, "gh pr create command with --title and --body found")
 
 ---
 
-## 4. Add `rebase_gap_analysis` LLM judge
+## 4. ✓ DONE — Add `rebase_gap_analysis` LLM judge
 
 **Gap:** `rebase_correctness` is holistic — a judge that hallucinates
 "looks fine" passes with no adversarial check. A gap-analysis judge
