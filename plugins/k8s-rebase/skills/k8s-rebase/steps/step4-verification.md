@@ -45,11 +45,11 @@ until `--no-test` exits 0.
 
 ## 4b. Verification wave
 
-Launch ALL gates immediately — do NOT wait for 4a to finish.
-Gates run as parallel subagents while the main agent iterates
-on lint fixes. In your first response, launch gate subagents
-AND run the first lint command together. First, discover test
-packages:
+Read-only tests and gates may run in parallel, but not against concurrent
+code mutations. Commit 4a's fixes before collecting their final evidence;
+if HEAD changes, refresh every current-step review as in rules.md.
+Use native workers when available, or run the same checks inline.
+First, discover test packages:
 
 ```bash
 TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
@@ -66,19 +66,20 @@ done
 
 **Test agents:** Use ONLY packages from discovery above (filters
 out root_pkgs that need CAP_NET_ADMIN). Use the validate script's
-`--test-only` flag. For large packages (>20k test lines), use nohup.
+`--test-only` flag. For large packages (>20k test lines), use native waiting.
 Split by test line count, cap ~30k per agent. Check `free -h` first.
 
 **Gate agents:** Run the orchestrator's gates command first:
 
 ```bash
-bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$(pwd)" 4
+bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 4
 ```
 
-Launch subagents only for PENDING gates. Gate files are at
+Follow rules.md: delegate PENDING gates when available, or review inline.
+Inspect cached non-PASS verdicts too. Gate files are at
 `${PLUGIN_ROOT}/gates/step4-verification/`. Each subagent gets: repo path
 plus module safety rule plus "Read `<gate-file>` and follow instructions."
-Let the subagent Read the gate file — do NOT cat it.
+Include the absolute plugin root and version in reviewer context.
 
 15 gates: cleanliness, correctness, version-completeness,
 maintainer-review, ci-prediction, build-vet-recheck, skill-improvement,
@@ -89,13 +90,9 @@ commit-messages.
 ## Gate-fix loop
 
 If ANY gate reports FAIL: triage (check base branch), fix + commit,
-re-validate with `--no-test`, re-run the orchestrator gates command
-to refresh evidence, then delete ONLY that specific gate's report
-(`rm .rebase-tmp/gates/step4-<gate>.report`) and re-run that gate.
-**NEVER delete step2-*.report or step3-*.report from step 4** —
-the orchestrator is forward-only. Prior-step reports cannot be
-regenerated. The orchestrator's own HEAD-stamp check handles
-staleness; you do not need to delete cross-step reports manually.
+re-validate with `--no-test`, then follow rules.md to refresh evidence and
+complete all stale/pending current-step reviews, including old PASS reports.
+Preserve prior-step reports and newly regenerated companion reports.
 Step 4 override: always re-run `validate.sh --no-test` between fix
 and gate re-run (catches regressions from fix commits).
 
@@ -108,12 +105,26 @@ If test agents report failures:
 
 ## 4c. Independent review
 
+Claude: run the existing nested reviewer:
+
 ```bash
-REVIEW=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-review.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-[ -n "$REVIEW" ] && bash "$REVIEW" "$(git rev-parse HEAD)" "k8s rebase"
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" "$(git rev-parse HEAD)" "k8s rebase"
 ```
 
-APPROVE → proceed. REJECT → investigate the stated reason.
+Codex: prepare the same selected-commit evidence without invoking Claude:
+
+```bash
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" --print-prompt "$(git rev-parse HEAD)" "k8s rebase"
+```
+
+Only after successful preparation, give the populated prompt, repo path,
+and reviewed SHA to a fresh-context read-only native reviewer. Supply evidence,
+not the parent's reasoning history. Require an explicit `APPROVE: <reason>`
+or `REJECT: <reason>`; failed preparation, missing/malformed verdicts, or a
+missing independent reviewer stop this path. Parent self-review is not a
+substitute. Investigate rejection before continuing. On resume, repeat if
+the decision for this SHA/scope is unavailable. Approval covers only that
+scope, not subsequent changes; Step 5 reviews the full final branch.
 
 ## 4d. Non-k8s Go module updates (--bump-tools only)
 
@@ -126,4 +137,5 @@ If `--bump-tools` was not passed, skip this section.
 
 ---
 
-Run `bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" advance "$(pwd)"`
+If 4d changes HEAD, re-validate and refresh all current-step gates before
+returning results. Only the parent advances, using the protocol in SKILL.md.

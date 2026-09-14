@@ -7,8 +7,8 @@ PROGRESS: 40% complete
 
 ## Validate
 
-Use `timeout: 600000` (10 min) for validation commands. If lint
-auto-containerizes, it may take 12+ min — use nohup like Step 1.
+Allow at least 10 minutes for validation; containerized lint can take
+longer. Use native process waiting as described in rules.md and Step 1.
 
 ```bash
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick
@@ -35,12 +35,12 @@ Expect multiple validate cycles — vet can only check files that
 compile, so fixing build errors reveals new vet errors.
 
 **Parallel investigation:** If summary.txt has multiple error
-categories, launch read-only Explore subagents to investigate
+categories, use read-only native workers to investigate
 each in parallel. Give each subagent the errors and ask it to
 read the relevant source AND test files and vendored types, then
 report what changed and what the fix should be. Investigation
 subagents must NOT edit files — apply fixes yourself based on
-their findings.
+their findings. If workers are unavailable, investigate inline.
 
 Create separate `--signoff` commits per fix category. After fixing
 type definitions, re-run `make generate` (if available) and commit
@@ -118,7 +118,7 @@ Do NOT vendor-patch; verify-deps CI will reject it.
 
 **Import deduplication:** If a file imports the same package
 twice (bare + aliased), remove the duplicate and update
-references. **Do NOT use `replace_all`** unless the old and new
+references. **Do NOT use unrestricted bulk replacement** unless the old and new
 strings are completely disjoint. It matches already-modified
 lines and doubles up:
 
@@ -134,7 +134,7 @@ ALL fields. Check test files for the same type changes — test
 files often use the same types as source files.
 
 **Type conversion review:** After each commit that converts
-between struct types, launch a subagent: "Read the diff of this
+between struct types, use a read-only worker (or check inline): "Read the diff of this
 commit. For each struct conversion, read the FULL struct
 definition in vendor and list ALL fields. Compare against the
 conversion code. Report any fields present in the struct but
@@ -149,10 +149,10 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 2
 ```
 
-Then launch one subagent per PENDING gate only. All PENDING gates in a single
-parallel wave. Each subagent prompt: repo path + module safety rule (from
-rules.md) + "Read `<GATE_DIR>/<filename>` and follow its instructions."
-Do NOT cat the gate files yourself.
+Follow the gate procedure in rules.md. Delegate PENDING gates in a parallel
+wave when workers are available, or review inline. Supply the absolute repo
+and plugin paths, version, module safety rule, and the gate prompt path.
+Inspect cached non-PASS verdicts as well as pending work.
 
 ```bash
 GATE_DIR="$PLUGIN_ROOT/gates/step2-compilation"
@@ -191,12 +191,9 @@ gate with verdict FAIL):
    to confirm build+vet still pass. Fix commits can introduce
    new regressions — catch them here before re-running the gate.
 
-4. **Re-run** (mandatory — never skip): Re-run the orchestrator
-   gates command to refresh evidence, then delete ONLY the
-   specific failing gate's report file
-   (`rm .rebase-tmp/gates/step2-<gate>.report`) and re-run that
-   gate. Stale FAIL reports cause auto-record to mark the run
-   as failed even if the fix worked.
+4. **Re-run** (mandatory): Follow rules.md to refresh evidence and complete
+   all stale/pending current-step reviews, including old PASS reports.
+   Preserve prior-step reports and newly regenerated companion reports.
 
 Repeat up to 3 times per gate. If it still fails after 3
 attempts, report remaining issues and proceed.
@@ -205,15 +202,11 @@ attempts, report remaining issues and proceed.
 compilation errors.** Gates check more than compilation — they
 verify version consistency, diff scope, and type conversions.
 The orchestrator run above identifies which gates need subagents;
-RESOLVED gates are already done. When all 6 have verdicts, proceed
-to Step 3 immediately. Do NOT stop — Steps 3-5 are mandatory even
+RESOLVED gates have verdicts, not necessarily PASS. Return results for the
+parent's advancement decision. Do NOT declare completion — Steps 3-5 are mandatory even
 with zero compilation errors.
 
 ## Advance
 
-When all 6 gates pass, run the orchestrator to advance:
-
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" advance "$REPO_ROOT"
-```
+Return gate outcomes, remaining issues, and retry counts to the parent.
+Only the parent advances, using the protocol in SKILL.md.

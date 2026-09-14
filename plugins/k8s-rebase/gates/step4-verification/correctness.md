@@ -10,7 +10,7 @@ handles that). Focus on these unique checks:
    fixes, import reordering, codegen output, feature gates,
    deprecated API migrations, dead code removal from stricter
    linters, and any pattern documented in the patterns doc
-   (`find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/*" 2>/dev/null | head -1`). Flag anything else as suspect.
+   (`test -f "$PLUGIN_ROOT/docs/k8s-rebase-patterns.md" && cat "$PLUGIN_ROOT/docs/k8s-rebase-patterns.md"`). Flag anything else as suspect.
 
 2. Format strings: Scan ALL non-vendor Go files changed in the
    diff for wrong format verbs (e.g., %d for a string, %s for
@@ -95,14 +95,16 @@ permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. For each wrong format verb, report the correct one. Cite file:line for any issues.
 
 After your analysis, write your report using the helper script.
-The repo path is the first line of your prompt:
+Bind PLUGIN_ROOT to the verified absolute plugin path from your reviewer
+context in this shell call. Confirm HEAD still matches the code reviewed;
+then write through the helper (stop if it is unavailable):
 
 ```bash
-REPO="<the repo path from the first line of your prompt>"
-bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
+REPO="<the absolute repo path from reviewer context>"
+bash "${PLUGIN_ROOT}/scripts/write-gate-report.sh" \
   "$REPO" step4-correctness PASS 0 "your one-line summary" \
   "detail line 1" "detail line 2"
 ```
 
-Use PASS, FAIL, or SKIP as the verdict. Replace the summary and
-details with your actual findings.
+Choose the verdict from this gate's criteria. Replace the example verdict,
+issue count, summary, and details with your actual findings.

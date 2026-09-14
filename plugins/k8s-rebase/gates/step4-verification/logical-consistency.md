@@ -81,14 +81,16 @@ Do not write anywhere else. For each issue, state the specific
 fix needed. Cite file:line.
 
 After your analysis, write your report using the helper script.
-The repo path is the first line of your prompt:
+Bind PLUGIN_ROOT to the verified absolute plugin path from your reviewer
+context in this shell call. Confirm HEAD still matches the code reviewed;
+then write through the helper (stop if it is unavailable):
 
 ```bash
-REPO="<the repo path from the first line of your prompt>"
-bash "$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)" \
+REPO="<the absolute repo path from reviewer context>"
+bash "${PLUGIN_ROOT}/scripts/write-gate-report.sh" \
   "$REPO" step4-logical-consistency PASS 0 "your one-line summary" \
   "detail line 1" "detail line 2"
 ```
 
-Use PASS, FAIL, or SKIP as the verdict. Replace the summary and
-details with your actual findings.
+Choose the verdict from this gate's criteria. Replace the example verdict,
+issue count, summary, and details with your actual findings.

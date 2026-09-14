@@ -6,8 +6,8 @@ Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 ## Run the autofix script
 
-Use `timeout: 600000` -- the autofix auto-containerizes and
-runs go vet internally.
+Allow at least 10 minutes and wait for actual completion as in rules.md;
+the autofix auto-containerizes and runs go vet internally.
 
 The autofix outputs RESULT: PASS or RESULT: FAIL.
 FAIL is normal -- it means some checks found issues the autofix
@@ -63,10 +63,10 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 3
 ```
 
-Then launch one subagent per PENDING gate only. All PENDING gates in one
-parallel wave. Each subagent prompt: repo path + module safety rule (from
-rules.md) + "Read `<GATE_DIR>/<filename>` and follow its instructions."
-Do NOT Read the gate files yourself -- let the subagent Read the gate file.
+Follow the gate procedure in rules.md. Delegate PENDING gates in a parallel
+wave when workers are available, or review inline. Supply the absolute repo
+and plugin paths, version, module safety rule, and gate prompt path.
+Inspect cached non-PASS verdicts as well as pending work.
 
 Gate directory: `${PLUGIN_ROOT}/gates/step3-autofix`
 
@@ -106,16 +106,11 @@ gate with verdict FAIL):
    to confirm build+vet still pass. Fix commits can introduce
    new regressions -- catch them here before re-running the gate.
 
-4. **Re-run** (mandatory -- never skip this step): Re-run the
-   orchestrator gates command to refresh evidence, then delete
-   ONLY the specific failing gate's report file
-   (`rm .rebase-tmp/gates/step3-<gate>.report`) and re-run that
-   gate. **NEVER delete step2-*.report files from step 3** —
-   the orchestrator is forward-only and cannot regenerate step-2
-   reports. If HEAD moves (new commit), step-2 reports remain
-   valid; the orchestrator's own HEAD-stamp check handles
-   staleness automatically. Deleting prior-step reports is
-   permanent data loss.
+4. **Re-run** (mandatory): Follow rules.md to refresh evidence and complete
+   all stale/pending current-step reviews, including old PASS reports.
+   Preserve prior-step reports: the orchestrator is forward-only and
+   cannot regenerate them from this step. Never delete a newly refreshed
+   companion report.
 
 Repeat up to 3 times per gate. If it still fails after 3
 attempts, report remaining issues and proceed. This loop
@@ -132,7 +127,5 @@ When all step3 gates pass (or remaining issues are reported after
 3 attempts), proceed immediately. Do NOT stop or declare the
 rebase "done" -- Steps 4 and 5 are mandatory.
 
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" advance "$REPO_ROOT"
-```
+Return gate outcomes, remaining issues, and retry counts to the parent.
+Only the parent advances, using the protocol in SKILL.md.

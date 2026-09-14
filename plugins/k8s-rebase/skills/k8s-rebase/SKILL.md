@@ -13,7 +13,10 @@ you add unique value — the quality gates that prevent CI rejection. A
 rebase that skips them will fail CI. **The rebase is NOT finished until
 you present a `gh pr create` command to the user in Step 5.**
 
-**Arguments:** $ARGUMENTS
+**Arguments:** one Kubernetes version (`1.Y` or `1.Y.Z`) and optional
+`--bump-tools`, taken directly from the user's rebase request. Reject missing,
+extra, or invalid arguments before initialization. Normalize `1.Y` to `1.Y.0`.
+Selecting this skill to ask a question does not authorize starting a rebase.
 
 **NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go mod edit`,
 `go generate`, or `go run`.** These corrupt k8s version pins via MVS.
@@ -27,70 +30,100 @@ Run from your working branch (typically main or master). Step 1 creates a
 rebase branch automatically — do not create or switch branches manually
 before running bootstrap.
 
+Resolve the **actual loaded** `skills/k8s-rebase/SKILL.md` path (including
+runtime aliases and symlinks). Its directory's `../..` is `PLUGIN_ROOT`.
+Verify `scripts/k8s-rebase-orchestrator.sh` and the skill directory exist
+there. Never search home directories for an arbitrary installed copy.
+
+Resolve `REPO_ROOT` independently with `git rev-parse --show-toplevel` in the
+target checkout. Before `init`, compare its physical path with the runtime's
+**session cwd**, not a shell command's overridden workdir. If they differ,
+stop and ask for a session started at the checkout root: hooks locate the
+session guard there. A shell `cd` cannot repair the hook session cwd.
+Use separate clones for concurrent rebases; worktrees share Git hooks.
+
+Carry these values in task context: absolute `PLUGIN_ROOT`, `REPO_ROOT`,
+normalized `VERSION`, and `BUMP_TOOLS` (`true` only when requested).
+Bind needed variables explicitly in **each shell call** and use Bash for the
+examples below. Exports and cwd changes do not persist between tool calls.
+Do not depend on `$ARGUMENTS`, manifest-injected variables, or hook-root
+variables in ordinary shell commands. Pass quoted argv; never use `eval`.
+
+Before initializing, inspect `.rebase-tmp/state.json` if present. Its version
+must agree with the request (normalizing `X.Y` to `X.Y.0` for comparison);
+`init` does not validate a changed version on resume. If it differs or the
+state is malformed, stop and report the conflict. Recover `BUMP_TOOLS` from
+the previous invocation, or ask if unknown; it is not persisted in state.
+If state is missing but interrupted artifacts remain in `.rebase-tmp/`,
+stop for recovery rather than fresh-initializing over them.
+
+With those checks satisfied, run:
+
 ```bash
-PLUGIN_ROOT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/scripts" -type d 2>/dev/null | head -1 | sed 's|/scripts$||')
-[[ -n "$PLUGIN_ROOT" ]] || { echo "ERROR: k8s-rebase plugin not found under $HOME — is it installed?"; exit 1; }
-ORCH="$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh"
-REPO_ROOT=$(git rev-parse --show-toplevel)
-VERSION=$(echo "$ARGUMENTS" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
-[[ -n "$VERSION" ]] || { echo "ERROR: no version found in arguments — usage: /k8s-rebase 1.36.0"; exit 1; }
-echo "PLUGIN_ROOT=$PLUGIN_ROOT"
-echo "REPO_ROOT=$REPO_ROOT"
-echo "VERSION=$VERSION"
-bash "$ORCH" init "$REPO_ROOT" "$VERSION"
-# Exit nonzero means initialization failed — stop and report the error.
-# Output includes ORCHESTRATOR_INIT: FRESH or RESUME, and always
-# ends with STEP: N, STEP_NAME, STEP_FILE, GATES_DIR, GATES_EXPECTED.
-# Both FRESH and RESUME continue at Execute Current Step — STEP: N
-# is the authoritative starting point in both cases.
+# Bind PLUGIN_ROOT, REPO_ROOT, VERSION from the verified context in this call.
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" init "$REPO_ROOT" "$VERSION"
 ```
+
+Nonzero exit means initialization failed: stop. Both FRESH and RESUME
+continue at the returned `STEP`. If `STEP` is 5, go directly to Step 5;
+the completed state's empty step filename is not a file to load.
 
 ## Execute Current Step
 
 1. Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` —
    these rules apply to ALL steps. Internalize them.
 
-2. The orchestrator printed the current step name and file. Read
-   that step file using the Read tool:
-   `${PLUGIN_ROOT}/skills/k8s-rebase/steps/<step-file>.md`
+2. Read `${PLUGIN_ROOT}/skills/k8s-rebase/${STEP_FILE}` using the
+   orchestrator's returned `STEP_FILE` verbatim: it already includes
+   `steps/` and `.md`.
 
-3. Launch an Agent with the step file instructions + rules.md +
-   repo context. Include in the Agent prompt: repo path, k8s
-   version, PLUGIN_ROOT path, "Read rules.md first", the step
-   file path, and the gate directory path.
+3. Use a native step worker when available; otherwise execute ordinary
+   step work inline. Supply the absolute repo/plugin paths, version,
+   tools flag, rules, step file, and gate directory. Workers return results;
+   **only the parent calls `advance`**. Independent reviews in Steps 4–5
+   require a fresh-context reviewer, not parent self-review.
 
-4. When the step agent completes, run:
+4. When step work completes, run the following unless it reports a stop
+   condition (Step 1 structural failure/no-op, a missing independent review,
+   or another genuine blocker). Those conditions must not be advanced:
 
    ```bash
-   bash "$ORCH" advance "$REPO_ROOT"
+   bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" advance "$REPO_ROOT"
    ```
 
    - Exit 0 → read the next step file and continue
-   - Exit 1 → gate-fix loop (fix, commit, re-run gates, retry advance)
+   - Exit 1 → shared gate-fix loop in rules.md; keep its retry budget
+     across worker/parent handoffs, not another nested fix loop. If that
+     budget is exhausted, report unresolved gates and submit the remaining
+     blocked advancement attempts to the existing force-advance policy,
+     without starting another fix cycle. These are deliberate retries,
+     not status polls; stop retrying as soon as state advances.
    - Exit 2 with FORCE_ADVANCE in output → force-advance: read and report the
-     WARNING output and .rebase-tmp/status/INCOMPLETE, then re-run advance to
-     get the new step and continue
+     WARNING output and .rebase-tmp/status/INCOMPLETE, then run `status` to
+     find the new step or completion. State has already advanced.
    - Exit 2 with ERROR in output → hard error: stop and include the error in your response
 
-5. Repeat until the orchestrator prints `DONE: all steps complete`.
+5. Repeat until `advance` prints `DONE: all steps complete` or `status`
+   reports `DONE: true`. Never use `advance` as a status poll or call it
+   again after a successful/forced advancement for the same handoff.
 
 6. After DONE: read and execute
    `${PLUGIN_ROOT}/skills/k8s-rebase/steps/step5-pr.md`
    (PR command generation + cleanup). Step 5 has no gates — it runs
-   after the orchestrator confirms all gated steps are complete.
+   after the orchestrator confirms all gated steps are complete. DONE
+   does not certify every gate passed. Preserve unresolved findings in
+   the final summary; INCOMPLETE records only the latest force-advance.
 
 ## Recovery
 
-If resuming a crashed or interrupted session (Bootstrap has not been run yet):
+If resuming a crashed or interrupted session, bind the same verified paths
+and inspect status before any mutation:
 
 ```bash
-PLUGIN_ROOT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -path "*/k8s-rebase/scripts" -type d 2>/dev/null | head -1 | sed 's|/scripts$||')
-[[ -n "$PLUGIN_ROOT" ]] || { echo "ERROR: k8s-rebase plugin not found under $HOME — is it installed?"; exit 1; }
-ORCH="$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh"
-REPO_ROOT=$(git rev-parse --show-toplevel)
-bash "$ORCH" status "$REPO_ROOT"
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" status "$REPO_ROOT"
 ```
 
-This shows the current step and gate progress. Set `VERSION` from the rebase branch
-name (`git branch --show-current | grep -oE '[0-9]+\.[0-9]+\.[0-9]+'`), then
-continue from Execute Current Step.
+Follow the Bootstrap resume checks, then continue from the recorded step.
+Status reconstruction without state.json is advisory; it does not restore
+state or authorize fresh initialization. Do not infer a completed process
+from a result marker alone; use Step 1's recovery checks.

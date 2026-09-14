@@ -10,14 +10,13 @@ new timestamped branch. Do not reuse branches from prior runs.
 **Recovery:** If a run fails mid-way through Steps 2-4, check
 `git log` on the rebase branch. The mechanical rebase commits
 from Step 1 are always safe. To resume: start a new session on
-the same branch and continue from the failed step. To restart:
-`git checkout master && git branch -D <branch>` and re-run.
+the same branch and use the SKILL.md recovery checks. Do not delete the
+interrupted branch or evidence as part of automatic recovery.
 
-**Important:** This script takes 5-30 minutes (longer if it
-auto-containerizes). Launch it as a detached process so it is
-not killed by Bash tool timeouts:
-
-**Launch** (returns immediately):
+**Important:** This script takes 5–30 minutes (longer if it
+auto-containerizes). Use the runtime's supported long-running command
+session and wait for its completion. Bind PLUGIN_ROOT, REPO_ROOT,
+VERSION, and BUMP_TOOLS from the verified invocation in this call:
 
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
@@ -26,38 +25,31 @@ if ! [[ -f "$REPO_ROOT/go.mod" || -f "$REPO_ROOT/go-controller/go.mod" ]]; then
   echo "ERROR: $REPO_ROOT has no go.mod — are you in a workspace root instead of the target repo?"
   exit 1
 fi
-# PLUGIN_ROOT is passed by the boot loader in the prompt.
 SCRIPT="$PLUGIN_ROOT/scripts/k8s-rebase.sh"
-[ -z "$ARGUMENTS" ] && echo "ERROR: Version argument required (e.g., 1.36.0)" && exit 1
+ARGS=("$VERSION")
+[[ "$BUMP_TOOLS" == true ]] && ARGS=(--bump-tools "${ARGS[@]}")
 mkdir -p "$REPO_ROOT/.rebase-tmp"
-nohup bash "$SCRIPT" $ARGUMENTS > "$REPO_ROOT/.rebase-tmp/step1.log" 2>&1 &
+cd "$REPO_ROOT" || exit 1
+bash "$SCRIPT" "${ARGS[@]}" > "$REPO_ROOT/.rebase-tmp/step1.log" 2>&1 &
 echo $! > "$REPO_ROOT/.rebase-tmp/step1.pid"
-echo "Launched PID $(cat "$REPO_ROOT/.rebase-tmp/step1.pid")"
+wait "$!"
 ```
 
-**Check** — run this ONCE with `run_in_background: true` and
-`timeout: 1800000` (30 min). Do NOT poll in a loop; do NOT use
-`sleep`. One background wait — you will be notified when it
-finishes. Repeated short polls burn turns and trigger the stop
-hook unnecessarily. If the first check shows "Still running",
-issue ONE more background wait with `timeout: 1800000` and wait
-for the notification before proceeding.
+The shell waits for the child, preserving its exit status; keep that shell
+session alive with native waiting, rather than imposing a short timeout.
+If the runtime cannot retain a command session, use a detached `nohup`
+launch with the same quoted argv, log, and PID paths; check the process
+until it actually exits. A "still running" check is not a notification.
+On recovery, inspect the recorded process and log before any new launch.
 
-```bash
-REPO_ROOT=$(git rev-parse --show-toplevel)
-if kill -0 $(cat "$REPO_ROOT/.rebase-tmp/step1.pid" 2>/dev/null) 2>/dev/null; then
-  echo "Still running..."; tail -3 "$REPO_ROOT/.rebase-tmp/step1.log"
-else
-  echo "Done"; cat "$REPO_ROOT/.rebase-tmp/step1-result.txt" 2>/dev/null; tail -10 "$REPO_ROOT/.rebase-tmp/step1.log"
-fi
-```
-
-When the check shows "Done", look at the last lines of the log.
-**Exit 0** = already at target version, nothing to do — stop.
+After process completion, look at the last lines of the log.
+**Exit 0** = already at target version, nothing to do — stop without
+advancement or a PR command. The script removes its temporary state and
+restores the pre-push hook on this path.
 **Exit 2** = success — proceed to validation. **Exit 1** = error.
-Check `cat .rebase-tmp/step1-result.txt` — if it says "EXIT 2",
-the script completed all phases. **If the file is missing**, the
-script crashed mid-run. Check `tail -20 .rebase-tmp/step1.log`
+The `step1-result.txt` marker is written before optional tooling finishes;
+even `EXIT 2` there is not proof of process completion. If the result is
+missing or the exit failed, inspect `tail -20 .rebase-tmp/step1.log`
 for the error. If `git log` shows the dep bump and codegen
 commits, those are safe. Manually verify version references
 (Dockerfiles, CI configs, lint version) since the script may
@@ -89,11 +81,11 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 1
 ```
 
-Launch subagents only for PENDING gates. The subagent prompt must
+Follow the gate procedure in rules.md, including cached non-PASS verdicts.
+Delegate PENDING gates when available, or review inline. The reviewer context must
 include: repo path, module safety rule (from rules.md), and
 "Read `$PLUGIN_ROOT/gates/step1-rebase/<filename>` and follow
-its instructions." Do NOT cat the gate file yourself — let the
-subagent read it.
+its instructions." Include the absolute plugin root and version too.
 
 Gate file:
 
@@ -105,12 +97,9 @@ Gate file:
    changes, stale replace directives, wrong dep versions),
    fix the issue and commit.
 
-2. **Re-run** (mandatory — never skip): Re-run the orchestrator
-   gates command to refresh evidence, then delete the old gate
-   report (`rm .rebase-tmp/gates/step1-rebase-completeness.report`)
-   and re-launch the gate subagent with a fresh prompt. Stale
-   FAIL reports cause auto-record to mark the run as failed even
-   if the fix worked.
+2. **Re-run** (mandatory): Follow rules.md to refresh companion evidence
+   and complete stale/pending reviews after the commit. Do not delete the
+   newly refreshed report.
 Repeat up to 3 times. If it still fails, stop and report the
 remaining issues — step 1 failures are structural and proceeding
 would cause cascading problems in later steps.
@@ -121,8 +110,5 @@ re-run codegen, commit, and re-verify.
 
 ## Advance
 
-When step 1 gate passes, run orchestrator.sh advance:
-
-```bash
-bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" advance "$REPO_ROOT"
-```
+When the Step 1 gate passes, return the results to the parent for advancement
+as described in SKILL.md. A step worker must not call `advance` itself.

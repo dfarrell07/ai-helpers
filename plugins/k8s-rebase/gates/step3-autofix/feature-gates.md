@@ -27,7 +27,7 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 Run this applicability check first:
 
 ```bash
-REPO="<the repo path from the first line of your prompt>"
+REPO="<the absolute repo path from reviewer context>"
 FG_REFS=$(grep -rn 'KUBE_FEATURE_\|SetFromMap' "$REPO" --include='*.sh' --include='Makefile*' --include='*.go' 2>/dev/null | grep -v vendor/ | head -20)
 if [ -z "$FG_REFS" ]; then
   echo "No feature gate references found"
@@ -106,20 +106,16 @@ permitted write is your gate report file under .rebase-tmp/gates/.
 Do not write anywhere else. Cite file:line for any issues. For each missing gate, report the gate name and the fix needed.
 
 After your analysis, write your report using the helper script.
-The repo path is the first line of your prompt:
+Bind PLUGIN_ROOT to the verified absolute plugin path from your reviewer
+context in this shell call. Confirm HEAD still matches the code reviewed;
+then write through the helper (stop if it is unavailable):
 
 ```bash
-REPO="<the repo path from the first line of your prompt>"
-SCRIPT=$(find "$HOME/.claude" "$HOME" -maxdepth 7 -name "write-gate-report.sh" -path "*/k8s-rebase/scripts/*" 2>/dev/null | head -1)
-if [ -n "$SCRIPT" ]; then
-  bash "$SCRIPT" "$REPO" step3-feature-gates PASS 0 "your one-line summary" \
-    "detail line 1" "detail line 2"
-else
-  mkdir -p "$REPO/.rebase-tmp/gates"
-  printf 'VERDICT: PASS\nISSUES: 0\nSUMMARY: your one-line summary\nDETAILS:\ndetail line 1\ndetail line 2\n' \
-    > "$REPO/.rebase-tmp/gates/step3-feature-gates.report"
-fi
+REPO="<the absolute repo path from reviewer context>"
+SCRIPT="$PLUGIN_ROOT/scripts/write-gate-report.sh"
+bash "$SCRIPT" "$REPO" step3-feature-gates PASS 0 "your one-line summary" \
+  "detail line 1" "detail line 2"
 ```
 
-Use PASS, FAIL, or SKIP as the verdict. Replace the summary and
-details with your actual findings.
+Choose the verdict from this gate's criteria. Replace the example verdict,
+issue count, summary, and details with your actual findings.

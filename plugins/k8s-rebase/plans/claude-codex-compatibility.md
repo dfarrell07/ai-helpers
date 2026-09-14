@@ -35,6 +35,28 @@ versions actually tested; do not infer support for every Codex version or client
 
 ## Implementation
 
+### Implementation status — 2026-09-14
+
+Shared instructions, gate handoffs, review preparation, and vendor-patch input
+support are implemented. Step 5's existing rubric was extracted into the small
+`scripts/k8s-rebase-pr-review.sh` helper; no orchestrator, migration, manifest,
+gate-policy, or attribution changes were needed. This plugin is new relative
+to `origin/main`, so its initial version remains 0.0.1.
+
+Verified: 15 offline tests (`python3 test/test_compatibility.py`), all eight
+evidence/template pairs, shell syntax/ShellCheck, and strict site build.
+Independent fixture testing covered invocation, resume, process completion,
+inline gates, and exhausted-budget/force-advance handoffs. Codex CLI 0.154.0
+installed the existing package and exercised all five hooks in a disposable
+repo using invocation-only trust after inspecting the loaded definitions.
+The generic skill validator rejects existing Claude metadata that the actual
+Codex loader accepts; it is intentionally retained.
+
+Full representative rebases remain a separate acceptance check. Repository
+lint still reports 77 unrelated errors under
+`.claude/worktrees/purrfect-beaming-haven/`. The pre-existing root-vendor
+exclusion defect in the Step 4 review diff is also outside this change.
+
 ### 1. Reuse the existing package and document invocation
 
 Use the repository's existing installation route:
@@ -143,7 +165,10 @@ Correct the shared caller instructions to match the existing orchestrator:
 5. Give the parent sole ownership of `advance`; step workers return results.
    Preserve existing retry/force-advance policy and step-specific stop conditions.
    Do not multiply retries through nested parent/worker fix loops.
-   Never call `advance` as a status poll or twice for the same handoff.
+   Never call `advance` as a status poll or repeat it after a handoff has
+   already advanced state. If the fix budget is exhausted while advancement
+   is BLOCKED, explicitly submit the remaining blocked attempts to the
+   existing force-advance policy without adding another fix loop.
    On FORCE_ADVANCE, report the warning and INCOMPLETE record, then use
    `status` to find the current step or completion. An ERROR is a hard stop.
    DONE does not mean all gates passed: retain unresolved findings in the

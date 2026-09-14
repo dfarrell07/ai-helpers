@@ -25,46 +25,35 @@ If interactive, ask. If background mode, use `REPLACE-WITH-JIRA-KEY:`.
 
 ## 5b. Adversarial pre-PR review
 
-Before generating the PR command, run an independent juror over the full rebase diff:
+Before generating the PR command, review the full rebase, not just the
+last fix. The shared preparation and existing four-check rubric live in
+`scripts/k8s-rebase-pr-review.sh`.
+
+Claude: preserve the nested reviewer and its existing failure policy:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-DIFF=$(git diff "$BASE"..HEAD -- . ':!.rebase-tmp' \
-  ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' \
-  ':(exclude,glob)**/*generated*' ':(exclude,glob)**/*deepcopy*' \
-  2>/dev/null | head -c 200000)
-# Use a quoted heredoc for the static instructions so $-signs in Go diff
-# content aren't mangled, then append the diff separately.
-_STATIC=$(cat <<'REVIEW_STATIC'
-You are an adversarial reviewer for a k8s rebase. Review the diff below and output
-exactly one of:
-  APPROVE: <one-sentence reason>
-  REJECT: <one-sentence reason>
-
-Check for:
-1. VERSION CONSISTENCY: are all k8s.io/* dependencies at the same minor version
-   (no alpha/pre-release mixed with release)? If go.mod shows v0.35.x mixed with
-   v0.36.x for direct deps, REJECT.
-2. COMMIT COMPLETENESS: does the commit history include a rebase commit, codegen
-   (if the repo has it), version refs update, and lint fixes? If a required commit
-   type appears missing, REJECT.
-3. REGRESSIONS: any obvious API removals, deleted test cases, or missing error
-   handling that tests previously covered? If so, REJECT.
-4. VERSION MATCH: does the diff content (API calls, import paths, version strings)
-   appear consistent with the claimed k8s target version?
-
-If in doubt, APPROVE — only REJECT on clear concrete evidence in the diff.
-REVIEW_STATIC
-)
-VERDICT=$(claude -p --output-format text 2>/dev/null <<< "${_STATIC}
-
-DIFF:
-${DIFF}")
+VERDICT=$(bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" "$BASE" "$VERSION")
 echo ":: Pre-PR review: $VERDICT"
 ```
 
-If verdict is `REJECT:`, investigate the stated concern before proceeding.
-`APPROVE:` (or no verdict from infrastructure failure) → continue to 5c.
+Investigate `REJECT:` before proceeding. For Claude, `APPROVE:` or a missing
+verdict from infrastructure failure retains the existing continuation policy.
+
+Codex: collect checked evidence without invoking Claude:
+
+```bash
+BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main) || exit 1
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --print-prompt "$BASE" "$VERSION"
+```
+
+Only after successful preparation, give the prompt, repo path, base, and HEAD
+to a fresh-context read-only native reviewer. Require an explicit
+`APPROVE: <reason>` or `REJECT: <reason>`. Missing/malformed verdicts, failed
+preparation, or no independent reviewer stop this path; do not substitute
+parent self-review. Investigate rejection before proceeding. On resume,
+repeat review if its decision for this SHA/scope is unavailable. Do not
+reuse approval after changes; refresh affected gates and review the final tip.
 
 ## 5c. Generate `gh pr create` command
 
@@ -75,14 +64,19 @@ Run `git log --oneline $BASE..HEAD` for the commit list. PR body:
 - One-line summary: k8s version, Go version
 - What changed: fix categories from commit subjects
 - Commit table: git log output, note mechanical vs manual
-- Verification: what passed locally
+- Verification: what passed locally, plus unresolved/force-advanced gates
+  from retained reports and `.rebase-tmp/status/INCOMPLETE` (the latter
+  records only the latest force-advance). DONE does not mean all gates passed.
 - Footer: "All commits carry `Assisted-by: Claude Code <noreply@anthropic.com>` trailers."
 
 Output `gh pr create --title "..." --body "..."` using a heredoc.
 
 ## 5d. Suggest CI monitoring
 
-Print: `/loop 5m check CI on the PR, explore any failures max carefully`
+For Claude when `/loop` is available, suggest:
+`/loop 5m check CI on the PR, explore any failures max carefully`.
+Otherwise suggest asking the agent to check CI after the user creates the PR;
+do not configure automation.
 
 ## 5e. Clean up
 

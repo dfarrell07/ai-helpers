@@ -3,6 +3,15 @@
 
 Read this file at the start of every step.
 
+## Runtime context
+
+Use the absolute plugin root derived from the loaded skill, target repo root,
+requested version, and tools flag supplied by the caller. Bind the variables
+needed by each shell example in that command call; prior exports and cwd
+changes are not a contract. Run repo-level commands at `REPO_ROOT`, and
+module-local operations in their module. Keep the session itself rooted at
+the checkout so the existing hook guards remain active.
+
 ## Scope
 
 Every change must be directly required by the k8s version bump.
@@ -36,6 +45,10 @@ sync. These are the only contexts where `go mod tidy` and
 
 Prepend this rule to every gate subagent prompt.
 
+The existing module-operation hook blocks direct tidy/vendor even in these
+documented exception cases. If it blocks a required repair, report that
+conflict; do not disable the hook or disguise the command to bypass it.
+
 ## Never Push
 
 NEVER run `git push` or `gh pr create`. Only print commands for
@@ -43,20 +56,39 @@ the user to copy-paste.
 
 ## Gate-Fix Loop
 
-When a gate reports FAIL:
+1. Run `bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" <step>`.
+   It executes companions and identifies PENDING reviews. Exit 1 means pending
+   judgments, not infrastructure failure. Exit 0 means none pending, not all
+   passed: inspect EXISTING and RESOLVED verdicts too. FAIL, SKIP, and
+   INCONCLUSIVE are not PASS.
+2. Read each pending prompt and its evidence. Check evidence HEAD against
+   the current commit; missing/stale evidence after a companion crash is not
+   usable. Gather fresh read-only evidence as that prompt permits, or report
+   inability to judge. Use a native gate worker when available, otherwise
+   review inline under the same read-only constraints.
+3. Write reports through `scripts/write-gate-report.sh` at the known plugin
+   root. Confirm HEAD has not changed during review before it stamps the
+   report. Choose one actual verdict; `PASS|FAIL|SKIP` is notation, not a
+   shell pipeline. A missing helper is an error, not grounds to fabricate
+   an unstamped report.
+4. Triage findings against base, fix new issues, and commit all fixes before
+   refreshing evidence. Re-validate as the step requires (`--quick` in 2–3,
+   `--no-test` in 4), then run `gates` again. Every current-step report at the
+   old HEAD is stale, including PASS reports: complete all newly pending
+   reviews, not just the previously failing ones.
+5. If a cached report needs deliberate invalidation at the **same HEAD**,
+   remove only that current-step report **before** rerunning `gates`.
+   Never delete a newly regenerated companion report or prior-step reports.
 
-1. **Triage** — verify real, not pre-existing on base branch.
-2. **Fix** and commit.
-3. **Refresh evidence** — re-run the orchestrator gates command (`bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" <step>`) so companion scripts re-execute against the fixed code.
-4. **Delete** old report (`rm .rebase-tmp/gates/<report>`).
-5. **Re-run** gate with a fresh prompt.
-
-Commit ALL fixes before re-launching ANY gates. Gates read the
-branch tip at launch — uncommitted fixes cause false FAILs.
-Pattern: read all FAIL reports, fix all issues, commit, then
-re-run all failed gates in one parallel wave.
-Repeat up to 3 iterations. Never skip the re-run — a gate is
-not passed until a fresh run reports PASS.
+Repeat fixes/reviews up to 3 iterations, sharing this budget across workers
+and parent; do not nest another retry loop at handoff. Preserve the step's
+stop condition (Step 1 structural failure stops). The parent alone calls
+`advance` and handles its retry/force-advance output as in SKILL.md. Workers
+return verdicts, unresolved issues, and attempts already used. Never call a
+gate passed until a fresh report says PASS or spend advances as status polls.
+If the fix budget is exhausted, the parent may retry a BLOCKED handoff to
+reach the existing force-advance threshold; do not add another fix loop,
+overwrite non-PASS findings, or retry after state has already advanced.
 
 ## Never Add Test Skips
 
@@ -92,7 +124,7 @@ SetFromMap validates parent-dep consistency. ALL gates must go in
 SetFromMap AND env vars. The autofix script handles this; do not
 remove gates from its SetFromMap.
 
-## Subagent Rules
+## Execution and reviewer roles
 
 - Report specific counts, not just "looks good."
 - Judgment agents must cite the specific file:line or diff hunk
@@ -106,23 +138,23 @@ remove gates from its SetFromMap.
 - If ANY judgment agent flags a concern, the main agent MUST
   investigate and either fix it or explain why it's not an issue.
 
-- If you cannot launch subagents, run the gate checks inline.
+- Use native workers when available; ordinary steps, investigations, tests,
+  type-conversion checks, and gates can run inline otherwise. The parent may
+  read gate prompts. Independent review in Steps 4–5 is different: Codex
+  needs a fresh-context read-only reviewer with rubric/evidence, not the
+  parent's reasoning history. Stop at that boundary if none is available.
 - **Companion gate scripts:** Some gates have `.sh` files alongside
   the `.md` prompt. The orchestrator's `gates` command runs them
   automatically and marks the gate RESOLVED if the companion passes,
   or PENDING if it needs a subagent. Do NOT run companion `.sh`
   scripts manually — the orchestrator has already handled them.
-  Launch subagents only for PENDING gates.
+  Launch gate workers only for PENDING gates, or review those gates inline.
 
-- **Context budget:** Never burn main-agent context on build
-  monitoring. Use `run_in_background: true` for long commands,
-  or launch builds in subagents. NEVER use `sleep` to poll.
-
-- **Stay active:** NEVER produce a text-only response while
-  work remains. Every response must include at least one tool
-  call (Bash, Read, or Agent). If waiting for background tasks,
-  check status or start the next piece of work — never emit
-  prose like "Waiting for X" without a tool call alongside it.
+- **Long-running commands:** Use the runtime's supported process/session
+  mechanism and wait for actual completion before dependent work. Preserve
+  logs and recovery information; a single "still running" check or an early
+  result file does not establish completion. Do not launch the same work twice.
+  Keep the user informed while work runs; stop and report genuine blockers.
 
 ## OCP Version Mapping
 
