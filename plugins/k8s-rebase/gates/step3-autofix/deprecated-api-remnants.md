@@ -14,8 +14,10 @@ Step 1 — Build + vet check (catches compile-breaking changes):
 Step 2 — Discover deprecated symbols via web search:
   Read the Go version from go.mod (`go` directive) and the k8s
   version from the k8s.io/api dependency. Then search the web:
-  - "Go <version> deprecated functions stdlib changes"
-  - "kubernetes <version> breaking changes deprecated APIs"
+
+- "Go `<version>` deprecated functions stdlib changes"
+- "kubernetes `<version>` breaking changes deprecated APIs"
+
   Build a list of deprecated symbols/imports from the results.
   For each, grep non-vendor Go files:
   `grep -rn '<pattern>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`

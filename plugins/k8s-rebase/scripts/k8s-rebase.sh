@@ -104,7 +104,8 @@ restore_crd_metadata() {
   local restored=0
   for saved in "$save_dir"/*.yaml; do
     [[ -f "$saved" ]] || continue
-    local crd="$helm_crd_dir/$(basename "$saved")"
+    local crd
+    crd="$helm_crd_dir/$(basename "$saved")"
     [[ -f "$crd" ]] || continue
     # (|| true prevents pipefail from killing the script on no-match)
     local s_start s_end c_start c_end
@@ -282,6 +283,8 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
     mkdir -p "$HOST_GOMODCACHE"
     GOMODCACHE_MOUNT="-v $HOST_GOMODCACHE:$HOST_GOMODCACHE"
   fi
+  # shellcheck disable=SC2086  # WORKTREE_MOUNT, GOMODCACHE_MOUNT, USERNS_FLAG are intentionally word-split (empty = omit flag)
+  # shellcheck disable=SC2046  # --bump-tools subshell: word-split is desired (empty = no flag)
   exec $CONTAINER_RT run --rm \
     --security-opt label=disable \
     $USERNS_FLAG \
@@ -305,6 +308,7 @@ info "Go version: $CURRENT_GO (>= ${REQUIRED_GO:-any} required)"
 # where gpg-agent cannot prompt. Append to existing GIT_CONFIG_COUNT
 # rather than clobbering (user may have proxy/credential config).
 _gc=${GIT_CONFIG_COUNT:-0}
+# shellcheck disable=SC2086  # dynamic GIT_CONFIG_KEY_N variable names require unquoted expansion
 export GIT_CONFIG_KEY_${_gc}=commit.gpgsign
 export GIT_CONFIG_VALUE_${_gc}=false
 _gc=$((_gc + 1))
@@ -636,7 +640,7 @@ for mod in "${VENDOR_MODULES[@]}"; do
 done
 
 # Re-tidy modules that depend on sibling modules via replace directives
-for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*"); do
+while IFS= read -r gomod; do
   mod_dir=$(dirname "$gomod" | sed 's|^\./||')
   if grep -q '\.\./' "$gomod" 2>/dev/null; then
     banner "Phase 1: Re-tidy $mod_dir (replace directive sync)"
@@ -651,7 +655,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.clau
       fi
     fi
   fi
-done
+done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*")
 
 # ── Phase 2: Code Generation ────────────────────────────────────────
 

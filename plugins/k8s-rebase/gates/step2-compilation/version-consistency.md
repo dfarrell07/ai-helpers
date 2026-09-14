@@ -1,5 +1,6 @@
 EVIDENCE (read before judging): if `.rebase-tmp/gates/step2-version-consistency.evidence` exists,
 run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+
 - Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
@@ -9,6 +10,7 @@ When NEW_ISSUES > 0: only analyze issues the evidence flagged as
 "MISMATCH" or "VENDOR-DRIFT". Determine if each is a real problem
 requiring investigation. Note: several k8s-ecosystem packages have independent versioning and
 will always appear as MISMATCH — do not count these as issues:
+
 - `sigs.k8s.io/*` (controller-runtime, yaml, json, kustomize, randfill, etc.)
 - `k8s.io/klog`, `k8s.io/klog/v2` — own major versioning scheme
 - `k8s.io/utils`, `k8s.io/kube-openapi` — pseudo-version or own scheme

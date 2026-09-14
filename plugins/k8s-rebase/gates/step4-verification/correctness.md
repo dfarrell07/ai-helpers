@@ -10,23 +10,30 @@ handles that). Focus on these unique checks:
    deprecated API migrations, dead code removal from stricter
    linters, and any pattern documented in the patterns doc
    (`find "$HOME/.claude" "$HOME" -maxdepth 7 -name "k8s-rebase-patterns.md" -path "*/k8s-rebase/*" 2>/dev/null | head -1`). Flag anything else as suspect.
+
 2. Format strings: Scan ALL non-vendor Go files changed in the
    diff for wrong format verbs (e.g., %d for a string, %s for
    an int). Run:
-   ```
+
+   ```bash
    total=$(git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep -c '^\+.*fmt\.\|^\+.*Sprintf\|^\+.*Fprintf\|^\+.*Errorf' 2>/dev/null || echo 0)
    echo "Total format-string hits: $total"
    git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^\+.*fmt\.\|^\+.*Sprintf\|^\+.*Fprintf\|^\+.*Errorf' | head -30
    ```
+
    If total > 30, re-run without `head -30` and examine all $total lines before proceeding.
+
 3. Eventf calls: Check for bare .Error() args without format
    directives. Run:
-   ```
+
+   ```bash
    total=$(grep -rn '\.Eventf\|\.Event(' --include='*.go' . | grep -v vendor/ | grep -c '\.Error()' 2>/dev/null || echo 0)
    echo "Total Eventf/.Error() hits: $total"
    grep -rn '\.Eventf\|\.Event(' --include='*.go' . | grep -v vendor/ | grep '\.Error()' | head -20
    ```
+
    If total > 20, re-run without `head -20` and examine all $total lines before proceeding.
+
 4. Test assertion weakening: Check if `assert.Equal` was changed
    to `assert.EqualValues` in the diff. Prefer updating expected
    value literals to match new types over weakening the assertion.
@@ -35,13 +42,16 @@ handles that). Focus on these unique checks:
    count toward FAIL unless the change demonstrably loses type
    precision that would hide a real bug. Pre-existing EqualValues
    usage (on the base branch) is already excluded by the diff filter.
+
 5. Map key format after API renames: When the diff changes how map
    keys are constructed from renamed struct fields (e.g., adding
    namespace qualification to a formerly simple name string), verify
    ALL consumers of that map still use the same key format. Run:
-   ```
+
+   ```bash
    git diff <merge-base>..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^\+.*\[.*\+.*\]' | head -20
    ```
+
    For each new map write, find the corresponding lookup site (grep
    for the map variable name) and confirm the lookup key format
    matches. Flag any producer/consumer key format mismatch as FAIL —
@@ -52,6 +62,7 @@ Report per-commit findings and current-code scan results.
 MANDATORY pre-existing check — run for EVERY finding:
 
 For check 3 (Eventf/Event scan — repo-wide grep, additive):
+
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 # For each finding at <file> with <pattern>:

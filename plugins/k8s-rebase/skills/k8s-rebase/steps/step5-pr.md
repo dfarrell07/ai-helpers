@@ -71,6 +71,7 @@ If verdict is `REJECT:`, investigate the stated concern before proceeding.
 **Do NOT execute this.** Print for user to copy-paste.
 
 Run `git log --oneline $BASE..HEAD` for the commit list. PR body:
+
 - One-line summary: k8s version, Go version
 - What changed: fix categories from commit subjects
 - Commit table: git log output, note mechanical vs manual

@@ -10,7 +10,7 @@ init_gate "$@"
 
 details=()
 
-for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | sort); do
+while IFS= read -r mod_dir; do
   if [[ -d "$mod_dir/vendor" ]] && git check-ignore -q "$mod_dir/vendor" 2>/dev/null; then
     details+=("SKIP $mod_dir (vendor is gitignored)")
     echo "SKIP $mod_dir (vendor is gitignored)"
@@ -19,7 +19,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
 
   echo "CHECK $mod_dir"
   details+=("CHECK $mod_dir")
-  pushd "$mod_dir" >/dev/null
+  pushd "$mod_dir" >/dev/null || exit
 
   build_rc=0
   build_out=$(timeout "${GATE_TIMEOUT:-300}" go build ./... 2>&1) || build_rc=$?
@@ -41,7 +41,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
       > "$REPO/.rebase-tmp/gates/${GATE_NAME}.crash"
     details+=("VET_TIMEOUT $mod_dir: go vet did not complete within ${GATE_TIMEOUT:-300}s — test file errors may be undetected")
     echo "VET_TIMEOUT: ${GATE_NAME} — go vet killed in $mod_dir (exit ${vet_rc}); test file errors may be undetected"
-    popd >/dev/null
+    popd >/dev/null || exit
     finish_evidence "$NEW_ISSUES build/vet errors" "${details[@]}"
   fi
 
@@ -61,7 +61,7 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     inc NEW_ISSUES
   done <<< "$vet_out"
 
-  popd >/dev/null
-done
+  popd >/dev/null || exit
+done < <(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} \; | sort)
 
 finish_evidence "$NEW_ISSUES build/vet errors" "${details[@]}"

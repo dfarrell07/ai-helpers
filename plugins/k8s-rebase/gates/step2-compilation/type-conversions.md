@@ -1,4 +1,5 @@
 Run this check FIRST to decide if this gate applies:
+
 ```bash
 REPO="<the repo path from the first line of your prompt>"
 BASE=$(cd "$REPO" && git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
@@ -7,6 +8,7 @@ if [ -z "$TYPE_CONV" ]; then
   echo "No type conversions in fix commits — SKIP"
 fi
 ```
+
 If no fix commits touch struct conversions or type assertions,
 write a SKIP report and stop immediately.
 

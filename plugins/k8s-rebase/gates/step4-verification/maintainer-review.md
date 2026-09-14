@@ -11,12 +11,14 @@ Step 2 — read the aggregate diff:
   git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
 
 Check:
+
 - Are commits well-scoped (one concern per commit)?
 - Are commit messages accurate?
 - Is there any scope creep (changes beyond what the rebase needs)?
   Examples of scope creep: dependency bumps unrelated to k8s.io/*,
   reformatting unchanged code, logic changes not required by
   type/API changes, new features.
+
 - Are any expected changes missing (e.g., version refs not
   updated, type conversions incomplete)?
 
@@ -48,6 +50,7 @@ exists. If vendor/ does not exist in the repo, run
 confirms a replacement exists — FAIL; if go doc is inconclusive or the
 package is unavailable, note the check as unverifiable in DETAILS and do
 not FAIL. If vendor/ exists, use these steps:
+
   1. Find the new nolint lines: `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD | grep '^\+.*//nolint:staticcheck'`
   2. For each, look at the suppressed call on the same or adjacent line.
   3. Identify the package: find the import path in the file's import block.

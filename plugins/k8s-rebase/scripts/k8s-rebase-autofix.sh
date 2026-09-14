@@ -18,6 +18,7 @@
 #     fix_kubeadm_v1beta4
 #   Ecosystem (client-go features): fix_feature_gates
 
+# shellcheck disable=SC2044  # for-loop over find: Go repos never have spaces in filenames
 set -uo pipefail
 
 AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
@@ -336,10 +337,10 @@ fix_xexp() {
     # Import grouping (maps/slices/cmp in stdlib section) handled by goimports below
   done
   # Remove x/exp from go.mod/vendor — needs Go toolchain
-  for gomod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l 'golang.org/x/exp' {} \; | xargs -I{} dirname {}); do
+  while IFS= read -r gomod_dir; do
     echo ":: Running go mod tidy in $gomod_dir"
     (cd "$gomod_dir" && go mod tidy 2>/dev/null && [[ -d vendor ]] && go mod vendor 2>/dev/null) || true
-  done
+  done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -lq 'golang.org/x/exp' {} \; -exec dirname {} \;)
 }
 
 fix_klog_v2() {

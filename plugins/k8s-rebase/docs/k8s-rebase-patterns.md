@@ -75,6 +75,7 @@ codegen output changes.
 
 Each k8s release may enable gates that break fake clientsets.
 Add gate AND ALL dependents to ALL three mechanisms:
+
 1. `hack/test-go.sh` env var exports
 2. `os.Setenv`/`t.Setenv` in test files
 3. `SetFromMap` in test files
@@ -98,11 +99,13 @@ SetFromMap, but only add gates that exist in vendored k8s code
 (removed gates cause "unrecognized feature gate" errors).
 
 **Known problematic gates:**
+
 - **WatchListClient** (k8s 1.35) — in `k8s.io/client-go`. Changes
   the initial list mechanism to streaming lists. Fake clientsets
   don't implement this protocol, causing informer hangs.
 
   SetFromMap example:
+
 ```go
 if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
     "WatchListClient": false,
@@ -205,6 +208,7 @@ to confirm before treating it as a real error.
 ### Cross-repo dependency ordering (recurring)
 
 Downstream OpenShift repos form a dependency chain:
+
 1. **Plumbing repos first**: `openshift/api`, `openshift/library-go`,
    `openshift/client-go` — these must merge their k8s bump before
    consumers can vendor them.
@@ -240,6 +244,7 @@ Rebases can surface this when lint config changes enable
 staticcheck or remove exclusions. Lowercasing an error string
 is a lint fix but can break test assertions that match the old
 string:
+
 ```go
 // Old
 return fmt.Errorf("Failed to create: %v", err)
@@ -260,6 +265,7 @@ a semantic change, not just a lint fix.
 
 When upgrading golangci-lint from v1 to v2, the config format
 changes:
+
 - Add `version: "2"` header
 - `linters-settings` → nested under `linters.settings`
 - Add `default: standard` under `linters` (replaces v1's
@@ -290,11 +296,12 @@ Common exclusions: `fmt.Fprintf`, `fmt.Fprintln`,
 
 `ctrl.NewWebhookManagedBy` is now generic — the object moves
 from `.For()` into the constructor as a type parameter:
+
 ```go
 // Old: ctrl.NewWebhookManagedBy(mgr).For(&MyType{}).WithValidator(v).Complete()
 // New: ctrl.NewWebhookManagedBy(mgr, &MyType{}).WithValidator(v).Complete()
 ```
+
 `.For()` is removed. `WithValidator` now takes generic
 `admission.Validator[T]`. `WithCustomValidator` still exists
 but is deprecated.
-

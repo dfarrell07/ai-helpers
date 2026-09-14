@@ -14,6 +14,7 @@
 set -euo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+# shellcheck disable=SC2034  # exported for sourcing scripts
 WRITE_REPORT="$SCRIPT_DIR/write-gate-report.sh"
 
 inc() {
@@ -62,6 +63,7 @@ init_gate() {
     echo "NO_BASE: cannot determine merge base — skipping pre-existing filter"
   fi
 
+  # shellcheck disable=SC2034  # used by sourcing scripts after init_gate
   NEW_ISSUES=0
 }
 

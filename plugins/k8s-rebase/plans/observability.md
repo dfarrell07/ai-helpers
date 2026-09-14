@@ -41,7 +41,7 @@ found and how they were resolved." Read existing narrative first to append.
 prosecution, defense, judge, and all juror transcripts and produces a
 1-paragraph human-readable summary:
 
-```
+```text
 COURT SUMMARY: The rebase correctly targets k8s 1.35.3. The main
 contested point was the removal of SetFromMap({WatchListClient: false})
 from 4 Ginkgo suites — prosecution argued this risks test hangs; defense
@@ -66,8 +66,10 @@ launches analysis agents over completed rebase artifacts:
 
 - **Pattern agent**: reads commits, identifies what autofix patterns fired
   and whether they look right
+
 - **Gate agent**: reads all gate reports, flags any suspicious PASSes
   (e.g., a gate that always passes in 0ms, might mean it's not running)
+
 - **Diff agent**: reads the VS KNOWN-GOOD diff and flags unusual patterns
   (very large diffs, specific files that always differ)
 
@@ -85,7 +87,7 @@ with no memory of the run catch what the skill misses.
 **What**: `make report repo=X version=Y` produces a narrative of the full
 run:
 
-```
+```text
 ovn-org/ovn-kubernetes 1.36.2 — PASS (2026-08-19)
 
 Rebase: 15 commits above from_commit. k8s.io/* bumped to v0.36.2.
@@ -104,6 +106,7 @@ narrative.md + court summary.txt and formats them into a concise report.
 
 **What**: Add a `make skill-review` target that launches a workflow to
 review recent gate reports and narrative logs looking for:
+
 - Gates that always PASS without substance
 - Agent decisions that look wrong in retrospect
 - Patterns in what types of fixes are needed per repo/version
@@ -116,8 +119,10 @@ This is the "automated improvement discovery" piece.
 
 1. **Court reporter** (Phase D) — smallest change, highest immediate value
    for understanding court verdicts
+
 2. **Step narrative log** — enables everything else; without narrative context
    the artifact review agents have less to work with
+
 3. **Artifact review agents** — builds on narrative + gate reports
 4. **Human-readable reporter** — assembles the above into a command
 5. **Skill review target** — longer-horizon, depends on accumulated data

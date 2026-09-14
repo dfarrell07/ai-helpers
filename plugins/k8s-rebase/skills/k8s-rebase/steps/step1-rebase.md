@@ -18,6 +18,7 @@ auto-containerizes). Launch it as a detached process so it is
 not killed by Bash tool timeouts:
 
 **Launch** (returns immediately):
+
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -z "$REPO_ROOT" ] && echo "ERROR: Not in a git repo" && exit 1
@@ -40,6 +41,7 @@ check cycle wastes context budget. Instead, run the check command
 with `run_in_background: true` and `timeout: 300000` — the system
 notifies you when it finishes. If you must check manually, run
 the check ONCE, not in a loop.
+
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 if kill -0 $(cat "$REPO_ROOT/.rebase-tmp/step1.pid" 2>/dev/null) 2>/dev/null; then
@@ -80,6 +82,7 @@ version in `.ci-operator.yaml` and Dockerfiles.
 ## Gate
 
 Run the orchestrator to collect companion evidence and discover gate state:
+
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 1
@@ -92,12 +95,15 @@ its instructions." Do NOT cat the gate file yourself — let the
 subagent read it.
 
 Gate file:
+
 - `rebase-completeness.md` (count)
 
 **Gate-fix loop:** If the gate reports FAIL:
+
 1. **Fix**: For each failing check (missing codegen, uncommitted
    changes, stale replace directives, wrong dep versions),
    fix the issue and commit.
+
 2. **Re-run** (mandatory — never skip): Re-run the orchestrator
    gates command to refresh evidence, then delete the old gate
    report (`rm .rebase-tmp/gates/step1-rebase-completeness.report`)
@@ -115,6 +121,7 @@ re-run codegen, commit, and re-verify.
 ## Advance
 
 When step 1 gate passes, run orchestrator.sh advance:
+
 ```bash
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" advance "$REPO_ROOT"
 ```

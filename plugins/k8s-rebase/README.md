@@ -28,13 +28,16 @@ current when a rebase PR lands. The flag exists to match that
 workflow without polluting the default path.
 
 Script (deterministic):
+
 - Syncs `GINKGO_VERSION` in Makefile from go.mod
 - Bumps `NODE_VERSION`, `NPM_VERSION` to latest Node.js release
 - Bumps `NVM_VERSION` to latest release
 
 Agent (Step 4d, judgment-based):
+
 - Bumps outdated non-k8s direct Go deps one at a time, checking
   that k8s pins survived each bump (reverts if MVS drifted them)
+
 - Re-syncs `GINKGO_VERSION` in Makefile if ginkgo was bumped
 
 All tool bump changes go in separate commits from the k8s

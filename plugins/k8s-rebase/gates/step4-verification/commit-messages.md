@@ -1,6 +1,8 @@
 Read the project's commit message guidelines:
+
 1. Check docs/governance/CONTRIBUTING.md, then CONTRIBUTING.md
    at the repo root (ignore vendor/ copies)
+
 2. Look for explicit prefix convention, case rules, length limits
 3. If no guidelines found or no commit format section exists,
    infer the convention from the base branch (exclude merges):
@@ -16,10 +18,13 @@ Then check all rebase commits:
     git merge-base HEAD master)..HEAD
 
 For each commit, check:
+
 - Has a prefix before ":" if the project EXPLICITLY requires
   one (in CONTRIBUTING.md, not just because some commits use it)
+
 - First line is ≤72 characters (only if the project specifies
   a length limit)
+
 - Lowercase after prefix (if the project specifies this)
 
 Also list the prefixes used in the rebase commits and compare

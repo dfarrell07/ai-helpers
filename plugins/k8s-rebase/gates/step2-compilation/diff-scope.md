@@ -8,7 +8,7 @@ Count files that are not in expected categories for a k8s rebase:
 Go source (.go, _test.go), module files (go.mod, go.sum), docs (.md),
 CI configs (.yml/.yaml), build files (Makefile, Dockerfile, .sh, .j2),
 protobuf definitions (.proto, generated .pb.go), or managed directories
-(vendor/, LICENSES/, _output/, third_party/).
+(`vendor/`, `LICENSES/`, `_output/`, `third_party/`).
 Adapt this list for the repo — a CSI driver legitimately modifies .proto
 files; a pure controller likely does not.
 Unexpected file types suggest a fix leaked beyond its intended scope.

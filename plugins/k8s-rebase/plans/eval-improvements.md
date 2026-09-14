@@ -63,8 +63,10 @@ return (True, f"k8s bumped to v0.{diff_minor}.x")
 ```
 
 **Design notes:**
+
 - Returns True (skip) when neither anchor found — avoids false failures
   on unusual repos.
+
 - Brand-new dependency (no removal line): direction check skipped,
   returns True — `go_mod_and_vendor_modified` already confirms changes.
 

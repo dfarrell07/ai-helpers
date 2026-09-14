@@ -2,11 +2,13 @@ Analyze whether the rebase changes will cause CI failures.
 Only flag issues caused by or affected by the rebase diff —
 pre-existing CI steps that were not modified are out of scope.
 Could any test pass locally but fail in CI due to:
+
 - Missing fixtures or CRDs?
 - Wrong API versions in test expectations?
 - Hardcoded assumptions about cluster behavior?
 - e2e infrastructure incompatibilities (wrong KIND image,
   missing CRDs, stale FRR images, kubeadm format)?
+
 - Feature gates not disabled in a test package that uses
   informers or watch-based patterns with fake clientsets?
   (Skip this check for repos whose unit tests use envtest
@@ -20,11 +22,12 @@ Could any test pass locally but fail in CI due to:
   KUBE_FEATURE_* env vars, those cover ALL packages when
   run via `make test` — don't flag packages that are covered
   by test-go.sh exports.
+
 - Stale codegen output? If hack/update-codegen.sh or a
   Makefile codegen/generate/manifests target exists, check
   that git log shows a codegen commit (i.e., a commit whose
-  changed files include zz_generated*.go, */clientset/*,
-  */informers/*, */listers/*, or pkg/generated/*, or whose
+  changed files include `zz_generated*.go`, `*/clientset/*`,
+  `*/informers/*`, `*/listers/*`, or `pkg/generated/*`, or whose
   message contains codegen, generate, or deepcopy). If no
   commit matches these patterns but the repo has a codegen
   script, flag as CONFIRMED stale-codegen risk. If the repo has a
@@ -34,11 +37,13 @@ Could any test pass locally but fail in CI due to:
   controller-tools version.
 
 Known ecosystem failures (report, may need manual fix):
+
 - `ci/prow/security` (Snyk) — check if `.snyk` exists in the
   repo. If it uses per-file exclusions (not `vendor/**` glob),
   warn that Snyk rules may flag new vendor files. Repos with
   `vendor/**` glob exclusions are safe. Per-file repos may
   need manual `.snyk` updates or a switch to the glob approach.
+
 - `ci/prow/verify-deps` may fail if library-go or other
   plumbing repos haven't merged their k8s bump yet. Verify
   the skill added a `replace` directive in go.mod pointing

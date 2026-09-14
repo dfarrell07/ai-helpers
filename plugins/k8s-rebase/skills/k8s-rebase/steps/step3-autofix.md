@@ -57,6 +57,7 @@ cat "${PLUGIN_ROOT}/docs/k8s-rebase-patterns.md"
 ## Gates
 
 Run the orchestrator to collect companion evidence and discover gate state:
+
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 3
@@ -70,6 +71,7 @@ Do NOT Read the gate files yourself -- let the subagent Read the gate file.
 Gate directory: `${PLUGIN_ROOT}/gates/step3-autofix`
 
 Gate files:
+
 - `autofix-result.md` (count)
 - `deprecated-api-remnants.md` (count)
 - `feature-gates.md` (count)

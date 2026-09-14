@@ -1,5 +1,6 @@
 EVIDENCE (read before judging): if `.rebase-tmp/gates/step3-crd-validation.evidence` exists,
 run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+
 - Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.

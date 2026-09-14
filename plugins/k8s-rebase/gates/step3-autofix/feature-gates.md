@@ -1,5 +1,6 @@
 EVIDENCE (read before judging): if `.rebase-tmp/gates/step3-feature-gates.evidence` exists,
 run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
+
 - Match: Read the file first and treat its `SUMMARY:`/facts as ground truth for this gate.
   `WIRED_GATES` lists every gate found wired in the repo. `VENDOR_MISSING` lines identify
   gates wired in source but absent from vendor (likely stale). `VENDOR_UNKNOWN` lines
@@ -8,7 +9,7 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   identify specific wiring gaps. Gates not mentioned as MISSING or UNKNOWN were
   confirmed covered — do not re-grep them. `NEW_ISSUES=0` means all wired gates are
   current and fully covered.
-  `SUITE_NO_SETFROMMAP` lists *_suite_test.go files with RegisterFailHandler but no
+  `SUITE_NO_SETFROMMAP` lists `*_suite_test.go` files with RegisterFailHandler but no
   SetFromMap. In k8s 1.35+, pkg/features.init() can override DefaultMutableFeatureGate
   and defeat the env-var-based gate disable. To find which files the human rebase
   actually modified, run:
@@ -19,10 +20,12 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   files. This is a quality concern, not a compile/vet failure. PASS if NEW_ISSUES=0;
   addressing the affected suites improves robustness but is not required for PASS.
   If evidence shows `SKIP`: no feature gate wiring exists in this repo — verdict PASS.
+
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
 
 Run this applicability check first:
+
 ```bash
 REPO="<the repo path from the first line of your prompt>"
 FG_REFS=$(grep -rn 'KUBE_FEATURE_\|SetFromMap' "$REPO" --include='*.sh' --include='Makefile*' --include='*.go' 2>/dev/null | grep -v vendor/ | head -20)
@@ -30,6 +33,7 @@ if [ -z "$FG_REFS" ]; then
   echo "No feature gate references found"
 fi
 ```
+
 If the applicability check finds no SetFromMap or KUBE_FEATURE_
 references, the gate does not apply to this repo — write a SKIP
 report and stop.

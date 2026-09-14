@@ -3,14 +3,17 @@ e2e-kind.sh, install-kind.sh, CI workflows), verify the changes
 are consistent with the target k8s version.
 
 For each modified e2e file, check:
+
 - Do version references (k8s version strings, kindest/node tags)
   match the target version from go.mod?
   `grep -rn 'kindest/node\|K8S_VERSION\|KIND_VERSION' . | grep -v vendor/`
+
 - KIND binary version: search the web for "kind releases" to
   find which KIND version supports the target k8s version.
   Each KIND release supports specific k8s versions — using an
   old KIND with a new k8s will fail. Report the fix command:
   `sed -i 's/KIND_VERSION=v<old>/KIND_VERSION=v<new>/' <file>`
+
 - Are external tool versions consistent across all CI files?
 - CI dependency versions (MetalLB, KubeVirt, etc.): k8s version
   bumps tighten CRD validation. Check pinned versions:
@@ -19,6 +22,7 @@ For each modified e2e file, check:
   may fail stricter validation (schema constraints, required
   fields, enum values). Search the web for the latest release of
   each dependency and compare with the pinned version.
+
 - Do configuration formats (e.g., kubeadm config apiVersion)
   match what the new k8s version requires? Search the web for
   "k8s <version> kubeadm config" if unsure about required format.
@@ -26,6 +30,7 @@ For each modified e2e file, check:
 List each item checked and whether it passes. Report issues.
 
 Run this check FIRST — if nothing matches, write a SKIP report and stop:
+
 ```bash
 REPO="<the repo path from the first line of your prompt>"
 E2E_FILES=$(grep -rln 'kindest/node\|K8S_VERSION\|KIND_VERSION\|kind-common\|e2e-kind\|install-kind' "$REPO" --include='*.sh' --include='*.yaml' --include='*.yml' --include='*.j2' --include='kind-common' 2>/dev/null | grep -v vendor/ | head -20)
@@ -33,6 +38,7 @@ if [ -z "$E2E_FILES" ]; then
   echo "No e2e infrastructure files found — SKIP"
 fi
 ```
+
 If no e2e infrastructure files exist, write a SKIP report and stop.
 
 MANDATORY pre-existing check — run for EVERY finding:

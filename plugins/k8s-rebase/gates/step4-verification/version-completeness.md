@@ -7,10 +7,12 @@ Count stale version refs from the PREVIOUS k8s version only.
 Check yml/yaml/sh/Makefile/Dockerfile files (go.mod and .go
 files are covered by go-version-check and compilation gates).
 Exclude:
+
 - K8S_VERSION if the kindest/node image isn't published yet
 - Lines where the version appears in prose (comments starting
   with //, #, or lines in README/CHANGELOG files) that are not
   assignments or image tags
+
 - References inside vendor/ directories
 - Ancient versions (1.16, 1.20, etc.) — those are pre-existing
   documentation debt, not rebase issues

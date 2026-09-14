@@ -43,6 +43,7 @@ the user to copy-paste.
 ## Gate-Fix Loop
 
 When a gate reports FAIL:
+
 1. **Triage** — verify real, not pre-existing on base branch.
 2. **Fix** and commit.
 3. **Refresh evidence** — re-run the orchestrator gates command (`bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" <step>`) so companion scripts re-execute against the fixed code.
@@ -68,6 +69,7 @@ do not skip it.
 - Each commit gets exactly one `Signed-off-by` and one
   `Assisted-by: Claude Code <noreply@anthropic.com>` trailer
   (scripts add automatically).
+
 - Do not amend — create new commits on top.
 - No `org/repo#N` in commit messages.
 - If adding a `replace` directive, add a TODO comment.
@@ -95,11 +97,14 @@ remove gates from its SetFromMap.
 - Judgment agents must cite the specific file:line or diff hunk
   for each concern — "no issues found" requires listing what was
   actually checked.
+
 - Gate subagents are read-only — they must NOT edit repo files.
   Their sole permitted write is their gate report file under
   `.rebase-tmp/gates/`. The main agent applies fixes.
+
 - If ANY judgment agent flags a concern, the main agent MUST
   investigate and either fix it or explain why it's not an issue.
+
 - If you cannot launch subagents, run the gate checks inline.
 - **Companion gate scripts:** Some gates have `.sh` files alongside
   the `.md` prompt. The orchestrator's `gates` command runs them
@@ -107,9 +112,11 @@ remove gates from its SetFromMap.
   or PENDING if it needs a subagent. Do NOT run companion `.sh`
   scripts manually — the orchestrator has already handled them.
   Launch subagents only for PENDING gates.
+
 - **Context budget:** Never burn main-agent context on build
   monitoring. Use `run_in_background: true` for long commands,
   or launch builds in subagents. NEVER use `sleep` to poll.
+
 - **Stay active:** NEVER produce a text-only response while
   work remains. Every response must include at least one tool
   call (Bash, Read, or Agent). If waiting for background tasks,
@@ -119,6 +126,7 @@ remove gates from its SetFromMap.
 ## OCP Version Mapping
 
 k8s 1.N maps to OCP as follows:
+
 - k8s <= 1.35: OCP 4.(N-13) — e.g., 1.34 -> 4.21, 1.35 -> 4.22
 - k8s >= 1.36: OCP 5.(N-36) — e.g., 1.36 -> 5.0, 1.37 -> 5.1
 

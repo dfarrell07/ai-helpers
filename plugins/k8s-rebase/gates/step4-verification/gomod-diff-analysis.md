@@ -2,7 +2,7 @@ Scan the go.mod diff (all modules, excluding vendor) between
 the branch and its merge-base. Classify each changed dependency:
 
 1. Direct deps with minor-version jumps:
-   - k8s.io/* and sigs.k8s.io/*: label "expected rebase" (skip)
+   - `k8s.io/*` and `sigs.k8s.io/*`: label "expected rebase" (skip)
    - Third-party (everything else): flag for review
 2. Deps that moved from a released version to a pseudo-version
    (e.g., vX.Y.Z → vX.Y.Z-0.2026...): flag as "pinned to
@@ -25,8 +25,8 @@ requiring it (check require/replace chains). PASS otherwise — flagged
 items in categories 3-5 are informational, not blockers.
 
 "Unexpected" for a major-version jump: the jump is NOT traceable to
-a k8s.io/* transitive requirement. To verify: check whether any
-k8s.io/* dependency in go.mod requires the new major version (via
+a `k8s.io/*` transitive requirement. To verify: check whether any
+`k8s.io/*` dependency in go.mod requires the new major version (via
 require/replace chains). If no k8s dep requires it, the jump is
 independent scope creep and should FAIL. If a k8s dep requires it,
 the jump is forced and expected.

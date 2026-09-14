@@ -34,7 +34,8 @@ get_version() {
 }
 
 write_state() {
-  local repo="$1" step="$2" version="${3:-$(get_version "$repo")}"
+  local repo="$1" step="$2"
+  local version="${3:-$(get_version "$repo")}"
   local sf
   sf=$(state_file "$repo")
   mkdir -p "$(dirname "$sf")"

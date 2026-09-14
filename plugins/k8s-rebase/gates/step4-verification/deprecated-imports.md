@@ -17,6 +17,7 @@ Known stdlib promotions (require GO_MINOR at or above the listed value):
 
 k8s ecosystem deprecated packages (also check):
   `grep -rn '"k8s.io/utils/strings/slices"\|"k8s.io/utils/pointer"' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+
 - `k8s.io/utils/strings/slices` -> stdlib `slices` (requires Go 1.21+)
 - `k8s.io/utils/pointer` -> `k8s.io/utils/ptr` (no Go version floor)
 
@@ -40,6 +41,7 @@ was_modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
 ```
 
 Two tiers:
+
 1. File WAS modified by the rebase (was_modified > 0):
    - If base_has==0 (import is NEW): FAIL — rebase introduced it
    - If base_has>0 (import pre-existing): check whether the diff touches
@@ -49,6 +51,7 @@ Two tiers:
      If the diff does NOT show the import changed (rebase modified other parts
      of the file only): INFO — out of scope, the deprecated import was already
      there and the rebase didn't cause it
+
 2. File was NOT modified by the rebase (was_modified=0): INFO — out of scope.
 
 If GO_MINOR is below the required floor for a given package: INFO

@@ -54,18 +54,22 @@ source (`grep -r 'Deprecated:' vendor/<pkg>/`) to find the
 replacement. For common k8s API migrations, check the patterns
 doc if available.
 Anti-patterns to avoid:
+
 - `golang.org/x/net/context` instead of stdlib `context`
 - `k8s.io/utils/strings/slices` instead of stdlib `slices`
 - `k8s.io/utils/pointer` instead of `k8s.io/utils/ptr`
 - `admission.CustomValidator` instead of `admission.Validator[T]`
 
 **General fix patterns:**
+
 - When a function requires `context.Context`: pass `ctx` from
   the caller, not `context.TODO()`.
+
 - `context.WithTimeout`/`WithCancel`: always capture the cancel
   function (`ctx, cancel := ...`) and `defer cancel()`.
   `ctx, _ := ...` leaks the context and fails `go vet`'s
   `lostcancel` analyzer.
+
 - `ioutil.ReadFile`/`ReadDir` -> `os.ReadFile`/`os.ReadDir`
 
 After ANY `go get`, `go mod tidy`, or go.mod change, re-vendor
@@ -116,8 +120,10 @@ twice (bare + aliased), remove the duplicate and update
 references. **Do NOT use `replace_all`** unless the old and new
 strings are completely disjoint. It matches already-modified
 lines and doubles up:
+
 - `v1alpha1.` -> `infv1alpha1.` also hits `infv1alpha1.` ->
   `infinfv1alpha1.`
+
 - Adding `_, _ =` prefix hits lines already prefixed
 - `k8serrors` -> `k8sk8serrors` (import alias doubling)
 Use targeted per-line edits or `sed` with anchored patterns.
@@ -136,6 +142,7 @@ missing from the conversion."
 ## Gates
 
 Run the orchestrator to collect companion evidence and discover gate state:
+
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 2
@@ -152,6 +159,7 @@ echo "$GATE_DIR"
 ```
 
 Gate files:
+
 - `build-vet.md` (count)
 - `version-consistency.md` (count)
 - `diff-scope.md` (count)
@@ -203,6 +211,7 @@ with zero compilation errors.
 ## Advance
 
 When all 6 gates pass, run the orchestrator to advance:
+
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" advance "$REPO_ROOT"

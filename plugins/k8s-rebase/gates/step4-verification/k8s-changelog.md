@@ -12,6 +12,7 @@ If that returns 404:
   curl -sfL "https://raw.githubusercontent.com/kubernetes/kubernetes/master/CHANGELOG/CHANGELOG-1.${K8S_MINOR}.md"
 
 If the changelog is too large, focus on these sections only:
+
 - "Urgent Upgrade Notes"
 - "Deprecation"
 - "API Change"
@@ -24,6 +25,7 @@ driver should focus on [SIG Storage], a scheduler plugin on
 they mention components this repo depends on directly.
 
 For each relevant entry, check whether the rebase addresses it:
+
 - grep the repo source (excluding vendor) for affected symbols
 - check the branch diff for related fix commits
 
@@ -37,10 +39,12 @@ If that returns 404:
   curl -sfL "https://raw.githubusercontent.com/kubernetes/client-go/master/CHANGELOG.md"
 
 For each entry:
+
 - Extract the changed/removed/added symbols from the code block
 - grep the repo source (excluding vendor) for each symbol
 - If a removed or changed symbol is used, verify the rebase
   addresses it (check the branch diff for a fix commit)
+
 - If the symbol is not used in the repo, mark N/A
 
 Report per entry:

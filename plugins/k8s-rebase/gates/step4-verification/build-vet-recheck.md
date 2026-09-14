@@ -35,9 +35,11 @@ Then check if the rebase touched the file:
   `was_modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)`
 
 Verdict by case:
+
 - NEW error: FAIL
 - PRE-EXISTING, was_modified>0 (file touched): FAIL — rebase touched this
   file and should have fixed the error; label "PRE-EXISTING (must fix)"
+
 - PRE-EXISTING, was_modified==0 (file untouched): INFO — out of scope for
   this rebase, note with a fix suggestion
 

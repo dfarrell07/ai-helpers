@@ -14,8 +14,10 @@ Fix every reported issue. Run lint once, analyze ALL errors before
 fixing any. Group by category and fix each in one commit.
 
 Key lint guidance:
+
 - golangci-lint v2 defaults to 3 instances per error type — the
   validate script overrides with `--max-same-issues 0`
+
 - Lint runs in a container (the repo's `make lint` uses docker/podman).
   If the first `--no-test` run produces "UNCLASSIFIED FAILURE (root lint)",
   check if the container pull is failing. Common fix: re-run once — the
@@ -23,14 +25,17 @@ Key lint guidance:
   is missing (operator-sdk, etc.), that is usually just a warning line
   in the Makefile — the actual lint result is in the container output.
   Make lint work; do not skip it or suppress the findings.
+
 - For errcheck: fix the code, not the linter.
   `defer f.Close()` → `defer func() { _ = f.Close() }()`
   `fmt.Fprintf(w, ...)` where the error is non-critical → `_, _ = fmt.Fprintf(w, ...)`
   Only use `exclude-functions` in `.golangci.yml` when the same pattern
   appears many times AND fixing each instance would obscure the real code.
   Never use per-line `//nolint:errcheck` for patterns that could be fixed in code.
+
 - Staticcheck deprecated calls: use selective `//nolint:staticcheck`
   or `exclude-rules`, never disable entirely
+
 - Nilness dead code: remove the entire dead block, do not restructure
 - ST1005 error strings: lowercase first letter only, preserve
   acronyms. Grep for OLD string in all files (tests assert on it)
@@ -65,12 +70,14 @@ out root_pkgs that need CAP_NET_ADMIN). Use the validate script's
 Split by test line count, cap ~30k per agent. Check `free -h` first.
 
 **Gate agents:** Run the orchestrator's gates command first:
+
 ```bash
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$(pwd)" 4
 ```
+
 Launch subagents only for PENDING gates. Gate files are at
-`${PLUGIN_ROOT}/gates/step4-verification/`. Each subagent: repo path
-+ module safety rule + "Read `<gate-file>` and follow instructions."
+`${PLUGIN_ROOT}/gates/step4-verification/`. Each subagent gets: repo path
+plus module safety rule plus "Read `<gate-file>` and follow instructions."
 Let the subagent Read the gate file — do NOT cat it.
 
 15 gates: cleanliness, correctness, version-completeness,
@@ -93,6 +100,7 @@ Step 4 override: always re-run `validate.sh --no-test` between fix
 and gate re-run (catches regressions from fix commits).
 
 If test agents report failures:
+
 - **Timeout:** likely feature gate issue (informer hang)
 - **Flaky:** re-run individual test with `-count=1 -run TestName`
 - **Container timing:** check if test code changed in rebase

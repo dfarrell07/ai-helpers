@@ -1,7 +1,9 @@
 Read ALL fix commits (autofix + agent). For each function modified
 in the diff, trace data flow. Prioritize by risk tier:
+
 - Tier 1 (full trace required): type conversions, struct field mappings,
   type assertions — data loss here is silent and hard to catch later
+
 - Tier 1 (full trace required): map key format changes — if a modified file
   changes HOW keys are stored in a map (e.g. adds a namespace prefix, changes
   field used as key), grep ALL lookup sites across the module
@@ -13,8 +15,10 @@ in the diff, trace data flow. Prioritize by risk tier:
   write sites (`mapName[`) and read sites (`mapName[`) across ALL .go files.
   If any read site uses a key format that differs from the new write format,
   flag FAIL with the specific file:line of each mismatched lookup.
+
 - Tier 2 (full trace required): error paths and error propagation —
   a missed error return causes runtime failures
+
 - Tier 3 (pattern check): all other modifications — scan for obvious
   set-but-not-read, unused assignments, incomplete patterns
 State the tier for each function. Depth matters more than breadth.
@@ -23,23 +27,26 @@ Before flagging anything FAIL: run `git show $BASE:<file>` where
 `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`.
 If the issue exists at BASE, it is pre-existing — report INFO, not FAIL.
 
-Also check: if CRD/API schema files (manifests/*.yaml, *crd*.yaml) were modified,
+Also check: if CRD/API schema files (`manifests/*.yaml`, `*crd*.yaml`) were modified,
 compare their `description:` default values against the corresponding Go constants
 in the same repo. Mismatches (CRD says X, runtime constant is Y) are false API
 contracts — flag as FAIL regardless of which side was touched. Use
 `grep -rn '<constant-name>' --include='*.go' .` to find the Go definition.
 
 Flag:
+
 - Struct copies that drop fields (FAIL)
 - Error values checked in one path but ignored in another (FAIL)
 - Fields set but never read — verify usage across the full module
   (`grep -rn '<field>' --include='*.go' . | grep -v vendor/`)
   before flagging. Only FAIL if truly unused repo-wide. (FAIL)
+
 - Fields compared in one code path but not another (FAIL)
 - Incomplete transformations: if a fix commit changed a pattern
   in some places but the same pattern remains elsewhere in the
   modified files, grep for the old pattern and flag each instance
   with file:line. Any single remaining instance is a finding. (FAIL)
+
 - Variables assigned but never used (INFO — compiler catches these, do not count toward FAIL)
 
 Scope: flag issues WITHIN modified functions or files — not
