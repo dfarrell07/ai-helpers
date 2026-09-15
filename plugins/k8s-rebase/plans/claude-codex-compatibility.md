@@ -48,10 +48,10 @@ support are implemented. Step 5's existing rubric was extracted into the small
 `scripts/k8s-rebase-pr-review.sh` helper. No new package, provider configuration,
 or attribution change is needed. This plugin is new relative to `origin/main`,
 so its initial version remains 0.0.1. **Installed and interface-tested, not
-end-to-end qualified.** Template preparation is closed out; reviewer routing
-and truthful gate summaries remain open.
+end-to-end qualified.** Template preparation and host-runtime review routing
+are closed out at the scopes below; truthful gate summaries remain open.
 
-Current-source review at `35beb078` changes the previous assessment:
+Shared-workflow audit and installed-package status:
 
 - `63a0a2e6` separately changed the backend to accept fresh PASS **or SKIP**.
   Offline probes confirm both advance without spending retries; FAIL,
@@ -62,10 +62,11 @@ Current-source review at `35beb078` changes the previous assessment:
   identically. However, its new minor parser rejects even matching versions;
   the dependency fix is not complete or requalified. See the separate
   shared-workflow prerequisites below, including the new Step 4 scope rule.
-- The installed Codex package still matches `258dfab8`, **not current source**:
-  the orchestrator, mechanical rebase script, Step 4 instructions, and now the
-  fix-review helper differ. Hooks and gate prompts remain unchanged.
-  Refresh a frozen package before any new installed-agent qualification.
+- The installed Codex package was refreshed through the existing local
+  marketplace to frozen `d0184fd5` for review-routing fixtures. All 121 package
+  files match that snapshot. Its helpers, hooks, and manifest are unchanged
+  from `adda641c`; the earlier installed `258dfab8` evidence is historical.
+  Freeze and refresh again after the remaining implementation changes.
 - Lint discovery fixes are committed in `90b15604`, with 46 repository tests
   passing. They are separate from the compatibility implementation; the
   nested-checkout errors were not suppressed by relaxing validation criteria.
@@ -76,13 +77,13 @@ passed. The template false approvals reproduced before closeout item 1 below;
 those supplemental tests detected the bugs, not certified their repair. Six backend
 verdict/freshness probes and an isolated stash probe confirm the findings below.
 The re-audit also reproduced the metadata-format and gate-error cases below.
-No new live runtime qualification or real rebase was launched.
-Codex remains 0.154.0; installed Claude is now 2.1.271, whereas the recorded
-live evidence used 2.1.270. Do not silently transfer those results to new code
-or a different runtime version. Earlier validation is retained under provenance.
+Those audits launched no new live runtime qualification or real rebase.
+The later routing fixtures below used Codex 0.154.0 and Claude 2.1.272;
+earlier live evidence used Claude 2.1.270. Do not silently transfer results
+to new code or a different runtime version. Earlier validation remains under
+provenance.
 
-Next: make the host-runtime review branches exclusive (item 2), then correct
-gate summaries (item 3). Resolve the two separately introduced
+Next: correct gate summaries (item 3). Resolve the two separately introduced
 shared-workflow defects, then freeze/reinstall and run focused agent fixtures
 before the bounded qualification pair. Do not start another full rebase to
 rediscover the already-reproduced failures.
@@ -103,12 +104,9 @@ rediscover the already-reproduced failures.
    the working-tree helper against `69ff8893` also pass. Eight evidence/template
    pairs, Bash syntax, and warning-level ShellCheck pass. No review rubric,
    Claude failure policy, installed package, or other closeout item changed.
-2. **Implemented; behavioral recheck pending — Exclusive host-runtime review.** Two live
-   Claude sessions followed Step 5's Codex `--print-prompt`/native `Agent`
-   branch rather than the prescribed default helper/nested `claude -p` path.
-   This repeated with byte-identical sources at a neutral installation path.
-   The first also piped preparation through `head -100` without pipefail.
-   `SKILL.md` now carries the current parent's host runtime into workers;
+2. **Done — Exclusive host-runtime review (`d0184fd5`).** This corrects the
+   observed Claude selection of Codex's review branch and filtered preparation.
+   `SKILL.md` carries the current parent's host runtime into workers;
    cross-agent resumes use the new host. Step 4/5 review sections explicitly
    select one host-only branch. Claude retains the default nested helper and
    its infrastructure fallback; Codex checks preparation directly without
@@ -116,9 +114,12 @@ rediscover the already-reproduced failures.
    Bootstrap stop wording no longer imposes Codex's fallback policy on Claude.
    No host flag, configuration, persisted field, helper, or rubric changed.
    The host is not inferred from paths, model vendor, tools, or installed CLIs.
-   Re-run frozen-package agent fixtures and verify actual tool calls, including
-   direct preparation exit-status handling. Default-helper parity tests pass;
-   they do not establish that Claude selects that helper path.
+   Eight scoped live cases pass: both hosts' Step 4/5 paths and explicit worker
+   handoffs, Codex preparation failure, and Claude's timeout fallback. Actual
+   calls confirm default nested helpers on Claude and checked preparation plus
+   fresh-context native review on Codex. All 19 offline compatibility tests and
+   historical helper-parity checks still pass. Discovery and unavailable-tool
+   fixture limits below remain part of final qualification, not claimed passes.
 3. **Align gate handling and PR claims with retained verdicts.** One Claude
    PR body said
    `Gates passed: dep-release-notes (step 3)` while also listing that gate as
@@ -483,6 +484,44 @@ this compatibility change. A metadata check or single passing gate is also
 not evidence that the complete workflow works.
 
 ## Validation provenance and limits
+
+**Routing closeout, 2026-09-15:** frozen `d0184fd5`, Codex CLI 0.154.0 /
+`gpt-5.6-sol` (medium), Claude CLI 2.1.272 / `claude-sonnet-4-6`. The existing
+marketplace's k8s-rebase source and installed Codex cache match all 121 frozen
+package files; Claude loaded the same snapshot through `--plugin-dir`.
+No manifest/version change or persistent hook-trust grant was needed. Exact
+hook sources were inspected before invocation-only Codex trust. The prior
+marketplace package is retained locally, not deleted.
+
+Separate no-remote clones reused the recorded review fixture, HEAD `3313d47b`
+and local main `d619d9e2`; Step 5 used synthetic completed state and a retained
+INCONCLUSIVE report. Both hosts selected their own Step 4/5 review path and
+returned real approvals. Explicit step-worker handoffs retained that choice;
+Claude's worker ran the default helper. Codex's direct review spawns used
+`fork_turns: none`; preparation ran without a filtering pipeline and its exit
+status was checked. With HEAD also on local main, Codex stopped on preparation
+error without spawning a reviewer. A test-only timeout shim confirmed Claude's
+documented fallback, clearly reported as infrastructure fallback, not real review.
+Fixture code, commits, state, retained reports, and INCOMPLETE were preserved.
+Each run had a five-minute cap; Claude parent runs had a $3 cap. All ended.
+
+These are routing checks, not a new end-to-end or discovery qualification.
+The initial Codex Step 4 probe selected a nearby archived package and is excluded;
+rechecks supplied the exact verified installed skill path. An initial Step 5
+probe was superseded by the same explicit-path setup. The attempted unavailable-
+reviewer probe is also excluded: native spawn remained available despite the
+CLI feature-disabling flags. Verify actual absence, not configuration intent,
+when completing that existing qualification case. Do not count these fixtures
+as full cleanup, gate-summary, build, or rebase qualification.
+
+Inputs, frozen hashes, run metadata, raw traces, and invariant checks are under
+`.work/claude-codex-compatibility/host-routing-20260915.uHrjlF/` (`setup.py`,
+`run.py`, `audit.py`, and per-case logs). The eight counted cases are the two
+`claude-step[45]` runs, two `codex-step[45]-verified-path` runs, both
+`step4-worker-handoff` runs, `codex-preparation-failure`, and `claude-fallback`.
+Ordinary default-helper parity against `69ff8893` also passes. The generic skill
+validator still rejects the unchanged Claude frontmatter keys; repository lint
+and actual runtime loading are the relevant checks, as documented above.
 
 The 2026-09-14 audit covered `69ff8893` through `38e6f58c`: all 32 gate criteria,
 fix guidance, and read-only rules were preserved after path substitutions.
