@@ -48,9 +48,8 @@ support are implemented. Step 5's existing rubric was extracted into the small
 `scripts/k8s-rebase-pr-review.sh` helper. No new package, provider configuration,
 or attribution change is needed. This plugin is new relative to `origin/main`,
 so its initial version remains 0.0.1. **Installed and interface-tested, not
-end-to-end qualified.** Template preparation and host-branch selection are
-closed out at the scopes below; Step 5 status handling and truthful gate
-summaries remain open.
+end-to-end qualified.** Template preparation, host-branch selection, checked
+Codex preparation, and gate-summary closeout are complete at the scopes below.
 
 Shared-workflow audit and installed-package status:
 
@@ -64,9 +63,10 @@ Shared-workflow audit and installed-package status:
   the dependency fix is not complete or requalified. See the separate
   shared-workflow prerequisites below, including the new Step 4 scope rule.
 - The installed Codex package was refreshed through the existing local
-  marketplace to frozen `d0184fd5` for review-routing fixtures. All 121 package
-  files match that snapshot. Its helpers, hooks, and manifest are unchanged
-  from `adda641c`; the earlier installed `258dfab8` evidence is historical.
+  marketplace to frozen `8ecfc04e` for the final preparation-status fixtures.
+  All 121 package files and executable bits match that Git snapshot. Its
+  helpers, hooks, and manifest are unchanged from `adda641c`; the earlier
+  installed `258dfab8` evidence is historical.
   Freeze and refresh again after the remaining implementation changes.
 - Lint discovery fixes are committed in `90b15604`, with 46 repository tests
   passing. They are separate from the compatibility implementation; the
@@ -84,11 +84,10 @@ earlier live evidence used Claude 2.1.270. Do not silently transfer results
 to new code or a different runtime version. Earlier validation remains under
 provenance.
 
-Next: verify Step 5 preparation status handling (item 2) and the implemented
-gate-summary instructions (item 3). Resolve the two separately introduced
-shared-workflow defects, then freeze/reinstall and run focused agent fixtures
-before the bounded qualification pair. Do not start another full rebase to
-rediscover the already-reproduced failures.
+Next: resolve the separately introduced Step 1 version-selection and Step 4
+lint-scope defects, in that order. Then freeze/reinstall and finish the focused
+agent fixtures before the bounded qualification pair. Do not start another
+full rebase to rediscover the already-reproduced failures.
 
 ### Closeout status — complete before further qualification
 
@@ -100,82 +99,45 @@ rediscover the already-reproduced failures.
    failed before the fix and pass afterward: exit 1, empty stdout, an error on
    stderr, and no reviewer invocation. The disappearance fixture moves only
    its private template during `git show`; installed sources are untouched.
-   `test/test_compatibility.py` now has 19 passing tests, including both modes
+   That closeout brought `test/test_compatibility.py` to 19 passing tests, including both modes
    for missing/directory/disappearing templates and Claude rendering, absent
    CLI, timeout, nonzero, and missing-verdict behavior. Baseline comparisons of
    the working-tree helper against `69ff8893` also pass. Eight evidence/template
    pairs, Bash syntax, and warning-level ShellCheck pass. No review rubric,
    Claude failure policy, installed package, or other closeout item changed.
-2. **Host selection done; Step 5 status handling needs recheck.** `d0184fd5`
-   corrects Claude's observed selection of Codex's branch and filtered preparation.
-   `SKILL.md` carries the current parent's host runtime into workers;
-   cross-agent resumes use the new host. Step 4/5 review sections explicitly
-   select one host-only branch. Claude retains the default nested helper and
-   its infrastructure fallback; Codex checks preparation directly without
-   piping/truncating its output and requires native independent review.
-   Bootstrap stop wording no longer imposes Codex's fallback policy on Claude.
-   No host flag, configuration, persisted field, helper, or rubric changed.
-   The host is not inferred from paths, model vendor, tools, or installed CLIs.
-   Eight scoped live cases selected the expected branch: both hosts' Step 4/5
-   paths and explicit worker handoffs, Codex preparation failure, and Claude's
-   timeout fallback. Actual
-   calls confirm default nested helpers on Claude and fresh-context native
-   review on Codex. The Step 4 direct and failure cases check preparation status;
-   the Step 5 wrapper returned only stdout and never inspected the exit code.
-   A later `fc159768` successful run again returned only stdout despite the
-   wrapper instruction; its failed preparation did expose exit 1 and stop.
-   Both Codex shell examples now print completion status and preserve the exit
-   code, rather than relying on wrappers to forward process metadata. An offline
-   execution test covers both examples' success and evidence-failure paths.
-   Re-run a successful Step 5 preparation and a failed one; inspect actual
-   status handling and require failure to stop before review or PR generation.
+2. **Done — Exclusive host review and checked Codex preparation.** `d0184fd5`
+   selects the current parent's host branch and carries it into workers;
+   cross-agent resumes use the new host. Claude retains its default nested
+   helpers and infrastructure fallback; Codex requires checked preparation and
+   fresh-context native review. No host flag, configuration, persisted field,
+   helper, or rubric changed. The eight original routing cases establish branch
+   selection, not every status-handling or delegation invariant.
+   A Step 5 success wrapper still hid exit status after the prose clarification
+   in `29d10807`. `8ecfc04e` makes both Codex shell examples print completion
+   status while preserving the exit code. Offline execution covers both examples
+   under errexit; live Step 5 success/failure exposes status 0/1 even through
+   stdout-only wrappers. Failure stops before review, PR generation, and cleanup.
    The read-only worker fixture combined preparation and review in one fresh
    worker: it proves routing, not independence after worker implementation.
-   All 19 offline compatibility tests and historical helper-parity checks
-   still pass. Discovery and unavailable-tool
-   fixture limits below remain part of final qualification, not claimed passes.
-3. **Implemented — exact gate/PR outcomes; live recheck pending.** Shared
-   rules now accept fresh justified SKIP without calling it PASS, and Step 5
-   inventories expected reports before making verification claims. Five added
-   offline tests cover PASS/SKIP acceptance, stale PASS/SKIP, FAIL/INCONCLUSIVE,
-   missing/malformed reports, and execution of the read-only inventory example;
-   all 24 compatibility tests pass. The backend,
-   report format, gate criteria, and retry thresholds are unchanged.
-   The CI-readiness path wording and revision-scoped README claims are corrected.
-   The installed finalization recheck below remains required.
-
-   The first `62fc6969` mixed-outcome fixtures exposed an incomplete inventory:
-   Codex disclosed all seeded issues, but Claude listed only existing reports
-   and omitted the absent Step 2 test-compilation report. Step 5 now includes
-   a short read-only loop over gate prompts that explicitly prints missing
-   reports. Repeat both hosts on the updated snapshot before closing this item.
-   Codex's successful and failed Step 5 preparations did retain exit status;
-   the failed case stopped before review, PR generation, or cleanup. No failed
-   preparation was approved. These are scoped checks, not a real rebase.
-
-   One Claude
-   PR body said
-   `Gates passed: dep-release-notes (step 3)` while also listing that gate as
-   INCONCLUSIVE. The report stayed INCONCLUSIVE throughout. This is an observed
-   output failure, not a proven new deterministic regression. Require each
-   claimed PASS in the final body to agree with its retained report; review
-   approval, DONE, and force-advancement do not turn another gate into PASS.
-   Update `steps/rules.md` to recognize a justified fresh SKIP as accepted,
-   without retrying it or calling it PASS. Inspect exact reports, not the
-   backend's PASS aggregate; keep FAIL/INCONCLUSIVE unresolved. This adopts
-   `63a0a2e6`, not a further gate-policy change.
-   Compare reports with the existing gate inventory too: absent/unusable
-   prior-step reports are unverified, not PASS. A later force-advance can
-   overwrite the only INCOMPLETE record mentioning an earlier missing report.
-   Repeat the synthetic finalization fixture with a prior-step INCONCLUSIVE,
-   an absent earlier report, a final-step FAIL, a legitimate SKIP, and an
-   INCOMPLETE record for only the final step. Assert exact verdicts and missing
-   checks in both outputs; do not manufacture replacement reports. Prior-step
-   PASS remains evidence at its recorded SHA, not proof of retesting final HEAD.
-   Add offline PASS/SKIP acceptance and blocking/freshness regressions to the
-   existing suite. In the same documentation pass, correct `ci-readiness.md`'s
-   leftover `find` wording without changing its missing-document NOTE/skip
-   policy, and refresh README readiness claims to name the tested candidate.
+   Discovery and actual reviewer-absence checks remain in final qualification.
+3. **Done — Exact gate/PR outcomes (`62fc6969`, `fc159768`).** Shared rules
+   accept fresh justified SKIP without calling it PASS, adopting the existing
+   backend policy. Step 5 inventories expected reports, retains exact verdicts,
+   and discloses missing/malformed reports and stale final-step evidence.
+   Prior-step PASS is historical evidence, not a final-HEAD retest. DONE,
+   force-advancement, aggregate counts, and source-review approval do not upgrade
+   a gate. Reports and INCOMPLETE remain untouched.
+   The first Claude recheck omitted an absent earlier report; `fc159768` adds
+   the short read-only inventory loop that corrected this in both hosts' PR
+   commands. The fixtures include prior-step INCONCLUSIVE, absent/malformed
+   reports, final-step FAIL/stale PASS, justified SKIP, and an INCOMPLETE record
+   mentioning only Step 4. Both hosts disclose those outcomes without fabricating
+   reports or claiming real builds. See provenance for the source revisions.
+   All 25 compatibility tests pass, including verdict acceptance/freshness and
+   execution of the inventory and preparation examples. The new SKIP acceptance
+   regression also fails against the pre-`63a0a2e6` backend as expected.
+   CI-readiness's obsolete `find` wording and README readiness claims are fixed.
+   The backend, report format, gate criteria, and retry thresholds are unchanged.
 
 Keep these corrections within existing helpers, instructions, and focused
 tests. Do not add provider configuration, persistent review state, or a new
@@ -517,6 +479,53 @@ this compatibility change. A metadata check or single passing gate is also
 not evidence that the complete workflow works.
 
 ## Validation provenance and limits
+
+**Gate-summary/status closeout, 2026-09-15:** Codex CLI 0.154.0 /
+`gpt-5.6-sol` (medium), Claude CLI 2.1.272 / `claude-sonnet-4-6`.
+The mixed-outcome pair passed at frozen `fc159768`; the final Codex
+status-success/failure pair passed at frozen `8ecfc04e`. The latter changes
+only Codex preparation examples, their test, and the plan; the shared summary
+instructions, helpers, and Claude review path are unchanged. All 121 current
+package files and executable bits in the frozen copy, existing marketplace,
+and installed Codex cache were independently checked against Git objects.
+Installation used the existing CLI route, without manifest/version changes or
+persistent hook trust. Claude loaded its frozen package with `--plugin-dir`.
+
+Each case used a separate no-remote clone at `3313d47b`, local main `d619d9e2`,
+target 1.36.0, tools=false, and synthetic completed state. Of 32 expected gates,
+31 reports were retained: 27 PASS (including stale Step 4 cleanliness), one
+justified SKIP, one INCONCLUSIVE, one FAIL, and one malformed verdict. The
+Step 2 test-compilation report was absent; prior-step reports used `5983cfc`.
+INCOMPLETE mentioned only Step 4. Both hosts' printed PR bodies retained the
+non-PASS findings, missing/malformed reports, SKIP reason, and stale final-step
+PASS without claiming real builds or turning source approval into gate approval.
+Claude's command appeared before cleanup in its assistant stream, not in the
+terminal result field; the actual printed body was inspected.
+
+Claude used its default nested helper and received a real approval. Codex used
+`--print-prompt` followed by a `fork_turns: none` reviewer. At `8ecfc04e`, the
+model-visible tool results contain completion status 0 before the review spawn
+and status 1 on failed Git evidence collection, even with stdout-only wrappers.
+The failed case has no review spawn, PR command, or cleanup. Public CLI command
+events can omit stdout, so the audit also correlates actual tool results by
+call ID; it does not rely on the agent's final claim. All cases preserved HEAD,
+state, reports, and INCOMPLETE. Healthy cleanup removed only the session marker;
+the failure shim created its own fixture-local marker. Codex's broad cleanup
+command was rejected in the inventory run before an exact marker deletion;
+these cases do not qualify general cleanup or hook restoration.
+
+The initial `62fc6969` Claude run omitted the missing report and selected the
+byte-identical working-tree package instead of its supplied frozen copy; it is
+not an installed-package pass. The `fc159768` Codex success run still hid status,
+prompting the final printed-status correction. Initial `62fc6969` inputs and
+traces remain under
+`.work/claude-codex-compatibility/finalization-closeout-20260915.sorE67/`.
+The `fc159768` inventory/status evidence is under `finalization-inventory-20260915.d2xTkx/`;
+final status evidence is under `preparation-status-20260915.hM8gDP/`, each within
+the same compatibility work directory, with setup/run/audit scripts and logs.
+All eight bounded runs ended within five minutes; Claude parent sessions had
+a $3 cap. Exact-path fixtures do not qualify discovery, unavailable reviewers,
+ordinary-worker review independence, or a full rebase. Those limits remain below.
 
 **Routing closeout, 2026-09-15:** frozen `d0184fd5`, Codex CLI 0.154.0 /
 `gpt-5.6-sol` (medium), Claude CLI 2.1.272 / `claude-sonnet-4-6`. The existing

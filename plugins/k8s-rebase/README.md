@@ -99,10 +99,12 @@ module-safety policy and commit trailers unchanged.
 
 Focused offline checks: `python3 test/test_compatibility.py` (no models or
 builds). Installed-package evidence is revision-specific: Codex CLI 0.154.0
-enforced all five hooks at `258dfab8` with invocation-only trust; both hosts
-selected their review branches at `d0184fd5` (Claude CLI 2.1.272). The latter
-fixtures did not fully verify Step 5 preparation-status handling or gate
-summaries. See the [tracked compatibility plan](plans/claude-codex-compatibility.md)
+enforced all five hooks at `258dfab8` with invocation-only trust. Codex and
+Claude CLI 2.1.272 retained mixed gate outcomes in Step 5 fixtures at `fc159768`.
+The current installed snapshot is `8ecfc04e`: Codex's preparation-status
+success/failure rechecks pass; shared summary instructions and Claude's review
+path are unchanged from `fc159768`. See the
+[tracked compatibility plan](plans/claude-codex-compatibility.md)
 for current candidates, exact coverage, and remaining checks.
 
 End-to-end qualification remains blocked. Historical Codex/Claude rebases
