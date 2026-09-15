@@ -60,6 +60,9 @@ if [[ ! -d "$REPO_DIR/.git" ]]; then
   git clone "$REPO_URL" "$REPO_DIR"
 fi
 cd "$REPO_DIR"
+# Restore origin fetch URL — the skill may have run `git remote set-url origin
+# file:///dev/null/fake-remote` as an extra push-block, poisoning future fetches.
+git remote set-url origin "$REPO_URL"
 git fetch origin "$FROM_COMMIT"
 # Detach HEAD before deleting stale bump branches — avoids "cannot delete
 # checked-out branch" if a prior run left us on a bump* branch.
