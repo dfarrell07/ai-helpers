@@ -132,12 +132,22 @@ rediscover the already-reproduced failures.
    fixture limits below remain part of final qualification, not claimed passes.
 3. **Implemented — exact gate/PR outcomes; live recheck pending.** Shared
    rules now accept fresh justified SKIP without calling it PASS, and Step 5
-   inventories expected reports before making verification claims. Four added
+   inventories expected reports before making verification claims. Five added
    offline tests cover PASS/SKIP acceptance, stale PASS/SKIP, FAIL/INCONCLUSIVE,
-   and missing/malformed reports; all 23 compatibility tests pass. The backend,
+   missing/malformed reports, and execution of the read-only inventory example;
+   all 24 compatibility tests pass. The backend,
    report format, gate criteria, and retry thresholds are unchanged.
    The CI-readiness path wording and revision-scoped README claims are corrected.
    The installed finalization recheck below remains required.
+
+   The first `62fc6969` mixed-outcome fixtures exposed an incomplete inventory:
+   Codex disclosed all seeded issues, but Claude listed only existing reports
+   and omitted the absent Step 2 test-compilation report. Step 5 now includes
+   a short read-only loop over gate prompts that explicitly prints missing
+   reports. Repeat both hosts on the updated snapshot before closing this item.
+   Codex's successful and failed Step 5 preparations did retain exit status;
+   the failed case stopped before review, PR generation, or cleanup. No failed
+   preparation was approved. These are scoped checks, not a real rebase.
 
    One Claude
    PR body said

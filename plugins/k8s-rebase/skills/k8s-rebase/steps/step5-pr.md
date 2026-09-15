@@ -70,10 +70,28 @@ reuse approval after changes; refresh affected gates and review the final tip.
 
 **Do NOT execute this.** Print for user to copy-paste.
 
-Before drafting verification claims, inventory the gate prompts under
-`$PLUGIN_ROOT/gates/step{1,2,3,4}-*/`. Each `stepN-*/<gate>.md` expects
-`.rebase-tmp/gates/stepN-<gate>.report`. Read the retained reports' HEAD,
-exact VERDICT, and findings, plus `.rebase-tmp/status/INCOMPLETE` if present.
+Before drafting verification claims, run this inventory from the expected
+gate prompts, not just the reports that happen to exist:
+
+```bash
+# Bind PLUGIN_ROOT and REPO_ROOT to the verified paths in this call.
+for gate in "$PLUGIN_ROOT"/gates/step[1-4]-*/*.md; do
+  [[ -f "$gate" ]] || { echo "ERROR: gate inventory unavailable" >&2; exit 1; }
+  step=${gate%/*}; step=${step##*/}; step=${step%%-*}
+  name=${gate##*/}
+  report="$REPO_ROOT/.rebase-tmp/gates/${step}-${name%.md}.report"
+  printf '\nREPORT: %s\n' "$report"
+  if [[ -f "$report" && -r "$report" ]]; then
+    cat "$report"
+  else
+    echo "UNVERIFIED: missing or unreadable report"
+  fi
+done
+```
+
+Read each report's HEAD, exact VERDICT, and findings, plus
+`.rebase-tmp/status/INCOMPLETE` if present. List every unresolved/unverified
+check, including prior steps, whether or not INCOMPLETE mentions it.
 Missing/unreadable/malformed reports are unverified, not PASS; INCOMPLETE
 records only the latest force-advance and cannot identify every missing check.
 

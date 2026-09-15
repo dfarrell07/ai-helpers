@@ -435,6 +435,34 @@ exec "{real_git}" "$@"
         self.assertFalse((state / ".advance-attempts-step2").exists())
         self.assertTrue((state / "status/INCOMPLETE").exists())
 
+    def test_final_inventory_includes_missing_reports_without_mutation(self):
+        self.isolated_orchestrator()
+        self.activate(step=5)
+        self.env.update(PLUGIN_ROOT=str(self.root / "plugin"), REPO_ROOT=str(self.repo))
+        writer = PLUGIN / "scripts/write-gate-report.sh"
+        for step, verdict in ((1, "PASS"), (3, "INCONCLUSIVE"), (4, "SKIP")):
+            self.run_cmd("bash", str(writer), str(self.repo), f"step{step}-check",
+                         verdict, "0", "fixture", check=True)
+        # Make the stored SHA historical: inventory must not refresh it.
+        self.run_cmd("git", "commit", "--allow-empty", "-qm", "later HEAD", check=True)
+        state = self.repo / ".rebase-tmp"
+        before = {p: p.read_bytes() for p in state.rglob("*") if p.is_file()}
+        instructions = (PLUGIN / "skills/k8s-rebase/steps/step5-pr.md").read_text()
+        inventory = next(block.split("```", 1)[0] for block in instructions.split("```bash\n")[1:]
+                         if "for gate in " in block.split("```", 1)[0])
+        result = self.run_cmd("bash", "-c", inventory)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        sections = result.stdout.strip().split("REPORT: ")[1:]
+        self.assertEqual(len(sections), 4)
+        for step, verdict in ((1, "PASS"), (2, None), (3, "INCONCLUSIVE"), (4, "SKIP")):
+            section = next(s for s in sections if s.startswith(str(state / f"gates/step{step}-check.report") + "\n"))
+            if verdict is None:
+                self.assertIn("UNVERIFIED:", section)
+                self.assertNotIn("VERDICT:", section)
+            else:
+                self.assertIn(f"VERDICT: {verdict}\n", section)
+        self.assertEqual({p: p.read_bytes() for p in state.rglob("*") if p.is_file()}, before)
+
 
 if __name__ == "__main__":
     unittest.main(verbosity=2)
