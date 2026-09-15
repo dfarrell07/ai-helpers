@@ -41,58 +41,46 @@ versions actually tested; do not infer support for every Codex version or client
 
 ## Implementation
 
-### Implementation status — 2026-09-14
+### Implementation status — 2026-09-15
 
 Shared instructions, gate handoffs, review preparation, and vendor-patch input
 support are implemented. Step 5's existing rubric was extracted into the small
-`scripts/k8s-rebase-pr-review.sh` helper; no orchestrator, migration, manifest,
-gate-policy, or attribution changes were needed. This plugin is new relative
-to `origin/main`, so its initial version remains 0.0.1. **Not yet qualified:**
-the deeper audit found a Codex preparation bug, repeated Claude review-routing
-failure, and one incorrect Claude PR summary. Closeout work is listed below.
+`scripts/k8s-rebase-pr-review.sh` helper. No new package, provider configuration,
+or attribution change is needed. This plugin is new relative to `origin/main`,
+so its initial version remains 0.0.1. **Installed and interface-tested, not
+end-to-end qualified.** The three behavioral closeout items below remain open.
 
-Verified: 15 offline tests (`python3 test/test_compatibility.py`), all eight
-evidence/template pairs, shell syntax/ShellCheck, and strict site build.
-Independent fixture testing covered invocation, resume, process completion,
-inline gates, and exhausted-budget/force-advance handoffs. Codex CLI 0.154.0
-installed the existing package and exercised all five hooks in a disposable
-repo using invocation-only trust after inspecting the loaded definitions.
-The generic skill validator rejects existing Claude metadata that the actual
-Codex loader accepts; it is intentionally retained.
+Current-source review at `35beb078` changes the previous assessment:
 
-The deeper audit compared `69ff8893` through `38e6f58c`; runtime files still
-match the installed `258dfab8` candidate. All 32 gate criteria, fix guidance,
-and read-only rules were preserved after runtime-path substitutions. All 32
-report examples passed filename/schema checks; stale-HEAD and missing-helper
-checks passed. Eight companions and three backend/interface scripts are
-byte-identical to baseline. Seven additional shell probes checked Claude
-default-path parity, immutable evidence during HEAD movement, hook payloads,
-and the template failure described below.
+- `63a0a2e6` separately changed the backend to accept fresh PASS **or SKIP**.
+  Offline probes confirm both advance without spending retries; FAIL,
+  INCONCLUSIVE, missing reports, and stale SKIP still block. Its status table
+  counts SKIP in the PASS column, so it is not an exact-verdict summary.
+- The same commit changed Step 1 OpenShift/kube-openapi selection. The old
+  dependency failure is historical evidence, not proof this candidate fails
+  identically. However, its new minor parser rejects even matching versions;
+  the dependency fix is not complete or requalified. See the separate
+  shared-workflow prerequisites below, including the new Step 4 scope rule.
+- The installed Codex package still matches `258dfab8`, **not current source**:
+  the orchestrator, mechanical rebase script, and Step 4 instructions differ.
+  The review helpers, hooks, gate prompts, and compatibility tests are unchanged.
+  Refresh a frozen package before any new installed-agent qualification.
+- Lint discovery fixes are committed in `90b15604`, with 46 repository tests
+  passing. They are separate from the compatibility implementation; the
+  nested-checkout errors were not suppressed by relaxing validation criteria.
 
-Real Codex native reviewers and Claude's existing nested reviewers returned
-matching reject/approve decisions on selected-commit and full-range fixtures.
-Codex used separate fresh contexts; no new reviewer configuration was needed.
-Later synthetic Step 5 runs completed cleanup, retained reports/state, restored
-the original executable Git hook, and printed PR commands without publishing.
-These establish finalization mechanics, not a clean behavioral pass: both
-Claude sessions chose the wrong review branch, and one mislabeled a gate.
+Rechecked today: all 15 offline compatibility tests, all eight evidence/template
+pairs, and strict site build pass. The template-directory false approval still
+reproduces. Six current-backend verdict/freshness probes and an isolated stash
+probe confirm the findings below. No real rebase or model session was launched.
+Codex remains 0.154.0; installed Claude is now 2.1.271, whereas the recorded
+live evidence used 2.1.270. Do not silently transfer those results to new code
+or a different runtime version. Earlier validation is retained under provenance.
 
-End-to-end qualification remains blocked. Bounded Codex 0.154.0 and Claude
-2.1.270 probes of pinned ovn-kubernetes-mcp to 1.35.3 both failed in the unchanged
-Step 1 dependency selection: API modules drifted to v0.36.2 while kubectl stayed
-at v0.35.3. Commit `258dfab8` clarified the existing Step 1 stop rule after
-Claude incorrectly attempted advancement; fresh-session recovery checks,
-including both cross-agent handoff directions, then stopped correctly without
-changing files or retry counts. Complete Steps 2–5 runs remain unqualified;
-the review-boundary fixtures do not establish an end-to-end pass.
-
-Repository lint now passes after fixing custom eval discovery to honor
-configured exclusions and excluding independent agent worktrees. The 77
-errors came from a nested checkout; validation criteria and the existing
-baseline were not relaxed. The pre-existing root-vendor exclusion defect
-in the Step 4 review diff remains outside this change.
-The green working-tree lint result includes separate, uncommitted linter/test
-changes; it is not attributed to the compatibility candidate.
+Next: close the small interface defects, resolve the two separately introduced
+shared-workflow defects, then freeze/reinstall and run focused agent fixtures
+before the bounded qualification pair. Do not start another full rebase to
+rediscover the already-reproduced failures.
 
 ### Remaining closeout — do before further qualification
 
@@ -120,27 +108,72 @@ changes; it is not attributed to the compatibility candidate.
    This repeated with byte-identical sources at a neutral installation path.
    The first also piped preparation through `head -100` without pipefail.
    Make the runtime choice explicit in the shared Step 4/5 review instructions;
-   do not infer it from the plugin path, model vendor, or installed CLI names.
+   carry the parent's host-runtime identity into delegated step instructions.
+   Do not infer it from the plugin path, model vendor, or installed CLI names.
    Re-run installed-agent fixtures and verify actual tool calls, including
    direct preparation exit-status handling. Default-helper parity tests pass;
    they do not establish that Claude selects that helper path.
-3. **Verify PR claims against retained verdicts.** One Claude PR body said
+3. **Align gate handling and PR claims with retained verdicts.** One Claude
+   PR body said
    `Gates passed: dep-release-notes (step 3)` while also listing that gate as
    INCONCLUSIVE. The report stayed INCONCLUSIVE throughout. This is an observed
    output failure, not a proven new deterministic regression. Require each
    claimed PASS in the final body to agree with its retained report; review
    approval, DONE, and force-advancement do not turn another gate into PASS.
+   Update `steps/rules.md` to recognize a justified fresh SKIP as accepted,
+   without retrying it or calling it PASS. Inspect exact reports, not the
+   backend's PASS aggregate; keep FAIL/INCONCLUSIVE unresolved. This adopts
+   `63a0a2e6`, not a further gate-policy change.
    Repeat the synthetic finalization fixture with a prior-step INCONCLUSIVE,
-   a final-step FAIL, and an INCOMPLETE record for only the final step. Assert
-   both findings remain non-PASS in the PR body as well as the chat summary.
-4. Correct the leftover reference to a `find` result in
-   `gates/step4-verification/ci-readiness.md` after its command became
-   `test -f && cat`. Preserve the existing missing-document NOTE/skip policy.
+   a final-step FAIL, a legitimate SKIP, and an INCOMPLETE record for only the
+   final step. Assert exact verdicts in both the PR body and chat summary.
+   Add offline PASS/SKIP acceptance and blocking/freshness regressions to the
+   existing suite. In the same documentation pass, correct `ci-readiness.md`'s
+   leftover `find` wording without changing its missing-document NOTE/skip
+   policy, and refresh README readiness claims to name the tested candidate.
 
 Keep these corrections within existing helpers, instructions, and focused
 tests. Do not add provider configuration, persistent review state, or a new
 reporting framework. Re-run the smallest failing cases before escalating to
 the real-rebase qualification below.
+
+### Shared-workflow prerequisites — separate bugfix scope
+
+These are defects in changes that landed after the compatibility candidate,
+not reasons to expand the Codex interface or port the eval harness. Keep their
+fixes separate and test the existing functions/instructions before a live run.
+
+1. **Finish the existing Step 1 version-selection correction.**
+   `_validate_openshift_k8s_minor` extracts `0` from both `v0.35.3` and
+   `v0.36.2`, rejecting a matching release-branch version as a mismatch.
+   Stubbed-proxy probes reproduce this for targets 35 and 36. A real matching
+   example is openshift/api `v0.0.0-20260904224155-42fb550ea02a` from
+   release-4.22: its module requires k8s.io/api v0.35.1.
+   Also, the claim that library-go does not pin Kubernetes is false:
+   [library-go's module at f7fdf34b126f](https://github.com/openshift/library-go/blob/f7fdf34b126f776c4bada841dad2d29fadbe1b9a/go.mod)
+   directly requires api/apimachinery/client-go v0.36.2. Its unvalidated
+   upgrade fallback can reintroduce drift. Skipping a direct api/client-go
+   update alone does not freeze the transitive graph.
+   Correct the parser and the existing unsafe version-selection assumptions,
+   including warnings that still say `@latest` when the update is skipped.
+   Test matching/mismatching minors, unavailable or unusable proxy metadata,
+   and library-go fallback with a stubbed proxy and captured Go commands.
+   Retain compatible existing dependencies or report inability to resolve;
+   do not silently claim an unvalidated version is safe. Verify the resulting
+   staging-module minor with existing checks; do not build a new resolver.
+2. **Make the new Step 4 lint scope check safe and meaningful.**
+   `d9f938a9` added an undefined `from_commit` and a stash/lint/pop example
+   that never checks out the baseline. With a clean tree and an existing
+   stash, the example pops unrelated saved work; an isolated fixture confirms
+   both defects. An unchanged line also can fail against changed dependencies.
+   Use the existing merge-base convention; compare baseline diagnostics with
+   the relevant lint command/toolchain in a separate disposable clone only
+   when needed, preserving the active tree and stash stack. Keep the intended
+   ban on unrelated cleanup. Reconcile
+   `repeat until --no-test exits 0` with the shared bounded retry policy:
+   unresolved/pre-existing failures must be reported, not hidden or fixed
+   outside scope. Check pre-existing versus dependency-induced findings and
+   stash preservation; no new lint framework or general style cleanup.
 
 ### 1. Reuse the existing package and document invocation
 
@@ -163,7 +196,9 @@ Codex:  $k8s-rebase:k8s-rebase [--bump-tools] <version>
 
 Keep the existing manifest and skill frontmatter, including Claude metadata.
 The actual Codex loader accepts it; it must not be treated as granting tools
-or permissions. Do not add another manifest, marketplace, skill copy, or
+or permissions. The generic skill validator rejects the Claude-specific fields;
+that does not invalidate the actual loader test or justify removing them.
+Do not add another manifest, marketplace, skill copy, or
 provider entry point. Follow repository version-bump and marketplace-sync
 rules when implementation changes require them, not a separate cachebuster scheme.
 
@@ -235,8 +270,10 @@ Correct the shared caller instructions to match the existing orchestrator:
    a step file. Step 5 runs after gated completion and is never advanced.
 2. Run `gates` to execute companions and discover pending work. Exit 1 means
    pending work, not an infrastructure failure. Exit 0 means no pending work,
-   not that all verdicts passed. Inspect EXISTING/RESOLVED verdicts too:
-   FAIL, SKIP, and INCONCLUSIVE are not PASS.
+   not that all verdicts passed. Inspect EXISTING/RESOLVED verdicts too.
+   Fresh PASS and justified SKIP satisfy advancement; retain SKIP as SKIP,
+   not PASS. FAIL and INCONCLUSIVE need triage, not automatic success.
+   `status` currently aggregates SKIP under PASS; reports retain the truth.
 3. Read pending prompts and their evidence, checking evidence HEAD freshness.
    Write the existing report format through `write-gate-report.sh`.
    Ensure the report describes the HEAD actually reviewed; do not stamp old
@@ -261,8 +298,9 @@ Correct the shared caller instructions to match the existing orchestrator:
    final summary. INCOMPLETE records only the latest force-advance, so keep
    the reports as well.
 
-Do not change the orchestrator, gate names, verdict meanings, report schema,
-freshness checks, or retry thresholds to implement these caller corrections.
+Match the current backend (including `63a0a2e6`); do not change the
+orchestrator, gate names, report schema, freshness checks, or retry thresholds
+to implement these caller corrections.
 
 ### 3. Adapt independent reviews and existing hook inputs
 
@@ -278,7 +316,7 @@ is available, stop at the review boundary and report the missing capability.
 
 Keep the two existing review scopes distinct:
 
-- **Step 4:** Add a `--print-prompt` mode to
+- **Step 4:** Retain the implemented `--print-prompt` mode in
   `scripts/k8s-rebase-review.sh`, reusing its evidence preparation and
   `k8s-rebase-review-prompt.md`. It must emit the populated prompt without
   invoking Claude, and fail if required inputs, the template, or rendering
@@ -332,7 +370,12 @@ the smallest reproducer before retrying. Do not launch full rebases to debug
 a local interface defect.
 
 Freeze the source revision and installed contents; record CLI/model versions
-and hook trust mode. Keep logs, reviewed SHAs/scopes, reports, and outcomes in
+and hook trust mode. Build the local marketplace from tracked files at that
+revision, excluding `.work/`, outputs, and nested agent worktrees. Refresh via
+the existing install route, verify loaded paths/content against that revision,
+and inspect the effective hook definitions before trusting them. Do not edit
+the installed cache or test the stale `258dfab8` package as current source.
+Keep logs, reviewed SHAs/scopes, reports, and outcomes in
 `.work/claude-codex-compatibility/`, outside installed packages and target branches.
 Give agents the skill and raw fixture state, not the expected answer.
 
@@ -347,7 +390,7 @@ Keep tests targeted at the changed interfaces:
   command's workdir is overridden to the repo root; a root-started session
   must retain hook activation during module-local commands.
 - Exercise ordinary inline fallback, long-running command completion, resume
-  (including version mismatch and completed state), cached non-PASS verdicts,
+  (including version mismatch and completed state), cached exact verdicts,
   stale reports after a commit, and FORCE_ADVANCE handoff. Assert no duplicate
   advancement or deletion of prior-step reports. Cover sequential cross-agent
   handoffs in fixtures at both a blocked Step 1 and a successful committed
@@ -395,8 +438,9 @@ reviews. Pause at a safe committed boundary with no child process running,
 then resume in a new session. Verify no duplicated work or lost reports.
 
 Qualification requires both agents to reach Step 5 with applicable gates
-passing and independent reviews completed, without compatibility-related
-manual rescue. Different valid fixes are acceptable. Verify existing trailers,
+passing, legitimate inapplicable gates recorded as SKIP, and independent
+reviews completed, without compatibility-related manual rescue. Different
+valid fixes are acceptable. Verify existing trailers,
 printed-only push/PR commands, accurate final verdict claims, retained reports,
 and pre-push-hook restoration. Keep the two full runs agent-specific;
 cross-agent handoff checks can use the focused fixtures above.
@@ -409,11 +453,18 @@ not evidence that the complete workflow works.
 
 ## Validation provenance and limits
 
-Recorded runtime implementations: `a497f9d6` (interfaces), `d21f971c` (shared
+The 2026-09-14 audit covered `69ff8893` through `38e6f58c`: all 32 gate criteria,
+fix guidance, and read-only rules were preserved after path substitutions.
+All 32 report examples passed filename/schema checks; stale-HEAD and missing
+helper checks passed. Eight companions and three backend/interface scripts
+were byte-identical to baseline at that tip. Seven additional shell probes
+covered Claude default-path parity, immutable evidence, hook payloads, and
+template failure. That backend-parity claim predates `63a0a2e6`.
+
+Recorded compatibility implementations: `a497f9d6` (interfaces), `d21f971c` (shared
 workflow), and `258dfab8` (Step 1 stopping). The clean local marketplace and
-installed Codex package match `258dfab8` byte-for-byte. The deeper review used
-`38e6f58c` as its tip; subsequent compatibility changes up to that tip were
-plan-only. All probes below have ended; none pushed or created a PR.
+installed Codex package matched `258dfab8` byte-for-byte, not the later shared
+workflow changes. All probes below have ended; none pushed or created a PR.
 
 - **Installed interfaces:** Codex CLI 0.154.0 discovered the existing package,
   skill metadata, and five hooks. Actual tool denials covered vendor edits,
@@ -460,15 +511,21 @@ Local evidence under `.work/claude-codex-compatibility/` includes
 `forward-test/`, `hook-smoke.jsonl`, `subdirectory-smoke.jsonl`,
 `rebase-*-pinned.jsonl`, `resume-*.jsonl`, `handoff-*.jsonl`,
 `native-review.jsonl`, `claude-review-*.log`, and `finalization-*.jsonl`.
+The current-backend and stash probes are in `recheck-20260915.py`. The old
+`audit-gates-2/audit.py` pins its source comparison to `38e6f58c` and expects
+SKIP to block; do not reuse it unchanged as current-candidate qualification.
 Earlier root test output and superseded draft plans were archived, not deleted,
 under `cleanup-20260914.EzzsOQ/`. Its completed Claude multus 1.35.3 run is
 historical coverage, not the planned matched 1.36.2 qualification pair.
 
 ## Scope boundaries and existing limitations
 
-Do not change Kubernetes/OCP migration logic, fix patterns, gate criteria,
-force-advance policy, or commit attribution. Do not add package duplication,
-provider persistence/configuration, new monitoring, or another hook system.
+Compatibility work must not redesign Kubernetes/OCP migration logic, fix
+patterns, gate criteria, force-advance policy, or commit attribution. The
+two bounded shared-workflow corrections above belong in separate bugfixes;
+they are not permission to expand the updater or validation policies.
+Do not add package duplication, provider persistence/configuration, new
+monitoring, or another hook system.
 
 Preserve module-safety rules and their documented exceptions. There is an
 existing conflict: `rules.md` permits tidy/vendor after certain replace or
@@ -484,9 +541,10 @@ Other demonstrated existing issues remain separate from compatibility fixes:
   independently versioned. The recorded Codex report counted those literally;
   an archived Claude report excepted them. Do not silently change this gate's
   criteria to obtain qualification.
-- A legitimate SKIP (for example, no applicable type conversions) is cached
-  but blocks advancement. Feature-gate instructions also differ between
-  companion and manual paths on whether no wiring is PASS or SKIP.
+- The former SKIP advancement defect is fixed in `63a0a2e6`; preserve that
+  behavior. Feature-gate companion/manual paths still differ on whether no
+  wiring is PASS or SKIP. Both are now accepted; reconciling those criteria
+  is not required to adapt callers or report their actual verdicts.
 - A vet timeout can produce fresh `0 build/vet errors` evidence alongside
   VET_TIMEOUT/crash metadata; the unchanged build-vet rubric can mistakenly
   PASS it. A passing evidence-schema test does not validate that judgment.
