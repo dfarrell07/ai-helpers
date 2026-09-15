@@ -36,7 +36,7 @@ ORIGINAL_ERROR="$*"
 
 if [[ "$PRINT_PROMPT" == true ]]; then
   set -e
-  [[ -n "$ORIGINAL_ERROR" && -r "$TEMPLATE" ]] || { echo "ERROR: Missing error context or review template" >&2; exit 1; }
+  [[ -n "$ORIGINAL_ERROR" && -f "$TEMPLATE" && -r "$TEMPLATE" ]] || { echo "ERROR: Missing error context or review template" >&2; exit 1; }
   command -v envsubst >/dev/null || { echo "ERROR: envsubst is required to prepare review" >&2; exit 1; }
   COMMIT=$(git -C "$REPO_ROOT" rev-parse --verify --end-of-options "${COMMIT}^{commit}") \
     || { echo "ERROR: Invalid review commit" >&2; exit 1; }
@@ -107,6 +107,10 @@ fi
 
 # Load and fill the template
 if [[ ! -f "$TEMPLATE" ]]; then
+  if [[ "$PRINT_PROMPT" == true ]]; then
+    echo "ERROR: Review template unavailable at $TEMPLATE" >&2
+    exit 1
+  fi
   echo "WARNING: Review template not found at $TEMPLATE, skipping review"
   echo "APPROVE: template not found, skipping"
   exit 0

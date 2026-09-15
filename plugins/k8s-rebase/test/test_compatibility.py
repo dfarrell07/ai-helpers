@@ -39,7 +39,8 @@ class CompatibilityTests(unittest.TestCase):
         self.commit("fix")
         self.claude_called = self.root / "claude-called"
         self.env["REVIEW_CAPTURE"] = str(self.claude_called)
-        self.stub("claude", 'cat > "$REVIEW_CAPTURE"\nprintf "%s\\n" "${TEST_VERDICT:-APPROVE: fixture}"\n')
+        self.stub("claude", 'cat > "$REVIEW_CAPTURE"\nprintf "%s\\n" "${TEST_VERDICT-APPROVE: fixture}"\n'
+                  'exit "${TEST_REVIEW_RC:-0}"\n')
 
     def run_cmd(self, *args, check=False, **kwargs):
         return subprocess.run(args, cwd=self.repo, env=self.env, text=True,
@@ -140,14 +141,55 @@ exec "{real_git}" "$@"
         self.assertNotIn("later commit", result.stdout)
         self.assertFalse(self.claude_called.exists())
 
-    def test_missing_template(self):
+    def test_missing_or_non_regular_template(self):
+        for kind in ("missing", "directory"):
+            copied = self.root / f"script copy {kind}"
+            copied.mkdir()
+            script = shutil.copy(PLUGIN / "scripts/k8s-rebase-review.sh", copied)
+            if kind == "directory":
+                (copied / "k8s-rebase-review-prompt.md").mkdir()
+            for print_prompt in (True, False):
+                with self.subTest(kind=kind, print_prompt=print_prompt):
+                    args = ("--print-prompt",) if print_prompt else ()
+                    result = self.run_cmd("bash", script, *args, "HEAD", "context")
+                    if print_prompt:
+                        self.assertEqual(result.returncode, 1, result.stderr)
+                        self.assertEqual(result.stdout, "")
+                        self.assertIn("ERROR:", result.stderr)
+                    else:
+                        self.assertEqual(result.returncode, 0, result.stderr)
+                        self.assertIn("APPROVE: template not found, skipping", result.stdout)
+                    self.assertFalse(self.claude_called.exists())
+
+    def test_template_disappears_during_collection(self):
         copied = self.root / "script copy"
         copied.mkdir()
-        shutil.copy(PLUGIN / "scripts/k8s-rebase-review.sh", copied)
-        result = self.run_cmd("bash", str(copied / "k8s-rebase-review.sh"),
-                              "--print-prompt", "HEAD", "context")
-        self.assertNotEqual(result.returncode, 0)
-        self.assertNotIn("APPROVE:", result.stdout)
+        script = shutil.copy(PLUGIN / "scripts/k8s-rebase-review.sh", copied)
+        template = copied / "k8s-rebase-review-prompt.md"
+        self.env["REVIEW_TEMPLATE"] = str(template)
+        real_git = shutil.which("git")
+        self.stub("git", f'''for arg in "$@"; do
+  if [[ "$arg" == show ]]; then
+    mv -- "$REVIEW_TEMPLATE" "$REVIEW_TEMPLATE.removed" || exit 1
+  fi
+done
+exec "{real_git}" "$@"
+''')
+        for print_prompt in (True, False):
+            with self.subTest(print_prompt=print_prompt):
+                shutil.copy(PLUGIN / "scripts/k8s-rebase-review-prompt.md", template)
+                args = ("--print-prompt",) if print_prompt else ()
+                result = self.run_cmd("bash", script, *args, "HEAD", "context")
+                self.assertFalse(template.exists())
+                self.assertTrue(Path(f"{template}.removed").is_file())
+                if print_prompt:
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertEqual(result.stdout, "")
+                    self.assertIn("ERROR:", result.stderr)
+                else:
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertIn("APPROVE: template not found, skipping", result.stdout)
+                self.assertFalse(self.claude_called.exists())
 
     def test_empty_filtered_diff_is_valid(self):
         self.run_cmd("git", "checkout", "-qb", "empty-filter", self.base, check=True)
@@ -170,16 +212,53 @@ exec "{real_git}" "$@"
             self.assertIn("truncated", result.stdout)
 
     def test_claude_default_verdicts(self):
-        for verdict, expected in (("APPROVE: fixture", 0), ("REJECT: fixture", 1),
-                                  ("malformed", 0)):
-            with self.subTest(verdict=verdict):
+        for verdict, model_rc, expected in (("APPROVE: fixture", 0, 0), ("REJECT: fixture", 0, 1),
+                                            ("malformed", 0, 0), ("", 17, 0),
+                                            ("REJECT: fixture", 17, 1)):
+            with self.subTest(verdict=verdict, model_rc=model_rc):
+                self.claude_called.unlink(missing_ok=True)
                 self.env["TEST_VERDICT"] = verdict
+                self.env["TEST_REVIEW_RC"] = str(model_rc)
                 result = self.review("fix", "HEAD", "context")
                 self.assertEqual(result.returncode, expected, result.stderr)
+                expected_verdict = verdict if verdict.startswith(("APPROVE:", "REJECT:")) else "APPROVE: no verdict"
+                self.assertIn(expected_verdict, result.stdout)
                 self.assertTrue(self.claude_called.exists())
+        self.env["TEST_REVIEW_RC"] = "0"
         result = self.review("pr", self.base, "1.36.0")
         self.assertEqual(result.returncode, 0)
         self.assertIn("COMMIT COMPLETENESS", self.claude_called.read_text())
+
+    def test_claude_render_failure_keeps_legacy_behavior(self):
+        self.stub("envsubst", "exit 19\n")
+        result = self.review("fix", "HEAD", "context")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("APPROVE: fixture", result.stdout)
+        self.assertEqual(self.claude_called.read_text(), "\n")
+
+    def test_claude_timeout_keeps_legacy_fallback(self):
+        self.stub("timeout", "exit 124\n")
+        result = self.review("fix", "HEAD", "context")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("APPROVE: no verdict", result.stdout)
+        self.assertFalse(self.claude_called.exists())
+
+    def test_missing_claude_keeps_legacy_fallback_and_allows_preparation(self):
+        # Restrict this subprocess's PATH, never remove or invoke an installed CLI.
+        isolated_bin = self.root / "no reviewer bin"
+        isolated_bin.mkdir()
+        for tool in ("bash", "dirname", "git", "envsubst", "head", "wc", "grep"):
+            path = shutil.which(tool)
+            self.assertIsNotNone(path, tool)
+            (isolated_bin / tool).symlink_to(path)
+        self.env["PATH"] = str(isolated_bin)
+        prepared = self.review("fix", "--print-prompt", "HEAD", "context")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertIn("REVIEW COMMIT:", prepared.stdout)
+        result = self.review("fix", "HEAD", "context")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn("APPROVE: claude CLI not available", result.stdout)
+        self.assertFalse(self.claude_called.exists())
 
     def activate(self, step=3):
         state = self.repo / ".rebase-tmp"

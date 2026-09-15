@@ -48,7 +48,8 @@ support are implemented. Step 5's existing rubric was extracted into the small
 `scripts/k8s-rebase-pr-review.sh` helper. No new package, provider configuration,
 or attribution change is needed. This plugin is new relative to `origin/main`,
 so its initial version remains 0.0.1. **Installed and interface-tested, not
-end-to-end qualified.** The three behavioral closeout items below remain open.
+end-to-end qualified.** Template preparation is closed out; reviewer routing
+and truthful gate summaries remain open.
 
 Current-source review at `35beb078` changes the previous assessment:
 
@@ -62,17 +63,17 @@ Current-source review at `35beb078` changes the previous assessment:
   the dependency fix is not complete or requalified. See the separate
   shared-workflow prerequisites below, including the new Step 4 scope rule.
 - The installed Codex package still matches `258dfab8`, **not current source**:
-  the orchestrator, mechanical rebase script, and Step 4 instructions differ.
-  The review helpers, hooks, gate prompts, and compatibility tests are unchanged.
+  the orchestrator, mechanical rebase script, Step 4 instructions, and now the
+  fix-review helper differ. Hooks and gate prompts remain unchanged.
   Refresh a frozen package before any new installed-agent qualification.
 - Lint discovery fixes are committed in `90b15604`, with 46 repository tests
   passing. They are separate from the compatibility implementation; the
   nested-checkout errors were not suppressed by relaxing validation criteria.
 
-Rechecked through `905c86fc` (runtime sources unchanged): all 15 offline
-compatibility tests, seven supplemental shell tests, eight evidence/template
-pairs, and strict site build pass. The template false approvals still reproduce;
-those supplemental tests detect the bugs, not certify their repair. Six backend
+Audit through `905c86fc`: all 15 then-existing compatibility tests, seven
+supplemental shell tests, eight evidence/template pairs, and strict site build
+passed. The template false approvals reproduced before closeout item 1 below;
+those supplemental tests detected the bugs, not certified their repair. Six backend
 verdict/freshness probes and an isolated stash probe confirm the findings below.
 The re-audit also reproduced the metadata-format and gate-error cases below.
 No new live runtime qualification or real rebase was launched.
@@ -80,34 +81,28 @@ Codex remains 0.154.0; installed Claude is now 2.1.271, whereas the recorded
 live evidence used 2.1.270. Do not silently transfer those results to new code
 or a different runtime version. Earlier validation is retained under provenance.
 
-Next: close the small interface defects, resolve the two separately introduced
+Next: make the host-runtime review branches exclusive (item 2), then correct
+gate summaries (item 3). Resolve the two separately introduced
 shared-workflow defects, then freeze/reinstall and run focused agent fixtures
 before the bounded qualification pair. Do not start another full rebase to
 rediscover the already-reproduced failures.
 
-### Remaining closeout — do before further qualification
+### Closeout status — complete before further qualification
 
-1. **P2 — Fail closed on every Codex template failure.** In
-   `scripts/k8s-rebase-review.sh`, the early `-r` check accepts a readable
-   directory; the later missing-file fallback then returns exit 0 and
-   `APPROVE: template not found, skipping` in `--print-prompt` mode. A valid
-   template disappearing during evidence collection reaches the same fallback.
-   Require a readable regular file and make the later fallback an error for
-   print-only mode, preserving default Claude behavior. Add both regression
-   cases to `test/test_compatibility.py`: nonzero exit, no approval or populated
-   prompt, and no model invocation. The existing initially-missing-file test
-   does not cover these cases.
-   Run the corresponding default-Claude cases too: its existing fallback
-   behavior must remain unchanged. Include baseline comparisons for rendering
-   failure, unavailable CLI, and timeout/nonzero/missing-verdict outcomes.
-
-   Reproduce without changing installed sources: create a disposable Git repo
-   with an empty `main` commit and a child commit on a fix branch; copy the
-   review script into an isolated scripts directory, then create a directory
-   named `k8s-rebase-review-prompt.md` beside it. From that repo, run the copy
-   with `--print-prompt HEAD context`. For the disappearing-file case, start
-   with the real template and use a test-only Git shim to move it aside when
-   collecting `git show` evidence. Both currently produce the false approval.
+1. **Done — Codex template failures fail closed.**
+   `scripts/k8s-rebase-review.sh` now requires a readable regular template in
+   print-only mode and errors if it disappears during collection. Previously,
+   a readable directory passed `-r`, and either case reached Claude's legacy
+   `APPROVE: template not found, skipping` fallback. Both new regressions
+   failed before the fix and pass afterward: exit 1, empty stdout, an error on
+   stderr, and no reviewer invocation. The disappearance fixture moves only
+   its private template during `git show`; installed sources are untouched.
+   `test/test_compatibility.py` now has 19 passing tests, including both modes
+   for missing/directory/disappearing templates and Claude rendering, absent
+   CLI, timeout, nonzero, and missing-verdict behavior. Baseline comparisons of
+   the working-tree helper against `69ff8893` also pass. Eight evidence/template
+   pairs, Bash syntax, and warning-level ShellCheck pass. No review rubric,
+   Claude failure policy, installed package, or other closeout item changed.
 2. **P2 — Make review branches exclusive to the host runtime.** Two live
    Claude sessions followed Step 5's Codex `--print-prompt`/native `Agent`
    branch rather than the prescribed default helper/nested `claude -p` path.
@@ -554,6 +549,9 @@ The current-backend and stash probes are in `recheck-20260915.py`; the later
 missing-report overwrite probe is in `recheck-missing-reports-20260915.py`. The old
 `audit-gates-2/audit.py` pins its source comparison to `38e6f58c` and expects
 SKIP to block; do not reuse it unchanged as current-candidate qualification.
+Likewise, the old shell template probe expects the false approval now fixed;
+use the tracked regression tests for that case. `review-working-tree-parity.py`
+reuses its Claude baseline comparisons against the working-tree helper.
 Earlier root test output and superseded draft plans were archived, not deleted,
 under `cleanup-20260914.EzzsOQ/`. Its completed Claude multus 1.35.3 run is
 historical coverage, not the planned matched 1.36.2 qualification pair.
