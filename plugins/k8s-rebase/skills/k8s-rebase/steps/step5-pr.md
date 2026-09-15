@@ -49,8 +49,9 @@ verdict from infrastructure failure retains the existing continuation policy.
 ### Codex only
 
 Collect checked evidence without invoking Claude. Run preparation directly
-and check its exit status; do not pipe it through `head` or another filter
-that can hide failure or discard prompt content:
+and check its completed exit status. Tool wrappers must retain/check that
+status, not return only stdout. Do not pipe preparation through `head` or
+another filter that can hide failure or discard prompt content:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main) || exit 1

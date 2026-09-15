@@ -48,8 +48,9 @@ support are implemented. Step 5's existing rubric was extracted into the small
 `scripts/k8s-rebase-pr-review.sh` helper. No new package, provider configuration,
 or attribution change is needed. This plugin is new relative to `origin/main`,
 so its initial version remains 0.0.1. **Installed and interface-tested, not
-end-to-end qualified.** Template preparation and host-runtime review routing
-are closed out at the scopes below; truthful gate summaries remain open.
+end-to-end qualified.** Template preparation and host-branch selection are
+closed out at the scopes below; Step 5 status handling and truthful gate
+summaries remain open.
 
 Shared-workflow audit and installed-package status:
 
@@ -83,7 +84,8 @@ earlier live evidence used Claude 2.1.270. Do not silently transfer results
 to new code or a different runtime version. Earlier validation remains under
 provenance.
 
-Next: correct gate summaries (item 3). Resolve the two separately introduced
+Next: verify Step 5 preparation status handling (item 2) and correct gate
+summaries (item 3). Resolve the two separately introduced
 shared-workflow defects, then freeze/reinstall and run focused agent fixtures
 before the bounded qualification pair. Do not start another full rebase to
 rediscover the already-reproduced failures.
@@ -104,8 +106,8 @@ rediscover the already-reproduced failures.
    the working-tree helper against `69ff8893` also pass. Eight evidence/template
    pairs, Bash syntax, and warning-level ShellCheck pass. No review rubric,
    Claude failure policy, installed package, or other closeout item changed.
-2. **Done — Exclusive host-runtime review (`d0184fd5`).** This corrects the
-   observed Claude selection of Codex's review branch and filtered preparation.
+2. **Host selection done; Step 5 status handling needs recheck.** `d0184fd5`
+   corrects Claude's observed selection of Codex's branch and filtered preparation.
    `SKILL.md` carries the current parent's host runtime into workers;
    cross-agent resumes use the new host. Step 4/5 review sections explicitly
    select one host-only branch. Claude retains the default nested helper and
@@ -114,11 +116,19 @@ rediscover the already-reproduced failures.
    Bootstrap stop wording no longer imposes Codex's fallback policy on Claude.
    No host flag, configuration, persisted field, helper, or rubric changed.
    The host is not inferred from paths, model vendor, tools, or installed CLIs.
-   Eight scoped live cases pass: both hosts' Step 4/5 paths and explicit worker
-   handoffs, Codex preparation failure, and Claude's timeout fallback. Actual
-   calls confirm default nested helpers on Claude and checked preparation plus
-   fresh-context native review on Codex. All 19 offline compatibility tests and
-   historical helper-parity checks still pass. Discovery and unavailable-tool
+   Eight scoped live cases selected the expected branch: both hosts' Step 4/5
+   paths and explicit worker handoffs, Codex preparation failure, and Claude's
+   timeout fallback. Actual
+   calls confirm default nested helpers on Claude and fresh-context native
+   review on Codex. The Step 4 direct and failure cases check preparation status;
+   the Step 5 wrapper returned only stdout and never inspected the exit code.
+   The instructions now explicitly require wrappers to retain/check that code.
+   Re-run a successful Step 5 preparation and a failed one; inspect actual
+   status handling and require failure to stop before review or PR generation.
+   The read-only worker fixture combined preparation and review in one fresh
+   worker: it proves routing, not independence after worker implementation.
+   All 19 offline compatibility tests and historical helper-parity checks
+   still pass. Discovery and unavailable-tool
    fixture limits below remain part of final qualification, not claimed passes.
 3. **Align gate handling and PR claims with retained verdicts.** One Claude
    PR body said
@@ -498,8 +508,12 @@ and local main `d619d9e2`; Step 5 used synthetic completed state and a retained
 INCONCLUSIVE report. Both hosts selected their own Step 4/5 review path and
 returned real approvals. Explicit step-worker handoffs retained that choice;
 Claude's worker ran the default helper. Codex's direct review spawns used
-`fork_turns: none`; preparation ran without a filtering pipeline and its exit
-status was checked. With HEAD also on local main, Codex stopped on preparation
+`fork_turns: none`; preparation ran without a filtering pipeline. The Step 4
+direct/failure cases checked exit status, but the Step 5 wrapper hid it by
+returning only stdout; that case does not verify checked status handling.
+Codex's read-only step worker prepared and reviewed evidence itself, so it
+does not test a separate review after ordinary worker implementation.
+With HEAD also on local main, Codex stopped on preparation
 error without spawning a reviewer. A test-only timeout shim confirmed Claude's
 documented fallback, clearly reported as infrastructure fallback, not real review.
 Fixture code, commits, state, retained reports, and INCOMPLETE were preserved.

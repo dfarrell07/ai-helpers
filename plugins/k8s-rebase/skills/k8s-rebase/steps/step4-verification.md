@@ -139,8 +139,9 @@ infrastructure fallback; Claude does not require a native independent reviewer.
 ### Codex only
 
 Prepare the selected-commit evidence without invoking Claude. Run preparation
-directly and check its exit status; do not pipe it through `head` or another
-filter that can hide failure or discard prompt content:
+directly and check its completed exit status. Tool wrappers must retain/check
+that status, not return only stdout. Do not pipe preparation through `head`
+or another filter that can hide failure or discard prompt content:
 
 ```bash
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" --print-prompt "$(git rev-parse HEAD)" "k8s rebase" || exit 1
