@@ -98,7 +98,9 @@ report it rather than bypassing the hook. This compatibility change leaves
 module-safety policy and commit trailers unchanged.
 
 Focused offline checks: `python3 test/test_compatibility.py` (no models or
-builds). Installed-package evidence is revision-specific: Codex CLI 0.154.0
+builds), plus `make test-version-selection` for Step 1 selection with a stubbed
+proxy and Go's read-only parser.
+Installed-package evidence is revision-specific: Codex CLI 0.154.0
 enforced all five hooks at `258dfab8` with invocation-only trust. Codex and
 Claude CLI 2.1.272 retained mixed gate outcomes in Step 5 fixtures at `fc159768`.
 The current installed snapshot is `8ecfc04e`: Codex's preparation-status
@@ -108,9 +110,10 @@ path are unchanged from `fc159768`. See the
 for current candidates, exact coverage, and remaining checks.
 
 End-to-end qualification remains blocked. Historical Codex/Claude rebases
-of pinned ovn-kubernetes-mcp to 1.35.3 stopped on Step 1 dependency drift;
-later Step 1 changes are not yet qualified. The separate Step 1 selection
-and Step 4 lint-scope defects must be addressed before another full rebase.
+of pinned ovn-kubernetes-mcp to 1.35.3 stopped on Step 1 dependency drift.
+The Step 1 selection correction passes focused offline checks but is not yet
+installed or rebase-qualified. Fix the separate Step 4 lint-scope defect before
+reinstalling and qualifying the updated candidate.
 Interface and finalization fixtures do not prove a complete migration.
 
 ## Contents

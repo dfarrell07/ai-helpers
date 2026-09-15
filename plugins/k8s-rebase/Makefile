@@ -120,6 +120,10 @@ assert-evidence-paths: ## Verify all companion .sh files have matching EVIDENCE 
 test-compatibility: ## Offline Claude/Codex review, hook, and gate interface checks
 	@python3 test/test_compatibility.py
 
+.PHONY: test-version-selection
+test-version-selection: ## Offline Step 1 metadata and command-derivation checks
+	@python3 test/test_version_selection.py
+
 eval: ## Run the agent-eval-harness pattern-retention eval for one case (case=NNN required). Manually-triggered only, same as `make court`.
 	@test -n "$(case)" || (echo "ERROR: case required, e.g. make eval case=001" && exit 1)
 	@INPUT="evals/cases/pattern-retention/case-$(case)/input.yaml"; \

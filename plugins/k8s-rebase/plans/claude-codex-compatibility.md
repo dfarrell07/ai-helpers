@@ -59,14 +59,15 @@ Shared-workflow audit and installed-package status:
   counts SKIP in the PASS column, so it is not an exact-verdict summary.
 - The same commit changed Step 1 OpenShift/kube-openapi selection. The old
   dependency failure is historical evidence, not proof this candidate fails
-  identically. However, its new minor parser rejects even matching versions;
-  the dependency fix is not complete or requalified. See the separate
-  shared-workflow prerequisites below, including the new Step 4 scope rule.
+  identically. Its broken OpenShift metadata parsing and unchecked fallback
+  are now corrected with focused offline tests; a full Step 1 rebase remains
+  unqualified. See the separate shared-workflow corrections below.
 - The installed Codex package was refreshed through the existing local
   marketplace to frozen `8ecfc04e` for the final preparation-status fixtures.
   All 121 package files and executable bits match that Git snapshot. Its
   helpers, hooks, and manifest are unchanged from `adda641c`; the earlier
-  installed `258dfab8` evidence is historical.
+  installed `258dfab8` evidence is historical. The current Step 1 correction
+  is not in that installed snapshot.
   Freeze and refresh again after the remaining implementation changes.
 - Lint discovery fixes are committed in `90b15604`, with 46 repository tests
   passing. They are separate from the compatibility implementation; the
@@ -84,10 +85,9 @@ earlier live evidence used Claude 2.1.270. Do not silently transfer results
 to new code or a different runtime version. Earlier validation remains under
 provenance.
 
-Next: resolve the separately introduced Step 1 version-selection and Step 4
-lint-scope defects, in that order. Then freeze/reinstall and finish the focused
-agent fixtures before the bounded qualification pair. Do not start another
-full rebase to rediscover the already-reproduced failures.
+Next: resolve the separately introduced Step 4 lint-scope defect. Then
+freeze/reinstall and finish the focused agent fixtures before the bounded
+qualification pair. Do not start another full rebase before that correction.
 
 ### Closeout status — complete before further qualification
 
@@ -150,30 +150,47 @@ These are defects in changes that landed after the compatibility candidate,
 not reasons to expand the Codex interface or port the eval harness. Keep their
 fixes separate and test the existing functions/instructions before a live run.
 
-1. **Finish the existing Step 1 version-selection correction.**
-   `_validate_openshift_k8s_minor` extracts `0` from both `v0.35.3` and
-   `v0.36.2`, rejecting a matching release-branch version as a mismatch.
-   Stubbed-proxy probes reproduce this for targets 35 and 36. A real matching
-   example is openshift/api `v0.0.0-20260904224155-42fb550ea02a` from
-   release-4.22: its module requires k8s.io/api v0.35.1.
-   Also, the claim that library-go does not pin Kubernetes is false:
-   [library-go's module at f7fdf34b126f](https://github.com/openshift/library-go/blob/f7fdf34b126f776c4bada841dad2d29fadbe1b9a/go.mod)
-   directly requires api/apimachinery/client-go v0.36.2. Its unvalidated
-   upgrade fallback can reintroduce drift. Skipping a direct api/client-go
-   update alone does not freeze the transitive graph.
-   Correct the parser and the existing unsafe version-selection assumptions,
-   including warnings that still say `@latest` when the update is skipped.
-   Test the existing assignments under `set -euo pipefail`, using stubbed
-   proxy responses and captured Go commands: matching/mismatching minors,
-   missing/malformed metadata, and library-go fallback. Include valid JSON
-   whitespace and both block/single-line `require` forms: current code exits 1
-   on spaced JSON and accepts a wrong-minor single-line requirement. Preserve
-   version-only stdout and distinguish parse/fetch failure from no dependency.
-   A repo without these OpenShift modules must not acquire a new prerequisite
-   on their optional metadata lookups; compare its derived commands unchanged.
-   Retain compatible existing dependencies or report inability to resolve;
-   do not silently claim an unvalidated version is safe. Verify the resulting
-   staging-module minor with existing checks; do not build a new resolver.
+1. **Done — Step 1 OpenShift selection correction, offline scope.**
+   The old minor parser extracted `0` from matching v0.35/v0.36 versions,
+   missed single-line requirements, and aborted on spaced JSON. Fetch failures
+   could certify unread metadata; library-go also had an unchecked fallback
+   despite its [direct Kubernetes requirements](https://github.com/openshift/library-go/blob/f7fdf34b126f776c4bada841dad2d29fadbe1b9a/go.mod).
+   The existing functions now parse JSON with Perl's core
+   [JSON::PP](https://perldoc.perl.org/JSON%3A%3APP) (Perl is already required)
+   and module requirements with
+   [Go's read-only `mod edit -json`](https://go.dev/ref/mod#go-mod-edit),
+   using stdin and the local toolchain without editing the target or downloading
+   modules. They check api/apimachinery/client-go requirements for all four
+   existing OpenShift selections, including library-go and build-machinery-go.
+   Failed fetches/parses and mismatching or non-release core versions leave
+   the selection unresolved; absence of direct core requirements is distinct.
+   JSON::PP 4.16 drops `\u0030`; proxy metadata containing that escape is
+   explicitly rejected, never silently decoded to a different version.
+   Optional lookup failures remain nonfatal. If a module actually requires an
+   unresolved package, command derivation stops before that module's updates;
+   it does not use an unversioned fallback or claim tidy preserves an old pin.
+   Actual require entries distinguish dependencies from the module's own name,
+   comments, replacements, and similarly prefixed paths. Warnings match behavior.
+   `make test-version-selection` runs 12 offline tests against the actual
+   functions, assignments, and module caller under `set -euo pipefail`, with
+   real parsers and a stubbed proxy. Matching/mixed/wrong minors, both require
+   forms, JSON whitespace, invalid/failed metadata, all four packages, and
+   caller stopping are covered; target files stay unchanged. Every case rejects
+   any jq invocation, covering the automatic Go image's existing tool set.
+   Independent review caught a draft jq prerequisite on comment-only matches;
+   the correction removes that new dependency entirely. The actual functions
+   also pass in cached Go image `02e4acc4db98` (Go 1.26.7, JSON::PP 4.16), with
+   jq absent, network disabled, and a read-only filesystem. This is a metadata
+   smoke check, not a rebase. Final independent re-review passed all 12 tests
+   and nine supplemental cases, including escaped-zero rejection and failing
+   Go/Perl commands that emit partial or valid-looking output; logs and the
+   source hash are under `.work/claude-codex-compatibility/independent-zero-recheck.Y327fO/`.
+   The initial nine tests produced 32 failed subcases against the old source and passed after
+   the correction. Non-OpenShift command derivation remains unchanged without
+   optional metadata. This is not transitive-graph or full-rebase qualification:
+   existing staging alignment and gate checks remain unchanged and must inspect
+   the actual resulting versions during qualification. No new resolver,
+   workflow instruction, hook, or installed package was introduced.
 2. **Make the new Step 4 lint scope check safe and meaningful.**
    `d9f938a9` added an undefined `from_commit` and a stash/lint/pop example
    that never checks out the baseline. With a clean tree and an existing

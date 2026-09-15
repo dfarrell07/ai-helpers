@@ -356,43 +356,64 @@ fi
 
 _resolve_openshift_version() {
   local pkg="$1"
-  local _info
-  _info=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
-    "https://proxy.golang.org/${pkg}/@v/${OPENSHIFT_BRANCH}.info" 2>/dev/null || true)
-  if [[ -n "$_info" ]]; then
-    echo "$_info" | grep -o '"Version":"[^"]*"' | head -1 | sed 's/"Version":"//;s/"//'
+  local _info ver
+  if ! _info=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
+    "https://proxy.golang.org/${pkg}/@v/${OPENSHIFT_BRANCH}.info" 2>/dev/null); then
+    info "WARNING: cannot resolve ${pkg}@${OPENSHIFT_BRANCH} from the proxy"
+    return 0
   fi
+  if ! ver=$(perl -MJSON::PP -0777 -e '
+    my $info = <STDIN>;
+    # JSON::PP 4.16 drops escaped ASCII zeroes. Do not silently alter a version.
+    die "Escaped zero in proxy metadata\n" if $info =~ /\\u0030/;
+    my $version = decode_json($info)->{Version};
+    die "Missing Version\n" if !defined $version || ref $version;
+    die "Invalid Version\n" unless $version =~ /\Av[0-9]+\.[0-9]+\.[0-9]+(?:[-+][0-9A-Za-z.+-]+)?\z/;
+    print $version;
+  ' <<< "$_info"); then
+    info "WARNING: cannot parse version metadata for ${pkg}@${OPENSHIFT_BRANCH}"
+    return 0
+  fi
+  printf '%s\n' "$ver"
 }
 
-# Cross-validate that a resolved openshift/* version's k8s.io/api requirement
-# matches the target minor. Returns the version on success, empty on mismatch.
-# Used only for client-go and api, which pin k8s directly.
+# Check direct core Kubernetes requirements, including those in library-go.
+# Optional lookups return an empty version on failure without aborting callers
+# under errexit. derive_go_gets rejects unresolved packages that the repo needs.
+# This is not a transitive-graph proof; retain the existing post-update checks.
 _validate_openshift_k8s_minor() {
   local pkg="$1" ver="$2"
-  [[ -z "$ver" ]] && return
-  local _mod
-  _mod=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
-    "https://proxy.golang.org/${pkg}/@v/${ver}.mod" 2>/dev/null || true)
-  if [[ -z "$_mod" ]]; then
-    # proxy unavailable — accept the version with a warning
-    info "WARNING: could not fetch go.mod for ${pkg}@${ver} — accepting without k8s minor validation"
-    echo "$ver"
-    return
+  [[ -z "$ver" ]] && return 0
+  local _mod _requirements dep required
+  if ! _mod=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
+    "https://proxy.golang.org/${pkg}/@v/${ver}.mod" 2>/dev/null); then
+    info "WARNING: cannot fetch go.mod for ${pkg}@${ver} — skipping this version"
+    return 0
   fi
-  local _api_ver
-  _api_ver=$(echo "$_mod" | grep -E '^\s+k8s\.io/api ' | awk '{print $2}' | head -1)
-  if [[ -z "$_api_ver" ]]; then
-    # no k8s.io/api dep — package doesn't pin k8s, accept it
-    echo "$ver"
-    return
+  # -json only reads the supplied file; it neither edits the target go.mod nor
+  # resolves dependencies. Disable automatic toolchain downloads for parsing.
+  if ! _requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json /dev/stdin <<< "$_mod" | \
+    perl -MJSON::PP -0777 -e '
+      my $pkg = shift;
+      my $mod = decode_json(<STDIN>);
+      die "Unexpected module path\n" unless ($mod->{Module}{Path} // "") eq $pkg;
+      for my $req (@{$mod->{Require} // []}) {
+        print "$req->{Path}\t$req->{Version}\n"
+          if $req->{Path} =~ m{^k8s[.]io/(api|apimachinery|client-go)$};
+      }
+    ' "$pkg"); then
+    info "WARNING: cannot parse go.mod for ${pkg}@${ver} — skipping this version"
+    return 0
   fi
-  local _resolved_minor
-  _resolved_minor=$(echo "$_api_ver" | grep -oE 'v0\.([0-9]+)\.' | grep -oE '[0-9]+\.' | tr -d '.' | head -1)
-  if [[ -n "$_resolved_minor" ]] && [[ "$_resolved_minor" -ne "$K8S_MINOR" ]]; then
-    info "WARNING: ${pkg}@${ver} requires k8s.io/api v0.${_resolved_minor}.x but target is v0.${K8S_MINOR}.x — skipping this version"
-    return
-  fi
-  echo "$ver"
+  while read -r dep required; do
+    [[ -z "$dep" ]] && continue
+    if [[ ! "$required" =~ ^v0\.([0-9]+)\.[0-9]+$ ]] || \
+       [[ "${BASH_REMATCH[1]}" != "$K8S_MINOR" ]]; then
+      info "WARNING: ${pkg}@${ver} requires ${dep} ${required}, target is v0.${K8S_MINOR}.x — skipping this version"
+      return 0
+    fi
+  done <<< "$_requirements"
+  printf '%s\n' "$ver"
 }
 
 OPENSHIFT_CLIENT_GO_VERSION=$(_resolve_openshift_version "github.com/openshift/client-go")
@@ -400,14 +421,16 @@ OPENSHIFT_CLIENT_GO_VERSION=$(_validate_openshift_k8s_minor "github.com/openshif
 OPENSHIFT_API_VERSION=$(_resolve_openshift_version "github.com/openshift/api")
 OPENSHIFT_API_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/api" "$OPENSHIFT_API_VERSION")
 OPENSHIFT_LIBRARY_GO_VERSION=$(_resolve_openshift_version "github.com/openshift/library-go")
+OPENSHIFT_LIBRARY_GO_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/library-go" "$OPENSHIFT_LIBRARY_GO_VERSION")
 OPENSHIFT_BUILD_MACHINERY_VERSION=$(_resolve_openshift_version "github.com/openshift/build-machinery-go")
+OPENSHIFT_BUILD_MACHINERY_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/build-machinery-go" "$OPENSHIFT_BUILD_MACHINERY_VERSION")
 
 [[ -n "$OPENSHIFT_CLIENT_GO_VERSION" ]] && \
   info "openshift/client-go: $OPENSHIFT_CLIENT_GO_VERSION (branch $OPENSHIFT_BRANCH)" || \
-  info "openshift/client-go: branch $OPENSHIFT_BRANCH not on proxy — will use @latest"
+  info "openshift/client-go: no verified $OPENSHIFT_BRANCH version available"
 [[ -n "$OPENSHIFT_API_VERSION" ]] && \
   info "openshift/api: $OPENSHIFT_API_VERSION (branch $OPENSHIFT_BRANCH)" || \
-  info "openshift/api: branch $OPENSHIFT_BRANCH not on proxy — will use @latest"
+  info "openshift/api: no verified $OPENSHIFT_BRANCH version available"
 
 # Discover the kube-openapi version required by k8s.io/apimachinery at the target version.
 # kube-openapi uses date-based pseudo-versions and @latest may jump to a version that
@@ -496,14 +519,23 @@ derive_go_gets() {
   # Rule 2b: openshift/* packages
   # Versions are resolved earlier via the release-4.X/5.X branch to avoid @latest
   # picking a commit from a newer OCP branch that pulls k8s.io/api beyond the target.
-  # client-go and api pin k8s directly: if no safe version was resolved, skip the
-  # go get entirely (go mod tidy keeps the existing version) rather than falling back
-  # to @latest which may pull an incompatible k8s minor via MVS.
-  # library-go and build-machinery-go do not pin k8s directly, so @latest is safe.
-  local _os_pkg _os_ver
+  # All four packages need checked metadata. Neither an unversioned update nor
+  # skipping one direct update guarantees that MVS retains compatible versions.
+  # Match actual requirements, not comments, replacements, or the module itself.
+  local _os_pkg _os_ver _os_requirements=""
+  if grep -qE 'github[.]com/openshift/(api|client-go|library-go|build-machinery-go)([[:space:]"]|$)' "$gomod"; then
+    if ! _os_requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json /dev/stdin < "$gomod" | \
+      perl -MJSON::PP -0777 -e '
+        my $mod = decode_json(<STDIN>);
+        print "$_->{Path}\n" for @{$mod->{Require} // []};
+      '); then
+      info "ERROR: cannot read requirements from ${gomod}"
+      return 1
+    fi
+  fi
   for _os_pkg in "github.com/openshift/client-go" "github.com/openshift/api" \
                   "github.com/openshift/library-go" "github.com/openshift/build-machinery-go"; do
-    if grep -q "$_os_pkg" "$gomod"; then
+    if grep -qxF "$_os_pkg" <<< "$_os_requirements"; then
       case "$_os_pkg" in
         *client-go)        _os_ver="$OPENSHIFT_CLIENT_GO_VERSION" ;;
         */api)             _os_ver="$OPENSHIFT_API_VERSION" ;;
@@ -514,15 +546,8 @@ derive_go_gets() {
       if [[ -n "$_os_ver" ]]; then
         cmds+=("go get ${_os_pkg}@${_os_ver}")
       else
-        case "$_os_pkg" in
-          *client-go|*/api)
-            # k8s-version-locked: @latest risks pulling wrong k8s minor; skip.
-            info "WARNING: no safe ${OPENSHIFT_BRANCH} version found for ${_os_pkg} — skipping go get (existing version kept by go mod tidy)"
-            ;;
-          *)
-            cmds+=("go get ${_os_pkg}")
-            ;;
-        esac
+        info "ERROR: no verified ${OPENSHIFT_BRANCH} version for ${_os_pkg}; cannot derive updates for ${gomod}"
+        return 1
       fi
     fi
   done
