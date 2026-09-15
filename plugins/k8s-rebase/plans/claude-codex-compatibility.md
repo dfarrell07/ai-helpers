@@ -69,10 +69,13 @@ Current-source review at `35beb078` changes the previous assessment:
   passing. They are separate from the compatibility implementation; the
   nested-checkout errors were not suppressed by relaxing validation criteria.
 
-Rechecked today: all 15 offline compatibility tests, all eight evidence/template
-pairs, and strict site build pass. The template-directory false approval still
-reproduces. Six current-backend verdict/freshness probes and an isolated stash
-probe confirm the findings below. No real rebase or model session was launched.
+Rechecked through `905c86fc` (runtime sources unchanged): all 15 offline
+compatibility tests, seven supplemental shell tests, eight evidence/template
+pairs, and strict site build pass. The template false approvals still reproduce;
+those supplemental tests detect the bugs, not certify their repair. Six backend
+verdict/freshness probes and an isolated stash probe confirm the findings below.
+The re-audit also reproduced the metadata-format and gate-error cases below.
+No new live runtime qualification or real rebase was launched.
 Codex remains 0.154.0; installed Claude is now 2.1.271, whereas the recorded
 live evidence used 2.1.270. Do not silently transfer those results to new code
 or a different runtime version. Earlier validation is retained under provenance.
@@ -94,6 +97,9 @@ rediscover the already-reproduced failures.
    cases to `test/test_compatibility.py`: nonzero exit, no approval or populated
    prompt, and no model invocation. The existing initially-missing-file test
    does not cover these cases.
+   Run the corresponding default-Claude cases too: its existing fallback
+   behavior must remain unchanged. Include baseline comparisons for rendering
+   failure, unavailable CLI, and timeout/nonzero/missing-verdict outcomes.
 
    Reproduce without changing installed sources: create a disposable Git repo
    with an empty `main` commit and a child commit on a fix branch; copy the
@@ -107,8 +113,10 @@ rediscover the already-reproduced failures.
    branch rather than the prescribed default helper/nested `claude -p` path.
    This repeated with byte-identical sources at a neutral installation path.
    The first also piped preparation through `head -100` without pipefail.
-   Make the runtime choice explicit in the shared Step 4/5 review instructions;
+   Make the runtime choice explicit in `SKILL.md` and Step 4/5 instructions;
    carry the parent's host-runtime identity into delegated step instructions.
+   Scope the missing-reviewer hard stop to Codex; do not let the bootstrap's
+   generic stop wording override Claude's retained infrastructure fallback.
    Do not infer it from the plugin path, model vendor, or installed CLI names.
    Re-run installed-agent fixtures and verify actual tool calls, including
    direct preparation exit-status handling. Default-helper parity tests pass;
@@ -124,9 +132,14 @@ rediscover the already-reproduced failures.
    without retrying it or calling it PASS. Inspect exact reports, not the
    backend's PASS aggregate; keep FAIL/INCONCLUSIVE unresolved. This adopts
    `63a0a2e6`, not a further gate-policy change.
+   Compare reports with the existing gate inventory too: absent/unusable
+   prior-step reports are unverified, not PASS. A later force-advance can
+   overwrite the only INCOMPLETE record mentioning an earlier missing report.
    Repeat the synthetic finalization fixture with a prior-step INCONCLUSIVE,
-   a final-step FAIL, a legitimate SKIP, and an INCOMPLETE record for only the
-   final step. Assert exact verdicts in both the PR body and chat summary.
+   an absent earlier report, a final-step FAIL, a legitimate SKIP, and an
+   INCOMPLETE record for only the final step. Assert exact verdicts and missing
+   checks in both outputs; do not manufacture replacement reports. Prior-step
+   PASS remains evidence at its recorded SHA, not proof of retesting final HEAD.
    Add offline PASS/SKIP acceptance and blocking/freshness regressions to the
    existing suite. In the same documentation pass, correct `ci-readiness.md`'s
    leftover `find` wording without changing its missing-document NOTE/skip
@@ -156,8 +169,14 @@ fixes separate and test the existing functions/instructions before a live run.
    update alone does not freeze the transitive graph.
    Correct the parser and the existing unsafe version-selection assumptions,
    including warnings that still say `@latest` when the update is skipped.
-   Test matching/mismatching minors, unavailable or unusable proxy metadata,
-   and library-go fallback with a stubbed proxy and captured Go commands.
+   Test the existing assignments under `set -euo pipefail`, using stubbed
+   proxy responses and captured Go commands: matching/mismatching minors,
+   missing/malformed metadata, and library-go fallback. Include valid JSON
+   whitespace and both block/single-line `require` forms: current code exits 1
+   on spaced JSON and accepts a wrong-minor single-line requirement. Preserve
+   version-only stdout and distinguish parse/fetch failure from no dependency.
+   A repo without these OpenShift modules must not acquire a new prerequisite
+   on their optional metadata lookups; compare its derived commands unchanged.
    Retain compatible existing dependencies or report inability to resolve;
    do not silently claim an unvalidated version is safe. Verify the resulting
    staging-module minor with existing checks; do not build a new resolver.
@@ -268,9 +287,11 @@ Correct the shared caller instructions to match the existing orchestrator:
 1. Use the returned `STEP_FILE` relative to `skills/k8s-rebase/`; it already
    includes `steps/` and `.md`. Check completion on resume before resolving
    a step file. Step 5 runs after gated completion and is never advanced.
-2. Run `gates` to execute companions and discover pending work. Exit 1 means
-   pending work, not an infrastructure failure. Exit 0 means no pending work,
-   not that all verdicts passed. Inspect EXISTING/RESOLVED verdicts too.
+2. Run `gates` to execute companions and discover pending work. Exit 1 with
+   complete normal PENDING output means reviews remain. Unexpected errors stop the
+   caller: an inaccessible repo also returns 1, without gate output. Successful
+   exit 0 means no pending work, not all verdicts passed. Inspect cached
+   EXISTING/RESOLVED verdicts too.
    Fresh PASS and justified SKIP satisfy advancement; retain SKIP as SKIP,
    not PASS. FAIL and INCONCLUSIVE need triage, not automatic success.
    `status` currently aggregates SKIP under PASS; reports retain the truth.
@@ -311,8 +332,9 @@ Choose exactly one branch by the current host runtime: Claude uses the default
 helper/nested CLI; Codex uses print-only preparation and a native reviewer.
 For Codex, use a fresh-context, read-only native reviewer, supplied with the
 review rubric and evidence rather than the parent's reasoning history.
-A parent self-check is not an independent review. If no independent reviewer
-is available, stop at the review boundary and report the missing capability.
+A parent self-check is not an independent review. Codex stops when that reviewer
+is unavailable. Claude retains its existing nested-CLI failure policy; it must
+not acquire a requirement for native reviewers or Codex's stricter fallback.
 
 Keep the two existing review scopes distinct:
 
@@ -389,15 +411,24 @@ Keep tests targeted at the changed interfaces:
   Verify a subdirectory-started session stops before `init`, even when a
   command's workdir is overridden to the repo root; a root-started session
   must retain hook activation during module-local commands.
-- Exercise ordinary inline fallback, long-running command completion, resume
-  (including version mismatch and completed state), cached exact verdicts,
-  stale reports after a commit, and FORCE_ADVANCE handoff. Assert no duplicate
-  advancement or deletion of prior-step reports. Cover sequential cross-agent
+- Exercise ordinary inline fallback, long-running command completion, resume,
+  cached exact verdicts, stale reports, and FORCE_ADVANCE handoff. Resume cases
+  include version mismatch, completed state, and missing/malformed state with
+  artifacts: refuse init and preserve reports, evidence, counters, and INCOMPLETE
+  in the invalid-state cases. Check gate-command errors separately from PENDING.
+  Use a harmless companion to verify same-HEAD invalidation precedes regeneration
+  and never deletes its newly generated report. Assert no duplicate advancement
+  or deletion of prior-step reports. Cover sequential cross-agent
   handoffs in fixtures at both a blocked Step 1 and a successful committed
   boundary; only the blocked handoffs have been recorded so far. Step 1
   structural failures must stop without advancement.
-- Test both review preparations, APPROVE/REJECT/missing-verdict outcomes,
-  and stopping when no independent reviewer is available.
+  Extend the delayed Step 1 stand-in to actual session interruption/resume:
+  an early result marker must not trigger dependent work or a second launch.
+  Distinguish a surviving child from a terminated/failed one before recovery;
+  preserve failure artifacts and check hook lifecycle without a real rebase.
+- Test both review preparations and APPROVE/REJECT/missing-verdict outcomes:
+  Codex stops without an independent reviewer; Claude keeps its existing
+  default-helper outcomes, including infrastructure fallbacks.
   Cover invalid commit/base references, failed evidence commands, and valid
   empty filtered diffs, plus both template failures in the closeout list.
   Failed collection must never yield successful Codex
@@ -405,7 +436,9 @@ Keep tests targeted at the changed interfaces:
   Prove the Codex path never invokes Claude and the Claude path still does,
   including actual agent branch selection, not just direct helper tests.
   Verify Step 5 retains its separate rubric and that every final PR verdict
-  claim agrees with the retained report, including unresolved prior steps.
+  claim agrees with the retained report, including unresolved or missing checks
+  in prior steps. Require real review approval for qualification even though
+  Claude's runtime retains its existing fallback policy.
 - Test hook payloads for both agents with active and inactive session guards.
   Verify trusted-hook behavior in Codex, including vendor edits, module
   commands, push/PR blocking, prior-step report deletion, and the Stop hook.
@@ -461,6 +494,12 @@ were byte-identical to baseline at that tip. Seven additional shell probes
 covered Claude default-path parity, immutable evidence, hook payloads, and
 template failure. That backend-parity claim predates `63a0a2e6`.
 
+The earlier `forward-test/` exercise already checked malformed/orphan state,
+early-marker waiting, stale evidence, inline gates, and force-advance mechanics.
+It used lightweight scripts and agent-led decisions, not both installed hosts
+or an actual session interruption. Reuse that evidence at its stated scope;
+the targeted fixtures above close the remaining gaps without a second framework.
+
 Recorded compatibility implementations: `a497f9d6` (interfaces), `d21f971c` (shared
 workflow), and `258dfab8` (Step 1 stopping). The clean local marketplace and
 installed Codex package matched `258dfab8` byte-for-byte, not the later shared
@@ -511,7 +550,8 @@ Local evidence under `.work/claude-codex-compatibility/` includes
 `forward-test/`, `hook-smoke.jsonl`, `subdirectory-smoke.jsonl`,
 `rebase-*-pinned.jsonl`, `resume-*.jsonl`, `handoff-*.jsonl`,
 `native-review.jsonl`, `claude-review-*.log`, and `finalization-*.jsonl`.
-The current-backend and stash probes are in `recheck-20260915.py`. The old
+The current-backend and stash probes are in `recheck-20260915.py`; the later
+missing-report overwrite probe is in `recheck-missing-reports-20260915.py`. The old
 `audit-gates-2/audit.py` pins its source comparison to `38e6f58c` and expects
 SKIP to block; do not reuse it unchanged as current-candidate qualification.
 Earlier root test output and superseded draft plans were archived, not deleted,
