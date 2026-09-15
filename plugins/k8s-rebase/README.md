@@ -98,17 +98,18 @@ report it rather than bypassing the hook. This compatibility change leaves
 module-safety policy and commit trailers unchanged.
 
 Focused offline checks: `python3 test/test_compatibility.py` (no models or
-builds). Installation and live enforcement of all five hooks were checked
-with Codex CLI 0.154.0 in a disposable repo, using invocation-only trust
-after inspecting the loaded hooks.
+builds). Installed-package evidence is revision-specific: Codex CLI 0.154.0
+enforced all five hooks at `258dfab8` with invocation-only trust; both hosts
+selected their review branches at `d0184fd5` (Claude CLI 2.1.272). The latter
+fixtures did not fully verify Step 5 preparation-status handling or gate
+summaries. See the [tracked compatibility plan](plans/claude-codex-compatibility.md)
+for current candidates, exact coverage, and remaining checks.
 
-End-to-end qualification remains blocked. On 2026-09-14, bounded Codex
-0.154.0 and Claude 2.1.270 rebases of a pinned ovn-kubernetes-mcp checkout
-to 1.35.3 both failed in the unchanged Step 1 script: dependency resolution
-selected API modules at v0.36.2 alongside kubectl v0.35.3, then tidy failed
-on the missing `scheduling/v1alpha1` package. Steps 2–5 remain unqualified;
-interface checks are not proof of a complete rebase. Fixing dependency
-selection is separate from this compatibility change.
+End-to-end qualification remains blocked. Historical Codex/Claude rebases
+of pinned ovn-kubernetes-mcp to 1.35.3 stopped on Step 1 dependency drift;
+later Step 1 changes are not yet qualified. The separate Step 1 selection
+and Step 4 lint-scope defects must be addressed before another full rebase.
+Interface and finalization fixtures do not prove a complete migration.
 
 ## Contents
 

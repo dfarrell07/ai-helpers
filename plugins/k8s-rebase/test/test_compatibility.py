@@ -310,7 +310,7 @@ exec "{real_git}" "$@"
         self.activate(step=5)
         self.assertFalse(self.hook("stop-hook.sh", {}))
 
-    def test_gate_cache_freshness_and_force_advance(self):
+    def isolated_orchestrator(self):
         # Isolate actual orchestrator from expensive real companions.
         isolated = self.root / "plugin"
         (isolated / "scripts").mkdir(parents=True)
@@ -324,6 +324,96 @@ exec "{real_git}" "$@"
         def run(action, *args):
             return self.run_cmd("bash", str(orch), action, str(self.repo), *args)
 
+        return run
+
+    def test_fresh_pass_and_skip_advance_without_retries(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=2)
+        state = self.repo / ".rebase-tmp"
+        writer = PLUGIN / "scripts/write-gate-report.sh"
+        for step, verdict in ((2, "PASS"), (3, "SKIP")):
+            with self.subTest(verdict=verdict):
+                self.run_cmd("bash", str(writer), str(self.repo), f"step{step}-check",
+                             verdict, "0", "fixture", check=True)
+                report = state / f"gates/step{step}-check.report"
+                original = report.read_bytes()
+                result = run("gates")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"EXISTING: check {verdict}", result.stdout)
+                result = run("advance")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(json.loads((state / "state.json").read_text())["current_step"], step + 1)
+                self.assertFalse((state / f".advance-attempts-step{step}").exists())
+                self.assertFalse((state / "status/INCOMPLETE").exists())
+                self.assertEqual(report.read_bytes(), original)
+
+    def test_fail_and_inconclusive_block_without_losing_reports(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=2)
+        state = self.repo / ".rebase-tmp"
+        original_state = (state / "state.json").read_bytes()
+        writer = PLUGIN / "scripts/write-gate-report.sh"
+        for attempt, verdict in enumerate(("FAIL", "INCONCLUSIVE"), 1):
+            with self.subTest(verdict=verdict):
+                self.run_cmd("bash", str(writer), str(self.repo), "step2-check",
+                             verdict, "1", "fixture", check=True)
+                report = state / "gates/step2-check.report"
+                original = report.read_bytes()
+                result = run("gates")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"EXISTING: check {verdict}", result.stdout)
+                result = run("advance")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("FAILING: step2-compilation/check", result.stdout)
+                self.assertEqual((state / ".advance-attempts-step2").read_text().strip(), str(attempt))
+                self.assertEqual((state / "state.json").read_bytes(), original_state)
+                self.assertEqual(report.read_bytes(), original)
+
+    def test_stale_pass_and_skip_still_block(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=2)
+        state = self.repo / ".rebase-tmp"
+        original_state = (state / "state.json").read_bytes()
+        writer = PLUGIN / "scripts/write-gate-report.sh"
+        for verdict in ("PASS", "SKIP"):
+            with self.subTest(verdict=verdict):
+                self.run_cmd("bash", str(writer), str(self.repo), "step2-check",
+                             verdict, "0", "fixture", check=True)
+                report = state / "gates/step2-check.report"
+                original = report.read_bytes()
+                self.run_cmd("git", "commit", "--allow-empty", "-qm", "new HEAD", check=True)
+                result = run("gates")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("PENDING: check", result.stdout)
+                result = run("advance")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("STALE: step2-compilation/check", result.stdout)
+                self.assertEqual((state / "state.json").read_bytes(), original_state)
+                self.assertEqual(report.read_bytes(), original)
+
+    def test_missing_and_malformed_reports_block(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=2)
+        state = self.repo / ".rebase-tmp"
+        original_state = (state / "state.json").read_bytes()
+        report = state / "gates/step2-check.report"
+        for contents in (None, f"HEAD: {self.git_sha()}\nVERDICT: unknown\n"):
+            with self.subTest(contents=contents):
+                if contents is not None:
+                    report.parent.mkdir(parents=True, exist_ok=True)
+                    report.write_text(contents)
+                self.assertEqual(run("gates").returncode, 1)
+                result = run("advance")
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertIn("MISSING: step2-compilation/check", result.stdout)
+                self.assertEqual((state / "state.json").read_bytes(), original_state)
+                if contents is None:
+                    self.assertFalse(report.exists())
+                else:
+                    self.assertEqual(report.read_text(), contents)
+
+    def test_gate_cache_freshness_and_force_advance(self):
+        run = self.isolated_orchestrator()
         result = run("init", "1.36.0")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("STEP_FILE: steps/step1-rebase.md", result.stdout)

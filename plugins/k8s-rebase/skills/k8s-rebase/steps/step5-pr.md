@@ -70,14 +70,27 @@ reuse approval after changes; refresh affected gates and review the final tip.
 
 **Do NOT execute this.** Print for user to copy-paste.
 
+Before drafting verification claims, inventory the gate prompts under
+`$PLUGIN_ROOT/gates/step{1,2,3,4}-*/`. Each `stepN-*/<gate>.md` expects
+`.rebase-tmp/gates/stepN-<gate>.report`. Read the retained reports' HEAD,
+exact VERDICT, and findings, plus `.rebase-tmp/status/INCOMPLETE` if present.
+Missing/unreadable/malformed reports are unverified, not PASS; INCOMPLETE
+records only the latest force-advance and cannot identify every missing check.
+
+Keep PASS, justified SKIP (with its reason), and unresolved FAIL/INCONCLUSIVE
+distinct in the PR body and final summary. Prior-step PASS is evidence at its
+recorded SHA, not proof of retesting the final tip; stale final-step reports
+do not establish final-HEAD verification. Do not manufacture or relabel reports
+to fill gaps. Neither DONE, force-advancement, aggregate counts, nor independent
+source-review approval changes another gate's verdict.
+
 Run `git log --oneline $BASE..HEAD` for the commit list. PR body:
 
 - One-line summary: k8s version, Go version
 - What changed: fix categories from commit subjects
 - Commit table: git log output, note mechanical vs manual
-- Verification: what passed locally, plus unresolved/force-advanced gates
-  from retained reports and `.rebase-tmp/status/INCOMPLETE` (the latter
-  records only the latest force-advance). DONE does not mean all gates passed.
+- Verification: checks actually performed, with the exact gate outcomes,
+  reasons for SKIP, unresolved findings, and unverified checks identified above.
 - Footer: "All commits carry `Assisted-by: Claude Code <noreply@anthropic.com>` trailers."
 
 Output `gh pr create --title "..." --body "..."` using a heredoc.

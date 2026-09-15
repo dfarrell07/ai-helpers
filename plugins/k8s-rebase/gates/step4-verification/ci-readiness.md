@@ -13,10 +13,10 @@ focus on CI-specific gaps that only matter at ship time:
    Check each hit — if it references the previous k8s minor
    version, flag whether the condition is still correct.
 3. Are there patterns in the doc that the agent should have fixed
-   manually but didn't? Find the patterns doc:
+   manually but didn't? Read the patterns doc at the verified plugin root:
    `test -f "$PLUGIN_ROOT/docs/k8s-rebase-patterns.md" && cat "$PLUGIN_ROOT/docs/k8s-rebase-patterns.md"`
    Read it and check the branch diff for each documented manual fix.
-   If the find command returns an empty string, write a NOTE in your
+   If the document is missing, write a NOTE in your
    report that the patterns document was not found and skip this check.
    Do not FAIL — absence of the patterns doc is an environment issue,
    not a rebase defect.

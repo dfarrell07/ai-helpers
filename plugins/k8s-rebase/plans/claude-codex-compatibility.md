@@ -84,8 +84,8 @@ earlier live evidence used Claude 2.1.270. Do not silently transfer results
 to new code or a different runtime version. Earlier validation remains under
 provenance.
 
-Next: verify Step 5 preparation status handling (item 2) and correct gate
-summaries (item 3). Resolve the two separately introduced
+Next: verify Step 5 preparation status handling (item 2) and the implemented
+gate-summary instructions (item 3). Resolve the two separately introduced
 shared-workflow defects, then freeze/reinstall and run focused agent fixtures
 before the bounded qualification pair. Do not start another full rebase to
 rediscover the already-reproduced failures.
@@ -130,7 +130,16 @@ rediscover the already-reproduced failures.
    All 19 offline compatibility tests and historical helper-parity checks
    still pass. Discovery and unavailable-tool
    fixture limits below remain part of final qualification, not claimed passes.
-3. **Align gate handling and PR claims with retained verdicts.** One Claude
+3. **Implemented — exact gate/PR outcomes; live recheck pending.** Shared
+   rules now accept fresh justified SKIP without calling it PASS, and Step 5
+   inventories expected reports before making verification claims. Four added
+   offline tests cover PASS/SKIP acceptance, stale PASS/SKIP, FAIL/INCONCLUSIVE,
+   and missing/malformed reports; all 23 compatibility tests pass. The backend,
+   report format, gate criteria, and retry thresholds are unchanged.
+   The CI-readiness path wording and revision-scoped README claims are corrected.
+   The installed finalization recheck below remains required.
+
+   One Claude
    PR body said
    `Gates passed: dep-release-notes (step 3)` while also listing that gate as
    INCONCLUSIVE. The report stayed INCONCLUSIVE throughout. This is an observed

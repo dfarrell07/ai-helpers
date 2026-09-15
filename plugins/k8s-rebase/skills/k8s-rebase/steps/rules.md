@@ -57,10 +57,12 @@ the user to copy-paste.
 ## Gate-Fix Loop
 
 1. Run `bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" <step>`.
-   It executes companions and identifies PENDING reviews. Exit 1 means pending
-   judgments, not infrastructure failure. Exit 0 means none pending, not all
-   passed: inspect EXISTING and RESOLVED verdicts too. FAIL, SKIP, and
-   INCONCLUSIVE are not PASS.
+   It executes companions and identifies PENDING reviews. Exit 1 with normal
+   PENDING output means judgments remain; unexpected errors stop the caller.
+   Exit 0 means none pending, not all passed: inspect EXISTING and RESOLVED
+   verdicts too. Fresh PASS and justified SKIP satisfy advancement; do not
+   retry an accepted SKIP or relabel it PASS. FAIL and INCONCLUSIVE remain
+   unresolved. Read exact reports: the status table counts SKIP under PASS.
 2. Read each pending prompt and its evidence. Check evidence HEAD against
    the current commit; missing/stale evidence after a companion crash is not
    usable. Gather fresh read-only evidence as that prompt permits, or report
