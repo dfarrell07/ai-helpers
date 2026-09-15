@@ -124,7 +124,26 @@ class CompatibilityTests(unittest.TestCase):
             result = self.review(scope, "--print-prompt", ref, context)
             self.assertNotEqual(result.returncode, 0)
             self.assertNotIn("APPROVE:", result.stdout)
-        self.assertFalse(self.claude_called.exists())
+            self.assertFalse(self.claude_called.exists())
+
+    def test_review_examples_expose_success_and_failure_status(self):
+        self.env.update(PLUGIN_ROOT=str(PLUGIN), REPO_ROOT=str(self.repo), VERSION="1.36.0")
+        real_git = shutil.which("git")
+        for step in ("step4-verification", "step5-pr"):
+            with self.subTest(step=step):
+                (self.bin / "git").unlink(missing_ok=True)
+                instructions = (PLUGIN / f"skills/k8s-rebase/steps/{step}.md").read_text()
+                example = next(block.split("```", 1)[0] for block in instructions.split("```bash\n")[1:]
+                               if "--print-prompt" in block.split("```", 1)[0])
+                result = self.run_cmd("bash", "-ec", example)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertTrue(result.stdout.endswith("Preparation exit status: 0\n"))
+                self.stub("git", f'for arg in "$@"; do [[ "$arg" == show || "$arg" == diff ]] && exit 17; done\nexec "{real_git}" "$@"\n')
+                result = self.run_cmd("bash", "-ec", example)
+                self.assertEqual(result.returncode, 1, result.stderr)
+                self.assertEqual(result.stdout.strip(), "Preparation exit status: 1")
+                self.assertIn("ERROR:", result.stderr)
+                self.assertFalse(self.claude_called.exists())
 
     def test_pre_pr_evidence_uses_snapshot_if_head_moves(self):
         reviewed = self.git_sha()

@@ -49,13 +49,16 @@ verdict from infrastructure failure retains the existing continuation policy.
 ### Codex only
 
 Collect checked evidence without invoking Claude. Run preparation directly
-and check its completed exit status. Tool wrappers must retain/check that
-status, not return only stdout. Do not pipe preparation through `head` or
-another filter that can hide failure or discard prompt content:
+and check its completed exit status. The example prints that status so it
+survives stdout-only tool wrappers. Do not pipe preparation through `head`
+or another filter that can hide failure or discard prompt content:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main) || exit 1
-bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --print-prompt "$BASE" "$VERSION" || exit 1
+prep_rc=0
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --print-prompt "$BASE" "$VERSION" || prep_rc=$?
+printf '\nPreparation exit status: %s\n' "$prep_rc"
+exit "$prep_rc"
 ```
 
 Only after successful preparation, give the prompt, repo path, base, and HEAD

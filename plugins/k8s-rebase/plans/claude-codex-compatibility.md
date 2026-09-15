@@ -122,7 +122,11 @@ rediscover the already-reproduced failures.
    calls confirm default nested helpers on Claude and fresh-context native
    review on Codex. The Step 4 direct and failure cases check preparation status;
    the Step 5 wrapper returned only stdout and never inspected the exit code.
-   The instructions now explicitly require wrappers to retain/check that code.
+   A later `fc159768` successful run again returned only stdout despite the
+   wrapper instruction; its failed preparation did expose exit 1 and stop.
+   Both Codex shell examples now print completion status and preserve the exit
+   code, rather than relying on wrappers to forward process metadata. An offline
+   execution test covers both examples' success and evidence-failure paths.
    Re-run a successful Step 5 preparation and a failed one; inspect actual
    status handling and require failure to stop before review or PR generation.
    The read-only worker fixture combined preparation and review in one fresh
