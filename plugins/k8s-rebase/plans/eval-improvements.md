@@ -283,6 +283,25 @@ of which k8s minor it targets.
 
 ---
 
+## 10. ✓ DONE — Fix run-rebase.sh failing on cached clone with uncommitted changes
+
+**Gap (found 2026-09-15 via case-004 re-run):** When the skill leaves
+modified files in a cached eval clone (e.g. a partial rebase that changed
+Go source files but didn't commit them), the subsequent run's
+`git checkout --detach <sha>` fails: "Your local changes would be overwritten
+by checkout." The ERR trap fires and the entire run records `infra_error`
+before the skill is even invoked.
+
+**Fix:** Added `git restore . 2>/dev/null || git checkout -- . 2>/dev/null || true`
+plus an early `git clean -fdx` immediately after restoring `origin`'s fetch URL
+and before `git fetch`. This discards any working-tree debris from a prior run
+before the checkout that might reject them.
+
+**Evidence:** case-004 re-run logged "error: Your local changes to the following
+files would be overwritten" for `pkg/bpf-mgr/lib-bpfman.go` and 5 other files.
+
+---
+
 ## Latent risks
 
 **LLM judge `outputs.files` only:** `prompt:` judges iterate
