@@ -29,7 +29,13 @@ Before generating the PR command, review the full rebase, not just the
 last fix. The shared preparation and existing four-check rubric live in
 `scripts/k8s-rebase-pr-review.sh`.
 
-Claude: preserve the nested reviewer and its existing failure policy:
+Select **only** the branch for the parent's host runtime from SKILL.md.
+Delegating this step does not change that choice.
+
+### Claude Code only
+
+Preserve the nested reviewer and its existing failure policy. Do not use
+`--print-prompt` or substitute a native review agent:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
@@ -40,11 +46,15 @@ echo ":: Pre-PR review: $VERDICT"
 Investigate `REJECT:` before proceeding. For Claude, `APPROVE:` or a missing
 verdict from infrastructure failure retains the existing continuation policy.
 
-Codex: collect checked evidence without invoking Claude:
+### Codex only
+
+Collect checked evidence without invoking Claude. Run preparation directly
+and check its exit status; do not pipe it through `head` or another filter
+that can hide failure or discard prompt content:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main) || exit 1
-bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --print-prompt "$BASE" "$VERSION"
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --print-prompt "$BASE" "$VERSION" || exit 1
 ```
 
 Only after successful preparation, give the prompt, repo path, base, and HEAD

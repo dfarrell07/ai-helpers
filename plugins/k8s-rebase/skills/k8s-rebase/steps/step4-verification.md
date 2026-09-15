@@ -121,16 +121,29 @@ If test agents report failures:
 
 ## 4c. Independent review
 
-Claude: run the existing nested reviewer:
+Select **only** the branch for the parent's host runtime from SKILL.md.
+Delegating this step does not change that choice.
+
+### Claude Code only
+
+Run the existing nested reviewer. Do not use `--print-prompt` or substitute
+a native review agent, even when native workers are available:
 
 ```bash
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" "$(git rev-parse HEAD)" "k8s rebase"
 ```
 
-Codex: prepare the same selected-commit evidence without invoking Claude:
+Investigate `REJECT:` before continuing. Preserve the helper's existing
+infrastructure fallback; Claude does not require a native independent reviewer.
+
+### Codex only
+
+Prepare the selected-commit evidence without invoking Claude. Run preparation
+directly and check its exit status; do not pipe it through `head` or another
+filter that can hide failure or discard prompt content:
 
 ```bash
-bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" --print-prompt "$(git rev-parse HEAD)" "k8s rebase"
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" --print-prompt "$(git rev-parse HEAD)" "k8s rebase" || exit 1
 ```
 
 Only after successful preparation, give the populated prompt, repo path,

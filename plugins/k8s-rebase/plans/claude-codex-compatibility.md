@@ -103,17 +103,20 @@ rediscover the already-reproduced failures.
    the working-tree helper against `69ff8893` also pass. Eight evidence/template
    pairs, Bash syntax, and warning-level ShellCheck pass. No review rubric,
    Claude failure policy, installed package, or other closeout item changed.
-2. **P2 — Make review branches exclusive to the host runtime.** Two live
+2. **Implemented; behavioral recheck pending — Exclusive host-runtime review.** Two live
    Claude sessions followed Step 5's Codex `--print-prompt`/native `Agent`
    branch rather than the prescribed default helper/nested `claude -p` path.
    This repeated with byte-identical sources at a neutral installation path.
    The first also piped preparation through `head -100` without pipefail.
-   Make the runtime choice explicit in `SKILL.md` and Step 4/5 instructions;
-   carry the parent's host-runtime identity into delegated step instructions.
-   Scope the missing-reviewer hard stop to Codex; do not let the bootstrap's
-   generic stop wording override Claude's retained infrastructure fallback.
-   Do not infer it from the plugin path, model vendor, or installed CLI names.
-   Re-run installed-agent fixtures and verify actual tool calls, including
+   `SKILL.md` now carries the current parent's host runtime into workers;
+   cross-agent resumes use the new host. Step 4/5 review sections explicitly
+   select one host-only branch. Claude retains the default nested helper and
+   its infrastructure fallback; Codex checks preparation directly without
+   piping/truncating its output and requires native independent review.
+   Bootstrap stop wording no longer imposes Codex's fallback policy on Claude.
+   No host flag, configuration, persisted field, helper, or rubric changed.
+   The host is not inferred from paths, model vendor, tools, or installed CLIs.
+   Re-run frozen-package agent fixtures and verify actual tool calls, including
    direct preparation exit-status handling. Default-helper parity tests pass;
    they do not establish that Claude selects that helper path.
 3. **Align gate handling and PR claims with retained verdicts.** One Claude

@@ -44,6 +44,15 @@ Use separate clones for concurrent rebases; worktrees share Git hooks.
 
 Carry these values in task context: absolute `PLUGIN_ROOT`, `REPO_ROOT`,
 normalized `VERSION`, and `BUMP_TOOLS` (`true` only when requested).
+Also identify the current session's **host runtime**: Claude Code or Codex.
+Steps 4–5 have mutually exclusive review paths: Claude Code uses the default
+helper's nested CLI review and existing infrastructure fallback; Codex uses
+`--print-prompt` and a fresh-context native reviewer, stopping if preparation
+or independent review fails. Do not choose by model vendor, tool names,
+installed CLIs, or plugin path. Delegated workers inherit the parent's host;
+on cross-agent resume, use the new session's host. Keep this in task context,
+not a new shell flag, configuration setting, or persisted state field.
+
 Bind needed variables explicitly in **each shell call** and use Bash for the
 examples below. Exports and cwd changes do not persist between tool calls.
 Do not depend on `$ARGUMENTS`, manifest-injected variables, or hook-root
@@ -79,13 +88,15 @@ the completed state's empty step filename is not a file to load.
 
 3. Use a native step worker when available; otherwise execute ordinary
    step work inline. Supply the absolute repo/plugin paths, version,
-   tools flag, rules, step file, and gate directory. Workers return results;
+   tools flag, parent's host runtime and matching review branch, rules,
+   step file, and gate directory. Workers return results;
    **only the parent calls `advance`**. Independent reviews in Steps 4–5
-   require a fresh-context reviewer, not parent self-review.
+   follow that host's branch; ordinary worker delegation does not change it.
 
 4. When step work completes, run the following unless it reports a stop
-   condition (Step 1 structural failure/no-op, a missing independent review,
-   or another genuine blocker). Those conditions must not be advanced:
+   condition (Step 1 structural failure/no-op, a failed Codex independent-review
+   path, or another genuine blocker). Those conditions must not be advanced;
+   Claude's documented review infrastructure fallback is not such a blocker:
 
    ```bash
    bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" advance "$REPO_ROOT"
