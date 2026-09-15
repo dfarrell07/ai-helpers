@@ -63,6 +63,10 @@ cd "$REPO_DIR"
 # Restore origin fetch URL — the skill may have run `git remote set-url origin
 # file:///dev/null/fake-remote` as an extra push-block, poisoning future fetches.
 git remote set-url origin "$REPO_URL"
+# Discard any uncommitted changes a prior run left — must happen before
+# checkout or git will refuse to switch branches over modified files.
+git restore . 2>/dev/null || git checkout -- . 2>/dev/null || true
+git clean -fdx
 git fetch origin "$FROM_COMMIT"
 # Detach HEAD before deleting stale bump branches — avoids "cannot delete
 # checked-out branch" if a prior run left us on a bump* branch.
