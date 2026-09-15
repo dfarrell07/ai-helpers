@@ -10,8 +10,24 @@ Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-validate.sh" --no-test
 ```
 
-Fix every reported issue. Run lint once, analyze ALL errors before
-fixing any. Group by category and fix each in one commit.
+**Scope rule (applies before fixing anything):** Only fix lint errors that
+were introduced by this rebase. For each finding, verify it is absent on
+`from_commit` with:
+`git stash && golangci-lint run --max-same-issues 0 <file> 2>&1 | grep <rule>; git stash pop`
+(or check via `git diff from_commit..HEAD -- <file>` — if the line is unchanged
+from the base, the finding is pre-existing). Skip pre-existing findings; note
+them in the commit message but do not fix them.
+
+**Never fix these regardless of whether they appear new:**
+
+- `QF1001` (De Morgan's law rewrites) — stylistic, not required by the k8s bump
+- `QF1002`, `QF1003`, `QF1004` — similar staticcheck style suggestions
+- `S1000`–`S1040` range — simplification suggestions unrelated to API changes
+- `ST1001` (import ordering) — style only
+- `revive` suggestions that don't reference a removed/changed API
+
+Run lint once, analyze ALL errors before fixing any. Group by category
+and fix each in one commit.
 
 Key lint guidance:
 
@@ -33,7 +49,7 @@ Key lint guidance:
   appears many times AND fixing each instance would obscure the real code.
   Never use per-line `//nolint:errcheck` for patterns that could be fixed in code.
 
-- Staticcheck deprecated calls: use selective `//nolint:staticcheck`
+- Staticcheck deprecated calls (SA1019): use selective `//nolint:staticcheck`
   or `exclude-rules`, never disable entirely
 
 - Nilness dead code: remove the entire dead block, do not restructure
