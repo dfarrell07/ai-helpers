@@ -169,20 +169,27 @@ fixes separate and test the existing functions/instructions before a live run.
    Optional lookup failures remain nonfatal. If a module actually requires an
    unresolved package, command derivation stops before that module's updates;
    it does not use an unversioned fallback or claim tidy preserves an old pin.
+   A 2026-09-16 audit found that this new stop bypassed the non-inherited ERR
+   trap in `rebase_module`, leaving the temporary pre-push guard installed.
+   The caller now handles derivation failure explicitly through the existing
+   `die` helper. Four lifecycle subcases fail at `3190f558` and pass with the
+   correction: unresolved versions and parser errors, each with/without a saved
+   user hook. They exercise the actual caller, trap, and cleanup from a nested
+   module, checking hook contents/mode, exit 1, and no dependency updates.
    Actual require entries distinguish dependencies from the module's own name,
    comments, replacements, and similarly prefixed paths. Warnings match behavior.
    `make test-version-selection` runs 12 offline tests against the actual
    functions, assignments, and module caller under `set -euo pipefail`, with
    real parsers and a stubbed proxy. Matching/mixed/wrong minors, both require
    forms, JSON whitespace, invalid/failed metadata, all four packages, and
-   caller stopping are covered; target files stay unchanged. Every case rejects
+   caller stopping are covered; module files stay unchanged. Every case rejects
    any jq invocation, covering the automatic Go image's existing tool set.
    Independent review caught a draft jq prerequisite on comment-only matches;
    the correction removes that new dependency entirely. The actual functions
    also pass in cached Go image `02e4acc4db98` (Go 1.26.7, JSON::PP 4.16), with
    jq absent, network disabled, and a read-only filesystem. This is a metadata
-   smoke check, not a rebase. Final independent re-review passed all 12 tests
-   and nine supplemental cases, including escaped-zero rejection and failing
+   smoke check, not a rebase. The earlier independent metadata-selection review
+   passed all 12 tests and nine supplemental cases, including escaped-zero rejection and failing
    Go/Perl commands that emit partial or valid-looking output; logs and the
    source hash are under `.work/claude-codex-compatibility/independent-zero-recheck.Y327fO/`.
    The initial nine tests produced 32 failed subcases against the old source and passed after

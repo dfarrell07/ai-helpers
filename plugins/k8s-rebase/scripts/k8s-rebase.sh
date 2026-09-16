@@ -614,7 +614,8 @@ rebase_module() {
   cd "$REPO_ROOT/$module_dir" || die "Cannot cd to $module_dir"
 
   local commands
-  commands=$(derive_go_gets "$gomod")
+  # ERR is not inherited inside functions; use die to restore the push hook.
+  commands=$(derive_go_gets "$gomod") || die "Cannot derive updates for $gomod"
 
   if [[ -z "$commands" ]]; then
     info "No k8s ecosystem packages found in $gomod"

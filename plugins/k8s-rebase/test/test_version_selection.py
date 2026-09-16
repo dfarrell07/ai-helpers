@@ -95,7 +95,10 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
             "# Discover the kube-openapi version", 1)[0]
         call = 'commands=$(derive_go_gets "go.mod")\nprintf "%s\\n" "$commands"\n'
         if invoke_module:
-            call = function("rebase_module") + 'banner() { :; }\nrebase_module module\necho continued\n'
+            support = function("cleanup_hook")
+            support += next(line for line in SOURCE.splitlines() if line.startswith("die() {")) + "\n"
+            support += next(line for line in SOURCE.splitlines() if line.startswith("trap ")) + "\n"
+            call = support + function("rebase_module") + 'banner() { :; }\nrebase_module module\necho continued\n'
         return self.run_shell("# Discover openshift/* versions" + block + function("derive_go_gets") + call, minor)
 
     def test_matching_minors_and_require_formats(self):
@@ -225,19 +228,47 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.splitlines(), ["go get k8s.io/api@v0.35.3"])
 
-    def test_unresolved_version_stops_module_before_go_updates(self):
+    def test_selection_failure_restores_hooks_before_go_updates(self):
+        # Isolate Git before running the real cleanup helper from a subdirectory.
+        self.env = {key: value for key, value in self.env.items() if not key.startswith("GIT_")}
+        self.env.update(GIT_CONFIG_NOSYSTEM="1", GIT_CONFIG_GLOBAL=os.devnull)
+        subprocess.run(["git", "-c", "init.templateDir=", "init", "-q", str(self.repo)],
+                       env=self.env, check=True, capture_output=True)
+        hooks = self.repo / ".git/hooks"
+        hooks.mkdir(exist_ok=True)
+        hook = hooks / "pre-push"
+        backup = hooks / "pre-push.bak.k8s-rebase"
+        original = "#!/bin/sh\n# fixture user hook\nexit 0\n"
         module = self.repo / "module"
         module.mkdir()
         contents = self.gomod.read_text() + "require github.com/openshift/library-go v0.0.1\n"
         (module / "go.mod").write_text(contents)
         self.env.update(REPO_ROOT=str(self.repo), REBASE_TMP=str(self.repo / ".rebase-tmp"))
-        result = self.selection(invoke_module=True)
-        self.assertNotEqual(result.returncode, 0)
-        self.assertIn("ERROR:", result.stderr)
-        self.assertNotIn("Unexpected Go operation", result.stderr)
-        self.assertNotIn("continued", result.stdout)
-        self.assertEqual((module / "go.mod").read_text(), contents)
-        self.assertEqual(sorted(p.name for p in module.iterdir()), ["go.mod"])
+        for failure in ("unresolved version", "parser failure"):
+            if failure == "parser failure":
+                self.stub("go", "raise SystemExit(19)\n")
+            for has_original in (False, True):
+                with self.subTest(failure=failure, has_original=has_original):
+                    hook.write_text("#!/bin/sh\n# k8s-rebase guard\nexit 1\n")
+                    hook.chmod(0o755)
+                    backup.unlink(missing_ok=True)
+                    if has_original:
+                        backup.write_text(original)
+                        backup.chmod(0o751)
+                    result = self.selection(invoke_module=True)
+                    self.assertEqual(result.returncode, 1, result.stderr)
+                    self.assertIn("ERROR: no verified" if failure == "unresolved version" else
+                                  "ERROR: cannot read requirements", result.stderr)
+                    self.assertNotIn("Unexpected Go operation", result.stderr)
+                    self.assertNotIn("continued", result.stdout)
+                    self.assertEqual((module / "go.mod").read_text(), contents)
+                    self.assertEqual(sorted(p.name for p in module.iterdir()), ["go.mod"])
+                    if has_original:
+                        self.assertEqual(hook.read_text(), original)
+                        self.assertEqual(hook.stat().st_mode & 0o777, 0o751)
+                    else:
+                        self.assertFalse(hook.exists())
+                    self.assertFalse(backup.exists())
 
 
 if __name__ == "__main__":
