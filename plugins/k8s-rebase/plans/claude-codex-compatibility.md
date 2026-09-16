@@ -210,6 +210,9 @@ fixes separate and test the existing functions/instructions before a live run.
    never converting failures to PASS/SKIP. Lint and gate fixes share the existing
    three-iteration budget and blocked/force-advance protocol, with no second
    fix loop. The container-failure retry also stops rather than looping.
+   A follow-up audit narrows that stop to infrastructure still preventing lint
+   from completing: a completed retry with code findings returns to triage,
+   not an infrastructure diagnosis based solely on nonzero exit status.
    Three added compatibility tests execute the actual shell example: main/master
    baselines, clean/dirty tracked files with a pre-existing stash, paths with
    spaces, missing baseline, and clone/checkout failures. Source files, index,

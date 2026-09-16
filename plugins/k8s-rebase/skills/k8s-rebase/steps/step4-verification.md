@@ -67,8 +67,10 @@ Key lint guidance:
   is missing (operator-sdk, etc.), that is usually just a warning line
   in the Makefile — the actual lint result is in the container output.
   Make lint work; do not skip it or suppress the findings.
-  If the retry still fails, report the infrastructure blocker; do not retry
-  indefinitely or interpret incomplete output as a successful lint run.
+  If infrastructure still prevents lint from completing after the retry,
+  report that blocker. If lint completes with findings, triage them under
+  the scope rule above; a nonzero exit alone is not an infrastructure failure.
+  Do not retry indefinitely or interpret incomplete output as successful lint.
 
 - For errcheck: fix the code, not the linter.
   `defer f.Close()` → `defer func() { _ = f.Close() }()`
