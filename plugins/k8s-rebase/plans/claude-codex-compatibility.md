@@ -41,7 +41,7 @@ versions actually tested; do not infer support for every Codex version or client
 
 ## Implementation
 
-### Implementation status — 2026-09-15
+### Implementation status — 2026-09-16
 
 Shared instructions, gate handoffs, review preparation, and vendor-patch input
 support are implemented. Step 5's existing rubric was extracted into the small
@@ -62,13 +62,13 @@ Shared-workflow audit and installed-package status:
   identically. Its broken OpenShift metadata parsing and unchecked fallback
   are now corrected with focused offline tests; a full Step 1 rebase remains
   unqualified. See the separate shared-workflow corrections below.
-- The installed Codex package was refreshed through the existing local
-  marketplace to frozen `8ecfc04e` for the final preparation-status fixtures.
-  All 121 package files and executable bits match that Git snapshot. Its
-  helpers, hooks, and manifest are unchanged from `adda641c`; the earlier
-  installed `258dfab8` evidence is historical. The current Step 1 and Step 4
-  corrections are not in that installed snapshot.
-  Freeze and refresh again before qualifying the updated candidate.
+- The installed Codex package is now frozen `1073dc17`, refreshed through the
+  existing local marketplace. All 122 package files and executable bits match
+  that Git snapshot, including the Step 1 and Step 4 corrections. Review
+  helpers, hooks, and manifest are unchanged from `8ecfc04e`. The previous
+  package is retained locally; no new manifest, cachebuster, marketplace entry,
+  or persistent hook-trust grant was introduced. Earlier installed snapshots
+  remain historical evidence at their recorded scopes.
 - Lint discovery fixes are committed in `90b15604`, with 46 repository tests
   passing. They are separate from the compatibility implementation; the
   nested-checkout errors were not suppressed by relaxing validation criteria.
@@ -85,9 +85,10 @@ earlier live evidence used Claude 2.1.270. Do not silently transfer results
 to new code or a different runtime version. Earlier validation remains under
 provenance.
 
-Next: freeze/reinstall the corrected candidate and finish the focused agent
-fixtures before the bounded qualification pair. The shared-workflow
-prerequisites below pass focused checks, not a complete rebase.
+Next: finish the remaining invocation/hook, recovery/handoff, interruption, and
+independent-review fixtures before the bounded qualification pair. The
+installed candidate is frozen; the shared-workflow prerequisites below pass
+focused checks, not a complete rebase.
 
 ### Closeout status — complete before further qualification
 
@@ -520,6 +521,53 @@ this compatibility change. A metadata check or single passing gate is also
 not evidence that the complete workflow works.
 
 ## Validation provenance and limits
+
+**Installed refresh and question-only fixtures, 2026-09-16:** frozen
+`1073dc17`, Codex CLI 0.154.0 / `gpt-5.6-sol` (medium), Claude CLI 2.1.273 /
+`claude-sonnet-4-6`. The frozen copy, existing marketplace source, and installed
+Codex cache match all 122 Git blobs and executable bits. The CLI reinstalled
+version 0.0.1 without a new manifest, cachebuster, or marketplace entry.
+The actual loader discovers the skill and five hooks. All 28 compatibility
+tests, 12 selection tests, and eight evidence/template checks pass from the
+installed cache. Five supplemental baseline examples cover detached HEAD,
+packed objects, nested command cwd, and invalid temporary paths without source
+byte/mode changes. Two legacy Claude-helper parity tests also pass.
+
+Separate no-remote repositories outside the plugin checkout used matching
+synthetic lint captures. The corrected Codex invocation discovers the installed
+skill without an explicit file path, binds roots across separate Bash calls,
+normalizes 1.36, and answers without initializing or editing. It distinguishes
+completed lint findings from repeated infrastructure failure and preserves the
+pre-existing finding. Claude loads the frozen package via `--plugin-dir` and
+makes the same triage decisions, but its first answer incorrectly calls ST1005
+an unconditional exclusion and reports a parent-repository Git tag as the
+plugin version. That is not a clean summary-quality pass; the manifest is 0.0.1.
+An independent fresh Claude recheck with a newly introduced ST1005 finding
+correctly identifies it as fixable, reads 0.0.1 from the supplied manifest,
+and distinguishes current failure from unperformed fixes. It takes 88 seconds
+and $0.27 under a three-minute/$1.50 cap. No further skill change was needed;
+the earlier inaccurate answer is retained, not reclassified as a clean pass.
+None of these runs execute lint, fixes, gates, independent review, or advancement.
+Repository files, HEAD, baseline, and absence of rebase state are preserved.
+
+The first Codex run is excluded: its catalog lacked the skill and it selected
+the working-tree copy. In CLI 0.154.0, `-c` key segments are not TOML-quoted:
+use `-c 'plugins.k8s-rebase@ai-helpers.enabled=true'`, not an ID with embedded
+double quotes. With user config ignored, the old quoted selector did not
+enable discovery; a separate quoted MCP override failed configuration loading.
+Read-only prompt rendering reproduced the selector distinction, and the
+corrected run's catalog and actual reads point to the installed cache.
+Apply this runner correction to future fixtures. Earlier explicit-path runs
+do not establish namespaced discovery or hook enforcement merely because a
+trust flag was present; retain only their actually observed outcomes.
+
+The counted Codex run took 73 seconds; the initial Claude run took 232 seconds
+and $0.43, within five-minute/$3-per-Claude caps. Hook trust was invocation-only
+after source inspection; these inactive-session questions do not requalify
+hook denials. Raw inputs, versions, commands, package/object audits, and traces:
+`.work/claude-codex-compatibility/installed-refresh-20260916.NsjVhL/`.
+This is installed-interface evidence, not successful interruption/resume,
+cross-agent handoff, independent-review, or real-rebase qualification.
 
 **Gate-summary/status closeout, 2026-09-15:** Codex CLI 0.154.0 /
 `gpt-5.6-sol` (medium), Claude CLI 2.1.272 / `claude-sonnet-4-6`.

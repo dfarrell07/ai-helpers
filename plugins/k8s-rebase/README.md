@@ -103,17 +103,17 @@ proxy and Go's read-only parser.
 Installed-package evidence is revision-specific: Codex CLI 0.154.0
 enforced all five hooks at `258dfab8` with invocation-only trust. Codex and
 Claude CLI 2.1.272 retained mixed gate outcomes in Step 5 fixtures at `fc159768`.
-The current installed snapshot is `8ecfc04e`: Codex's preparation-status
-success/failure rechecks pass; shared summary instructions and Claude's review
-path are unchanged from `fc159768`. See the
+The current installed snapshot is `1073dc17` (122 verified package files),
+including the Step 1 selection and Step 4 lint-scope corrections. Fresh-session
+fixtures exercise installed discovery and question-only lint triage. See the
 [tracked compatibility plan](plans/claude-codex-compatibility.md)
 for current candidates, exact coverage, and remaining checks.
 
 End-to-end qualification remains blocked. Historical Codex/Claude rebases
 of pinned ovn-kubernetes-mcp to 1.35.3 stopped on Step 1 dependency drift.
-The Step 1 selection and Step 4 lint-scope corrections pass focused offline
-checks but are not yet installed or rebase-qualified. Next: freeze/reinstall
-the updated candidate and finish focused agent fixtures before qualification.
+The shared corrections pass focused offline checks and are installed, but
+not rebase-qualified. Finish the remaining focused agent fixtures before
+attempting the bounded qualification pair.
 Interface and finalization fixtures do not prove a complete migration.
 
 ## Contents
