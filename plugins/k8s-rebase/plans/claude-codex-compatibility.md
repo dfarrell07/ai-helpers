@@ -66,9 +66,9 @@ Shared-workflow audit and installed-package status:
   marketplace to frozen `8ecfc04e` for the final preparation-status fixtures.
   All 121 package files and executable bits match that Git snapshot. Its
   helpers, hooks, and manifest are unchanged from `adda641c`; the earlier
-  installed `258dfab8` evidence is historical. The current Step 1 correction
-  is not in that installed snapshot.
-  Freeze and refresh again after the remaining implementation changes.
+  installed `258dfab8` evidence is historical. The current Step 1 and Step 4
+  corrections are not in that installed snapshot.
+  Freeze and refresh again before qualifying the updated candidate.
 - Lint discovery fixes are committed in `90b15604`, with 46 repository tests
   passing. They are separate from the compatibility implementation; the
   nested-checkout errors were not suppressed by relaxing validation criteria.
@@ -85,9 +85,9 @@ earlier live evidence used Claude 2.1.270. Do not silently transfer results
 to new code or a different runtime version. Earlier validation remains under
 provenance.
 
-Next: resolve the separately introduced Step 4 lint-scope defect. Then
-freeze/reinstall and finish the focused agent fixtures before the bounded
-qualification pair. Do not start another full rebase before that correction.
+Next: freeze/reinstall the corrected candidate and finish the focused agent
+fixtures before the bounded qualification pair. The shared-workflow
+prerequisites below pass focused checks, not a complete rebase.
 
 ### Closeout status — complete before further qualification
 
@@ -198,19 +198,33 @@ fixes separate and test the existing functions/instructions before a live run.
    existing staging alignment and gate checks remain unchanged and must inspect
    the actual resulting versions during qualification. No new resolver,
    workflow instruction, hook, or installed package was introduced.
-2. **Make the new Step 4 lint scope check safe and meaningful.**
+2. **Done — Step 4 lint scope correction, focused scope.**
    `d9f938a9` added an undefined `from_commit` and a stash/lint/pop example
    that never checks out the baseline. With a clean tree and an existing
    stash, the example pops unrelated saved work; an isolated fixture confirms
    both defects. An unchanged line also can fail against changed dependencies.
-   Use the existing merge-base convention; compare baseline diagnostics with
-   the relevant lint command/toolchain in a separate disposable clone only
-   when needed, preserving the active tree and stash stack. Keep the intended
-   ban on unrelated cleanup. Reconcile
-   `repeat until --no-test exits 0` with the shared bounded retry policy:
-   unresolved/pre-existing failures must be reported, not hidden or fixed
-   outside scope. Check pre-existing versus dependency-induced findings and
-   stash preservation; no new lint framework or general style cleanup.
+   Step 4 now uses the existing merge-base convention and a disposable clone
+   only when baseline execution is needed. It checks dependency/toolchain
+   context instead of treating unchanged lines as proof; failed/incomparable
+   baseline runs remain inconclusive. Scope exclusions leave findings visible,
+   never converting failures to PASS/SKIP. Lint and gate fixes share the existing
+   three-iteration budget and blocked/force-advance protocol, with no second
+   fix loop. The container-failure retry also stops rather than looping.
+   Three added compatibility tests execute the actual shell example: main/master
+   baselines, clean/dirty tracked files with a pre-existing stash, paths with
+   spaces, missing baseline, and clone/checkout failures. Source files, index,
+   stash/ref logs, hooks, and active reports remain byte-for-byte unchanged;
+   the clone is detached at the baseline with its own Git directory.
+   A fresh-context synthetic triage exercise distinguishes a dependency-induced
+   failure, a reproduced pre-existing finding, and an unavailable baseline;
+   it retains all three through 1/3 versus 3/3-budget handoffs without edits.
+   Raw fixture: `.work/claude-codex-compatibility/step4-forward.ZjhKfO/`.
+   All 28 compatibility tests, 12 Step 1 selection tests, and eight
+   evidence/template pairs pass, as do repository lint, example ShellCheck,
+   and strict site build. This changes existing Step 4 instructions and focused
+   tests only: no new lint framework, style cleanup, gate/backend policy,
+   Claude/Codex review routing, or installed-package change. The fixture does
+   not qualify either installed runtime or a real rebase.
 
 ### 1. Reuse the existing package and document invocation
 

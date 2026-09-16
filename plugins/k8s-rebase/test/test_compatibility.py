@@ -145,6 +145,89 @@ class CompatibilityTests(unittest.TestCase):
                 self.assertIn("ERROR:", result.stderr)
                 self.assertFalse(self.claude_called.exists())
 
+    def lint_baseline_fixture(self):
+        (self.repo / "main.go").write_text("package main\n// unrelated saved work\n")
+        self.run_cmd("git", "stash", "push", "-qm", "unrelated work", check=True)
+        self.activate(step=4)
+        (self.repo / ".rebase-tmp/lint-results.txt").write_text("active lint failure\n")
+        hook = self.repo / ".git/hooks/pre-push"
+        hook.write_text("#!/bin/sh\nexit 1 # active push guard\n")
+        hook.chmod(0o755)
+        scratch = self.root / "baseline comparisons"
+        scratch.mkdir()
+        self.env.update(REPO_ROOT=str(self.repo), TMPDIR=str(scratch))
+        instructions = (PLUGIN / "skills/k8s-rebase/steps/step4-verification.md").read_text()
+        example = next(block.split("```", 1)[0] for block in instructions.split("```bash\n")[1:]
+                       if "LINT_BASE=" in block.split("```", 1)[0])
+        return example, scratch
+
+    def repo_snapshot(self):
+        # Includes index, refs/reflogs (and stash), hooks, active reports and files.
+        return {p.relative_to(self.repo): (p.read_bytes(), p.stat().st_mode)
+                for p in self.repo.rglob("*") if p.is_file()}
+
+    def test_lint_baseline_example_isolates_checkout_and_stash(self):
+        example, scratch = self.lint_baseline_fixture()
+        for dirty in (False, True):
+            if dirty:
+                (self.repo / "main.go").write_text("package main\n// staged work\n")
+                self.run_cmd("git", "add", "main.go", check=True)
+                (self.repo / "main.go").write_text("package main\n// unstaged work\n")
+                (self.repo / "untracked.txt").write_text("unrelated new file\n")
+            for branch in ("main", "master"):
+                if branch == "master":
+                    self.run_cmd("git", "branch", "-m", "main", "master", check=True)
+                with self.subTest(dirty=dirty, branch=branch):
+                    before = self.repo_snapshot()
+                    result = self.run_cmd("bash", "-euo", "pipefail", "-c", example)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(self.repo_snapshot(), before)
+                    values = dict(line.split(": ", 1) for line in result.stdout.splitlines())
+                    self.assertEqual(values["LINT_BASE"], self.base)
+                    clone = Path(values["LINT_BASE_REPO"])
+                    self.assertTrue(clone.is_relative_to(scratch))
+                    self.assertFalse(clone.is_relative_to(self.repo))
+                    self.assertEqual(self.run_cmd("git", "-C", str(clone), "rev-parse", "HEAD",
+                                                  check=True).stdout.strip(), self.base)
+                    self.assertNotEqual(self.run_cmd("git", "-C", str(clone), "symbolic-ref",
+                                                     "-q", "HEAD").returncode, 0)
+                    self.assertEqual((clone / "main.go").read_text(), "package main\n")
+                    self.assertEqual(self.run_cmd("git", "-C", str(clone), "stash", "list",
+                                                  check=True).stdout, "")
+                    self.assertTrue((clone / ".git").is_dir())
+                    self.assertFalse((clone / ".git/objects/info/alternates").exists())
+                    self.assertFalse((clone / ".git/hooks/pre-push").exists())
+                    self.assertFalse((clone / ".rebase-tmp").exists())
+                    (clone / "main.go").write_text("comparison-only change\n")
+                    (clone / ".git/hooks/pre-push").write_text("clone-only hook\n")
+                    self.assertEqual(self.repo_snapshot(), before)
+                if branch == "master":
+                    self.run_cmd("git", "branch", "-m", "master", "main", check=True)
+
+    def test_lint_baseline_example_missing_base_stops(self):
+        example, scratch = self.lint_baseline_fixture()
+        self.run_cmd("git", "branch", "-D", "main", check=True)
+        before = self.repo_snapshot()
+        result = self.run_cmd("bash", "-c", example)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("cannot resolve lint baseline", result.stderr)
+        self.assertEqual(result.stdout, "")
+        self.assertEqual(list(scratch.iterdir()), [])
+        self.assertEqual(self.repo_snapshot(), before)
+
+    def test_lint_baseline_example_setup_failures_stop(self):
+        example, _ = self.lint_baseline_fixture()
+        real_git = shutil.which("git")
+        before = self.repo_snapshot()
+        for command in ("clone", "checkout"):
+            for flags in (("-c",), ("-euo", "pipefail", "-c")):
+                with self.subTest(command=command, flags=flags):
+                    self.stub("git", f'for arg in "$@"; do [[ "$arg" == {command} ]] && exit 17; done\nexec "{real_git}" "$@"\n')
+                    result = self.run_cmd("bash", *flags, example)
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertEqual(result.stdout, "")
+                    self.assertEqual(self.repo_snapshot(), before)
+
     def test_pre_pr_evidence_uses_snapshot_if_head_moves(self):
         reviewed = self.git_sha()
         real_git = shutil.which("git")

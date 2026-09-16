@@ -11,12 +11,38 @@ bash "${PLUGIN_ROOT}/scripts/k8s-rebase-validate.sh" --no-test
 ```
 
 **Scope rule (applies before fixing anything):** Only fix lint errors that
-were introduced by this rebase. For each finding, verify it is absent on
-`from_commit` with:
-`git stash && golangci-lint run --max-same-issues 0 <file> 2>&1 | grep <rule>; git stash pop`
-(or check via `git diff from_commit..HEAD -- <file>` — if the line is unchanged
-from the base, the finding is pre-existing). Skip pre-existing findings; note
-them in the commit message but do not fix them.
+are caused by changes required for this rebase. Inspect the finding and the
+merge-base diff, including dependencies and lint/toolchain configuration.
+An unchanged line can fail against a changed API; a changed line does not by
+itself prove the diagnostic is new. Use existing baseline evidence when
+sufficient. If baseline execution is needed, use a separate disposable clone,
+not a worktree; never stash, reset, or switch the active checkout for comparison.
+
+With `REPO_ROOT` bound and `TMPDIR` pointing outside the target checkout:
+
+```bash
+LINT_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null ||
+            git -C "$REPO_ROOT" merge-base HEAD main) || {
+  echo "ERROR: cannot resolve lint baseline from master/main" >&2
+  exit 1
+}
+LINT_BASE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/k8s-rebase-lint-base.XXXXXX") || exit 1
+git clone --no-hardlinks --no-checkout -- "$REPO_ROOT" "$LINT_BASE_DIR/repo" || exit 1
+git -C "$LINT_BASE_DIR/repo" checkout --detach "$LINT_BASE" || exit 1
+printf 'LINT_BASE: %s\nLINT_BASE_REPO: %s\n' "$LINT_BASE" "$LINT_BASE_DIR/repo"
+```
+
+Check success and retain the printed SHA/path for later calls. Run only the
+relevant lint command in that clone, at the same module/package scope, with
+its baseline dependencies/configuration. Record both runs' Go/linter versions
+and configuration differences; reproduction only under new tooling does not
+establish that a finding existed before the rebase. Do not run the full
+validator there: it can build, generate files, and overwrite summaries.
+If the baseline cannot run or the comparison is inconclusive, report that
+limit; absence of a diagnostic in failed/truncated output is not evidence.
+Keep comparison output separate from the active rebase's reports. Leave
+pre-existing or unrelated findings unfixed, but retain them in the final
+validation/gate results; scope exclusions do not turn failures into PASS/SKIP.
 
 **Never fix these regardless of whether they appear new:**
 
@@ -41,6 +67,8 @@ Key lint guidance:
   is missing (operator-sdk, etc.), that is usually just a warning line
   in the Makefile — the actual lint result is in the container output.
   Make lint work; do not skip it or suppress the findings.
+  If the retry still fails, report the infrastructure blocker; do not retry
+  indefinitely or interpret incomplete output as a successful lint run.
 
 - For errcheck: fix the code, not the linter.
   `defer f.Close()` → `defer func() { _ = f.Close() }()`
@@ -56,8 +84,13 @@ Key lint guidance:
 - ST1005 error strings: lowercase first letter only, preserve
   acronyms. Grep for OLD string in all files (tests assert on it)
 
-Iterate with `--quick` for build+vet, `--no-test` for lint. Repeat
-until `--no-test` exits 0.
+Use `--quick` for build+vet feedback and `--no-test` after lint fixes.
+Lint and gate-fix iterations share rules.md's three-iteration budget across
+parent and workers; do not reset it at 4b or start a second fix loop.
+Stop making fixes when the budget is exhausted or no in-scope fix remains.
+Carry unresolved findings into 4b's evidence and the parent handoff, using
+SKILL.md's existing blocked/force-advance protocol. Do not claim lint passed
+unless the check actually completed successfully.
 
 ## 4b. Verification wave
 
@@ -105,9 +138,10 @@ commit-messages.
 
 ## Gate-fix loop
 
-If ANY gate reports FAIL: triage (check base branch), fix + commit,
-re-validate with `--no-test`, then follow rules.md to refresh evidence and
-complete all stale/pending current-step reviews, including old PASS reports.
+If ANY gate reports FAIL: triage against baseline and fix only in-scope issues
+within the shared budget. After a fix commit, re-validate with `--no-test`,
+then follow rules.md to refresh evidence and complete all stale/pending
+current-step reviews, including old PASS reports.
 Preserve prior-step reports and newly regenerated companion reports.
 Step 4 override: always re-run `validate.sh --no-test` between fix
 and gate re-run (catches regressions from fix commits).
@@ -117,7 +151,8 @@ If test agents report failures:
 - **Timeout:** likely feature gate issue (informer hang)
 - **Flaky:** re-run individual test with `-count=1 -run TestName`
 - **Container timing:** check if test code changed in rebase
-- **Pre-existing:** check merge-base diff — don't fix if unchanged
+- **Pre-existing:** use 4a's baseline/evidence check; unchanged test code can
+  fail because dependencies changed.
 
 ## 4c. Independent review
 

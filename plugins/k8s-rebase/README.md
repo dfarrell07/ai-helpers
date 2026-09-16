@@ -111,9 +111,9 @@ for current candidates, exact coverage, and remaining checks.
 
 End-to-end qualification remains blocked. Historical Codex/Claude rebases
 of pinned ovn-kubernetes-mcp to 1.35.3 stopped on Step 1 dependency drift.
-The Step 1 selection correction passes focused offline checks but is not yet
-installed or rebase-qualified. Fix the separate Step 4 lint-scope defect before
-reinstalling and qualifying the updated candidate.
+The Step 1 selection and Step 4 lint-scope corrections pass focused offline
+checks but are not yet installed or rebase-qualified. Next: freeze/reinstall
+the updated candidate and finish focused agent fixtures before qualification.
 Interface and finalization fixtures do not prove a complete migration.
 
 ## Contents
