@@ -502,7 +502,7 @@ derive_go_gets() {
     ver_prefix=$(awk '{print $2}' <<< "$line" | grep -oE '^v[0-9]+' | sed 's/v//' || true)
     [[ -z "$ver_prefix" ]] && continue
     cmds+=("go get ${pkg}@v${ver_prefix}.${K8S_MINOR}.${K8S_PATCH}")
-  done < <(grep -E "k8s\.io/" "$gomod" | grep -v "sigs\.k8s\.io/" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | sort -u)
+  done < <(grep -E "k8s\.io/" "$gomod" | grep -v "sigs\.k8s\.io/" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | LC_ALL=C sort -u)
 
   # Rule 2: controller-runtime
   # CR_VERSION is resolved earlier by querying the Go module proxy for a
@@ -590,7 +590,7 @@ derive_go_gets() {
   done < <(grep -E "k8s\.io/|sigs\.k8s\.io/|github\.com/openshift/(api|client-go|library-go|build-machinery-go) " "$gomod" | \
            grep -v "=>" | \
            grep -vE "v[0-9]+\.${OLD_MINOR}\." | \
-           awk '{print $1, $2}' | sort -u)
+           awk '{print $1, $2}' | LC_ALL=C sort -u)
 
   printf '%s\n' "${cmds[@]}"
 }
