@@ -96,8 +96,10 @@ unless the check actually completed successfully.
 
 ## 4b. Verification wave
 
-Read-only tests and gates may run in parallel, but not against concurrent
-code mutations. Commit 4a's fixes before collecting their final evidence;
+Source-read-only tests and gates may run in parallel, with test workers writing
+separate logs and gate reviewers writing only their own reports. Do not overlap
+them with source mutations or full validation that replaces shared evidence.
+Commit 4a's fixes before collecting their final evidence;
 if HEAD changes, refresh every current-step review as in rules.md.
 Use native workers when available, or run the same checks inline.
 First, discover test packages:
@@ -175,20 +177,26 @@ infrastructure fallback; Claude does not require a native independent reviewer.
 
 ### Codex only
 
-Prepare the selected-commit evidence without invoking Claude. Run preparation
-directly and check its completed exit status. The example prints that status
-so it survives stdout-only tool wrappers. Do not pipe preparation through
-`head` or another filter that can hide failure or discard prompt content:
+Prepare the selected-commit evidence without invoking Claude. Capture the
+complete prompt in a unique scratch file so tool-output limits cannot truncate
+the handoff. Check the completed status; preparation success is not approval:
 
 ```bash
+REVIEW_PROMPT=$(mktemp "$REPO_ROOT/.rebase-tmp/step4-review-XXXXXX") || exit 1
 prep_rc=0
-bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" --print-prompt "$(git rev-parse HEAD)" "k8s rebase" || prep_rc=$?
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" --print-prompt "$(git rev-parse HEAD)" "k8s rebase" > "$REVIEW_PROMPT" || prep_rc=$?
 printf '\nPreparation exit status: %s\n' "$prep_rc"
+if [[ "$prep_rc" -eq 0 ]]; then
+  printf 'Review prompt file: %s\n' "$REVIEW_PROMPT"
+fi
 exit "$prep_rc"
 ```
 
-Only after successful preparation, give the populated prompt, repo path,
-and reviewed SHA to a fresh-context read-only native reviewer. Supply evidence,
+Only after successful preparation, give that invocation's prompt-file path,
+repo path, and reviewed SHA to a fresh-context read-only native reviewer.
+Require it to read the complete file, using bounded chunks if needed, including
+the scope and any helper truncation warning. Do not substitute a tool preview
+or a prior prompt file. Supply evidence,
 not the parent's reasoning history. Require an explicit `APPROVE: <reason>`
 or `REJECT: <reason>`; failed preparation, missing/malformed verdicts, or a
 missing independent reviewer stop this path. Parent self-review is not a

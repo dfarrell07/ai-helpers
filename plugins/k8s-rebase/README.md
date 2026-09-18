@@ -97,24 +97,17 @@ cases documented in the skill's rules. If that conflict blocks a repair,
 report it rather than bypassing the hook. This compatibility change leaves
 module-safety policy and commit trailers unchanged.
 
-Focused offline checks: `python3 test/test_compatibility.py` (no models or
-builds), plus `make test-version-selection` for Step 1 selection with a stubbed
-proxy and Go's read-only parser.
-Installed-package evidence is revision-specific: Codex CLI 0.154.0
-enforced all five hooks at `258dfab8` with invocation-only trust. Codex and
-Claude CLI 2.1.272 retained mixed gate outcomes in Step 5 fixtures at `fc159768`.
-The current installed snapshot is `1073dc17` (122 verified package files),
-including the Step 1 selection and Step 4 lint-scope corrections. Fresh-session
-fixtures exercise installed discovery and question-only lint triage. See the
-[tracked compatibility plan](plans/claude-codex-compatibility.md)
-for current candidates, exact coverage, and remaining checks.
+Focused offline checks: `make test-compatibility` and
+`make test-version-selection` (no models, builds, or rebases). These use
+local stubs and Go's read-only parser; the selection tests stub the proxy too.
 
-End-to-end qualification remains blocked. Historical Codex/Claude rebases
-of pinned ovn-kubernetes-mcp to 1.35.3 stopped on Step 1 dependency drift.
-The shared corrections pass focused offline checks and are installed, but
-not rebase-qualified. Finish the remaining focused agent fixtures before
-attempting the bounded qualification pair.
-Interface and finalization fixtures do not prove a complete migration.
+The current candidate's 122 package files were verified in isolated Codex and
+Claude CLI installs. Both review routes ran, and finalization artifact checks
+pass after shared guard, inventory, and cleanup fixes. Claude still has native
+reporting/failure-handling qualification gaps; no complete rebase is qualified.
+The normal user installation was not refreshed. See the
+[tracked compatibility plan](plans/claude-codex-compatibility.md) for the frozen
+snapshot, evidence, and remaining checks.
 
 ## Contents
 

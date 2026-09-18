@@ -10,30 +10,48 @@ details=()
 TARGET=""
 if [[ -f "$REPO/.rebase-tmp/target-k8s-api-version.txt" ]]; then
   TARGET=$(tr -d '[:space:]' < "$REPO/.rebase-tmp/target-k8s-api-version.txt")
-  echo "TARGET_VERSION: $TARGET"
+fi
+if [[ "$TARGET" =~ ^v0\.[0-9]+\.[0-9]+$ ]]; then
   details+=("TARGET_VERSION: $TARGET")
 else
-  echo "NO_TARGET: target-k8s-api-version.txt absent, version comparison skipped"
-  details+=("NO_TARGET: target-k8s-api-version.txt absent — version comparison skipped")
+  TARGET=""
+  details+=("NO_TARGET: target-k8s-api-version.txt absent or invalid — version comparison unverified")
   inc NEW_ISSUES
 fi
 
-for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
+gomods=$(find . -name "go.mod" -not -path "*/vendor/*" | LC_ALL=C sort)
+if [[ -z "$gomods" ]]; then
+  details+=("CHECK_ERROR: no go.mod files found — version comparison unverified")
+  inc NEW_ISSUES
+fi
+while IFS= read -r gomod; do
+  [[ -z "$gomod" ]] && continue
   mod_dir=$(dirname "$gomod")
   echo "CHECK $mod_dir/go.mod"
   details+=("CHECK $mod_dir/go.mod")
 
+  # -json without editing flags only reads go.mod; no resolution or downloads.
+  # Parse requires, not excludes/replaces; support single-line and block syntax.
+  if ! deps=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json "$gomod" |
+              jq -r '.Require[]? | [.Path, .Version] | @tsv'); then
+    details+=("CHECK_ERROR: cannot read requirements from $gomod — version comparison unverified")
+    inc NEW_ISSUES
+    continue
+  fi
   while read -r mod ver; do
     [[ -z "$mod" || -z "$ver" ]] && continue
-
-    if [[ -n "$TARGET" && "$ver" != "$TARGET" ]]; then
-      details+=("MISMATCH: $mod_dir: $mod at $ver, expected $TARGET")
+    case "$mod" in
+      k8s.io/klog|k8s.io/klog/v2|k8s.io/utils|k8s.io/kube-openapi|k8s.io/gengo|k8s.io/gengo/v2) continue ;;
+      k8s.io/*) ;;
+      *) continue ;;
+    esac
+    expected="$TARGET"
+    [[ "$mod" == k8s.io/kubernetes && -n "$TARGET" ]] && expected="v1.${TARGET#v0.}"
+    if [[ -n "$expected" && "$ver" != "$expected" ]]; then
+      details+=("MISMATCH: $mod_dir: $mod at $ver, expected $expected")
       inc NEW_ISSUES
     fi
-  done < <(grep 'k8s.io/' "$gomod" | grep -v '^\s*//' | grep -v 'replace' | grep -v '=>' | \
-            grep -E '^\s' | grep -v 'sigs\.k8s\.io/' | \
-            grep -vE 'k8s\.io/(klog|utils|kube-openapi|kubernetes|gengo)\b' | \
-            awk '{print $1, $2}')
+  done <<< "$deps"
 
   if [[ -d "$mod_dir/vendor" ]]; then
     verify_out=$(cd "$mod_dir" && go mod verify 2>&1) || true
@@ -43,7 +61,7 @@ for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" | sort); do
       inc NEW_ISSUES
     fi
   fi
-done
+done <<< "$gomods"
 
 # If K8S_VERSION in test/scripts/install-kind.sh was bumped by this branch,
 # verify that KIND_URL was also updated. Pre-built kindest/node images only

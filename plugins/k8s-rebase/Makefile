@@ -18,7 +18,7 @@ help: ## Show available targets
 	@echo "  ────────────────────────"
 	@echo "  Tests the k8s-rebase skill by running it against real repos, then"
 	@echo "  comparing the output to a known-good human-verified rebase."
-	@echo "  Gates = 33 pass/fail checks (build, vet, lint, correctness, ...)."
+	@echo "  Gates = $(words $(wildcard gates/step[1-4]-*/*.md)) verification checks (build, vet, lint, correctness, ...)."
 	@echo "  Court = AI adversarial review that compares output to known-good, votes pass/fail."
 	@echo "  Requires: claude CLI, yq, jq, git, rsync. ~20 min per repo."
 	@echo ""

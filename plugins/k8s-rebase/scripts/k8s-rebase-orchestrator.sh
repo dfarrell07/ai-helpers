@@ -9,6 +9,7 @@
 #   k8s-rebase-orchestrator.sh gates  <repo-path> [<step>]
 #   k8s-rebase-orchestrator.sh advance <repo-path>
 #   k8s-rebase-orchestrator.sh status <repo-path>
+#   k8s-rebase-orchestrator.sh reports <repo-path>  # read-only final inventory
 #
 # Exit codes: 0=success, 1=blocked (normal), 2=usage error, 3+=internal error
 
@@ -94,12 +95,16 @@ report_path() {
 
 report_has_pass() {
   local rpt="$1"
-  [[ -f "$rpt" ]] && grep -qE '^VERDICT: (PASS|SKIP)' "$rpt"
+  report_has_verdict "$rpt" && grep -qE '^VERDICT: (PASS|SKIP)$' "$rpt"
 }
 
 report_has_verdict() {
   local rpt="$1"
-  [[ -f "$rpt" ]] && grep -qE '^VERDICT: (PASS|FAIL|SKIP|INCONCLUSIVE)' "$rpt"
+  [[ -f "$rpt" ]] || return 1
+  local verdict
+  verdict=$(grep '^VERDICT:' "$rpt") || return 1
+  # One exact verdict only; prefixes and duplicate/conflicting lines are invalid.
+  [[ "$verdict" =~ ^VERDICT:\ (PASS|FAIL|SKIP|INCONCLUSIVE)$ ]]
 }
 
 report_is_fresh() {
@@ -362,6 +367,64 @@ cmd_advance() {
   return 1
 }
 
+cmd_reports() {
+  local repo="${1:?Usage: $0 reports <repo-path>}"
+  repo=$(cd "$repo" && pwd)
+  local head sd gate rpt raw_head verdict index
+  head=$(git -C "$repo" rev-parse --verify HEAD) || die "Cannot resolve report inventory HEAD"
+  local expected=0 stale_count=0
+  local pass_current=0 pass_prior=0 pass_stale=0
+  local labels=(PASS SKIP FAIL INCONCLUSIVE UNVERIFIED)
+  local totals=(0 0 0 0 0)
+  echo "INVENTORY HEAD: $head"
+  for sd in "${STEP_DIRS[@]}"; do
+    for gate in "$GATES_ROOT/$sd/"*.md; do
+      [[ -f "$gate" ]] || die "Gate inventory unavailable: $sd"
+      expected=$((expected + 1))
+      rpt=$(report_path "$repo" "$sd" "$(basename "$gate" .md)")
+      printf '\nREPORT: %s\n' "$rpt"
+      verdict=UNVERIFIED
+      if [[ -f "$rpt" && -r "$rpt" ]]; then
+        cat "$rpt" || die "Cannot read report: $rpt"
+        raw_head=$(grep '^HEAD:' "$rpt") || raw_head=""
+        if report_has_verdict "$rpt" && [[ "$raw_head" =~ ^HEAD:\ [0-9a-f]+$ ]] &&
+           [[ ${#raw_head} -eq $((${#head} + 6)) ]]; then
+          verdict=$(awk '/^VERDICT: /{print $2}' "$rpt")
+          if [[ "$raw_head" == "HEAD: $head" ]]; then
+            [[ "$verdict" != PASS ]] || pass_current=$((pass_current + 1))
+            echo "FRESHNESS: current HEAD"
+          elif [[ "$sd" == "${STEP_DIRS[$((STEP_COUNT - 1))]}" ]]; then
+            stale_count=$((stale_count + 1))
+            [[ "$verdict" != PASS ]] || pass_stale=$((pass_stale + 1))
+            echo "FRESHNESS: STALE final-step report; not final-HEAD verification"
+          else
+            [[ "$verdict" != PASS ]] || pass_prior=$((pass_prior + 1))
+            echo "FRESHNESS: historical report; not a final-HEAD retest"
+          fi
+        else
+          echo "UNVERIFIED: malformed HEAD or verdict"
+        fi
+      else
+        echo "UNVERIFIED: missing or unreadable report"
+      fi
+      echo "ASSESSMENT: $verdict"
+      for index in "${!labels[@]}"; do
+        if [[ "$verdict" == "${labels[$index]}" ]]; then
+          totals[index]=$((totals[index] + 1))
+        fi
+      done
+    done
+  done
+  [[ "$(git -C "$repo" rev-parse HEAD)" == "$head" ]] || die "HEAD changed during report inventory"
+  printf '\nEXPECTED GATES: %s\nREPORT VERDICTS:' "$expected"
+  for index in "${!labels[@]}"; do
+    printf ' %s=%s' "${labels[$index]}" "${totals[$index]}"
+  done
+  printf '\nFINAL-STEP STALE: %s\n' "$stale_count"
+  printf 'PASS AT INVENTORY HEAD: %s\nHISTORICAL PRIOR-STEP PASS: %s\nSTALE FINAL-STEP PASS: %s\n' \
+    "$pass_current" "$pass_prior" "$pass_stale"
+}
+
 cmd_status() {
   local repo="${1:?Usage: $0 status <repo-path>}"
   repo=$(cd "$repo" && pwd)
@@ -458,5 +521,6 @@ case "$cmd" in
   gates)   cmd_gates "$@" ;;
   advance) cmd_advance "$@" ;;
   status)  cmd_status "$@" ;;
-  *)       die "Usage: $0 {init|gates|advance|status} <repo-path> [args...]" ;;
+  reports) cmd_reports "$@" ;;
+  *)       die "Usage: $0 {init|gates|advance|status|reports} <repo-path> [args...]" ;;
 esac

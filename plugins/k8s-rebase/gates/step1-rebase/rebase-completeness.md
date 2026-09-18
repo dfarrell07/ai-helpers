@@ -43,8 +43,11 @@ Report a count for each check:
 
    - Version refs commit
 4. Dependency versions: check all go.mod files (excluding
-   vendor/) for k8s.io/* deps. All should be at the same
-   minor version. Count any NOT at the target minor version (older or newer).
+   vendor/) for Kubernetes release-versioned deps: staging modules use
+   v0.Y.Z, and k8s.io/kubernetes uses v1.Y.Z. Count any NOT at the target
+   Kubernetes minor (older or newer). Exclude independently versioned
+   k8s.io/klog (including /v2), utils, kube-openapi, and gengo (including
+   /v2), regardless of direct/indirect status; their versions do not track Y.
    EXCEPTION — do NOT count a version mismatch if EITHER:
    (a) the module has a `replace` directive in this go.mod,
        and that same replace (same module, same target) also
@@ -57,7 +60,7 @@ Report a count for each check:
    git merge-base HEAD main):<path>` — substitute the
    relative path of the go.mod being checked (e.g. go.mod,
    go-controller/go.mod).
-   Direct (non-indirect) requires without a `replace` are
+   Direct release-versioned requires without a `replace` are
    never excepted — the rebase script must bump those.
 
 5. Conflict markers: scan all non-vendor source files:
@@ -86,7 +89,8 @@ Fix hints for non-zero counts:
 - Check 4 (version mismatch): report this fix for the main
   agent to apply (exact version from
   `.rebase-tmp/target-k8s-api-version.txt`):
-  `go get k8s.io/<mod>@$(cat .rebase-tmp/target-k8s-api-version.txt)`
+  `go get k8s.io/<mod>@$(cat .rebase-tmp/target-k8s-api-version.txt)`.
+  For k8s.io/kubernetes use v1.Y.Z, not the staging v0.Y.Z target.
 
 - Check 5 (conflict markers): for each file reported by the
   Check 5 grep, open it, resolve every `<<<<<<<`/`=======`/

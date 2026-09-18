@@ -55,9 +55,11 @@ exactly one of:
   REJECT: <one-sentence reason>
 
 Check for:
-1. VERSION CONSISTENCY: are all k8s.io/* dependencies at the same minor version
+1. VERSION CONSISTENCY: are Kubernetes release-versioned dependencies at the same minor version
    (no alpha/pre-release mixed with release)? If go.mod shows v0.35.x mixed with
-   v0.36.x for direct deps, REJECT.
+   v0.36.x for direct deps, REJECT. k8s.io/kubernetes uses v1.Y.Z for the same
+   Kubernetes minor Y. Exclude independently versioned k8s.io/klog (including
+   /v2), utils, kube-openapi, and gengo (including /v2) from this comparison.
 2. COMMIT COMPLETENESS: does the commit history include a rebase commit, codegen
    (if the repo has it), version refs update, and lint fixes? If a required commit
    type appears missing, REJECT.

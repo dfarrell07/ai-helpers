@@ -112,9 +112,9 @@ gate with verdict FAIL):
    cannot regenerate them from this step. Never delete a newly refreshed
    companion report.
 
-Repeat up to 3 times per gate. If it still fails after 3
-attempts, report remaining issues and proceed. This loop
-discovers and fixes deprecated-but-compiling patterns without
+Use rules.md's shared three-iteration budget, not a separate budget per gate.
+When exhausted, return remaining issues and consumed iterations to the parent.
+This loop discovers and fixes deprecated-but-compiling patterns without
 needing pre-existing autofix knowledge.
 
 ## Before advancing

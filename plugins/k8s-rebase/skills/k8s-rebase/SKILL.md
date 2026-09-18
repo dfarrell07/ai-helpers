@@ -65,6 +65,8 @@ state is malformed, stop and report the conflict. Recover `BUMP_TOOLS` from
 the previous invocation, or ask if unknown; it is not persisted in state.
 If state is missing but interrupted artifacts remain in `.rebase-tmp/`,
 stop for recovery rather than fresh-initializing over them.
+Preserve the interrupted state, reports, and logs; recovery advice must not
+recommend clearing `.rebase-tmp/`. Resolve the intended target first.
 
 With those checks satisfied, run:
 

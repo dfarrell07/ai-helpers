@@ -20,13 +20,17 @@ CWD=$(echo "$INPUT" | jq -r '.cwd // empty' 2>/dev/null)
 [[ -f "$CWD/.rebase-tmp/.session-active" ]] || exit 0
 
 # Allow exit while step1 background script is still running.
-# Once step1-result.txt exists the script has finished — fall through to normal
-# gate checks. Without this, stop-hook blocks burn turns during go mod vendor.
-STEP1_RESULT="$CWD/.rebase-tmp/step1-result.txt"
+# Its result marker precedes optional work, so it must not end this exemption.
+# Once the child exits, fall through to normal gate checks.
+# A retained PID must not exempt later steps.
 STEP1_PID_FILE="$CWD/.rebase-tmp/step1.pid"
-if [[ ! -f "$STEP1_RESULT" && -f "$STEP1_PID_FILE" ]]; then
+if [[ -f "$STEP1_PID_FILE" ]] &&
+   [[ "$(jq -r '.current_step // empty' "$CWD/.rebase-tmp/state.json" 2>/dev/null)" == 1 ]]; then
   STEP1_PID=$(cat "$STEP1_PID_FILE" 2>/dev/null)
-  if [[ -n "$STEP1_PID" ]] && kill -0 "$STEP1_PID" 2>/dev/null; then
+  # kill -0 also succeeds for exited, unreaped children (zombies).
+  if [[ "$STEP1_PID" =~ ^[1-9][0-9]*$ ]] && kill -0 "$STEP1_PID" 2>/dev/null &&
+     STEP1_STATUS=$(ps -p "$STEP1_PID" -o stat= 2>/dev/null) &&
+     [[ -n "$STEP1_STATUS" && ! "$STEP1_STATUS" =~ ^[[:space:]]*Z ]]; then
     exit 0
   fi
 fi

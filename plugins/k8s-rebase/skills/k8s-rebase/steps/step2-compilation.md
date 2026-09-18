@@ -195,8 +195,8 @@ gate with verdict FAIL):
    all stale/pending current-step reviews, including old PASS reports.
    Preserve prior-step reports and newly regenerated companion reports.
 
-Repeat up to 3 times per gate. If it still fails after 3
-attempts, report remaining issues and proceed.
+Use rules.md's shared three-iteration budget, not a separate budget per gate.
+When exhausted, return remaining issues and consumed iterations to the parent.
 
 **All 6 step2 gate verdicts are required even if there were zero
 compilation errors.** Gates check more than compilation — they

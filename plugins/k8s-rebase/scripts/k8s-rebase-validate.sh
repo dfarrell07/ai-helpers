@@ -138,8 +138,6 @@ ERRORS_FOUND=0
 VALIDATION_TIMEOUT="${VALIDATION_TIMEOUT:-25m}"
 LINT_TIMEOUT="${LINT_TIMEOUT:-30m}"
 
-: > "$SUMMARY"
-
 # Container setup: install missing tools needed by CI checks
 if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
   export GIT_CONFIG_COUNT=1
@@ -162,6 +160,8 @@ fi
 run_validation() {
   local name="$1"
   local logfile="$REBASE_TMP/${name}.log"
+  # Test-only callers already reserved this exact filename with mktemp.
+  [[ "$MODE" == test-only ]] && logfile="$REBASE_TMP/$name"
   shift
 
   local step_timeout="$VALIDATION_TIMEOUT"
@@ -349,17 +349,19 @@ run_test_only() {
   # Match outer timeout to Go test timeout so the container isn't killed early
   VALIDATION_TIMEOUT="$TEST_TIMEOUT"
 
-  # Use PID + random suffix so parallel agents (especially containers
-  # where PID is always 1) don't clobber each other
+  # Reserve a unique log even when containers share PID values and start times.
   local LOG_NAME
-  LOG_NAME="test-only-$$-$(date +%s)"
+  LOG_NAME=$(mktemp "$REBASE_TMP/test-only-XXXXXX") || exit 1
+  # Match ordinary log creation, honoring umask (also for host reads after Docker).
+  chmod +rw "$LOG_NAME" || exit 1
+  LOG_NAME=${LOG_NAME##*/}
   local step_failed=0
   run_validation "$LOG_NAME" "cd $PRIMARY_MOD && go test $VENDOR_FLAG -count=1 -timeout $TEST_TIMEOUT $TEST_ONLY_EXTRA $TEST_ONLY_PKGS" || step_failed=1
 
   if [[ "$step_failed" -eq 1 ]]; then
     echo ""
-    echo "FAIL — see $REBASE_TMP/${LOG_NAME}.log"
-    tail -30 "$REBASE_TMP/${LOG_NAME}.log"
+    echo "FAIL — see $REBASE_TMP/$LOG_NAME"
+    tail -30 "$REBASE_TMP/$LOG_NAME"
     exit 1
   else
     echo ""
@@ -371,6 +373,9 @@ run_test_only() {
 if [[ "$MODE" == "test-only" ]]; then
   run_test_only
 fi
+
+# Only full validation owns the shared summary; test workers own their logs.
+: > "$SUMMARY"
 
 echo "━━━━ Build Validation ━━━━"
 echo ""

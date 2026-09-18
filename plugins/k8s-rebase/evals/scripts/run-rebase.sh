@@ -145,6 +145,7 @@ git diff "$FROM_COMMIT"..HEAD --name-only > "$OUTPUT_DIR/files-changed-all.txt" 
 
 if [[ -n "$KNOWN_GOOD_REF" ]]; then
   _kg_fetch_ok=false
+  _kg_ref=FETCH_HEAD
   if [[ -n "$KNOWN_GOOD_URL" && "$KNOWN_GOOD_URL" != "$REPO_URL" ]]; then
     # known_good lives on a fork — fetch from that remote, not "origin".
     # set-url first: cached clone may have a stale known-good-remote URL.
@@ -161,11 +162,13 @@ if [[ -n "$KNOWN_GOOD_REF" ]]; then
       git fetch origin "${_kg_branch}" 2>/dev/null \
         && git rev-parse "FETCH_HEAD" >/dev/null 2>&1 \
         && git merge-base --is-ancestor "$KNOWN_GOOD_REF" FETCH_HEAD 2>/dev/null \
+        && _kg_ref="$KNOWN_GOOD_REF" \
         && _kg_fetch_ok=true || true
     }
   fi
   if [[ "$_kg_fetch_ok" == true ]]; then
-    KNOWN_GOOD_SHA=$(git rev-parse FETCH_HEAD)
+    # A fallback branch supplies the object, not a replacement comparison tip.
+    KNOWN_GOOD_SHA=$(git rev-parse --verify "${_kg_ref}^{commit}")
     git diff "$FROM_COMMIT".."$KNOWN_GOOD_SHA" -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/known-good.patch" 2>/dev/null || true
   else
     echo ":: WARNING: could not fetch known-good ref $KNOWN_GOOD_REF — known-good.patch will be empty; LLM judges will skip Phase 1 gap analysis" >&2
