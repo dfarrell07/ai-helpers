@@ -1,35 +1,20 @@
 <!-- markdownlint-disable MD013 -->
-Identify all non-k8s dependencies whose minor version changed in this rebase:
-  `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- go.mod | grep '^[+-]' | grep -v 'k8s.io\|sigs.k8s.io\|^[+-][+-]' | sort`
-For any dep where the minor version changed (e.g., v1.2→v1.4, not v1.2.3→v1.2.5),
-read its release notes. Common examples: KIND, MetalLB, KubeVirt, golangci-lint,
-controller-runtime — apply the same lookup to any dep found by the diff above.
+Identify non-Kubernetes-release dependencies whose major or minor version
+changed. Inspect every non-vendor module, including nested modules:
 
-Sources:
+```bash
+BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)
+git diff "$BASE"..HEAD -- ':(glob)**/go.mod' ':(exclude,glob)**/vendor/**'
+```
 
-Sources by dep:
+Pair removed and added versions. Include independently versioned ecosystem
+modules such as `sigs.k8s.io/controller-runtime`; do not exclude all `sigs.k8s.io/`
+paths. Kubernetes release notes are covered by the k8s-changelog gate.
 
-- KIND: gh api repos/kubernetes-sigs/kind/releases --paginate (has
-  explicit "Breaking Changes" headings in .body)
-
-- MetalLB: curl the in-repo release notes at
-  raw.githubusercontent.com/metallb/metallb/main/website/content/release-notes/_index.md
-
-- KubeVirt: gh api repos/kubevirt/kubevirt/releases --paginate
-  (tagged by SIG — focus on SIG-network, Deprecation, API change)
-
-- golangci-lint: curl CHANGELOG.md from the repo
-  raw.githubusercontent.com/golangci/golangci-lint/main/CHANGELOG.md
-
-- controller-runtime: gh api repos/kubernetes-sigs/controller-runtime/releases
-  --paginate (focus on Breaking Changes in .0 minor releases; also
-  check deprecations and removed APIs — e.g. breaking API changes)
-
-Also check for other non-k8s ecosystem deps bumped by a minor
-version or more. Find them with:
-  `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- go.mod | grep '^[+-]' | grep -v 'k8s.io\|sigs.k8s.io\|^[+-][+-]' | sort`
-For any dep where the minor version changed (e.g., v1.2→v1.4,
-not v1.2.3→v1.2.5), search for its release notes on GitHub.
+Also inspect changed tool pins in Makefiles, scripts, and CI configuration.
+KIND, MetalLB, KubeVirt, and golangci-lint may be pinned there rather than in
+go.mod. Read each dependency's upstream release notes or changelog for the
+old → new version range; a module-only search misses these changes.
 
 For each dep, extract entries between the old and new versions.
 Focus on: breaking changes, deprecations, removed features,

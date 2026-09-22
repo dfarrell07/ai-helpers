@@ -9,7 +9,8 @@
 #
 # Provides: REPO, BASE, GATE_NAME, NEW_ISSUES, WRITE_REPORT, inc, init_gate, base_file_has,
 #           finish_evidence
-# Conventions: exit 0 always (crash writes .crash, not a verdict).
+# finish_evidence exits 0; unexpected nonzero exits leave a .crash breadcrumb.
+# Neither exit status nor evidence alone is a gate verdict.
 
 set -euo pipefail
 

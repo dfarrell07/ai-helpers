@@ -1,6 +1,6 @@
 ---
 name: k8s-rebase
-description: Use when rebasing a Go project to a new Kubernetes version — bumps all k8s.io/* dependencies, runs codegen, updates version references, fixes build breakage with antagonistic review, and presents a gh pr create command.
+description: Use when rebasing a Go project to a new Kubernetes minor — align dependencies, regenerate code, repair compatibility issues, verify gates, and prepare a PR command.
 argument-hint: "[--bump-tools] <version> (e.g., 1.36.0 or --bump-tools 1.36.0)"
 user-invocable: true
 allowed-tools: Bash, Read, Agent

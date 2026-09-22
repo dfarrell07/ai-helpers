@@ -11,7 +11,9 @@
 #   k8s-rebase-orchestrator.sh status <repo-path>
 #   k8s-rebase-orchestrator.sh reports <repo-path>  # read-only final inventory
 #
-# Exit codes: 0=success, 1=blocked (normal), 2=usage error, 3+=internal error
+# Normal exits: 0=command completed, 1=pending gates or blocked advancement.
+# Exit 2: FORCE_ADVANCE means state already moved; ERROR means a hard error.
+# Other unexpected failures must be inspected; exit 0 is not a gate verdict.
 
 set -euo pipefail
 

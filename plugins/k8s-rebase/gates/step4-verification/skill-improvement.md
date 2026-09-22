@@ -1,10 +1,8 @@
-Read the branch diff (git diff of merge-base..HEAD). Identify
-manual fix commits — those that do NOT have "Applied:" in the
-commit body AND are not known autofix infrastructure commits
-(license regeneration, post-vet cleanup, import reordering).
-Autofix commits contain "Applied:" trailers; commits matching
-script-generated subjects (deps:, codegen:, ci:, test:, docs:)
-from the rebase or autofix scripts are also not manual work.
+Read the branch diff and commit bodies. Identify manual repairs by comparing
+their diffs with the rebase and autofix scripts. `Applied:` markers help
+identify automation; a subject prefix such as `deps:` or `test:` alone does
+not establish who made the change. Exclude known mechanical output and
+record uncertainty when a repair's origin cannot be determined.
 
 For each manual fix commit, classify the change:
 
@@ -15,9 +13,10 @@ For each manual fix commit, classify the change:
 For each SYSTEMATIC fix, describe:
 
 1. Pattern name (short kebab-case slug)
-2. Detection: grep/find command that finds affected code
-   Run the detection command and report actual match count.
-   If it returns zero, the pattern may be mis-specified.
+2. Detection: a command that finds affected code. Check it against the
+   pre-fix revision with read-only `git show`/`git grep`, without switching
+   the active checkout. Report the revision and match count, then the
+   post-fix result separately. Zero matches after repair may be correct.
 
 3. Fix: sed/awk command or transformation description
 4. Scope: generic (any Go+k8s repo) or repo-specific

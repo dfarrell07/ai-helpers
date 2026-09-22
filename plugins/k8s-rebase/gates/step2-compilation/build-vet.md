@@ -8,24 +8,18 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 - Differ or file absent: evidence is stale/missing — judge from scratch using the checks
   below. Do NOT PASS on the strength of absent or stale evidence.
 
-When evidence is fresh: if SUMMARY shows 0 errors, verdict is PASS. If SUMMARY shows
-errors, analyze each BUILD or VET line in the evidence (format: 'BUILD <mod_dir>: <error>'
-or 'VET <mod_dir>: <error>'). For each error, determine
-whether it was introduced by the rebase or was pre-existing:
+Before accepting a fresh zero count, account for every module: checked or
+explicitly excluded. A `VET_TIMEOUT` detail or companion crash means the run
+was incomplete, even when SUMMARY says 0 errors. Run the incomplete checks
+and any unvisited modules manually below; if they cannot complete, report
+INCONCLUSIVE with the missing coverage. A timeout does not establish a code defect.
 
-```bash
-BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)
-# For a compile error referencing <missing_symbol> in a vendored package:
-git show "$BASE:vendor/<pkg>/<file>.go" 2>/dev/null | grep -c '<missing_symbol>'
-# > 0: symbol existed before → rebase removed it → error is NEW
-# == 0: symbol was already absent → error is PRE-EXISTING
-```
-
-Do NOT treat "source file is present on base" as proof the error is pre-existing.
-A dependency API removal breaks unmodified source files — the source file exists on
-base but the vendored API it calls was removed by the bump. Check vendor, not source.
-Count only errors newly introduced by the rebase. Pre-existing errors: report as
-INFO (pre-existing) and do NOT count toward FAIL.
+Analyze each BUILD or VET diagnostic against the base's source, dependency
+APIs, and configuration. An unchanged caller can break against a changed API;
+a symbol missing from one file does not prove it was absent from the base's
+entire dependency. Report established pre-existing errors as INFO and count
+new errors toward FAIL. If attribution cannot be established, report
+INCONCLUSIVE rather than assuming the error was pre-existing.
 
 If evidence is stale or absent, run these checks manually:
 
@@ -39,9 +33,11 @@ for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -exec dirname {} 
     continue
   fi
   echo "CHECK $mod_dir"
-  (cd "$mod_dir" && go build ./... 2>&1)
-  (cd "$mod_dir" && go vet ./... 2>&1)
-  # Count errors: non-zero exit from either command = issue found
+  build_rc=0
+  (cd "$mod_dir" && go build ./... 2>&1) || build_rc=$?
+  vet_rc=0
+  (cd "$mod_dir" && go vet ./... 2>&1) || vet_rc=$?
+  printf 'RESULT %s: build=%s vet=%s\n' "$mod_dir" "$build_rc" "$vet_rc"
 done
 ```
 
@@ -52,9 +48,8 @@ Count errors: each module where `go build` or `go vet` exits
 non-zero is 1 error. Report the total across all non-skipped
 modules.
 
-For pre-existing issues: if the base branch also fails the same
-build/vet check, report those errors as INFO (pre-existing) and
-only count NEW errors introduced by the rebase toward FAIL.
+PASS requires completed checks with no new build/vet errors. Keep exclusions
+and pre-existing findings in the report; missing coverage is not a zero count.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
 `go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
