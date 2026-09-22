@@ -1,11 +1,12 @@
 # Eval Improvement Backlog
 
-Future work for the k8s-rebase eval suite. Items are ordered by
-implementation priority.
+Implemented changes and remaining work for the k8s-rebase eval suite.
+Completed entries explain the original gaps; use the
+[eval guide](../evals/README.md) and linked implementation for current behavior.
 
 ---
 
-## 1. ✓ DONE — Expand to full repo×version matrix (16 total cases)
+## 1. ✓ DONE — Expand configured repo/version coverage (16 total cases)
 
 16 cases across 1.34.1 (4 repos), 1.35.3 (6 repos), 1.36.2 (6 repos).
 See `evals/README.md` for the case table. SHAs from `test/config-1.3{4,5,6}.yaml`.
@@ -80,8 +81,8 @@ return (True, f"k8s bumped to v0.{diff_minor}.x")
 not *executed*. It does not verify it was *presented* to the user. A
 skill that skips step5-pr.md entirely still passes.
 
-**Implementation:** Add before line 192 in `run-rebase.sh` (where
-`session-output.json` is deleted):
+**Implementation:** `run-rebase.sh` extracts assistant text before deleting
+`session-output.json`:
 
 ```bash
 jq -rs '[.[] | select(.type=="assistant")
@@ -179,13 +180,11 @@ script ran in the background (go mod vendor on large repos: 5–30 min).
 Each block consumed a turn. Repos with large vendor trees (multus-cni:
 2086 files) exhausted the turn budget before the script finished.
 
-**Fix:** Stop hook now checks `step1.pid` liveness and `step1-result.txt`
-existence. If the PID is alive and result file not yet written, it yields
-instead of blocking. Once the script finishes (result written or PID gone),
-normal gate enforcement resumes.
-
-Also strengthened `step1-rebase.md`: single 30-min background wait instead
-of repeated short polls.
+**Current fix:** The Stop hook yields while the recorded Step 1 PID is
+alive and non-zombie, and state is still at Step 1. The result marker is
+written before optional tooling completes, so it cannot end that exemption.
+Once the process exits, normal gate enforcement resumes. The step prompt
+requires waiting for actual completion and preserving process/log evidence.
 
 **Validated:** case-013 (multus-cni @ 1.35.3) went from 20 turns / DONE:false
 to 9 turns / DONE:true after the fix.
@@ -267,19 +266,14 @@ the conflict was fatal and the rebase script exited 1.
 across multiple OCP branches; `@latest` picks the newest commit regardless
 of which k8s minor it targets.
 
-**Fix (two parts):**
-
-1. `_validate_openshift_k8s_minor` — after resolving the branch version,
-   fetches the package's `go.mod` from the proxy and checks that its
-   `k8s.io/api` requirement matches the target minor. Rejects versions that
-   pin a different minor; falls back to the `@latest`-skip path below.
-
-2. In `derive_go_gets` Rule 2b: when `_os_ver` is empty for `client-go` or
-   `api` (either proxy lookup failed or the validated version was rejected),
-   skip the `go get` entirely rather than emitting bare `go get`. `go mod
-   tidy` retains the existing version, which is safer than @latest pulling
-   the wrong k8s minor. `library-go` and `build-machinery-go` do not pin
-   k8s directly and continue to use bare `go get` when unresolved.
+**Current fix:** `_resolve_openshift_version` reads the correct release
+branch's proxy metadata; `_validate_openshift_k8s_minor` parses its go.mod
+and checks api/apimachinery/client-go requirements against the target minor.
+This applies to api, client-go, library-go, and build-machinery-go.
+`derive_go_gets` rejects unresolved versions required by the target module;
+it neither emits an unversioned update nor silently skips that requirement.
+These direct-requirement checks are not a transitive-graph proof, so
+post-update version gates remain necessary.
 
 ---
 

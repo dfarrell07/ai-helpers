@@ -1,6 +1,6 @@
 # Claude/Codex Compatibility Plan
 
-## Scope and current status
+## Scope and recorded status
 
 Make the existing Kubernetes rebase workflow usable by Codex while preserving
 Claude behavior. Limit changes to invocation/instruction compatibility,
@@ -17,9 +17,9 @@ Package manifest SHA-256:
 `f1312236c0bb2d9d32f64e717c2e8fb4b6eb163f34dddedb1f87a37980b32ced`
 (a content snapshot, not a Git commit). All 122 package files and executable
 bits match both isolated CLI installs. Codex loaded its cache; Claude's local
-marketplace loader used the identical frozen marketplace source. Only plan/README
-updates follow that freeze. The normal user installation remains `1073dc17`;
-these isolated tests did not refresh it or the current app session.
+marketplace loader used the identical frozen marketplace source. This evidence
+applies to that snapshot. At the audit, the normal user installation remained
+`1073dc17`; these isolated tests did not refresh it or the app session.
 
 Implemented: shared path/argument handling, host-specific review routing,
 checked Codex prompt preparation, vendor-patch hook support, and exact gate
@@ -29,7 +29,9 @@ restoration, isolated lint baseline checks, and bounded lint retry/triage.
 Keep shared-workflow fixes distinct from host compatibility; focused checks
 are not full-rebase qualification.
 
-This is the canonical current plan. Keep raw fixtures under
+This is the qualification record and remaining plan for the dated snapshot.
+See the [design guide](../docs/design.md) for reusable workflow patterns.
+Keep raw fixtures under
 `.work/claude-codex-compatibility/`; superseded narratives remain in Git
 history, not another planning document.
 
@@ -303,9 +305,9 @@ Claude fallback remains supported behavior but does not count as real review.
 Force-advanced traversal alone is not an all-gates-passing rebase. Do not push
 or create a PR. The full multi-repository eval matrix is not required.
 
-## Current evidence and limits
+## Recorded evidence and limits
 
-Current working-tree checks: **47 compatibility tests, 12 version-selection
+Checks recorded for the snapshot: **47 compatibility tests, 12 version-selection
 tests, 46 repository unit tests, and 8 companion/template pairs** pass.
 Two legacy Claude helper invocation/fallback parity checks pass. Of the 32
 gate criteria/safety bodies compared with `69ff8893`, 30 are unchanged after

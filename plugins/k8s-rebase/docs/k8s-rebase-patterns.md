@@ -1,7 +1,7 @@
 # Kubernetes Rebase Breakage Patterns
 
-Common breakage patterns from k8s rebases. Update after each
-rebase with new patterns discovered.
+Common breakage patterns from k8s rebases. Follow the
+[shared rules](../skills/k8s-rebase/steps/rules.md) when applying fixes.
 
 <!-- LINE BUDGET: 300. Trim version-specific content before
      adding new patterns. Run: wc -l docs/k8s-rebase-patterns.md -->
@@ -10,18 +10,18 @@ rebase with new patterns discovered.
 
 When a rebase surfaces a new breakage pattern:
 
-1. **Pattern Table** — add a row (one-liner: category, symptom,
-   fix). This is the primary entry point; most patterns belong
-   here and nowhere else.
+1. **Pattern Table** — add a row (category, symptom, fix).
+   Most patterns belong here and nowhere else.
 2. **Detailed section below the table** — add a `### Title
    (recurring)` section only if the fix needs multi-step
    instructions, code examples, or caveats that cannot fit a
    single table row.
-3. **`scripts/k8s-rebase.sh`** — only if the mechanical rebase
-   needs changes (unlikely — it is version-generic).
+3. **`scripts/k8s-rebase-autofix.sh`** — automate a repeatable,
+   safe transformation with detection and post-fix verification.
+   Change `k8s-rebase.sh` only for mechanical rebase operations.
 
 **Criteria for inclusion:** patterns must be generic — they
-apply (or could apply) to any Go project that vendors k8s.
+apply (or could apply) across Go projects that consume k8s.
 If a fix only fires for one or two specific repos, put it in
 that repo's `CLAUDE.md` or `AGENTS.md`, not here.
 
@@ -60,15 +60,15 @@ codegen output changes.
 | KIND kubeadm config | k8s 1.36: controller-manager flags silently not applied | Migrate `kind.yaml.j2` extraArgs from v1beta3 map format to v1beta4 list format |
 | KubeVirt version | VM readiness timeouts in kv-live-migration CI | Bump to latest stable patch within same minor; nightly as last resort |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in e2e setup script; update FRR image variable separately |
-| library-go interface | `does not implement SharedIndexInformer` | Bump library-go to latest; if still missing, use replace directive pointing to a fork (see Cross-repo dependency ordering below) |
+| library-go interface | `does not implement SharedIndexInformer` | Use a compatible commit on the correct OCP release branch, or a tracked fork replacement (see Cross-repo dependency ordering below) |
 | Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Check `.snyk` strategy: `vendor/**` glob is safe; per-file exclusions need updating |
 | sudo PATH not preserved | `go: command not found` under sudo in CI scripts (often pre-existing) | In bash: `sudo env "PATH=$PATH" <cmd>` to preserve Go toolchain PATH |
-| Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Bump the dependency (`go get pkg@latest`), then `go mod tidy` |
-| k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | Script auto-resolves; if manual: `go get k8s.io/<pkg>@v0.XX.0` |
+| Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Use `k8s-rebase-depfix.sh <module>@<compatible-version>` in the affected module; verify k8s pins afterward |
+| k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | The rebase script resolves staging requirements at the requested target; inspect its tidy log if resolution fails |
 | CRD name validation lost | Resource with invalid name accepted (should be rejected) | Re-insert hand-edited `metadata.name` pattern constraints after codegen |
 | CRD codegen annotation | `verify-update-codegen` fails (`git diff`) | Re-run codegen to update `controller-gen.kubebuilder.io/version` |
 | Webhook builder API | `too many arguments` in NewWebhookManagedBy | Move object from .For() to constructor arg (now generic) |
-| Vendor verify in container | `vendor not in sync` (container-only) | False positive — re-run on host to confirm |
+| Vendor verify in container | `vendor not in sync` (container-only) | Compare host/container toolchains and rerun the repo's vendor check; container execution alone does not prove a false positive |
 | e2e framework API | `undefined` in test/e2e | Rename functions, add params to match new signatures |
 
 ## Feature Gates (recurring)
@@ -170,11 +170,10 @@ rebase bug.
 
 ### Transitive dependency compatibility
 
-When controller-runtime or another k8s ecosystem package bumps,
-other direct dependencies that consume it may break. Build errors
-appear in `/go/pkg/mod/` paths (not in the project's own code).
-
-Fix: `go get <broken-dep>@latest` then `go mod tidy`.
+An ecosystem bump can break another dependency, producing errors
+under `/go/pkg/mod/`. Run `k8s-rebase-depfix.sh <module>@<compatible-version>`
+in the affected module. It tidies and vendors when vendor/ exists;
+verify Kubernetes pins afterward, as the helper does not enforce them.
 
 ### Snyk vendor scan failures (recurring)
 
@@ -196,14 +195,14 @@ The fix depends on the repo's `.snyk` strategy:
 Check `.snyk` if it exists. Per-file repos will likely fail
 `ci/prow/security` after re-vendoring.
 
-### Vendor verification false positives in containers (recurring)
+### Vendor verification differences in containers (recurring)
 
 When the validate script auto-containerizes (Go version mismatch),
-`make verify-go-mod-vendor` may report vendor drift that doesn't
-exist on the host. The container's empty module cache resolves
-slightly different dependency trees. The validate script flags
-these with a NOTE. Re-run `make verify-go-mod-vendor` on the host
-to confirm before treating it as a real error.
+`make verify-go-mod-vendor` may differ from the host result.
+The validator's NOTE is a diagnostic hint, not a passing check.
+Compare toolchain versions, environment, and the actual diff;
+rerun the repo's vendor verification with the required Go version.
+Retain an unresolved failure if the discrepancy cannot be explained.
 
 ### Cross-repo dependency ordering (recurring)
 
@@ -212,18 +211,20 @@ Downstream OpenShift repos form a dependency chain:
 1. **Plumbing repos first**: `openshift/api`, `openshift/library-go`,
    `openshift/client-go` — these must merge their k8s bump before
    consumers can vendor them.
-2. **Consumer repos next**: CNO, CNCC, multus, ovnk — these `go get`
-   the bumped plumbing repos.
+2. **Consumer repos next**: CNO, CNCC, multus, ovnk — these consume
+   the bumped plumbing repos through the rebase scripts.
 3. **OTE last**: the downstream `openshift/` module in ovnk has its
    own go.mod and may depend on consumer repo changes.
 
-If `go mod tidy`/`go mod vendor` diffs library-go files, or build
-errors show `does not implement` against library-go interfaces,
-the plumbing repo hasn't merged yet. This is an upstream BLOCKER.
+If build errors show `does not implement` against library-go,
+check whether the required interface change exists on the correct
+OCP release branch. A missing upstream fix can block the consumer;
+vendor changes alone do not establish that the fix is missing.
 
 **Replace directive workaround:** Add to go.mod:
 `replace github.com/openshift/library-go => github.com/FORK/library-go v0.0.0-DATE-HASH`
-Remove when official library-go merges.
+Add a TODO tracking its removal when the upstream fix merges;
+apply it in every affected module (replacements do not propagate).
 
 **Do NOT hand-patch vendor/** — CI runs `go mod vendor` which
 regenerates from source, erasing patches.
@@ -282,26 +283,18 @@ specific. When facing config issues: fix the config to match the
 new version's expectations rather than suppressing new warnings.
 
 **errcheck exclusions for v2:** golangci-lint v2's errcheck matches
-concrete types, not just interfaces — `(io.Closer).Close` does NOT
-cover `(*os.File).Close`. Before creating exclusions, grep the
-project for unchecked Close/Flush calls:
+concrete types — `(io.Closer).Close` does NOT cover `(*os.File).Close`.
+Grep for unchecked Close/Flush calls before writing exclusions:
 `grep -rn '\.Close()\|\.Flush()' --include='*.go' . | grep -v vendor | grep -v 'if.*err'`
-Common exclusions: `fmt.Fprintf`, `fmt.Fprintln`,
-`(*os.File).Close`, `(*io.PipeWriter).Close`,
-`(*crypto/tls.Conn).Close`, `(io.Closer).Close`,
-`(io.WriteCloser).Close`, `(net.Conn).Close`,
-`(net.Listener).Close`, `(*bufio.Writer).Flush`.
 
 ### Webhook builder API change (controller-runtime v0.24)
 
 `ctrl.NewWebhookManagedBy` is now generic — the object moves
-from `.For()` into the constructor as a type parameter:
+from `.For()` to a constructor argument, from which Go infers the type:
 
 ```go
 // Old: ctrl.NewWebhookManagedBy(mgr).For(&MyType{}).WithValidator(v).Complete()
 // New: ctrl.NewWebhookManagedBy(mgr, &MyType{}).WithValidator(v).Complete()
 ```
 
-`.For()` is removed. `WithValidator` now takes generic
-`admission.Validator[T]`. `WithCustomValidator` still exists
-but is deprecated.
+`.For()` is removed. `WithValidator` now takes generic `admission.Validator[T]`.

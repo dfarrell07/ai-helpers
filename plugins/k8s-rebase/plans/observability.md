@@ -1,8 +1,12 @@
 # Observability — k8s-rebase Skill
 
+Proposals, not implemented workflow requirements. Commands, paths, and
+outputs below illustrate the proposed additions. Current behavior is
+documented in the [design guide](../docs/design.md) and [eval guide](../evals/README.md).
+
 ## Goal
 
-The skill currently runs as a background session. We can see commits and
+In background harness runs, we can see commits and
 gate reports, but not *why* decisions were made, what issues the agent hit,
 or how well it reasoned. Adding observability makes debugging faster, reveals
 skill quality gaps, and enables automated improvement discovery.
@@ -92,7 +96,7 @@ ovn-org/ovn-kubernetes 1.36.2 — PASS (2026-08-19)
 
 Rebase: 15 commits above from_commit. k8s.io/* bumped to v0.36.2.
 Autofix: klog v1→v2 migration (7 files), reflect.Ptr→Pointer (3 files).
-Gates: 32/32 pass (4 SKIP). Step 4 lint took 26m.
+Gates: 28 PASS, 4 SKIP (32 reports). Step 4 lint took 26m.
 VS known-good: 287 code hunks differ. Court: PASS (2-1, contested on
 WatchListClient SetFromMap removal — see court summary).
 ```
