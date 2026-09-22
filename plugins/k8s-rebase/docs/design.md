@@ -30,8 +30,9 @@ not impossible.
 Load the shared [rules](../skills/k8s-rebase/steps/rules.md) and current step
 on demand. A step worker receives paths, target version, options, and its
 scope; it returns findings and retry counts. **Only the parent advances.**
-Ordinary work can run inline when workers are unavailable. Independent
-review has a separate context requirement.
+This gives the worker a local task instead of the final PR as its immediate
+finish line. Ordinary work can run inline when workers are unavailable;
+independent review has a separate context requirement.
 
 ## Make advancement an explicit protocol
 
@@ -87,7 +88,8 @@ earlier steps. `status` groups SKIP under PASS; `reports` keeps them distinct.
 Eight companion scripts collect facts into `.evidence` files; they currently
 leave verdicts to the gate reviewer. Run them through `gates`, which caches
 fresh reports and defers crashed companions to review. A crash, empty output,
-or missing tool is not evidence of a successful check.
+or missing tool is not evidence of a successful check. Check coverage and
+command completion before interpreting a zero issue count.
 
 Evidence and reports carry `HEAD:`. For example, if Step 3 has nine PASS
 reports and one FAIL at commit A, a fix at commit B makes **all ten** reports
@@ -134,11 +136,16 @@ for coverage, commands, and scoring limits.
 
 ## Extend without duplicating the contract
 
-Put a repeatable measurement in a companion, its interpretation in a gate
-prompt, and source repair in the implementing step. Keep reusable breakage
-knowledge in the bounded [pattern guide](k8s-rebase-patterns.md). Keep routing
-in SKILL.md and the shared repair loop in rules.md; step files supply only
-their work, gates, and exceptions.
+The informational [skill-improvement gate](../gates/step4-verification/skill-improvement.md)
+closes the learning loop: a manual repair can become a reusable
+[pattern](k8s-rebase-patterns.md), then an autofix with detection and
+post-fix verification. Validate detection on the pre-fix revision; zero
+matches after repair may be the expected result. Mutation runs check whether
+the remaining workflow can recover when that learned help is withheld.
+
+Put repeatable measurement in a companion, interpretation in a gate prompt,
+and repair in the implementing step. Keep routing in SKILL.md and the shared
+repair loop in rules.md; step files supply their work, gates, and exceptions.
 
 Every `.md` in a gate directory becomes an expected gate. Adding one changes
 advancement and the final inventory; update the step's gate list and coverage

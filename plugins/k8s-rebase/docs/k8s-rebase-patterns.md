@@ -193,9 +193,11 @@ regenerates from source, erasing patches.
 Repos using operator-sdk have additional version refs:
 `CONTROLLER_TOOLS_VERSION`, `OPERATOR_SDK_VERSION`, `VERSION`
 in Makefile, plus bundle manifests (`bundle/`, `config/`).
-Detection: check for a `PROJECT` file or `operator-sdk` in
-Makefile. If present, bump controller-tools and operator-sdk
-to latest compatible versions, then `make bundle`.
+Detect them through `PROJECT` or `operator-sdk` in Makefile. Inspect how
+the repo generates and verifies these artifacts; update tool pins only when
+the target rebase requires it. A `VERSION` variable may be the operator's own
+release version. Regenerate affected bundles through the repo's targets and
+review the diff; the presence of operator-sdk alone does not require a bump.
 
 ### ST1005 error string casing vs test assertions (recurring)
 

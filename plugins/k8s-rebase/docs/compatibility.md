@@ -28,14 +28,12 @@ Installation alone is not proof that hooks are active.
 
 ## Qualification status
 
-The 2026-09-17 compatibility audit recorded passing offline checks and
-installed review/finalization fixtures on both hosts. Its package snapshot
-was SHA-256 `f1312236c0bb2d9d32f64e717c2e8fb4b6eb163f34dddedb1f87a37980b32ced`,
-using Codex CLI 0.154.0 and Claude CLI 2.1.274. Those focused fixtures did
-not perform a full rebase. They do not qualify the shared workflow end to
-end on both hosts or replace the separate Claude repo/version coverage.
-Claude fixtures still showed inaccurate final prose and incomplete failure
-handling during cleanup despite correct artifacts on the successful path.
+The [offline tests](../test/test_compatibility.py) exercise shared review,
+hook, state, and cleanup contracts. The repo/version harness runs through
+Claude. Earlier installed fixtures covered review and finalization on both
+hosts, with gaps in final prose and cleanup failure handling; they did not
+run a full rebase. Full-workflow qualification on both hosts remains separate
+from those focused checks and the Claude repo/version coverage.
 
 To extend qualification, test the installed candidate in disposable clones
 and retain the source revision, loaded package, runtime/model, raw reports,
@@ -64,9 +62,10 @@ Force-advancement or a review fallback does not satisfy that qualification.
   shared rules allow a repair exception. Report the conflict; do not bypass it.
 - HEAD stamps cover commits, not uncommitted edits. Hooks are heuristic,
   and Stop observes orchestrator DONE rather than Step 5 completion.
-- Some rubrics allow informational or degraded PASS results. A build/vet
-  timeout can escape error-text counting, and `go mod verify` checks the
-  module cache, not vendor contents. Read the command outcomes and details.
+- Some rubrics allow informational or degraded PASS results. Build/vet
+  evidence can contain a timeout alongside a zero error count; review command
+  completion and module coverage before judging it. `go mod verify` checks
+  the module cache, not vendor contents.
 - Feature-gate evidence and manual review can disagree on PASS versus SKIP
   when no wiring applies. Preserve the actual verdict and its explanation.
 - Review diffs are filtered and size-limited; selected-commit review's
