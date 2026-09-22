@@ -3,6 +3,11 @@
 Automate Kubernetes dependency rebases for Go projects that consume
 `k8s.io/*` packages.
 
+The top-level skill drives a persistent state machine through four gated
+steps, then prepares a PR command. Scripts handle repeatable work; agents
+handle migrations and review. Read the [design guide](docs/design.md) for
+the patterns that keep skipped checks and unresolved failures visible.
+
 ## Usage
 
 Install the existing package through the shared marketplace; no second
@@ -34,6 +39,8 @@ Versions may be `1.Y` or `1.Y.Z`; for example,
 
 The skill creates a branch with separate commits for each step:
 dependency bumps, codegen, version references, and code fixes.
+It prints a `gh pr create` command for you to run; it does not push or
+open the PR.
 No files need to be installed in the target repo — everything
 runs from the plugin.
 
@@ -69,12 +76,17 @@ rebase so the rebase is cleanly bisectable.
 
 ## What it does
 
-1. Bumps all `k8s.io/*` dependencies across every Go module
+1. Aligns Kubernetes release-versioned dependencies across Go modules,
+   handling independently versioned packages separately
 2. Runs codegen and mock regeneration
 3. Updates version references in CI, scripts, and docs
 4. Detects new feature gates that break fake clientsets
 5. Fixes build/lint/vet errors with code-first priority
 6. Validates all modules and verifies fixes via antagonistic review
+
+There are 32 gates across Steps 1–4. After bounded repair attempts,
+Steps 2–4 can advance with unresolved checks; the final PR body must retain
+those findings. Workflow completion is not an all-checks-passed claim.
 
 ## Prerequisites
 
@@ -94,20 +106,12 @@ rebase so the rebase is cleanly bisectable.
 
 The module-operation hook also blocks direct tidy/vendor in the exception
 cases documented in the skill's rules. If that conflict blocks a repair,
-report it rather than bypassing the hook. This compatibility change leaves
-module-safety policy and commit trailers unchanged.
+report it rather than bypassing the hook. The shared rules define
+module-safety policy and commit trailers.
 
 Focused offline checks: `make test-compatibility` and
 `make test-version-selection` (no models, builds, or rebases). These use
 local stubs and Go's read-only parser; the selection tests stub the proxy too.
-
-The current candidate's 122 package files were verified in isolated Codex and
-Claude CLI installs. Both review routes ran, and finalization artifact checks
-pass after shared guard, inventory, and cleanup fixes. Claude still has native
-reporting/failure-handling qualification gaps; no complete rebase is qualified.
-The normal user installation was not refreshed. See the
-[tracked compatibility plan](plans/claude-codex-compatibility.md) for the frozen
-snapshot, evidence, and remaining checks.
 
 ## Contents
 
@@ -124,12 +128,22 @@ snapshot, evidence, and remaining checks.
 | `scripts/k8s-rebase-pr-review.sh` | Separate full-rebase pre-PR rubric and prompt preparation |
 | `scripts/gate-script-lib.sh` | Shared library for gate companion scripts |
 | `scripts/write-gate-report.sh` | Structured gate pass/fail report writer |
-| `gates/step{1,2,3,4}-*/*.md` | Subagent verification prompts (32 files) |
+| `gates/step{1,2,3,4}-*/*.md` | Verification prompts (32 files; 8 have evidence companions) |
+| `docs/design.md` | State machine, evidence lifecycle, and reusable design patterns |
 | `docs/k8s-rebase-patterns.md` | Breakage patterns for k8s rebases |
+| `evals/README.md` | Test modes, eval cases, and coverage limits |
 
-## Tested against
+## Coverage
 
-The existing Claude rebase coverage below is not a Codex compatibility matrix.
+The checked-in test configs cover six repos across Kubernetes **1.34.1,
+1.35.3, and 1.36.2**: 16 repo/version cases. The 1.34 config omits
+ovn-kubernetes-mcp and ingress-node-firewall. See the
+[case table](evals/README.md#pattern-retention-casespattern-retention).
+These fixtures describe coverage, not the outcome of a fresh run or Codex
+qualification; the [compatibility record](plans/claude-codex-compatibility.md)
+tracks the latter separately.
+
+The broader development history has also exercised these repository shapes:
 
 | Repo | Modules | Features exercised |
 | ------ | --------- | -------------------- |
@@ -138,7 +152,7 @@ The existing Claude rebase coverage below is not a Codex compatibility matrix.
 | openshift/api | 1 | Vendor, codegen field removal, golangci-lint format |
 | metallb/frr-k8s | 2 | No vendor, codegen, 3-version jump, transitive deps |
 | kubernetes-sigs/network-policy-api | 2 | No vendor, codegen, multi-module |
-| ovn-kubernetes/ovn-kubernetes-mcp | 1 | Vendor, no test-go.sh |
+| ovn-kubernetes/ovn-kubernetes-mcp | 1 | Vendor, no test-go.sh, --bump-tools |
 | openshift/ingress-node-firewall | 1 | Vendor, 4-version jump, staging deps, controller-gen, golangci-lint v1/v2 |
 | openshift/cloud-network-config-controller | 1 | Vendor, library-go blocker |
 | openshift/cluster-network-operator | 1 | Vendor, library-go blocker |
