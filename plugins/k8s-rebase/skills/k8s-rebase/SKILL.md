@@ -8,10 +8,10 @@ allowed-tools: Bash, Read, Agent
 
 # Kubernetes Rebase
 
-Automates k8s dependency rebases for Go projects. Steps 3-4 are where
-you add unique value — the quality gates that prevent CI rejection. A
-rebase that skips them will fail CI. **The rebase is NOT finished until
-you present a `gh pr create` command to the user in Step 5.**
+Coordinate a Kubernetes rebase through the persistent state machine below.
+The parent advances; step workers perform bounded work and return evidence.
+Complete Steps 1–4, then Step 5's full-rebase review, PR command, and cleanup.
+Preserve unresolved findings: completion is not an all-checks-passed claim.
 
 **Arguments:** one Kubernetes version (`1.Y` or `1.Y.Z`) and optional
 `--bump-tools`, taken directly from the user's rebase request. Reject missing,

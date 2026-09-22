@@ -147,12 +147,9 @@ remove gates from its SetFromMap.
   read gate prompts. Independent review in Steps 4–5 is different: Codex
   needs a fresh-context read-only reviewer with rubric/evidence, not the
   parent's reasoning history. Stop at that boundary if none is available.
-- **Companion gate scripts:** Some gates have `.sh` files alongside
-  the `.md` prompt. The orchestrator's `gates` command runs them
-  automatically and marks the gate RESOLVED if the companion passes,
-  or PENDING if it needs a subagent. Do NOT run companion `.sh`
-  scripts manually — the orchestrator has already handled them.
-  Launch gate workers only for PENDING gates, or review those gates inline.
+- **Companion gate scripts:** Let `gates` run the adjacent `.sh` files;
+  do not launch them directly. Current collectors write evidence, not
+  verdicts. A successful collector exit still requires gate review.
 
 - **Long-running commands:** Use the runtime's supported process/session
   mechanism and wait for actual completion before dependent work. Preserve

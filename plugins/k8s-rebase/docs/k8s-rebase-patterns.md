@@ -44,21 +44,21 @@ codegen output changes.
 | FieldsV1.Raw removed | `FieldsV1.Raw undefined` (k8s 1.36+) | Read access: `.GetRawBytes()`; construction: `metav1.NewFieldsV1(...)` |
 | NewSimpleClientset | `SA1019` on generated fakes | Replace with `NewClientset` — check vendored source for `// Deprecated:` first (not all fakes deprecate it) |
 | x/exp migration | `cannot find package "golang.org/x/exp/..."` | Migrate to stdlib `maps`/`slices`/`cmp` |
-| govet inline analyzer | `inline: cannot inline <call>` | Disable `inline` analyzer in `.golangci.yml` (common fix); or fix call site if feasible. Only affects repos with govet `enable-all: true` |
+| govet inline analyzer | `inline: cannot inline <call>` | Inspect the call and analyzer configuration; fix actionable code findings before considering a narrow configuration change |
 | Nilness dead code | `nilness: impossible condition` | Remove dead `if err != nil` blocks |
 | Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag from script, re-run codegen |
 | Codegen field removed | `unknown field X in struct literal` | Remove field from Go code, re-run codegen |
 | Codegen deleted mocks | `undefined: mock.X` after codegen runs | Run `make mocksgen` (repos with `.mockery.yaml`) |
 | Feature gate (existing) | Tests hang (gate files exist) | Add new gate + dependents to existing setup |
-| Feature gate (missing) | Tests hang (no gate setup) | Add `t.Setenv` for all gates to suite file |
+| Feature gate (missing) | Tests hang (no gate setup) | Confirm a fake-client protocol mismatch; configure the applicable gates before client/informer startup |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
 | golangci-lint v1/v2 | v2 config rejected by v1 binary | Makefile may use v1 import path while lint.sh uses v2 container — update both if migrating |
 | ST1005 error string casing | Lowercased error string breaks matching code | Before fixing ST1005, grep for the OLD error string in all Go files — update matches too |
 | golangci-lint v1 + Go 1.26 | container image can't parse Go 1.26 | Replace Makefile no-op else with `go install @$(VERSION) && golangci-lint run` |
-| CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | New Go versions may only exist for newer OCP streams (e.g., 1.26 → openshift-5.0, not 4.22) |
-| KIND binary version | e2e cluster creation fails | Bump KIND URL in install-kind.sh to latest |
+| CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | Verify the Go/OCP mapping and published image tag on the intended release stream; do not switch streams just to find an image |
+| KIND binary version | e2e cluster creation fails | Select a release supporting the target Kubernetes version and update each binary pin |
 | KIND kubeadm config | k8s 1.36: controller-manager flags silently not applied | Migrate `kind.yaml.j2` extraArgs from v1beta3 map format to v1beta4 list format |
-| KubeVirt version | VM readiness timeouts in kv-live-migration CI | Bump to latest stable patch within same minor; nightly as last resort |
+| KubeVirt version | VM readiness timeouts in kv-live-migration CI | Confirm version skew, then select a compatible stable patch within the same minor |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in e2e setup script; update FRR image variable separately |
 | library-go interface | `does not implement SharedIndexInformer` | Use a compatible commit on the correct OCP release branch, or a tracked fork replacement (see Cross-repo dependency ordering below) |
 | Snyk vendor scan | `ci/prow/security` fails after vendoring | Compare findings against base and inspect the repo's scanning policy; new vendor files may not match per-file exclusions |
@@ -73,46 +73,29 @@ codegen output changes.
 
 ## Feature Gates (recurring)
 
-Each k8s release may enable gates that break fake clientsets.
-Add gate AND ALL dependents to ALL three mechanisms:
+New defaults such as `WatchListClient` can change list/watch behavior that
+fake clientsets do not support. Confirm that the failing test uses such a
+client before changing its setup. Use the vendored definitions and the
+autofix's `GATE_DEPS` map to identify applicable gates and dependents.
+Do not add absent gates or attempt to disable gates locked to their default.
+
+Keep parents and dependents consistent across the repo's existing setup:
 
 1. `hack/test-go.sh` env var exports
 2. `os.Setenv`/`t.Setenv` in test files
 3. `SetFromMap` in test files
 
-**Missing gate packages:** Some test packages use fake clientsets
-but have NO gate setup. These work until a new gate enables
-informer behavior (like WatchList) that fake clientsets don't
-support. Symptoms: tests hang or timeout on informer cache sync.
-Fix: add `t.Setenv("KUBE_FEATURE_<gate>", "false")` to the
-suite's `TestX` function. The autofix warns about these packages
-but doesn't auto-fix (not all fake clientset tests need gates).
+The autofix updates existing wiring and warns about selected
+`*_suite_test.go` packages with fake clients but no gate setup. It does not
+cover every test package or prove a warning needs a fix. For an affected
+suite, configure the relevant gates before client/informer startup and
+rerun the tests. Check that shell exports reach the test process through
+any `sudo` invocation.
 
-**envtest suites do NOT need gate disabling.** `envtest.Environment`
-starts a real kube-apiserver binary that handles feature gates
-natively. Only tests using fake clientsets need manual gate
-disabling — the autofix detects these automatically.
-
-SetFromMap validates parent-dep consistency — disabling a parent
-without its deps causes a validation error. All gates must be in
-SetFromMap, but only add gates that exist in vendored k8s code
-(removed gates cause "unrecognized feature gate" errors).
-
-**Known problematic gates:**
-
-- **WatchListClient** (k8s 1.35) — in `k8s.io/client-go`. Changes
-  the initial list mechanism to streaming lists. Fake clientsets
-  don't implement this protocol, causing informer hangs.
-
-  SetFromMap example:
-
-```go
-if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
-    "WatchListClient": false,
-}); err != nil {
-    t.Fatalf("Failed to disable feature gates: %v", err)
-}
-```
+Do not infer applicability from an `envtest` import alone; inspect the
+failing test's client and server setup. Follow the repo's gate registration
+pattern: initialization can override environment settings, and
+`SetFromMap` must recognize the gate and its dependencies.
 
 ## Recurring Patterns
 
