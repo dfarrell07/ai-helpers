@@ -140,13 +140,9 @@ commit-messages.
 
 ## Gate-fix loop
 
-If ANY gate reports FAIL: triage against baseline and fix only in-scope issues
-within the shared budget. After a fix commit, re-validate with `--no-test`,
-then follow rules.md to refresh evidence and complete all stale/pending
-current-step reviews, including old PASS reports.
-Preserve prior-step reports and newly regenerated companion reports.
-Step 4 override: always re-run `validate.sh --no-test` between fix
-and gate re-run (catches regressions from fix commits).
+Follow rules.md's shared loop within the budget carried from 4a.
+Step 4 requires `validate.sh --no-test` after fix commits, before refreshing
+current-step evidence and reviews, so lint regressions are checked too.
 
 If test agents report failures:
 

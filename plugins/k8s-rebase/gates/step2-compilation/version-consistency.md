@@ -7,7 +7,9 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 
 Read the evidence. If SUMMARY shows 0 inconsistencies, verdict is PASS.
 For nonzero inconsistencies, investigate the flagged MISMATCH/VENDOR-DRIFT
-findings. NO_TARGET or CHECK_ERROR means comparison was not completed:
+findings. VENDOR-DRIFT is a legacy label for `go mod verify` output: it
+concerns the downloaded module cache, not vendor contents.
+NO_TARGET or CHECK_ERROR means comparison was not completed:
 use the manual checks below; if still unverifiable, report INCONCLUSIVE,
 not PASS. Independently versioned packages are excluded from the target
 comparison, regardless of direct/indirect status:
@@ -26,9 +28,9 @@ If evidence is stale or absent, fall back to manual checks:
 Count mismatching release-versioned requirements in every non-vendor go.mod,
 using the exceptions and major-version mapping above.
 For each module with a vendor/ directory, verify
-vendor is in sync with go.mod (check vendor/modules.txt).
-Also run `go mod verify` in vendored modules to check vendor
-consistency mechanically.
+dependency versions in vendor/modules.txt agree with go.mod.
+`go mod verify` checks module-cache integrity; neither it nor a version
+comparison proves that vendored source matches regenerated output.
 Report inconsistency count.
 
 Also verify versions match the REBASE TARGET, not just that they

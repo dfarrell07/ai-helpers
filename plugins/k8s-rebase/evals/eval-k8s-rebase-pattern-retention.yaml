@@ -292,25 +292,29 @@ judges:
   - name: no_scope_creep
     description: >
       Every changed hunk must be directly required by the k8s version
-      bump (rules.md Scope section). Cites build-errors.txt as its
-      primary evidence source.
+      bump (rules.md Scope section). Uses the diff and build-errors.txt
+      to distinguish necessary mechanical and compatibility changes
+      from unrelated cleanup.
     prompt: |
       You are checking a k8s dependency rebase diff for scope creep,
-      per this project's rule: "Every change must be directly required
-      by the k8s version bump. Does build, vet, or lint fail without
-      it? If not, do not make the change."
+      under rules.md's Scope contract: dependency alignment, codegen,
+      version references, and compatibility/build/vet/lint/test fixes
+      required by the bump. A file compiling cleanly does not establish
+      that its behavioral or CI changes are unnecessary.
 
       For diff.patch below, examine each changed hunk.
       For EVERY hunk, cite the file and hunk context and state one of:
-      - REQUIRED: <specific build/vet/lint error this fixes, quoted
-        from build-errors.txt below>
-      - REQUIRED (go.mod/vendor): go.mod and vendor/ changes are
-        inherently required by the version bump; no error citation
-        needed even if build-errors.txt is empty
+      - REQUIRED: <diagnostic from build-errors.txt or diff evidence
+        establishing the compatibility, behavior, or CI fix>
+      - REQUIRED (mechanical): <dependency alignment, codegen, or
+        version-reference change supported by the diff>
       - VIOLATION: <what forbidden category — refactor, struct-tag
         addition, interface rename, package restructuring, unnecessary
-        DeepEqual/selector swap, or unrelated file touched while
-        compiling clean>
+        DeepEqual/selector swap, or unrelated cleanup>
+      - UNVERIFIED: <why the supplied evidence cannot establish scope>
+      Module/vendor changes still need a connection to the target bump.
+      Missing diagnostics alone do not prove a violation. You have no
+      tool access; do not invent baseline execution or omitted file contents.
       Do not summarize without listing hunks. "Looks fine" without a
       per-hunk citation is not acceptable output.
 
@@ -326,15 +330,13 @@ judges:
 
       {{ annotations }}
 
-      Score 1: Multiple VIOLATION hunks, no build/vet justification cited.
-      Score 2: At least one clear VIOLATION hunk (e.g. touches a file
-               that compiles clean pre-bump).
-      Score 3: All hunks REQUIRED but citations are weak/generic.
-      Score 4: All hunks REQUIRED with specific, verifiable error citations
-               (or REQUIRED (go.mod/vendor) for go.mod/vendor changes).
-      Score 5: All hunks REQUIRED, citations specific, and includes
-               base-branch verification for any hunk that could
-               plausibly be pre-existing.
+      Score 1: Multiple confirmed VIOLATION hunks with cited evidence.
+      Score 2: At least one confirmed VIOLATION hunk with cited evidence.
+      Score 3: No confirmed violation, but scope remains UNVERIFIED or
+               citations are weak/generic.
+      Score 4: All hunks REQUIRED with specific supporting evidence.
+      Score 5: All hunks REQUIRED, with supplied evidence also resolving
+               plausible pre-existing or unrelated-change concerns.
 
   - name: go_mod_version_correct
     description: >
@@ -479,12 +481,8 @@ thresholds:
   go_mod_and_vendor_modified: {min_pass_rate: 1.0}
   go_mod_version_correct: {min_pass_rate: 1.0}
   step5_pr_command_printed: {min_pass_rate: 1.0}
-  # Calibrated 2026-09-13 on case-002: good diff scored 4/3, bad diff scored 1/1.
-  # no_scope_creep scores 3 not 4 because build-errors.txt contains skill prose
-  # (not real compiler output) — judge can't cite specific errors for the lint.sh
-  # hunk. Known limitation, not a skill regression.
-  # rebase_gap_analysis threshold: not yet calibrated across all cases. 2.5 is
-  # a placeholder — run full suite before treating this as a hard gate.
+  # Provisional thresholds: the revised scope rubric and gap analysis need
+  # calibration across cases and deliberately bad diffs before hard gating.
   rebase_correctness: {min_mean: 2.5}
   no_scope_creep: {min_mean: 2.5}
   rebase_gap_analysis: {min_mean: 2.5}

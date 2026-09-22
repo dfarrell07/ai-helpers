@@ -14,17 +14,19 @@ the checkout so the existing hook guards remain active.
 
 ## Scope
 
-Every change must be directly required by the k8s version bump.
-Does build, vet, or lint fail without it? If not, do not make the
-change. Do not refactor, add features, or touch files that compile
-cleanly. Fix ONLY the cited issue at the cited location.
+Every change must be required by the requested rebase: dependency alignment, codegen,
+version references, or a compatibility/build/vet/lint/test fix caused by the
+bump. A compile-clean file can still need a behavioral or CI fix. Broader
+tooling updates require `--bump-tools`. Do not refactor, add features, or fix
+unrelated debt. Keep each repair at the cited issue and location.
 
 Preserve behavior: never replace label selectors with
 `reflect.DeepEqual`, never change security flag defaults.
 Preserve nil semantics: `*int32` nil means "server default",
 `int32` zero means "set to 0" — use `ptr.To[int32](val)`.
 Adapt type signatures without altering surrounding logic.
-Verify against base before flagging issues:
+Verify the issue against base, including its dependencies and configuration;
+unchanged source alone does not establish that a failure is pre-existing:
 `git show $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main):<file>`
 
 Do not add struct tags (like omitempty), merge functions, rename
@@ -37,13 +39,15 @@ NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go mod edit`,
 `go test` (with `-mod=vendor` if vendor/ exists), `go mod verify`,
 `go doc`, `go install <tool>@<version>`, `go clean -cache`.
 
-**Exception:** When adding a `replace` directive or when
-`k8s-rebase-depfix.sh` bumps a dependency, run `go mod tidy` and
-`go mod vendor` in each affected module directory to keep vendor/ in
-sync. These are the only contexts where `go mod tidy` and
-`go mod vendor` are permitted. Do not run them speculatively.
+**Repair exceptions:** Adding a `replace` directive requires `go mod tidy`
+and, where vendor/ exists, `go mod vendor` in each affected module.
+`k8s-rebase-depfix.sh` already performs that synchronization when bumping a
+dependency; do not repeat it after a successful invocation. These are the
+only tidy/vendor exceptions. Check Kubernetes pins afterward; depfix does
+not enforce them.
 
-Prepend this rule to every gate subagent prompt.
+Prepend this rule to every gate subagent prompt. Suggested fix commands in
+a gate report do not expand these permissions.
 
 The existing module-operation hook blocks direct tidy/vendor even in these
 documented exception cases. If it blocks a required repair, report that
@@ -73,14 +77,18 @@ the user to copy-paste.
    report. Choose one actual verdict; `PASS|FAIL|SKIP` is notation, not a
    shell pipeline. A missing helper is an error, not grounds to fabricate
    an unstamped report.
-4. Triage findings against base, fix new issues, and commit all fixes before
-   refreshing evidence. Re-validate as the step requires (`--quick` in 2–3,
+4. Triage findings against base under Scope, fix in-scope issues, and commit
+   before refreshing evidence. Re-validate as the step requires (`--quick` in 2–3,
    `--no-test` in 4), then run `gates` again. Every current-step report at the
    old HEAD is stale, including PASS reports: complete all newly pending
    reviews, not just the previously failing ones.
 5. If a cached report needs deliberate invalidation at the **same HEAD**,
    remove only that current-step report **before** rerunning `gates`.
    Never delete a newly regenerated companion report or prior-step reports.
+
+Use each gate's rubric for its verdict and issue count. Preserve out-of-scope
+findings in report details; deciding not to fix them does not itself make a
+failed check pass.
 
 Repeat fixes/reviews up to 3 iterations, sharing this budget across workers
 and parent; do not nest another retry loop at handoff. Preserve the step's

@@ -14,8 +14,7 @@ bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick
 ```
 
 Exit 0: no errors. Exit 1: errors in `.rebase-tmp/summary.txt`.
-Use `--quick` (~1 min, build + vet only) during fix iterations.
-`--quick` runs build + vet only. `--no-test` adds lint and
+Use `--quick` (build + vet only) during fix iterations. `--no-test` adds lint and
 `go test -run='^$'`, which catches stricter format string issues
 (e.g., Eventf arg count mismatches) that standalone `go vet`
 misses — without running any tests.
@@ -47,9 +46,9 @@ any regenerated files (e.g., `zz_generated.deepcopy.go`).
 
 ## API Migration Guidance
 
-**Migration direction rule:** When fixing compilation errors,
-always use the NEWEST available API. Never introduce usage of a
-deprecated package. Check `// Deprecated:` comments in vendored
+**Migration direction rule:** Use the non-deprecated API available in the
+pinned dependencies. Never introduce usage of a deprecated package.
+Check `// Deprecated:` comments in vendored
 source (`grep -r 'Deprecated:' vendor/<pkg>/`) to find the
 replacement. For common k8s API migrations, check the patterns
 doc if available.
@@ -72,10 +71,6 @@ Anti-patterns to avoid:
 
 - `ioutil.ReadFile`/`ReadDir` -> `os.ReadFile`/`os.ReadDir`
 
-After ANY `go get`, `go mod tidy`, or go.mod change, re-vendor
-if the module has a vendor directory: `go mod vendor`. Failing
-to re-vendor leaves stale packages that cause CI failures.
-
 ## OpenShift Dependencies
 
 **For OpenShift deps** (`openshift/api`, `openshift/client-go`,
@@ -96,7 +91,9 @@ If errors appear in `/go/pkg/mod/` paths (not the project's own
 code), a direct dependency is incompatible with the bumped k8s
 packages. Extract the module path (between `/go/pkg/mod/` and
 `@`) and fix with:
-`bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" <module>`
+`bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" <module>@<compatible-version>`
+Run in the affected module and verify Kubernetes pins afterward, as required
+by Module Safety in rules.md.
 
 **NEVER modify files under vendor/ directly.** CI runs
 `go mod vendor` which regenerates vendor from source, erasing
@@ -106,7 +103,7 @@ that dep. If found, identify the branch or fork it uses and add
 a `replace` directive:
 `replace github.com/openshift/library-go => github.com/ORG/library-go v0.0.0-DATE-HASH`
 Add a tracking comment: `// TODO: remove replace when official library-go merges k8s bump`.
-Re-run `go mod tidy` and `go mod vendor` after adding the replace.
+Synchronize module/vendor files under rules.md's Module Safety contract.
 In multi-module repos, add the replace to each module that depends
 on the affected package (Go replace directives do not propagate
 across module boundaries).
@@ -167,35 +164,13 @@ Gate files:
 - `type-conversions.md` (judge)
 - `fix-correctness.md` (judge)
 
-Count gates must report 0. Judge gates must cite evidence.
+Use each gate's verdict criteria; report counts and cite evidence.
 
 ## Gate-fix loop
 
-If ANY gate reports FAIL (count gate with issues > 0, OR judge
-gate with verdict FAIL):
-
-1. **Triage**: Read each FAIL gate report (DETAILS with
-   file:line). For each finding, check the base branch:
-   `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
-   `git show $BASE:<file>` — if the same issue exists on the
-   base branch, it is pre-existing. If the file does not exist
-   on base (new file), the finding IS new. Skip pre-existing
-   findings.
-
-2. **Fix**: For each NEW finding, fix the cited issue and
-   commit.
-
-3. **Re-validate**: After any code-changing fix, re-run
-   `bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick`
-   to confirm build+vet still pass. Fix commits can introduce
-   new regressions — catch them here before re-running the gate.
-
-4. **Re-run** (mandatory): Follow rules.md to refresh evidence and complete
-   all stale/pending current-step reviews, including old PASS reports.
-   Preserve prior-step reports and newly regenerated companion reports.
-
-Use rules.md's shared three-iteration budget, not a separate budget per gate.
-When exhausted, return remaining issues and consumed iterations to the parent.
+Follow rules.md's shared loop and three-iteration budget. Re-validate fixes
+with `--quick` before refreshing all current-step evidence and reviews.
+Return remaining issues and consumed iterations to the parent.
 
 **All 6 step2 gate verdicts are required even if there were zero
 compilation errors.** Gates check more than compilation — they

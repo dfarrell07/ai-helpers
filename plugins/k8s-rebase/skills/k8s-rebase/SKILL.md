@@ -18,8 +18,10 @@ Preserve unresolved findings: completion is not an all-checks-passed claim.
 extra, or invalid arguments before initialization. Normalize `1.Y` to `1.Y.0`.
 Selecting this skill to ask a question does not authorize starting a rebase.
 
-**NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go mod edit`,
-`go generate`, or `go run`.** These corrupt k8s version pins via MVS.
+**Use the plugin's helpers for module mutations.** Direct `go mod tidy`,
+`go get`, `go mod vendor`, `go mod edit`, `go generate`, and `go run` can
+disturb the intended Kubernetes pins. Follow rules.md's
+Module Safety contract for allowed commands and narrow repair exceptions.
 
 **NEVER run `git push` or `gh pr create`.** Only print commands for
 the user.

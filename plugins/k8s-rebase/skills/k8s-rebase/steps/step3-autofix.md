@@ -8,10 +8,10 @@ Allow at least 10 minutes and wait for actual completion as in rules.md;
 the autofix auto-containerizes and runs go vet internally.
 
 The autofix outputs RESULT: PASS or RESULT: FAIL.
-FAIL is normal -- it means some checks found issues the autofix
-could not fix automatically (e.g., complex test refactors).
-The agent handles those in Step 4.
-Regardless of output, proceed to gates.
+FAIL means some checks found issues the autofix could not fix automatically
+(e.g., complex test refactors). Inspect those findings in this step's gates;
+carry unresolved issues into the parent handoff. Both PASS and FAIL require
+the gates below.
 
 ```bash
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-autofix.sh"
@@ -34,13 +34,9 @@ that exist in the vendored k8s.io/ code.
 
 ## Verify the script actually ran
 
-If the output is empty or the script was not found, the autofix
-was skipped and all its fixes are missing. If the autofix reports
-PASS with no commits, that means there were no patterns to fix --
-this is normal for repos with few k8s dependencies.
-
-**You must still run the step3 gates below** -- they discover
-issues the autofix does not cover.
+If the script was not found, the output is empty, or no RESULT was produced,
+inspect the execution failure before proceeding. PASS with no commits is
+normal when no patterns needed fixing; the gates still check for omissions.
 
 If FAIL, check `git log` for autofix commits -- if any
 groups already committed, fix remaining items manually rather than
@@ -81,49 +77,16 @@ Gate files:
 - `dep-release-notes.md` (judge)
 - `patterns-completeness.md` (judge)
 
-Count gates must report 0. Judge gates must cite evidence.
+Use each gate's verdict criteria; report counts and cite evidence.
 
 ## Gate-fix loop
 
-If ANY gate reports FAIL (count gate with issues > 0, OR judge
-gate with verdict FAIL):
-
-1. **Triage**: Read each FAIL gate report (DETAILS with
-   file:line). For each finding, check the base branch:
-   `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
-   `git show $BASE:<file>` -- if the same issue exists on the
-   base branch, it is pre-existing. If the file does not exist
-   on base (new file), the finding IS new. Skip pre-existing
-   findings.
-
-2. **Fix**: For each NEW finding, fix the cited issue and
-   commit.
-
-3. **Re-validate**: After any code-changing fix, re-run
-   `bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick`
-   to confirm build+vet still pass. Fix commits can introduce
-   new regressions -- catch them here before re-running the gate.
-
-4. **Re-run** (mandatory): Follow rules.md to refresh evidence and complete
-   all stale/pending current-step reviews, including old PASS reports.
-   Preserve prior-step reports: the orchestrator is forward-only and
-   cannot regenerate them from this step. Never delete a newly refreshed
-   companion report.
-
-Use rules.md's shared three-iteration budget, not a separate budget per gate.
-When exhausted, return remaining issues and consumed iterations to the parent.
-This loop discovers and fixes deprecated-but-compiling patterns without
-needing pre-existing autofix knowledge.
+Follow rules.md's shared loop and three-iteration budget. Re-validate fixes
+with `--quick` before refreshing all current-step evidence and reviews.
+The gates also discover deprecated-but-compiling patterns beyond the autofix.
 
 ## Before advancing
 
-If you modified any go.mod in steps 2-3 (gate-fix loop, manual
-dep bumps), re-run `go mod tidy && go mod vendor` in each
-affected module directory. Stale vendor causes CI failures.
-
-When all step3 gates pass (or remaining issues are reported after
-3 attempts), proceed immediately. Do NOT stop or declare the
-rebase "done" -- Steps 4 and 5 are mandatory.
-
-Return gate outcomes, remaining issues, and retry counts to the parent.
-Only the parent advances, using the protocol in SKILL.md.
+Return gate outcomes, remaining issues, and consumed repair iterations to
+the parent. Only the parent advances, using SKILL.md's protocol. Steps 4–5
+remain mandatory after this handoff.

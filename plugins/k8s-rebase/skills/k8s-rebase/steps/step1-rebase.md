@@ -47,10 +47,11 @@ restores the pre-push hook on this path.
 The `step1-result.txt` marker is written before optional tooling finishes;
 even `EXIT 2` there is not proof of process completion. If the result is
 missing or the exit failed, inspect `tail -20 .rebase-tmp/step1.log`
-for the error. If `git log` shows the dep bump and codegen
-commits, those are safe. Manually verify version references
+for the error. Preserve completed dep bump and codegen commits.
+Manually verify version references
 (Dockerfiles, CI configs, lint version) since the script may
-have crashed before updating them, then proceed to Step 2.
+have crashed before updating them, then complete the Step 1 gate below.
+Only the parent can advance to Step 2 after that handoff.
 
 Do NOT re-run the script. Do NOT run the autofix script
 or make manual go.mod changes before the rebase script completes — the
@@ -88,18 +89,9 @@ Gate file:
 
 - `rebase-completeness.md` (count)
 
-**Gate-fix loop:** If the gate reports FAIL:
-
-1. **Fix**: For each failing check (missing codegen, uncommitted
-   changes, stale replace directives, wrong dep versions),
-   fix the issue and commit.
-
-2. **Re-run** (mandatory): Follow rules.md to refresh companion evidence
-   and complete stale/pending reviews after the commit. Do not delete the
-   newly refreshed report.
-Repeat up to 3 times. If it still fails, stop and report the
-remaining issues — step 1 failures are structural and proceeding
-would cause cascading problems in later steps.
+Use rules.md's shared gate-fix loop for missing codegen, uncommitted changes,
+stale replacements, or incorrect dependency versions. If the gate remains
+unresolved after that budget, stop and report the structural failure.
 
 Also check `.rebase-tmp/summary.txt` for `## CODEGEN FAILURE`.
 If present, fix the codegen script (e.g., remove dropped flags),

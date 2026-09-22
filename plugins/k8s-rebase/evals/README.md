@@ -129,8 +129,8 @@ Read the artifacts behind a score:
 - The version judge checks a minor-version anchor in the diff, not exact
   pins in every module. The PR-command judge checks text presence, not the
   accuracy of its verification claims.
-- LLM scores are a smoke check, not the adversarial court. The gap-analysis
-  threshold remains provisional. Known-good references are comparison
+- LLM scores are a smoke check, not the adversarial court. Scope and gap-analysis
+  thresholds remain provisional. Known-good references are comparison
   evidence, not the only valid implementation.
 
 The workflow harness can count advisory verdicts and older failures as SKIP.
@@ -142,7 +142,7 @@ and findings: these summaries do not turn an unresolved gate into PASS.
 
 - Pin and validate a compatible scoring harness, or port the cases and judges
   to the built-in CLI format before documenting a full-suite scoring command.
-- Calibrate the gap-analysis threshold across cases and add deliberately
+- Calibrate the scope and gap-analysis thresholds across cases and add deliberately
   bad diffs to check that judges reject plausible regressions.
 - Check expected report completeness/freshness and final PR claims directly;
   existing verdict/text checks do not establish those properties.
