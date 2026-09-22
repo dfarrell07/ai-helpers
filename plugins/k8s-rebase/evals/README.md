@@ -13,7 +13,7 @@ rebase prerequisites.
 | Check | Command | What it establishes |
 | --- | --- | --- |
 | Offline contracts | `make test-compatibility test-version-selection assert-evidence-paths` | Hook/review/gate interfaces, version selection, companion paths; no model calls or rebases |
-| One full-skill run | `make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none` | Launches a background rebase; inspect with `make watch`, then `make results` |
+| One full-skill run | `make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none` | Launches a background rebase; inspect with `make watch version=1.35`, then `make results version=1.35` |
 | Known-good comparison | `make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35` | Adversarial review of the result against its configured reference |
 | Configured matrix | `make matrix spec=none` | Runs all configured repo/version cases, court, and bounded retries |
 | Eval artifacts | `make eval case=012` | Synchronous run capturing metrics and evidence for the eval judges |
@@ -78,11 +78,9 @@ before attempting YAML scoring.
 ## Coverage
 
 Pattern retention covers the repos used to develop the autofix patterns;
-it does not test unseen breakage. The 16 cases match
-`test/config-1.3{4,5,6}.yaml`: four at 1.34.1 and six at each later release.
-Version links open each case's pinned baseline and known-good commits.
-Some workflow configs use moving reference branches; verify those refs
-before comparing results across the two harnesses.
+it does not test unseen breakage. The 16 cases cover the same repo/version
+combinations as `test/config-1.3{4,5,6}.yaml`. Each link opens the case's
+pinned baseline and known-good commits.
 
 | Case | Repository | Version |
 | --- | --- | --- |
@@ -106,6 +104,11 @@ before comparing results across the two harnesses.
 The 1.34 config omits ovn-kubernetes-mcp and ingress-node-firewall.
 Case-014 uses an AI-produced known-good reference; the others use the
 existing rebase references.
+
+Configuration records the cases to run, not their results for a new revision.
+For review, retain the plugin commit, runtime/model, mutation spec, baseline
+and resolved reference SHAs, raw gate reports, and court result. Some workflow
+configs use moving reference branches; resolve them before comparing runs.
 
 ## Interpreting scores
 

@@ -8,8 +8,9 @@ deciding whether it is complete.
 The central pattern is a **state machine at the top level**, outside the
 agent doing each step. This limits a form of reward hacking: optimizing for
 the visible finish line (a PR command or a green summary) by skipping the
-checks that make the result useful. Normal advancement requires recorded
-evidence, and unresolved work stays visible even when the workflow moves on.
+checks that make the result useful. A worker returns evidence; the parent
+submits the transition; the orchestrator checks the reports. Unresolved work
+stays visible even when the workflow moves on.
 
 ## Put each responsibility in the right layer
 
@@ -50,13 +51,19 @@ pending findings, and submit the handoff with `advance`. State lives in
 Step 5 is outside the orchestrator's four gated steps and never calls
 `advance`.
 
+The script checks each expected report for one recognized verdict and a
+matching HEAD. It does **not** evaluate the evidence, issue count, or SKIP
+justification. Those remain reviewer responsibilities. Parent-only advancement,
+the repair budget, and Step 1's stop policy are instruction-level contracts;
+the blocked-advance counter and report checks are implemented in the script.
+
 | Signal | Meaning |
 | --- | --- |
 | `gates`: PENDING | A judgment is still needed; normal pending output exits 1 |
 | `gates`: EXISTING or RESOLVED | A fresh verdict exists; it may be FAIL or INCONCLUSIVE |
 | `gates` exit 0 | No judgments pending; does not establish that gates passed |
 | Fresh PASS or justified SKIP | Accepted by normal advancement; preserve SKIP and its reason |
-| Missing, malformed, stale, FAIL, or INCONCLUSIVE report | Blocks normal advancement |
+| Missing report, invalid verdict, missing/mismatched HEAD, FAIL, or INCONCLUSIVE | Blocks normal advancement |
 | `advance` exit 2 with FORCE_ADVANCE | State already moved with unresolved checks; read the warning and `status` |
 | `advance` exit 2 with ERROR | Hard error; stop |
 | DONE | Traversal complete; neither all checks passed nor Step 5 completed |
@@ -65,9 +72,9 @@ Repair iterations and blocked advancement attempts are different counters.
 The skill shares a three-iteration repair budget across parent and workers.
 The script force-advances on the third blocked `advance` call. The skill
 permits this after exhausted repairs in Steps 2–4, while Step 1 structural
-failures stop without advancement. That Step 1 restriction is an instruction,
-not a special case in the script. Use `status` for polling: `advance` mutates
-state and consumes attempts.
+failures stop without advancement. Use `status` for polling: `advance` mutates
+state and consumes attempts. Both repair and advancement counts must survive
+a worker handoff; only the latter is persisted by the orchestrator.
 
 Force-advance bounds unproductive loops; it does not convert failures into
 success. `.rebase-tmp/status/INCOMPLETE` records only the latest forced
@@ -82,11 +89,12 @@ leave verdicts to the gate reviewer. Run them through `gates`, which caches
 fresh reports and defers crashed companions to review. A crash, empty output,
 or missing tool is not evidence of a successful check.
 
-Evidence and reports carry `HEAD:`. After a fix commit, refresh **all
-current-step** reports, including previous PASS results. Preserve prior-step
-reports as historical evidence, not claims of retesting the final commit.
-HEAD stamps cannot detect uncommitted edits: use one writer, commit before
-review, and keep source mutations separate from parallel evidence collection.
+Evidence and reports carry `HEAD:`. For example, if Step 3 has nine PASS
+reports and one FAIL at commit A, a fix at commit B makes **all ten** reports
+stale. Collect evidence and review them again before advancement. Step 1–2
+reports remain historical evidence at their recorded commits. HEAD stamps
+cannot detect uncommitted edits: use one writer, commit before review, and
+keep source mutations separate from parallel evidence collection.
 
 Gate reviewers are read-only except for their own report. They cite counts,
 file locations, and what they inspected; the implementing agent investigates
@@ -124,8 +132,16 @@ correct. The court and in-run gates answer different questions, so neither
 result should erase the other's findings. See the [eval guide](../evals/README.md)
 for coverage, commands, and scoring limits.
 
-When extending this design, put a repeatable measurement in a companion,
-its interpretation in a gate prompt, and source repair in the implementing
-step. Keep reusable breakage knowledge in the bounded
-[pattern guide](k8s-rebase-patterns.md). Every `.md` in a gate directory is
-an expected gate: explanatory documentation belongs here, outside `gates/`.
+## Extend without duplicating the contract
+
+Put a repeatable measurement in a companion, its interpretation in a gate
+prompt, and source repair in the implementing step. Keep reusable breakage
+knowledge in the bounded [pattern guide](k8s-rebase-patterns.md). Keep routing
+in SKILL.md and the shared repair loop in rules.md; step files supply only
+their work, gates, and exceptions.
+
+Every `.md` in a gate directory becomes an expected gate. Adding one changes
+advancement and the final inventory; update the step's gate list and coverage
+description together. An executable companion shares its prompt's basename
+and writes through [gate-script-lib.sh](../scripts/gate-script-lib.sh). Check the pair
+with `make assert-evidence-paths`. Explanatory docs belong outside `gates/`.

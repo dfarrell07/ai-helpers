@@ -20,6 +20,11 @@ When a rebase surfaces a new breakage pattern:
    safe transformation with detection and post-fix verification.
    Change `k8s-rebase.sh` only for mechanical rebase operations.
 
+The mutation harness removes content from `## Pattern Table` onward and
+targets detailed headings through `TAG_TO_PATTERN` in `test/test-skill.sh`.
+Keep those selectors aligned when reorganizing this guide; verify the copied
+plugin actually withholds the intended guidance.
+
 **Criteria for inclusion:** patterns must be generic — they
 apply (or could apply) across Go projects that consume k8s.
 If a fix only fires for one or two specific repos, put it in
