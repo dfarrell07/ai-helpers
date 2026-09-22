@@ -61,13 +61,13 @@ codegen output changes.
 | KubeVirt version | VM readiness timeouts in kv-live-migration CI | Bump to latest stable patch within same minor; nightly as last resort |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in e2e setup script; update FRR image variable separately |
 | library-go interface | `does not implement SharedIndexInformer` | Use a compatible commit on the correct OCP release branch, or a tracked fork replacement (see Cross-repo dependency ordering below) |
-| Snyk vendor scan | `ci/prow/security` fails (often pre-existing) | Check `.snyk` strategy: `vendor/**` glob is safe; per-file exclusions need updating |
+| Snyk vendor scan | `ci/prow/security` fails after vendoring | Compare findings against base and inspect the repo's scanning policy; new vendor files may not match per-file exclusions |
 | sudo PATH not preserved | `go: command not found` under sudo in CI scripts (often pre-existing) | In bash: `sudo env "PATH=$PATH" <cmd>` to preserve Go toolchain PATH |
 | Transitive dep compat | `too many/few arguments` in `/go/pkg/mod/` path | Use `k8s-rebase-depfix.sh <module>@<compatible-version>` in the affected module; verify k8s pins afterward |
 | k8s.io/kubernetes staging | `unknown revision v0.0.0` for k8s.io/* | The rebase script resolves staging requirements at the requested target; inspect its tidy log if resolution fails |
 | CRD name validation lost | Resource with invalid name accepted (should be rejected) | Re-insert hand-edited `metadata.name` pattern constraints after codegen |
 | CRD codegen annotation | `verify-update-codegen` fails (`git diff`) | Re-run codegen to update `controller-gen.kubebuilder.io/version` |
-| Webhook builder API | `too many arguments` in NewWebhookManagedBy | Move object from .For() to constructor arg (now generic) |
+| Webhook builder API | `NewWebhookManagedBy` / `.For()` compile errors | Move object from .For() to constructor arg (now generic) |
 | Vendor verify in container | `vendor not in sync` (container-only) | Compare host/container toolchains and rerun the repo's vendor check; container execution alone does not prove a false positive |
 | e2e framework API | `undefined` in test/e2e | Rename functions, add params to match new signatures |
 
@@ -125,18 +125,11 @@ NOT deprecated.
 
 ### controller-gen version annotation mismatch (recurring)
 
-When `sigs.k8s.io/controller-tools` is bumped (e.g. v0.20.1 →
-v0.21.0), `controller-gen` writes the new version into CRD YAML
-annotations. If codegen isn't re-run and committed, CI's
-`verify-update-codegen` (or `make verify`) detects the stale
-annotation via `git diff --exit-code`. Repos that build
-controller-gen from vendor (like CNO) are affected whenever
-controller-tools bumps; repos that pin a version in the codegen
-script (like ovnk's `@v0.19.0`) are not.
-
-Fix: `k8s-rebase.sh` Phase 2 runs codegen and commits the output.
-If the CRD manifest diff only shows the version annotation, that's
-expected and correct.
+When the controller-gen version used by codegen changes, regenerated CRDs
+carry its new version annotation. Commit that output, even if only the
+annotation changed, or CI's codegen verification will report a diff.
+Check how the repo selects controller-gen: a vendored tool follows its
+dependency bump; a separately pinned tool follows that pin.
 
 ### golang.org/x/exp → stdlib
 
@@ -162,11 +155,9 @@ not x/exp-related:
 - `"k8s.io/klog"` → `"k8s.io/klog/v2"` (check `klog.V()` boolean
   usage and implicit `init()` flag registration, which changed in v2)
 
-**Map iteration ordering:** stdlib `maps.Keys()` returns
-`iter.Seq[T]` (materialized via `slices.Collect`), which may
-produce different concrete order than x/exp. Tests depending on
-map iteration order may flake — pre-existing fragility, not a
-rebase bug.
+**Map iteration ordering:** `slices.Collect(maps.Keys(m))` does not sort
+keys. Tests that assume an order can flake; compare the baseline and the
+migration before classifying a failure as pre-existing.
 
 ### Transitive dependency compatibility
 
@@ -174,26 +165,6 @@ An ecosystem bump can break another dependency, producing errors
 under `/go/pkg/mod/`. Run `k8s-rebase-depfix.sh <module>@<compatible-version>`
 in the affected module. It tidies and vendors when vendor/ exists;
 verify Kubernetes pins afterward, as the helper does not enforce them.
-
-### Snyk vendor scan failures (recurring)
-
-`ci/prow/security` (Snyk) scans vendored code and flags CVEs in
-transitive dependencies. This is often pre-existing (fails on
-main too), but it blocks rebase PRs. Re-vendoring may also add
-new transitive deps that introduce additional findings.
-
-The fix depends on the repo's `.snyk` strategy:
-
-- **`vendor/**` glob** (CNO, INF, ovnk): safe after re-vendoring.
-  If the repo has no `.snyk`, the fix is in `openshift/release`
-  (exclude vendor from Snyk). See CORENET-7277.
-- **Per-file exclusions** (CNCC, multus): fragile — new vendor
-  files aren't covered. Either add new exclusions to `.snyk` or
-  switch to the `vendor/**` glob (the dominant pattern, used by
-  4 of 6 networking repos).
-
-Check `.snyk` if it exists. Per-file repos will likely fail
-`ci/prow/security` after re-vendoring.
 
 ### Vendor verification differences in containers (recurring)
 
@@ -240,27 +211,11 @@ to latest compatible versions, then `make bundle`.
 
 ### ST1005 error string casing vs test assertions (recurring)
 
-staticcheck ST1005 requires error strings to not be capitalized.
-Rebases can surface this when lint config changes enable
-staticcheck or remove exclusions. Lowercasing an error string
-is a lint fix but can break test assertions that match the old
-string:
-
-```go
-// Old
-return fmt.Errorf("Failed to create: %v", err)
-
-// New (ST1005 fix)
-return fmt.Errorf("failed to create: %v", err)
-
-// Test — BROKEN (still expects old capitalization)
-Expect(err.Error()).To(ContainSubstring("Failed to create"))
-```
-
-Before lowercasing any error string for ST1005, grep for the OLD
-string in all Go files — not just tests. Production code may use
-`strings.Contains(err.Error(), "...")` for control flow. This is
-a semantic change, not just a lint fix.
+Before fixing ST1005, search for the old error string in all Go files.
+Changing `"Failed to create"` to `"failed to create"` also affects tests
+matching the old text and production `strings.Contains` checks.
+Lowercase only the initial letter, preserve acronyms, and update dependent
+matches. Error text can participate in control flow; preserve that behavior.
 
 ### golangci-lint v1→v2 config migration (recurring)
 

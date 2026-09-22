@@ -6,7 +6,8 @@ Claude. Offline checks cover shared interfaces. These are separate from
 
 ## Choose the check
 
-Run these commands from `plugins/k8s-rebase/`:
+Run these commands from `plugins/k8s-rebase/`. The workflow harness needs
+`claude`, `yq`, `jq`, Git, and `rsync` in addition to the rebase prerequisites.
 
 | Check | Command | What it establishes |
 | --- | --- | --- |
@@ -41,9 +42,8 @@ cases, not generalization to unseen breakage. See the [design guide](../docs/des
 
 ## Running pattern-retention evals
 
-**On a laptop: run one case at a time.** Each case spawns a full Claude
-session (up to 200 turns) plus `go mod vendor`. All 16 cases
-sequentially can take 24h+ and exhaust RAM on heavy cases.
+Full runs call models and build real projects; start with one case at a time.
+The eval runner defaults to 200 turns per case. Time and cost vary by repo.
 
 ### Single-case runs
 
@@ -69,49 +69,40 @@ the YAML judges. Scoring runs through the eval harness below.
 
 From the ai-helpers root, `claude plugin eval plugins/k8s-rebase`
 runs and scores all 16 cases sequentially.
-Intended for CI or a dedicated workstation with ≥ 32GB RAM (24h timeout).
+The eval definition allows 24 hours for the suite. Use a dedicated machine
+for full runs; ovn-kubernetes cases are the heaviest.
 
-**Case weight order** (lightest → heaviest, by vendor tree size and API
-surface):
+## Coverage
 
-- **Fastest:** cases with ovn-kubernetes-mcp, multus-cni, ingress-node-firewall
-  (002, 003, 004, 008, 012, 013, 014) — small repos, narrow API surface
-- **Medium:** cloud-network-config-controller (005, 009, 015)
-- **Medium-heavy:** cluster-network-operator (006, 010, 016)
-- **Slowest:** ovn-org/ovn-kubernetes (001, 007, 011) — sub-module layout,
-  ~350MB vendor tree, expect 1–3h per run
+Pattern retention covers the repos used to develop the autofix patterns;
+it does not test unseen breakage. The 16 cases match
+`test/config-1.3{4,5,6}.yaml`: four at 1.34.1 and six at each later release.
+Version links open each case's pinned baseline and known-good commits.
+Some workflow configs use moving reference branches; verify those refs
+before comparing results across the two harnesses.
 
-## pattern-retention (`cases/pattern-retention`)
+| Case | Repository | Version |
+| --- | --- | --- |
+| case-001 | ovn-org/ovn-kubernetes | [1.36.2](cases/pattern-retention/case-001/input.yaml) |
+| case-002 | ovn-kubernetes/ovn-kubernetes-mcp | [1.36.2](cases/pattern-retention/case-002/input.yaml) |
+| case-003 | openshift/multus-cni | [1.36.2](cases/pattern-retention/case-003/input.yaml) |
+| case-004 | openshift/ingress-node-firewall | [1.36.2](cases/pattern-retention/case-004/input.yaml) |
+| case-005 | openshift/cloud-network-config-controller | [1.36.2](cases/pattern-retention/case-005/input.yaml) |
+| case-006 | openshift/cluster-network-operator | [1.36.2](cases/pattern-retention/case-006/input.yaml) |
+| case-007 | ovn-org/ovn-kubernetes | [1.34.1](cases/pattern-retention/case-007/input.yaml) |
+| case-008 | openshift/multus-cni | [1.34.1](cases/pattern-retention/case-008/input.yaml) |
+| case-009 | openshift/cloud-network-config-controller | [1.34.1](cases/pattern-retention/case-009/input.yaml) |
+| case-010 | openshift/cluster-network-operator | [1.34.1](cases/pattern-retention/case-010/input.yaml) |
+| case-011 | ovn-org/ovn-kubernetes | [1.35.3](cases/pattern-retention/case-011/input.yaml) |
+| case-012 | ovn-kubernetes/ovn-kubernetes-mcp | [1.35.3](cases/pattern-retention/case-012/input.yaml) |
+| case-013 | openshift/multus-cni | [1.35.3](cases/pattern-retention/case-013/input.yaml) |
+| case-014 | openshift/ingress-node-firewall | [1.35.3](cases/pattern-retention/case-014/input.yaml) |
+| case-015 | openshift/cloud-network-config-controller | [1.35.3](cases/pattern-retention/case-015/input.yaml) |
+| case-016 | openshift/cluster-network-operator | [1.35.3](cases/pattern-retention/case-016/input.yaml) |
 
-Smoke check only — not a substitute for `make court`, and does not test
-generalization to novel breakage. All 16 cases reuse repos the skill's
-autofix patterns were tuned against.
-
-16 cases across six repos and three releases: 4 at 1.34.1, 6 at 1.35.3,
-and 6 at 1.36.2. Source data in `test/config-1.3{4,5,6}.yaml`.
-
-| Case | Repo | Version | Weight |
-|------|------|---------|--------|
-| case-001 | ovn-org/ovn-kubernetes | 1.36.2 | Heavy — sub-module layout |
-| case-002 | ovn-kubernetes/ovn-kubernetes-mcp | 1.36.2 | Light — minimal API surface |
-| case-003 | openshift/multus-cni | 1.36.2 | Light — narrow API surface |
-| case-004 | openshift/ingress-node-firewall | 1.36.2 | Light — narrow API surface |
-| case-005 | openshift/cloud-network-config-controller | 1.36.2 | Medium |
-| case-006 | openshift/cluster-network-operator | 1.36.2 | Medium-heavy — heavy openshift/api usage |
-| case-007 | ovn-org/ovn-kubernetes | 1.34.1 | Heavy — sub-module layout |
-| case-008 | openshift/multus-cni | 1.34.1 | Light — narrow API surface |
-| case-009 | openshift/cloud-network-config-controller | 1.34.1 | Medium |
-| case-010 | openshift/cluster-network-operator | 1.34.1 | Medium-heavy |
-| case-011 | ovn-org/ovn-kubernetes | 1.35.3 | Heavy — sub-module layout |
-| case-012 | ovn-kubernetes/ovn-kubernetes-mcp | 1.35.3 | Light — minimal API surface |
-| case-013 | openshift/multus-cni | 1.35.3 | Light — narrow API surface |
-| case-014 | openshift/ingress-node-firewall | 1.35.3 | Light — AI-produced known-good |
-| case-015 | openshift/cloud-network-config-controller | 1.35.3 | Medium |
-| case-016 | openshift/cluster-network-operator | 1.35.3 | Medium-heavy |
-
-Note: 1.34 has no ovn-kubernetes-mcp or ingress-node-firewall cases —
-those repos were not rebased to 1.34 (mcp didn't exist, infw had no
-complete rebase).
+The 1.34 config omits ovn-kubernetes-mcp and ingress-node-firewall.
+Case-014 uses an AI-produced known-good reference; the others use the
+existing rebase references.
 
 ## Interpreting scores
 
@@ -134,7 +125,7 @@ Read the artifacts behind a score:
   accuracy of its verification claims.
 - LLM scores are a smoke check, not the adversarial court. The gap-analysis
   threshold remains provisional. Known-good references are comparison
-  evidence, not the only valid implementation; case-014 is AI-produced.
+  evidence, not the only valid implementation.
 
 Harness summary policies also differ from in-run gate verdicts. Preserve
 raw reports and findings when comparing results; a passing court or eval
