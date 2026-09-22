@@ -105,7 +105,7 @@ These are layered safeguards, not proof of correctness. Hooks depend on
 runtime activation and use heuristic matching; the Stop hook observes DONE,
 not Step 5 completion. Some gate rubrics are informational or allow degraded
 checks. Read report details as well as verdicts. The
-[compatibility record](../plans/claude-codex-compatibility.md) documents
+[compatibility note](compatibility.md) documents
 specific enforcement and qualification limits.
 
 ## Test the workflow, not just its output

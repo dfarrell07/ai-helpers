@@ -2,7 +2,7 @@
 
 The workflow harness and pattern-retention evals exercise real rebases via
 Claude. Offline checks cover shared interfaces. These are separate from
-[Codex compatibility qualification](../plans/claude-codex-compatibility.md).
+[runtime compatibility qualification](../docs/compatibility.md).
 
 ## Choose the check
 
@@ -139,3 +139,13 @@ Read the artifacts behind a score:
 Harness summary policies also differ from in-run gate verdicts. Preserve
 raw reports and findings when comparing results; a passing court or eval
 score does not turn an unresolved gate into PASS.
+
+### Remaining eval work
+
+- Calibrate the gap-analysis threshold across cases and add deliberately
+  bad diffs to check that judges reject plausible regressions.
+- Check expected report completeness/freshness and final PR claims directly;
+  existing verdict/text checks do not establish those properties.
+- LLM prompt templates currently read only `outputs.files`, while deterministic
+  checks also read `modified_files`. Verify artifact delivery when changing
+  the harness; empty judge inputs must not look like clean diffs.

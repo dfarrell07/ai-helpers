@@ -140,7 +140,7 @@ The checked-in test configs cover six repos across Kubernetes **1.34.1,
 ovn-kubernetes-mcp and ingress-node-firewall. See the
 [case table](evals/README.md#pattern-retention-casespattern-retention).
 These fixtures describe coverage, not the outcome of a fresh run or Codex
-qualification; the [compatibility record](plans/claude-codex-compatibility.md)
+qualification; the [compatibility note](docs/compatibility.md)
 tracks the latter separately.
 
 The broader development history has also exercised these repository shapes:
