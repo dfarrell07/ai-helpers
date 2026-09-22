@@ -1,7 +1,5 @@
 # Step 3: Apply autofix patterns
 
-PROGRESS: 60% complete
-
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 ## Run the autofix script

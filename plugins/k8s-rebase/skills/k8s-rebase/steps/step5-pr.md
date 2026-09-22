@@ -1,7 +1,5 @@
 # Step 5: PR and Cleanup
 
-**PROGRESS: 95% complete**
-
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 **CRITICAL: NEVER run `git push` or `gh pr create` yourself.**
@@ -159,6 +157,6 @@ scratch targets are gone before claiming cleanup is complete.
 
 ---
 
-Step 5 is the final step — the rebase is complete after PR
-generation. Do NOT run orchestrator advance (step 5 is not in the
-orchestrator's step list).
+Step 5 completes after full-rebase review, PR command generation, and
+verified cleanup, with unresolved checks retained in the PR body.
+Do not call orchestrator `advance`; Step 5 is outside its gated steps.

@@ -13,68 +13,37 @@ REPOS ?= $(repos_dir)
 CONFIG ?= test/config$(if $(VER),-$(shell echo $(VER) | grep -oE '[0-9]+\.[0-9]+'),).yaml
 
 help: ## Show available targets
+	@echo "k8s-rebase workflow testing ($(words $(wildcard gates/step[1-4]-*/*.md)) gates)"
 	@echo ""
-	@echo "  k8s-rebase skill testing"
-	@echo "  ────────────────────────"
-	@echo "  Tests the k8s-rebase skill by running it against real repos, then"
-	@echo "  comparing the output to a known-good human-verified rebase."
-	@echo "  Gates = $(words $(wildcard gates/step[1-4]-*/*.md)) verification checks (build, vet, lint, correctness, ...)."
-	@echo "  Court = AI adversarial review that compares output to known-good, votes pass/fail."
-	@echo "  Requires: claude CLI, yq, jq, git, rsync. ~20 min per repo."
+	@echo "Offline checks (no model calls):"
+	@echo "  make test-compatibility test-version-selection assert-evidence-paths"
 	@echo ""
-	@echo "  Quick start:"
-	@echo "    make test repo=ovn-kubernetes/ovn-kubernetes-mcp"
-	@echo "    make watch                      # monitor progress"
-	@echo "    make court repo=ovn-kubernetes/ovn-kubernetes-mcp"
-	@echo "    make results repo=ovn-kubernetes/ovn-kubernetes-mcp"
+	@echo "One rebase, then review its result:"
+	@echo "  make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none"
+	@echo "  make watch version=1.35"
+	@echo "  make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35"
+	@echo "  make results repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35"
 	@echo ""
-	@echo "  Full pipeline (all versions, all repos, court, retries):"
-	@echo "    make matrix                     # 4-8 hours unattended"
+	@echo "Configured matrix (all versions, court, bounded retries):"
+	@echo "  make matrix spec=none            Full skill"
+	@echo "  make matrix spec=all             Withhold patterns and autofix (matrix default)"
+	@echo "  make test defaults to spec=none; no repo= launches all repos for that version."
+	@echo "  Other specs: all-patterns, all-fns, fn:<tag>, pattern:<key>"
 	@echo ""
-	@echo "  Workflow: test → watch → court → results"
+	@echo "Artifacts (without YAML scoring): make eval case=012"
+	@echo "Management: make stop; make clean repo=<repo> version=1.35.3"
+	@echo "  clean discards selected eval work; omit filters only to reset all configured repos."
+	@echo "Config: make set-known-good repo=<repo> ref=<ref> [url=<fork>] version=1.35"
+	@echo "        make set-from-commit repo=<repo> commit=<sha> version=1.35"
+	@echo "  repos_dir=<path> overrides the disposable clone directory for the workflow harness."
 	@echo ""
-	@echo "  Test (auto-clones repos on first run)"
-	@echo "    make test                       Launch all repos in background, then block until all finish"
-	@echo "    make test repo=<repo>           Launch in background, returns immediately (use make watch)"
-	@echo "    make test repo=\"<r1> <r2>\"       Run multiple repos (same version, same spec)"
-	@echo "    make test spec=all              Blind test — no patterns doc or autofix"
-	@echo "    make test version=1.35          Backtest against an older k8s version"
-	@echo "    spec: none (default), all (blind), fn:<tag>, pattern:<key>"
-	@echo "    versions: $(shell ls test/config-*.yaml 2>/dev/null | sed 's|test/config-||;s|\.yaml||' | tr '\n' ' ')"
-	@echo "    repos:"; yq '.repos | keys | .[]' test/config.yaml 2>/dev/null | while read -r r; do echo "      $$r"; done
-	@echo ""
-	@echo "  Monitor (check progress while tests run)"
-	@echo "    make watch                      Show session state, gate count, diff vs known-good"
-	@echo "    watch -n 10 make watch          Auto-refresh every 10s"
-	@echo ""
-	@echo "  Review (run after gates pass — compares output to known-good rebase)"
-	@echo "    make court                      Run court for all pending repos (all versions)"
-	@echo "    make court repo=<repo>          AI review one repo (add version=X.Y for specific version)"
-	@echo ""
-	@echo "  Results"
-	@echo "    make results                    Show all versions (or one with version=X)"
-	@echo "    make results repo=<repo>        Show gate reports, diff vs known-good, history"
-	@echo ""
-	@echo "  Manage"
-	@echo "    make stop                       Stop all running test sessions"
-	@echo "    make clean                      Reset worktrees, state, temp branches (keeps clones)"
-	@echo "    make clean repo=<repo>          Clean one repo (all versions)"
-	@echo "    make clean repo=<repo> version=1.34.1  Clean one repo, one version only"
-	@echo ""
-	@echo "  Config"
-	@echo "    make set-known-good repo=<repo> ref=<sha>            Set known-good to a SHA on main"
-	@echo "    make set-known-good repo=<repo> ref=<branch> url=<u> Set known-good to a branch on a fork"
-	@echo "    make set-from-commit repo=<repo> commit=<sha>        Set pre-rebase starting commit"
-	@echo "    repos_dir=/path make test       Override repo checkout location (default: test/.repos/)"
-	@echo ""
-	@echo "  Agent eval (agent-eval-harness — cost/token/model measurement)"
-	@echo "    make eval case=001              Run one pattern-retention eval case (see evals/README.md)"
-	@echo ""
+	@echo "Full runs call models and build projects; time and cost vary by repo."
+	@echo "See evals/README.md for prerequisites, coverage, artifacts, and scoring limits."
 
-matrix: ## Full pipeline: all versions x all repos, court, retries (4-8 hours)
+matrix: ## Run configured cases, court, and bounded retries; defaults to spec=all
 	@$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) $(if $(REPOS),REPOS_DIR=$(REPOS)) bash $(SCRIPT) matrix $(if $(spec),$(SPEC),all)
 
-test: ## Run tests
+test: ## Run skill workflows; defaults to spec=none
 	@if [ -n "$(REPO)" ]; then \
 		$(if $(JOBS),MAX_CONCURRENT=$(JOBS)) $(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) test $(SPEC) $(REPO) $(if $(COMMIT),--from-commit $(COMMIT)); \
 	else \
@@ -124,7 +93,7 @@ test-compatibility: ## Offline Claude/Codex review, hook, and gate interface che
 test-version-selection: ## Offline Step 1 metadata and command-derivation checks
 	@python3 test/test_version_selection.py
 
-eval: ## Run the agent-eval-harness pattern-retention eval for one case (case=NNN required). Manually-triggered only, same as `make court`.
+eval: ## Collect one case's rebase artifacts (case=NNN required); does not run YAML judges
 	@test -n "$(case)" || (echo "ERROR: case required, e.g. make eval case=001" && exit 1)
 	@INPUT="evals/cases/pattern-retention/case-$(case)/input.yaml"; \
 	test -f "$$INPUT" || (echo "ERROR: $$INPUT not found" && exit 1); \

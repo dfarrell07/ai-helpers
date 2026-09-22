@@ -7,7 +7,8 @@ Claude. Offline checks cover shared interfaces. These are separate from
 ## Choose the check
 
 Run these commands from `plugins/k8s-rebase/`. The workflow harness needs
-`claude`, `yq`, `jq`, Git, and `rsync` in addition to the rebase prerequisites.
+`claude`, Go-based `yq` v4, `jq`, Git, and `rsync` in addition to the
+rebase prerequisites.
 
 | Check | Command | What it establishes |
 | --- | --- | --- |
@@ -47,11 +48,6 @@ The eval runner defaults to 200 turns per case. Time and cost vary by repo.
 
 ### Single-case runs
 
-> **Note:** `claude plugin eval --case <name>` does **not** work with
-> this eval — the `--case` filter is only supported for prompt-file
-> dataset mode, not the cli runner dataset mode used here. Use the
-> runner script directly instead.
-
 `make eval case=012` reads the case's `input.yaml` and writes to
 `/tmp/k8s-rebase-eval-case-012/output/`. For custom runs,
 [run-rebase.sh](scripts/run-rebase.sh) accepts the repo URL, baseline SHA,
@@ -63,14 +59,21 @@ It resets that checkout and deletes prior run changes and rebase branches;
 use only disposable eval clones. Run cases sharing a clone sequentially.
 
 `make eval` and the direct runner collect artifacts; they do **not** execute
-the YAML judges. Scoring runs through the eval harness below.
+the YAML judges.
 
-### Full-suite runs
+### Scoring compatibility
 
-From the ai-helpers root, `claude plugin eval plugins/k8s-rebase`
-runs and scores all 16 cases sequentially.
-The eval definition allows 24 hours for the suite. Use a dedicated machine
-for full runs; ovn-kubernetes cases are the heaviest.
+The YAML definition uses the
+[agent-eval-harness](https://github.com/opendatahub-io/agent-eval-harness#evalyaml)
+CLI-runner schema with `input.yaml` datasets and inline judges.
+Its timeout and budget settings apply per invocation, not across the suite.
+
+This repository does not install or pin a scoring harness. Claude CLI
+2.1.280's built-in `plugin eval` expects `case.yaml` or `prompt.md` and
+discovers no cases here. Use `make matrix spec=none` and `make court` for
+workflow evaluation, and
+`make eval case=NNN` for artifacts. Verify harness/schema compatibility
+before attempting YAML scoring.
 
 ## Coverage
 
@@ -127,12 +130,15 @@ Read the artifacts behind a score:
   threshold remains provisional. Known-good references are comparison
   evidence, not the only valid implementation.
 
-Harness summary policies also differ from in-run gate verdicts. Preserve
-raw reports and findings when comparing results; a passing court or eval
-score does not turn an unresolved gate into PASS.
+The workflow harness can count advisory verdicts and older failures as SKIP.
+Court excludes vendor, go.sum, package metadata, and mocks from its diff;
+an identical filtered diff returns PASS without a jury. Preserve raw reports
+and findings: these summaries do not turn an unresolved gate into PASS.
 
 ### Remaining eval work
 
+- Pin and validate a compatible scoring harness, or port the cases and judges
+  to the built-in CLI format before documenting a full-suite scoring command.
 - Calibrate the gap-analysis threshold across cases and add deliberately
   bad diffs to check that judges reject plausible regressions.
 - Check expected report completeness/freshness and final PR claims directly;

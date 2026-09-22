@@ -1,7 +1,5 @@
 # Step 4: Lint, Test, and Review
 
-**PROGRESS: 80% complete**
-
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 ## 4a. Lint iteration

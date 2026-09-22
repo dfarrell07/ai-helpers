@@ -1,17 +1,14 @@
-PROGRESS: 20% complete
-
 Read rules.md first — it contains shared rules for all steps.
 
 # Step 1: Deterministic Rebase
 
-Run from the default branch (master/main). The script creates a
-new timestamped branch. Do not reuse branches from prior runs.
+For a fresh run, start from the working branch (normally master/main).
+The script creates a new timestamped rebase branch.
 
 **Recovery:** If a run fails mid-way through Steps 2-4, check
-`git log` on the rebase branch. The mechanical rebase commits
-from Step 1 are always safe. To resume: start a new session on
-the same branch and use the SKILL.md recovery checks. Do not delete the
-interrupted branch or evidence as part of automatic recovery.
+`git log` on the rebase branch and retain completed Step 1 commits.
+To resume: start a new session on the same branch and use the SKILL.md
+recovery checks. Preserve the interrupted branch, reports, and logs.
 
 **Important:** This script takes 5–30 minutes (longer if it
 auto-containerizes). Use the runtime's supported long-running command
