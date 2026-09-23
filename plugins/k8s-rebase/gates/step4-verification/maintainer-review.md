@@ -97,6 +97,6 @@ bash "${PLUGIN_ROOT}/scripts/write-gate-report.sh" \
   "detail line 1" "detail line 2"
 ```
 
-Use PASS, FAIL, or SKIP as the verdict. Replace the summary and details with
-your actual findings. Cite specific commit SHAs and file:line for
-every FAIL finding — no citations means no FAIL.
+Choose the verdict from this gate's criteria. Replace the example verdict,
+issue count, summary, and details with your actual findings. Cite specific
+commit SHAs and file:line for every FAIL finding — no citations means no FAIL.

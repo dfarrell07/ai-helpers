@@ -13,7 +13,8 @@ examining the commit history after the initial rebase.
    - Commits with "Applied:" in the body: `git log --grep='Applied:' --oneline $BASE..HEAD`
    - Commits with "Assisted-by:" trailer: `git log --grep='Assisted-by:' --oneline $BASE..HEAD`
 
-4. If zero fix commits exist, verify the repo doesn't need any:
+4. If zero fix commits exist, verify the repo doesn't need any. In each
+   module directory (`find . -name go.mod -not -path '*/vendor/*'`):
    - `go build ./... (add -mod=vendor if vendor/ exists)` — does it compile?
    - `go vet ./... (add -mod=vendor if vendor/ exists)` — any warnings?
    If both pass, the repo may genuinely need no fixes beyond
@@ -26,7 +27,11 @@ Ignore stale vendor in gitignored directories
 not maintained by the rebase. Do NOT escalate gitignored vendor
 staleness as a blocker.
 
-Report total issues.
+Report the commit counts from checks 2–3 in DETAILS. ISSUES is the number
+of modules failing check 4.
+
+VERDICT: FAIL if check 4 finds build or vet errors; INCONCLUSIVE if check 4
+is required but cannot run; otherwise PASS.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
 `go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

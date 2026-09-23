@@ -9,7 +9,8 @@ Step 1 — Build + vet check (catches compile-breaking changes):
   In each module directory, run:
   `go build ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
   `go vet ./... 2>&1` (add `-mod=vendor` if vendor/ exists)
-  Any error is a finding. If Go is unavailable, note as SKIPPED.
+  Any error is a finding. If Go cannot run locally or in the golang
+  container, write INCONCLUSIVE: the build check did not run.
 
 Step 2 — Discover deprecated symbols via web search:
   Read the Go version from go.mod (`go` directive) and the k8s

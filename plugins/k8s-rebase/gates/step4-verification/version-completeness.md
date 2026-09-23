@@ -1,7 +1,9 @@
-Determine the previous k8s version: read go.mod on the base
-branch (`git show $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main):go.mod`)
-and extract the k8s.io/api version. If unavailable, derive from
-the target version (if target is 1.NN, previous is 1.NN-1).
+Determine the previous k8s version: read the base branch's primary go.mod
+(`git show $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main):<path>`),
+the first non-vendor go.mod that requires k8s.io/api, which may be nested
+(for example `go-controller/go.mod`), and extract the k8s.io/api version.
+If unavailable, derive from the target version (if target is 1.NN,
+previous is 1.NN-1).
 
 Count stale version refs from the PREVIOUS k8s version only.
 Check yml/yaml/sh/Makefile/Dockerfile files (go.mod and .go
