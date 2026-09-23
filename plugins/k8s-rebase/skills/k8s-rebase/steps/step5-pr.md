@@ -39,7 +39,8 @@ echo ":: Pre-PR review: $VERDICT"
 ```
 
 Investigate `REJECT:` before proceeding. For Claude, `APPROVE:` or a missing
-verdict from infrastructure failure retains the existing continuation policy.
+verdict from infrastructure failure retains the existing continuation policy;
+report a missing verdict as review not performed.
 
 ### Codex only
 

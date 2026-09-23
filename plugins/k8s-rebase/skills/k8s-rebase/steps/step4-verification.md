@@ -167,6 +167,8 @@ bash "$PLUGIN_ROOT/scripts/k8s-rebase-review.sh" "$(git rev-parse HEAD)" "k8s re
 
 Investigate `REJECT:` before continuing. Preserve the helper's existing
 infrastructure fallback; Claude does not require a native independent reviewer.
+A fallback `APPROVE:` for a missing CLI or template, or no verdict, means no
+review ran: report it that way, not as approval.
 
 ### Codex only
 
