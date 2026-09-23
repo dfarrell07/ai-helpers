@@ -37,9 +37,11 @@ Mutations affect a copied plugin, leaving the source intact:
 | `pattern:<key>` | The section mapped by `TAG_TO_PATTERN` in `test/test-skill.sh` |
 | `fn:<tag>` | One `fix_<tag>` function |
 
-Targeted pattern removal can remove a shared section; other prompts may
-retain related guidance. These runs test recovery with less help on known
-cases, not generalization to unseen breakage. See the [design guide](../docs/design.md).
+`pattern:<key>` removes one `###` section of the pattern guide. Several tags
+share a section, some map to loosely related guidance, and table rows and
+other prompts stay intact, so a targeted run withholds less than its tag
+suggests. These runs test recovery with less help on known cases, not
+generalization to unseen breakage. See the [design guide](../docs/design.md).
 
 ## Running pattern-retention evals
 
