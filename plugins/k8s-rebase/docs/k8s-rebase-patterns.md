@@ -60,7 +60,7 @@ codegen output changes.
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
 | golangci-lint v1/v2 | v2 config rejected by v1 binary | Makefile may use v1 import path while lint.sh uses v2 container — update both if migrating |
 | ST1005 error string casing | Lowercased error string breaks matching code | Before fixing ST1005, grep for the OLD error string in all Go files — update matches too |
-| golangci-lint v1 + Go 1.26 | container image can't parse Go 1.26 | Replace Makefile no-op else with `go install @$(VERSION) && golangci-lint run` |
+| golangci-lint v1 + Go 1.26 | v1 binaries, built with older Go, can't parse Go 1.26 code | Move to v2 and build it with the local Go: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@<version>` |
 | CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | Verify the Go/OCP mapping and published image tag on the intended release stream; do not switch streams just to find an image |
 | KIND binary version | e2e cluster creation fails | Select a release supporting the target Kubernetes version and update each binary pin |
 | KIND kubeadm config | k8s 1.36: controller-manager flags silently not applied | Migrate `kind.yaml.j2` extraArgs from v1beta3 map format to v1beta4 list format |
