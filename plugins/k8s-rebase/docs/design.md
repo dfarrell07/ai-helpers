@@ -138,17 +138,17 @@ can the rest of the workflow still discover and repair the breakage?
 Unmodified runs check that learned fixes are retained. Neither establishes
 generalization to unseen repositories or releases.
 
-Treat agent-facing text as code. A rewording that reads as cleanup can drop
-a fix the agent relied on or turn a decisive rubric into an open question
-whose only safe answer blocks advancement. Diff step, rule, gate, and
-pattern text against the last revision the matrix passed, and rerun it
-before trusting the edit.
-
 `make court` adds prosecution, defense, a fact-checking judge, and three
 jurors, who must check the baseline before calling a difference a regression.
 A different diff can still be correct. Court and in-run gates answer
 different questions; neither result erases the other's findings. See the
 [eval guide](../evals/README.md) for coverage, commands, and scoring limits.
+
+Treat agent-facing text as code. A rewording that reads as cleanup can drop
+a fix the agent relied on or turn a decisive rubric into an open question
+whose only safe answer blocks advancement. Diff step, rule, gate, and
+pattern text against the last revision the matrix passed, and rerun it
+before trusting the edit.
 
 ## Extend without duplicating the contract
 
@@ -167,6 +167,7 @@ and exceptions.
 Every `.md` in a gate directory becomes an expected gate, changing
 advancement and the final inventory. Update the step's gate list and the
 gate counts in the README, plugin description, and diagram above; list an
-always-PASS gate in the harness's `INFO_GATES`. An executable companion shares its prompt's basename and writes through
+always-PASS gate in the harness's `INFO_GATES`. An executable companion
+shares its prompt's basename and writes through
 [gate-script-lib.sh](../scripts/gate-script-lib.sh); check the pair with
 `make assert-evidence-paths`. Explanatory docs belong outside `gates/`.
