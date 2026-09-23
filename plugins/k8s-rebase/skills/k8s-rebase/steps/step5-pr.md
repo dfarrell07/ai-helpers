@@ -1,5 +1,7 @@
 # Step 5: PR and Cleanup
 
+PROGRESS: 95% complete
+
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 **CRITICAL: NEVER run `git push` or `gh pr create` yourself.**

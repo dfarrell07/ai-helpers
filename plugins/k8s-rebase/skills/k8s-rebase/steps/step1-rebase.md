@@ -1,9 +1,12 @@
 # Step 1: Deterministic Rebase
 
+PROGRESS: 20% complete
+
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 For a fresh run, start from the working branch (normally master/main).
-The script creates a new timestamped rebase branch.
+The script creates a new timestamped rebase branch; do not reuse branches
+from prior runs.
 
 **Recovery:** If a run fails mid-way through Steps 2-4, check
 `git log` on the rebase branch and retain completed Step 1 commits.

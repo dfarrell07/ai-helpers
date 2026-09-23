@@ -1,5 +1,7 @@
 # Step 2: Fix Compilation Errors
 
+PROGRESS: 40% complete
+
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 ## Validate

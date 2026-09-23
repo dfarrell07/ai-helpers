@@ -12,16 +12,17 @@ Coordinate a Kubernetes rebase through the persistent state machine below.
 The parent advances; step workers perform bounded work and return evidence.
 Complete Steps 1–4, then Step 5's full-rebase review, PR command, and cleanup.
 Preserve unresolved findings: completion is not an all-checks-passed claim.
+**The rebase is NOT finished until Step 5 presents a `gh pr create` command
+to the user.**
 
 **Arguments:** one Kubernetes version (`1.Y` or `1.Y.Z`) and optional
 `--bump-tools`, taken directly from the user's rebase request. Reject missing,
 extra, or invalid arguments before initialization. Normalize `1.Y` to `1.Y.0`.
 Selecting this skill to ask a question does not authorize starting a rebase.
 
-**Use the plugin's helpers for module mutations.** Direct `go mod tidy`,
-`go get`, `go mod vendor`, `go mod edit`, `go generate`, and `go run` can
-disturb the intended Kubernetes pins. Follow rules.md's
-Module Safety contract for allowed commands and the repair helper.
+**NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go mod edit`,
+`go generate`, or `go run` directly.** They move Kubernetes pins through
+MVS. Module repairs go through the helper in rules.md's Module Safety section.
 
 **NEVER run `git push` or `gh pr create`.** Only print commands for
 the user.

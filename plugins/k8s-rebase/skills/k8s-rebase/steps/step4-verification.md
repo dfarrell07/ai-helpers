@@ -1,5 +1,7 @@
 # Step 4: Lint, Test, and Review
 
+PROGRESS: 80% complete
+
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 ## 4a. Lint iteration
@@ -145,7 +147,8 @@ current-step evidence and reviews, so lint regressions are checked too.
 
 If test agents report failures:
 
-- **Timeout:** likely feature gate issue (informer hang)
+- **Timeout:** likely feature gate issue (informer hang); see rules.md's
+  Feature Gates
 - **Flaky:** re-run individual test with `-count=1 -run TestName`
 - **Container timing:** check if test code changed in rebase
 - **Pre-existing:** use 4a's baseline/evidence check; unchanged test code can

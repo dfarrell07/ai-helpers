@@ -1,5 +1,7 @@
 # Step 3: Apply autofix patterns
 
+PROGRESS: 60% complete
+
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 ## Run the autofix script
@@ -31,8 +33,7 @@ the autofix script. Each gate needs three layers, following each file's
 existing format: (1) `export KUBE_FEATURE_<gate>=false` in hack/test-go.sh,
 (2) `os.Setenv`/`t.Setenv` in test files that already reference
 `KUBE_FEATURE_` variables, and (3) a key in test-suite `SetFromMap` calls.
-Add only gates present in the vendored k8s.io/ code. `SetFromMap` validates
-parents and dependents together, so never remove gates the autofix added.
+Add only gates present in the vendored k8s.io/ code.
 
 ## Gates
 
@@ -67,12 +68,13 @@ Use each gate's verdict criteria; report counts and cite evidence.
 
 ## Gate-fix loop
 
-Follow rules.md's shared loop and three-iteration budget. Re-validate fixes
-with `--quick` before refreshing all current-step evidence and reviews.
+Follow rules.md's shared loop and three-iteration budget. After each fix
+commit, re-run `bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick`
+before refreshing all current-step evidence and reviews.
 The gates also discover deprecated-but-compiling patterns beyond the autofix.
 
 ## Before advancing
 
 Return gate outcomes, remaining issues, and consumed repair iterations to
-the parent. Only the parent advances, using SKILL.md's protocol. Steps 4–5
-remain mandatory after this handoff.
+the parent. Only the parent advances, using SKILL.md's protocol. Do NOT stop
+or declare the rebase done: Steps 4 and 5 are mandatory.

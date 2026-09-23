@@ -14,11 +14,12 @@ the checkout so the existing hook guards remain active.
 
 ## Scope
 
-Every change must be required by the requested rebase: dependency alignment, codegen,
-version references, or a compatibility/build/vet/lint/test fix caused by the
-bump. A compile-clean file can still need a behavioral or CI fix. Broader
-tooling updates require `--bump-tools`. Do not refactor, add features, or fix
-unrelated debt. Keep each repair at the cited issue and location.
+Every change must be required by the requested rebase: dependency alignment,
+codegen, version references, or a fix the bump makes necessary. For any fix,
+ask: would build, vet, lint, tests, or CI fail without it? If not, do not
+make the change. Broader tooling updates require `--bump-tools`. Do not
+refactor, add features, or fix unrelated debt. Fix ONLY the cited issue at
+the cited location.
 
 Preserve behavior: never replace label selectors with
 `reflect.DeepEqual`, never change security flag defaults.
@@ -139,6 +140,12 @@ do not skip it.
 Prefer `podman` with `--userns=keep-id --security-opt label=disable`.
 Tell subagents to use `podman run --userns=keep-id` with the
 golang container if they need Go tools.
+
+## Feature Gates
+
+SetFromMap validates parent-dependent consistency. Every disabled gate and
+its dependents go in both SetFromMap and the `KUBE_FEATURE_` env vars. The
+autofix wires this; never remove gates from its SetFromMap.
 
 ## Execution and reviewer roles
 
