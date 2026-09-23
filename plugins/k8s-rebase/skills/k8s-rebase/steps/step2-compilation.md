@@ -103,7 +103,7 @@ that dep. If found, identify the branch or fork it uses and add
 a `replace` directive:
 `replace github.com/openshift/library-go => github.com/ORG/library-go v0.0.0-DATE-HASH`
 Add a tracking comment: `// TODO: remove replace when official library-go merges k8s bump`.
-Synchronize module/vendor files under rules.md's Module Safety contract.
+Then run `bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" --sync` in that module.
 In multi-module repos, add the replace to each module that depends
 on the affected package (Go replace directives do not propagate
 across module boundaries).

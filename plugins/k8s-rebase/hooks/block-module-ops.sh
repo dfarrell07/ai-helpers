@@ -24,7 +24,9 @@ if echo "$CMD" | grep -qE '\bgo\s+(mod\s+(tidy|edit|vendor|download|init)|get|ge
 BLOCKED: Direct go module operations are forbidden during k8s-rebase.
 Module operations (go mod tidy, go get, go mod vendor) are handled
 by k8s-rebase.sh and k8s-rebase-autofix.sh. Running them directly
-corrupts k8s version pins via MVS resolution.
+corrupts k8s version pins via MVS resolution. For repairs, run
+scripts/k8s-rebase-depfix.sh <module>@<version> (or --sync after
+adding a replace) in the affected module, then verify k8s pins.
 
 Allowed: go build, go vet, go test, go mod verify, go doc,
 go install <tool>@<version>, go clean -cache.

@@ -183,7 +183,8 @@ vendor changes alone do not establish that the fix is missing.
 **Replace directive workaround:** Add to go.mod:
 `replace github.com/openshift/library-go => github.com/FORK/library-go v0.0.0-DATE-HASH`
 Add a TODO tracking its removal when the upstream fix merges;
-apply it in every affected module (replacements do not propagate).
+apply it in every affected module (replacements do not propagate), then
+run `k8s-rebase-depfix.sh --sync` there.
 
 **Do NOT hand-patch vendor/** — CI runs `go mod vendor` which
 regenerates from source, erasing patches.

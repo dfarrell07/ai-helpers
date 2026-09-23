@@ -502,6 +502,28 @@ exec "{real_git}" "$@"
         for name, command in cases:
             self.assertFalse(self.hook(name, {"command": command}))
 
+    def test_depfix_sync_runs_only_module_synchronization(self):
+        calls = self.root / "go-calls"
+        self.env["GO_CALLS"] = str(calls)
+        self.stub("go", 'printf "%s\\n" "$*" >> "$GO_CALLS"\n')
+        depfix = str(PLUGIN / "scripts/k8s-rebase-depfix.sh")
+        (self.repo / "vendor").mkdir()
+        for args, expected in ((["--sync"], "mod tidy\nmod vendor\n"),
+                               (["example.com/dep@v1.2.3"], "get example.com/dep@v1.2.3\nmod tidy\nmod vendor\n")):
+            with self.subTest(args=args):
+                calls.unlink(missing_ok=True)
+                self.assertEqual(self.run_cmd("bash", depfix, *args).returncode, 0)
+                self.assertEqual(calls.read_text(), expected)
+        calls.unlink()
+        for args in ([], ["--sync", "extra"], ["--unknown"]):
+            with self.subTest(args=args):
+                self.assertEqual(self.run_cmd("bash", depfix, *args).returncode, 1)
+        self.assertFalse(calls.exists())
+        # The hook exempts whole-command script invocations, including module-local ones.
+        self.activate()
+        for command in (f"bash {depfix} --sync", f'cd module && bash "{depfix}" --sync'):
+            self.assertFalse(self.hook("block-module-ops.sh", {"command": command}))
+
     def test_stop_hook(self):
         self.assertFalse(self.hook("stop-hook.sh", {}))
         self.activate()

@@ -76,9 +76,6 @@ and resolve recovery before restarting.
   starting; changed definitions need renewed trust. See the
   [hook documentation](https://learn.chatgpt.com/docs/hooks#review-and-trust-hooks).
 
-The module-operation hook currently blocks direct tidy/vendor even in the
-shared rules' repair exceptions. Report that conflict rather than bypassing it.
-
 ## Development and coverage
 
 The configs cover six repositories across Kubernetes 1.34.1, 1.35.3, and

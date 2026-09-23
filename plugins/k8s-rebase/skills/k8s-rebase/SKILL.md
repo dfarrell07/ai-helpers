@@ -21,7 +21,7 @@ Selecting this skill to ask a question does not authorize starting a rebase.
 **Use the plugin's helpers for module mutations.** Direct `go mod tidy`,
 `go get`, `go mod vendor`, `go mod edit`, `go generate`, and `go run` can
 disturb the intended Kubernetes pins. Follow rules.md's
-Module Safety contract for allowed commands and narrow repair exceptions.
+Module Safety contract for allowed commands and the repair helper.
 
 **NEVER run `git push` or `gh pr create`.** Only print commands for
 the user.

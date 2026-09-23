@@ -81,15 +81,15 @@ Fix hints for non-zero counts:
 
 - Check 3 (missing commits): check step1.log for errors in that
   module's processing. If the module has k8s.io deps and no
-  commit exists, manually run in that module's directory:
-  `go get k8s.io/<dep>@$(cat .rebase-tmp/target-k8s-api-version.txt) && go mod tidy && go mod vendor`
+  commit exists, run in that module's directory:
+  `bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" k8s.io/<dep>@$(cat "$REPO/.rebase-tmp/target-k8s-api-version.txt")`
   then commit with `-s`. If the module has no k8s.io deps,
   count 0 (no commit expected).
 
 - Check 4 (version mismatch): report this fix for the main
-  agent to apply (exact version from
+  agent to apply in the affected module (exact version from
   `.rebase-tmp/target-k8s-api-version.txt`):
-  `go get k8s.io/<mod>@$(cat .rebase-tmp/target-k8s-api-version.txt)`.
+  `bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" k8s.io/<mod>@<target>`.
   For k8s.io/kubernetes use v1.Y.Z, not the staging v0.Y.Z target.
 
 - Check 5 (conflict markers): for each file reported by the

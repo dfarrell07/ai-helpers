@@ -35,23 +35,19 @@ interfaces, or restructure packages.
 ## Module Safety
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go mod edit`,
-`go generate`, or `go run`. Allowed: `go build`, `go vet`,
-`go test` (with `-mod=vendor` if vendor/ exists), `go mod verify`,
-`go doc`, `go install <tool>@<version>`, `go clean -cache`.
+`go generate`, or `go run` directly: they can move Kubernetes pins through
+MVS. Allowed: `go build`, `go vet`, `go test` (with `-mod=vendor` if vendor/
+exists), `go mod verify`, `go doc`, `go install <tool>@<version>`,
+`go clean -cache`.
 
-**Repair exceptions:** Adding a `replace` directive requires `go mod tidy`
-and, where vendor/ exists, `go mod vendor` in each affected module.
-`k8s-rebase-depfix.sh` already performs that synchronization when bumping a
-dependency; do not repeat it after a successful invocation. These are the
-only tidy/vendor exceptions. Check Kubernetes pins afterward; depfix does
-not enforce them.
+Module repairs use `scripts/k8s-rebase-depfix.sh` in each affected module:
+`<module>@<version>` bumps one dependency; `--sync` tidies (and vendors, when
+vendor/ exists) after you add a `replace`. Both modes synchronize the module,
+so do not repeat it. Verify Kubernetes pins afterward; the helper does not.
 
 Prepend this rule to every gate subagent prompt. Suggested fix commands in
-a gate report do not expand these permissions.
-
-The existing module-operation hook blocks direct tidy/vendor even in these
-documented exception cases. If it blocks a required repair, report that
-conflict; do not disable the hook or disguise the command to bypass it.
+a gate report do not expand these permissions. The module-operation hook
+enforces the direct-command ban; never disguise a command to bypass it.
 
 ## Never Push
 

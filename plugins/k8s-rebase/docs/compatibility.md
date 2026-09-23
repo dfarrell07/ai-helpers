@@ -58,8 +58,6 @@ Force-advancement or a review fallback does not satisfy that qualification.
 
 ## Known limits
 
-- The module-operation hook blocks direct tidy/vendor even where the
-  shared rules allow a repair exception. Report the conflict; do not bypass it.
 - HEAD stamps cover commits, not uncommitted edits. Hooks are heuristic,
   and Stop observes orchestrator DONE rather than Step 5 completion.
 - Some rubrics allow informational or degraded PASS results. Build/vet
