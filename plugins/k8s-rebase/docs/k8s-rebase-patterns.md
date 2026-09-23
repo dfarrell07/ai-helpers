@@ -50,18 +50,18 @@ codegen output changes.
 | FieldsV1.Raw removed | `FieldsV1.Raw undefined` (k8s 1.36+) | Read access: `.GetRawBytes()`; construction: `metav1.NewFieldsV1(...)` |
 | NewSimpleClientset | `SA1019` on generated fakes | Replace with `NewClientset` — check vendored source for `// Deprecated:` first (not all fakes deprecate it) |
 | x/exp migration | `cannot find package "golang.org/x/exp/..."` | Migrate to stdlib `maps`/`slices`/`cmp` |
-| govet inline analyzer | `inline: cannot inline <call>` | Inspect the call and analyzer configuration; fix actionable code findings before considering a narrow configuration change |
+| govet inline analyzer | `inline: cannot inline <call>` | Only repos whose govet config sets `enable-all: true`; fix actionable call sites before considering a narrow configuration change |
 | Nilness dead code | `nilness: impossible condition` | Remove dead `if err != nil` blocks |
 | Codegen flag removed | `unknown flag: --bounding-dirs` | Remove flag from script, re-run codegen |
 | Codegen field removed | `unknown field X in struct literal` | Remove field from Go code, re-run codegen |
 | Codegen deleted mocks | `undefined: mock.X` after codegen runs | Run `make mocksgen` (repos with `.mockery.yaml`) |
 | Feature gate (existing) | Tests hang (gate files exist) | Add new gate + dependents to existing setup |
-| Feature gate (missing) | Tests hang (no gate setup) | Confirm a fake-client protocol mismatch; configure the applicable gates before client/informer startup |
+| Feature gate (missing) | Tests hang (no gate setup) | Confirm a fake client is involved; disable the gate with `SetFromMap` before informers start (see Feature Gates) |
 | golangci-lint version | `Go language version...lower` | Bump VERSION in lint.sh AND test.yml |
 | golangci-lint v1/v2 | v2 config rejected by v1 binary | Makefile may use v1 import path while lint.sh uses v2 container — update both if migrating |
 | ST1005 error string casing | Lowercased error string breaks matching code | Before fixing ST1005, grep for the OLD error string in all Go files — update matches too |
 | golangci-lint v1 + Go 1.26 | v1 binaries, built with older Go, can't parse Go 1.26 code | Move to v2 and build it with the local Go: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@<version>` |
-| CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | Verify the Go/OCP mapping and published image tag on the intended release stream; do not switch streams just to find an image |
+| CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | New Go builders may exist only for newer streams (golang-1.26 for openshift-5.0, not 4.22); verify the OCP mapping rather than switching streams to find an image |
 | KIND binary version | e2e cluster creation fails | Select a release supporting the target Kubernetes version and update each binary pin |
 | KIND kubeadm config | k8s 1.36: controller-manager flags silently not applied | Migrate `kind.yaml.j2` extraArgs from v1beta3 map format to v1beta4 list format |
 | KubeVirt version | VM readiness timeouts in kv-live-migration CI | Confirm version skew, then select a compatible stable patch within the same minor |
@@ -74,34 +74,43 @@ codegen output changes.
 | CRD name validation lost | Resource with invalid name accepted (should be rejected) | Re-insert hand-edited `metadata.name` pattern constraints after codegen |
 | CRD codegen annotation | `verify-update-codegen` fails (`git diff`) | Re-run codegen to update `controller-gen.kubebuilder.io/version` |
 | Webhook builder API | `NewWebhookManagedBy` / `.For()` compile errors | Move object from .For() to constructor arg (now generic) |
-| Vendor verify in container | `vendor not in sync` (container-only) | Compare host/container toolchains and rerun the repo's vendor check; container execution alone does not prove a false positive |
+| Vendor verify in container | `vendor not in sync` (container-only) | Rerun the repo's vendor check on the host with the required Go; keep failures the host reproduces |
 | e2e framework API | `undefined` in test/e2e | Rename functions, add params to match new signatures |
 
 ## Feature Gates (recurring)
 
-New defaults such as `WatchListClient` can change list/watch behavior that
-fake clientsets do not support. Confirm that the failing test uses such a
-client before changing its setup. Use the vendored definitions and the
-autofix's `GATE_DEPS` map to identify applicable gates and dependents.
-Do not add absent gates or attempt to disable gates locked to their default.
+Each Kubernetes release may enable gates that break fake clientsets.
+**WatchListClient** (k8s 1.35, in `k8s.io/client-go`) switches informers to
+streaming lists, which fake clientsets do not implement, so informer cache
+sync hangs until the test times out. Suites using `envtest` talk to a real
+API server and need no gate changes; confirm the hanging test uses a fake
+client. Use the vendored definitions and the autofix's `GATE_DEPS` map to
+find applicable gates and dependents. Do not add gates absent from vendor
+(they fail with "unrecognized feature gate") or disable gates locked to
+their default.
 
-Keep parents and dependents consistent across the repo's existing setup:
+Disable each gate and its dependents in every mechanism the repo uses:
 
 1. `hack/test-go.sh` env var exports
 2. `os.Setenv`/`t.Setenv` in test files
 3. `SetFromMap` in test files
 
-The autofix updates existing wiring and warns about selected
-`*_suite_test.go` packages with fake clients but no gate setup. It does not
-cover every test package or prove a warning needs a fix. For an affected
-suite, configure the relevant gates before client/informer startup and
-rerun the tests. Check that shell exports reach the test process through
-any `sudo` invocation.
+In k8s 1.35+, `pkg/features` initialization can override the env var, so a
+suite with fake-client informers also needs `SetFromMap` before any client
+or informer starts:
 
-Do not infer applicability from an `envtest` import alone; inspect the
-failing test's client and server setup. Follow the repo's gate registration
-pattern: initialization can override environment settings, and
-`SetFromMap` must recognize the gate and its dependencies.
+```go
+if err := utilfeature.DefaultMutableFeatureGate.SetFromMap(map[string]bool{
+    "WatchListClient": false,
+}); err != nil {
+    t.Fatalf("Failed to disable feature gates: %v", err)
+}
+```
+
+The autofix updates existing wiring and warns about `*_suite_test.go`
+packages with fake clients but no gate setup; a warning alone does not
+prove a fix is needed. Check that shell exports reach the test process
+through any `sudo` invocation.
 
 ## Recurring Patterns
 
@@ -158,11 +167,11 @@ verify Kubernetes pins afterward, as the helper does not enforce them.
 ### Vendor verification differences in containers (recurring)
 
 When the validate script auto-containerizes (Go version mismatch),
-`make verify-go-mod-vendor` may differ from the host result.
-The validator's NOTE is a diagnostic hint, not a passing check.
-Compare toolchain versions, environment, and the actual diff;
-rerun the repo's vendor verification with the required Go version.
-Retain an unresolved failure if the discrepancy cannot be explained.
+`make verify-go-mod-vendor` may report drift the host does not: the
+container's empty module cache can resolve a slightly different dependency
+tree. The validator's NOTE is a diagnostic hint, not a passing check. Rerun
+the repo's vendor verification on the host with the required Go version
+before treating it as real; retain a failure that the host reproduces.
 
 ### Cross-repo dependency ordering (recurring)
 
@@ -195,11 +204,11 @@ regenerates from source, erasing patches.
 Repos using operator-sdk have additional version refs:
 `CONTROLLER_TOOLS_VERSION`, `OPERATOR_SDK_VERSION`, `VERSION`
 in Makefile, plus bundle manifests (`bundle/`, `config/`).
-Detect them through `PROJECT` or `operator-sdk` in Makefile. Inspect how
-the repo generates and verifies these artifacts; update tool pins only when
-the target rebase requires it. A `VERSION` variable may be the operator's own
-release version. Regenerate affected bundles through the repo's targets and
-review the diff; the presence of operator-sdk alone does not require a bump.
+Detect them through `PROJECT` or `operator-sdk` in Makefile. controller-tools
+releases track Kubernetes minors (v0.21 for 1.36): bump controller-tools and
+operator-sdk to the latest versions compatible with the target, regenerate
+bundles through the repo's target (usually `make bundle`), and review the
+diff. A `VERSION` variable may be the operator's own release version; leave it.
 
 ### ST1005 error string casing vs test assertions (recurring)
 
