@@ -159,7 +159,8 @@ loop and verdict contract in rules.md; step files supply their work, gates,
 and exceptions.
 
 Every `.md` in a gate directory becomes an expected gate, changing
-advancement and the final inventory; update the step's gate list with it.
-An executable companion shares its prompt's basename and writes through
+advancement and the final inventory. Update the step's gate list and the
+gate counts in the README, plugin description, and diagram above; list an
+always-PASS gate in the harness's `INFO_GATES`. An executable companion shares its prompt's basename and writes through
 [gate-script-lib.sh](../scripts/gate-script-lib.sh); check the pair with
 `make assert-evidence-paths`. Explanatory docs belong outside `gates/`.
