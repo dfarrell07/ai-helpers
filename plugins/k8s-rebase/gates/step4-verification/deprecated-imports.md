@@ -11,7 +11,7 @@ version this repo targets:
 
 Known stdlib promotions (require GO_MINOR at or above the listed value):
   golang.org/x/exp/slices → slices    (Go 1.21+)
-  golang.org/x/exp/maps   → maps      (Go 1.21+)
+  golang.org/x/exp/maps   → maps      (Go 1.21+; Keys/Values need 1.23+)
   golang.org/x/exp/cmp    → cmp       (Go 1.21+)
   golang.org/x/net/context → context  (Go 1.7+)
 

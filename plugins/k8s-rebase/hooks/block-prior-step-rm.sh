@@ -4,7 +4,7 @@
 # The orchestrator is forward-only: once step N advances to N+1, there is
 # no path back to regenerate step-N reports. A model that runs
 # `rm .rebase-tmp/gates/step2-*.report` from step 3 or 4 permanently loses
-# those verdicts, causing "missing N of 33 gates" at court time.
+# those verdicts, leaving them missing from the final report inventory.
 #
 # This hook reads state.json to determine the current step and blocks any
 # rm command that would delete a report from a lower (already-completed) step.

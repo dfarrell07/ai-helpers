@@ -121,8 +121,8 @@ dependency bump; a separately pinned tool follows that pin.
 
 ### golang.org/x/exp → stdlib
 
-- `maps.Keys(m)` → `slices.Collect(maps.Keys(m))`
-- `maps.Values(m)` → `slices.Collect(maps.Values(m))`
+- `maps.Keys(m)` → `slices.Collect(maps.Keys(m))` (Go 1.23+)
+- `maps.Values(m)` → `slices.Collect(maps.Values(m))` (Go 1.23+)
 - `maps.Copy/Clone` → same, change import
 - `maps.Clear(m)` → `clear(m)`
 - `constraints.Ordered` → `cmp.Ordered`

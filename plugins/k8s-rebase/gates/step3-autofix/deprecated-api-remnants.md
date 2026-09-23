@@ -29,7 +29,7 @@ Step 3 — Promoted x/ package check:
   `GO_MINOR=$(grep '^go ' go.mod | awk '{print $2}' | cut -d. -f2)`
   Known stdlib promotions and their minimum Go minor version:
     golang.org/x/exp/slices → slices (Go 1.21+)
-    golang.org/x/exp/maps   → maps   (Go 1.21+)
+    golang.org/x/exp/maps   → maps   (Go 1.21+; Keys/Values need 1.23+)
     golang.org/x/exp/cmp    → cmp    (Go 1.21+)
     golang.org/x/net/context → context (Go 1.7+)
   If GO_MINOR is below the required floor, report as INFO, not FAIL —
