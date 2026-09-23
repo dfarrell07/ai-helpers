@@ -14,12 +14,25 @@ was incomplete, even when SUMMARY says 0 errors. Run the incomplete checks
 and any unvisited modules manually below; if they cannot complete, report
 INCONCLUSIVE with the missing coverage. A timeout does not establish a code defect.
 
-Analyze each BUILD or VET diagnostic against the base's source, dependency
-APIs, and configuration. An unchanged caller can break against a changed API;
-a symbol missing from one file does not prove it was absent from the base's
-entire dependency. Report established pre-existing errors as INFO and count
-new errors toward FAIL. If attribution cannot be established, report
-INCONCLUSIVE rather than assuming the error was pre-existing.
+For each BUILD or VET diagnostic (format: `BUILD <mod_dir>: <error>` or
+`VET <mod_dir>: <error>`), decide whether the rebase introduced it:
+
+- On a line the branch changed: NEW.
+- On an unchanged line: NEW if the dependency API it uses changed, or, for
+  VET, if the Go version bump added the check. A dependency API removal
+  breaks unmodified callers, so check the whole vendored package on base,
+  not the caller's source:
+
+  ```bash
+  BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)
+  git grep -c '<symbol>' "$BASE" -- '<mod_dir>/vendor/<pkg>/'
+  # matches: the symbol existed before the bump, so the error is NEW
+  ```
+
+- Otherwise PRE-EXISTING: report as INFO, not toward FAIL.
+
+If you cannot tell which case applies, report INCONCLUSIVE rather than
+assuming the error was pre-existing.
 
 If evidence is stale or absent, run these checks manually:
 

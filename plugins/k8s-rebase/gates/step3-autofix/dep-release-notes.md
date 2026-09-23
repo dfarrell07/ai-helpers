@@ -16,6 +16,20 @@ KIND, MetalLB, KubeVirt, and golangci-lint may be pinned there rather than in
 go.mod. Read each dependency's upstream release notes or changelog for the
 old → new version range; a module-only search misses these changes.
 
+Sources for common dependencies:
+
+- KIND: `gh api repos/kubernetes-sigs/kind/releases --paginate`
+  (explicit "Breaking Changes" headings in `.body`)
+- MetalLB: in-repo notes at
+  `raw.githubusercontent.com/metallb/metallb/main/website/content/release-notes/_index.md`
+- KubeVirt: `gh api repos/kubevirt/kubevirt/releases --paginate`
+  (tagged by SIG; focus on SIG-network, Deprecation, API change)
+- golangci-lint: `raw.githubusercontent.com/golangci/golangci-lint/main/CHANGELOG.md`
+- controller-runtime: `gh api repos/kubernetes-sigs/controller-runtime/releases --paginate`
+  (Breaking Changes in `.0` minor releases, deprecations, removed APIs)
+
+For other dependencies, search their GitHub releases or changelog.
+
 For each dep, extract entries between the old and new versions.
 Focus on: breaking changes, deprecations, removed features,
 default behavioral changes. Ignore: patch-level bug fixes,
@@ -31,8 +45,10 @@ Report format per dep:
   [dep] old → new: BREAKING / DEPRECATION / none found
 
 If a dependency's release notes are unavailable, list it as
-unverified in DETAILS and continue. If none of the changed
-dependencies could be checked, write INCONCLUSIVE.
+unverified in DETAILS and continue. Modules that publish no release
+notes (for example `golang.org/x/*`) are listed the same way and do not
+by themselves make this gate inconclusive. Write INCONCLUSIVE only if no
+release-note source could be reached for any dependency that publishes one.
 
 VERDICT: FAIL if any dependency release note documents a breaking
 change that affects this repo and is not addressed in the rebase.
