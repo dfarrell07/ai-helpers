@@ -28,33 +28,26 @@ Installation alone is not proof that hooks are active.
 
 ## Qualification status
 
-The [offline tests](../test/test_compatibility.py) exercise shared review,
-hook, state, and cleanup contracts. The repo/version harness runs through
-Claude. Earlier installed fixtures covered review and finalization on both
-hosts, with gaps in final prose and cleanup failure handling; they did not
-run a full rebase. Full-workflow qualification on both hosts remains separate
-from those focused checks and the Claude repo/version coverage.
+The [offline tests](../test/test_compatibility.py) exercise the shared review,
+hook, state, and cleanup contracts. Full repo/version runs use Claude Code.
+Codex has passed focused installed-runtime fixtures for review routing and
+finalization, not a full rebase.
 
-To extend qualification, test the installed candidate in disposable clones
-and retain the source revision, loaded package, runtime/model, raw reports,
-and actual tool outcomes. An agent declining an action is not a hook denial.
-Remaining cases include:
+To qualify both hosts, run the existing `openshift/multus-cni` baseline in
+[config-1.36.yaml](../test/config-1.36.yaml) on each, in disposable clones
+with the same installed source and environment, including a resume at a
+committed boundary. Require applicable gates to pass, justified SKIPs, actual
+independent reviews, accurate final reporting, and a restored hook;
+force-advancement or a review fallback does not qualify. Retain the source
+revision, runtime and model, raw reports, and actual tool outcomes: an agent
+declining an action is not a hook denial. Still unexercised on either host:
 
-- Hook activation from the session cwd, quoted paths, invalid arguments,
-  and actual denials through each host's tools.
-- Interruption after Step 1's early result marker, missing/malformed state,
-  and committed handoffs without duplicate work or reset retry budgets.
-- Both review scopes: rejection followed by repair, large payloads,
-  missing verdicts, and unavailable native reviewers.
-- Final claims checked against every expected report; cleanup failures
-  must preserve the session marker and original hook restoration data.
-
-Use the existing `openshift/multus-cni` baseline in
-[config-1.36.yaml](../test/config-1.36.yaml) for a full comparison on both
-hosts, with the same installed source and environment. Include a resume at
-a committed boundary. Require applicable gates to pass, justified SKIPs,
-actual independent reviews, accurate final reporting, and restored hooks.
-Force-advancement or a review fallback does not satisfy that qualification.
+- Hook denials through each host's tools, with quoted paths and bad arguments.
+- Interruption after Step 1's early result marker, missing or malformed state,
+  and handoffs that must not duplicate work or reset retry budgets.
+- Review rejection followed by repair, large payloads, missing verdicts, and
+  an unavailable native reviewer.
+- Cleanup failures, which must preserve the session marker and hook backup.
 
 ## Known limits
 
@@ -66,6 +59,8 @@ Force-advancement or a review fallback does not satisfy that qualification.
   the module cache, not vendor contents.
 - Review diffs are filtered and size-limited; selected-commit review's
   root-vendor exclusion is imperfect. Preserve scope and truncation warnings.
+- Commits carry a Claude Code `Assisted-by` trailer on both hosts; review
+  attribution before publishing Codex-assisted work.
 
 Run the [offline checks](../evals/README.md#choose-the-check) for shared
 interfaces and follow the repository's [contribution rules](../../../CONTRIBUTING.md)

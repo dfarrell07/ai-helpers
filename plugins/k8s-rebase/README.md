@@ -2,8 +2,10 @@
 
 Automate Kubernetes minor-version rebases for Go projects: align dependencies
 across modules, regenerate code, update version references, and fix build,
-lint, and test breakage. A top-level state machine coordinates scripts and
-agent judgment through 32 verification gates.
+lint, and test breakage. A state machine above the agent owns progress:
+scripts do repeatable work, the agent repairs, and 32 verification gates
+decide when a step may advance. The [workflow design](docs/design.md)
+explains how that structure resists reward hacking.
 
 ## Install
 
@@ -84,7 +86,7 @@ The configs cover six repositories across Kubernetes 1.34.1, 1.35.3, and
 
 | Read | Purpose |
 | --- | --- |
-| [Workflow design](docs/design.md) | State machine, reward-hacking resistance, evidence, and review boundaries |
+| [Workflow design](docs/design.md) | Reusable patterns: state machine, reward-hacking countermeasures, evidence, review |
 | [Skill entry point](skills/k8s-rebase/SKILL.md) | Executable instructions, step routing, and recovery |
 | [Breakage patterns](docs/k8s-rebase-patterns.md) | Reusable migration knowledge and extension guidance |
 | [Testing and evals](evals/README.md) | Offline checks, mutation tests, court, and scoring limits |

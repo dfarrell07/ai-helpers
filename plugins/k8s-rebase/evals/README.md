@@ -68,12 +68,11 @@ The YAML definition uses the
 CLI-runner schema with `input.yaml` datasets and inline judges.
 Its timeout and budget settings apply per invocation, not across the suite.
 
-This repository does not install or pin a scoring harness. Claude CLI
-2.1.280's built-in `plugin eval` expects `case.yaml` or `prompt.md` and
-discovers no cases here. Use `make matrix spec=none` and `make court` for
-workflow evaluation, and
-`make eval case=NNN` for artifacts. Verify harness/schema compatibility
-before attempting YAML scoring.
+This repository does not install or pin a scoring harness, and the built-in
+`claude plugin eval` expects a different case layout (`case.yaml` or
+`prompt.md`), so it discovers no cases here. Use `make matrix spec=none` and
+`make court` to evaluate the workflow and `make eval case=NNN` to collect
+artifacts; verify harness and schema compatibility before YAML scoring.
 
 ## Coverage
 
