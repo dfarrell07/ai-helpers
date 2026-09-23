@@ -59,7 +59,7 @@ bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 3
 
 Follow the gate procedure in rules.md. Delegate PENDING gates in a parallel
 wave when workers are available, or review inline. Supply the absolute repo
-and plugin paths, version, module safety rule, and gate prompt path.
+and plugin paths, version, module safety and verdict rules, and gate prompt path.
 Inspect cached non-PASS verdicts as well as pending work.
 
 Gate directory: `${PLUGIN_ROOT}/gates/step3-autofix`

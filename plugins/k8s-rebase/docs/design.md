@@ -113,8 +113,8 @@ fresh-context reviewer. The exact host contracts remain in the step files.
 
 These are layered safeguards, not proof of correctness. Hooks depend on
 runtime activation and use heuristic matching; the Stop hook observes DONE,
-not Step 5 completion. Some gate rubrics are informational or allow degraded
-checks. Read report details as well as verdicts. The
+not Step 5 completion. Two gates are informational and always PASS.
+Read report details as well as verdicts. The
 [compatibility note](compatibility.md) documents
 specific enforcement and qualification limits.
 

@@ -60,12 +60,10 @@ Force-advancement or a review fallback does not satisfy that qualification.
 
 - HEAD stamps cover commits, not uncommitted edits. Hooks are heuristic,
   and Stop observes orchestrator DONE rather than Step 5 completion.
-- Some rubrics allow informational or degraded PASS results. Build/vet
+- Two informational gates always PASS; read their details. Build/vet
   evidence can contain a timeout alongside a zero error count; review command
   completion and module coverage before judging it. `go mod verify` checks
   the module cache, not vendor contents.
-- Feature-gate evidence and manual review can disagree on PASS versus SKIP
-  when no wiring applies. Preserve the actual verdict and its explanation.
 - Review diffs are filtered and size-limited; selected-commit review's
   root-vendor exclusion is imperfect. Preserve scope and truncation warnings.
 

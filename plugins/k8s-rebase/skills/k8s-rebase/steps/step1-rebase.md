@@ -81,7 +81,7 @@ bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 1
 
 Follow the gate procedure in rules.md, including cached non-PASS verdicts.
 Delegate PENDING gates when available, or review inline. The reviewer context must
-include: repo path, module safety rule (from rules.md), and
+include: repo path, the module safety and verdict rules from rules.md, and
 "Read `$PLUGIN_ROOT/gates/step1-rebase/<filename>` and follow
 its instructions." Include the absolute plugin root and version too.
 

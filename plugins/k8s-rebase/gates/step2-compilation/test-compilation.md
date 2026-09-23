@@ -17,7 +17,9 @@ Skip modules whose vendor/ directory is gitignored:
   `git check-ignore -q <dir>/vendor 2>/dev/null`
   Gitignored vendor dirs are not maintained by the rebase.
 
-If Go is unavailable or wrong version, note as SKIPPED.
+If Go is unavailable or the wrong version, use the golang container
+(`podman run --userns=keep-id`); if tests still cannot compile for that
+reason, write INCONCLUSIVE with the modules not checked.
 
 Report total test compilation errors.
 

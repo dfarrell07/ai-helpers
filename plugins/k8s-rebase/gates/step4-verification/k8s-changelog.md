@@ -1,10 +1,11 @@
 <!-- markdownlint-disable MD013 -->
-Determine K8S_MINOR from go.mod — check api, apimachinery, or client-go
-(use whichever is a direct dependency):
-  `K8S_MINOR=$(grep -E 'k8s\.io/(api|apimachinery|client-go) ' go.mod | grep -v '=>' | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')`
-If K8S_MINOR is empty after this, the repo may use indirect k8s deps only —
-try: `grep -E 'k8s\.io/(api|apimachinery|client-go) ' go.sum | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//'`
-If still empty, write PASS with summary "could not determine K8S_MINOR — verify changelog manually."
+Determine K8S_MINOR from Step 1's target record:
+  `K8S_MINOR=$(grep -oE '^v0\.[0-9]+' .rebase-tmp/target-k8s-api-version.txt | cut -d. -f2)`
+If that file is unavailable, read `k8s.io/api`, `k8s.io/apimachinery`, or
+`k8s.io/client-go` from the primary go.mod — the first non-vendor go.mod that
+requires one, which may be nested (for example `go-controller/go.mod`).
+If K8S_MINOR is still empty, write INCONCLUSIVE with summary
+"could not determine K8S_MINOR".
 
 Read the Kubernetes changelog for the target minor version.
 Try the tag-based URL first (more reliable), fall back to master:
@@ -51,15 +52,14 @@ For each entry:
 Report per entry:
   [client-go] summary: ADDRESSED / N/A / NOT ADDRESSED
 
-If either changelog is unavailable, note it and move on.
+If the client-go changelog is unavailable, note it in DETAILS and continue.
 
 VERDICT criteria: FAIL if any NOT ADDRESSED entry is in
 "Urgent Upgrade Notes" or "API Change" and affects symbols
 used by this repo. PASS if all relevant entries are ADDRESSED
-or N/A. If the changelog is unavailable, write SKIP with summary
-"changelog unavailable — verify k8s upgrade notes manually before
-merging." PASS hides the gap; SKIP makes the court show a coverage
-gap without falsely asserting the check passed.
+or N/A. If the Kubernetes changelog is unavailable, write
+INCONCLUSIVE with summary "Kubernetes changelog unavailable — upgrade
+notes not checked".
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
 `go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

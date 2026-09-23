@@ -38,9 +38,10 @@ Run the check in each module directory.
 Report each deprecated call with file:line and what to replace
 it with (if the deprecation comment says). FAIL if any NEW
 deprecated calls exist. PASS if clean or only pre-existing.
-If neither staticcheck nor Go is available, write PASS with summary
-"staticcheck and Go unavailable — deprecated call check not performed;
-verify manually." Do not SKIP — infrastructure failure should be visible.
+If neither staticcheck nor Go is available, write INCONCLUSIVE with summary
+"staticcheck and Go unavailable — deprecated call check not performed".
+If only staticcheck is unavailable, say so in the summary: SA1019 coverage is
+then limited to Step 2's scan.
 
 MANDATORY pre-existing check — run for EVERY finding before
 counting it:

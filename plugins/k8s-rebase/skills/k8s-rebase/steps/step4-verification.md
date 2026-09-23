@@ -129,7 +129,7 @@ bash "${PLUGIN_ROOT}/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 4
 Follow rules.md: delegate PENDING gates when available, or review inline.
 Inspect cached non-PASS verdicts too. Gate files are at
 `${PLUGIN_ROOT}/gates/step4-verification/`. Each subagent gets: repo path
-plus module safety rule plus "Read `<gate-file>` and follow instructions."
+plus the module safety and verdict rules plus "Read `<gate-file>` and follow instructions."
 Include the absolute plugin root and version in reviewer context.
 
 15 gates: cleanliness, correctness, version-completeness,

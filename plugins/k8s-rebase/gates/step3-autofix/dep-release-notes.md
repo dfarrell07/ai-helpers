@@ -30,8 +30,9 @@ For each concern found, check whether:
 Report format per dep:
   [dep] old → new: BREAKING / DEPRECATION / none found
 
-If release notes are unavailable (API failure, empty body),
-note it and move on — do not block.
+If a dependency's release notes are unavailable, list it as
+unverified in DETAILS and continue. If none of the changed
+dependencies could be checked, write INCONCLUSIVE.
 
 VERDICT: FAIL if any dependency release note documents a breaking
 change that affects this repo and is not addressed in the rebase.

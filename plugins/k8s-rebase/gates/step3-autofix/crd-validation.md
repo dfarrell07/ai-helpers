@@ -6,8 +6,8 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
   below. Do NOT PASS on the strength of absent or stale evidence.
 
 If the evidence SUMMARY contains 'no base branch' or any detail line
-starts with 'NO_BASE:', write SKIP with a note that CRD comparison was
-impossible because no merge base could be determined. Do not write PASS.
+starts with 'NO_BASE:', write INCONCLUSIVE: CRDs exist, but no merge base
+was available for comparison. Do not write PASS or SKIP.
 
 If the evidence SUMMARY starts with 'SKIP:', write SKIP — no CRDs exist
 in this repository. Do not write PASS.
@@ -25,8 +25,8 @@ Find CRD files: `find . -name '*.yaml' -not -path '*/vendor/*' | xargs grep -l '
 For each CRD, compare `git show $BASE:<path>` against the working copy and
 flag any newly removed or weakened validation constraint (deleted pattern,
 format, minimum/maximum, enum, or required entries, or relaxed values).
-If $BASE is empty, do not compare — defer without a self-comparison; never
-PASS on a self-comparison. Never PASS on unexamined output.
+If $BASE is empty, write INCONCLUSIVE rather than comparing a CRD with
+itself. Never PASS on unexamined output.
 
 For each CRD the evidence marked "CHANGED-VALIDATION" or "ALL-NEW"
 (or found manually when evidence is absent):

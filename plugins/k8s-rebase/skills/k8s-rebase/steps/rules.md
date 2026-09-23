@@ -54,15 +54,30 @@ enforces the direct-command ban; never disguise a command to bypass it.
 NEVER run `git push` or `gh pr create`. Only print commands for
 the user to copy-paste.
 
+## Verdicts
+
+Each gate report carries exactly one verdict:
+
+| Verdict | Meaning | Normal advancement |
+| --- | --- | --- |
+| PASS | The check ran to completion and found no new issues | Accepted when fresh |
+| SKIP | The check does not apply to this repo; the summary says why | Accepted when fresh |
+| FAIL | The check found new issues | Blocks |
+| INCONCLUSIVE | The check applies but could not be completed or attributed | Blocks |
+
+A check that did not run is INCONCLUSIVE, never PASS or SKIP: missing
+coverage is not a zero count. Pre-existing findings are INFO, not FAIL.
+The informational commit-messages and skill-improvement gates always PASS
+and carry their findings in DETAILS. Never relabel a SKIP as PASS.
+Include this section in every gate reviewer's context.
+
 ## Gate-Fix Loop
 
 1. Run `bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" <step>`.
    It executes companions and identifies PENDING reviews. Exit 1 with normal
    PENDING output means judgments remain; unexpected errors stop the caller.
    Exit 0 means none pending, not all passed: inspect EXISTING and RESOLVED
-   verdicts too. Fresh PASS and justified SKIP satisfy advancement; do not
-   retry an accepted SKIP or relabel it PASS. FAIL and INCONCLUSIVE remain
-   unresolved. Read exact reports: the status table counts SKIP under PASS.
+   verdicts too. Read exact reports; the status table counts SKIP under PASS.
 2. Read each pending prompt and its evidence. Check evidence HEAD against
    the current commit; missing/stale evidence after a companion crash is not
    usable. Gather fresh read-only evidence as that prompt permits, or report
@@ -70,7 +85,7 @@ the user to copy-paste.
    review inline under the same read-only constraints.
 3. Write reports through `scripts/write-gate-report.sh` at the known plugin
    root. Confirm HEAD has not changed during review before it stamps the
-   report. Choose one actual verdict; `PASS|FAIL|SKIP` is notation, not a
+   report. Choose one actual verdict; `PASS|FAIL` is notation, not a
    shell pipeline. A missing helper is an error, not grounds to fabricate
    an unstamped report.
 4. Triage findings against base under Scope, fix in-scope issues, and commit
