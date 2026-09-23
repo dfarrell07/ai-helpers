@@ -1,6 +1,7 @@
 #!/bin/bash
-# test-skill.sh — Test the k8s-rebase skill by running it blind (without
-# patterns doc or autofix functions) and verifying the results are correct.
+# test-skill.sh — Run the k8s-rebase skill from pinned repo baselines,
+# optionally withholding pattern guidance or autofix functions, and compare
+# the results with known-good rebases.
 #
 # Use via Makefile:  cd plugins/k8s-rebase && make help
 
@@ -784,7 +785,11 @@ mutate_plugin() {
   local dest="$RESULTS_DIR/$label"
   mkdir -p "$RESULTS_DIR" 2>/dev/null || true
   command -v rsync &>/dev/null || die "rsync required"
-  rsync -a --exclude test/.repos --exclude test/.matrix-state "$PLUGIN_DIR/" "$dest/" || die "Cannot copy plugin to $dest"
+  # Copy only the plugin: clones and local scratch are large, and unreadable
+  # scratch files would abort the copy.
+  rsync -a --exclude test/.repos --exclude test/.matrix-state --exclude /.work \
+    --exclude /output --exclude /evals/.repos --exclude /evals/results \
+    "$PLUGIN_DIR/" "$dest/" || die "Cannot copy plugin to $dest"
 
   # Deduplicate and expand specs. has_all_patterns / has_all_fns suppress
   # individual pattern:/fn: specs that are already covered by all-patterns/all-fns.
@@ -830,11 +835,6 @@ mutate_plugin() {
     esac
   done
 
-  local skillfile="$dest/skills/k8s-rebase/SKILL.md"
-  [[ -f "$skillfile" ]] && {
-    sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-autofix.sh\"[^)]*)|echo \"$dest/scripts/k8s-rebase-autofix.sh\")|" "$skillfile"
-    sed -i "s|find \"\$HOME/.claude\" \"\$HOME\" -maxdepth 7 -name \"k8s-rebase-patterns.md\"[^)]*)|echo \"$dest/docs/k8s-rebase-patterns.md\")|" "$skillfile"
-  }
   bash -n "$dest/scripts/k8s-rebase-autofix.sh" || { rm -rf "$dest"; die "Mutation produced invalid bash"; }
   echo "$dest"
 }
