@@ -6,6 +6,8 @@ a new feature gate. An agent working toward the visible finish line — a
 green summary and a PR command — is rewarded for skipping exactly the checks
 that make the result trustworthy. That is reward hacking, and this workflow
 is shaped so the only route to the finish line runs through those checks.
+The patterns apply to any long-running agent workflow; the Kubernetes
+details are examples.
 
 ## The state machine owns progress
 
@@ -54,6 +56,7 @@ never calls `advance`.
 
 | Shortcut | Countermeasure | Enforced by |
 | --- | --- | --- |
+| Skip to the finish | Only the current step's instructions are loaded; the PR step loads after DONE | Skill router |
 | Declare the rebase finished | Progress is persisted state that only `advance` moves; exit is blocked before DONE | Orchestrator, Stop hook |
 | Grade your own work | Workers return evidence; read-only reviewers write verdicts; independent review sees evidence without the implementer's reasoning | Rules, review helpers |
 | Pass a check that did not run | Missing, malformed, or stale reports block; an unperformed check is INCONCLUSIVE | Orchestrator, gate rubrics |
@@ -104,9 +107,14 @@ unchanged line alone does not make a failure pre-existing.
 
 Independent review receives evidence and a rubric, not the implementer's
 reasoning. Step 4 reviews a selected commit; Step 5 reviews the full branch.
-Approval covers only that revision and scope and never changes a gate verdict.
+Approval covers only that revision and scope and never changes a gate
+verdict; a review that did not run approves nothing.
 
 ## Bound retries without hiding failures
+
+A workflow with no honest way out invites a dishonest one: an agent that
+can neither pass a gate nor stop is pushed toward faking the pass. Give it
+a bounded exit that records what remains.
 
 Repair iterations and blocked advancement attempts are different counters.
 The rules share a three-iteration repair budget across parent and workers.
@@ -115,7 +123,7 @@ The skill permits that only after exhausted repairs in Steps 2–4; a Step 1
 structural failure stops without advancement. Use `status` to poll: `advance`
 mutates state and consumes attempts.
 
-Force-advancement bounds unproductive loops; it does not turn failures into
+Force-advancement ends unproductive loops; it does not turn failures into
 success. `.rebase-tmp/status/INCOMPLETE` records only the latest forced
 transition, so Step 5 inventories **every expected gate** with `reports`,
 including missing ones, and carries every unresolved finding into the PR
@@ -125,7 +133,7 @@ body. `status` groups SKIP under PASS; `reports` keeps them distinct.
 
 The [test harness](../test/test-skill.sh) runs real rebases from a pinned
 baseline and compares them with known-good references. Mutation modes
-withhold pattern guidance, autofix functions, or both from a copied plugin:
+withhold the pattern guide, autofix functions, or both from a copied plugin:
 can the rest of the workflow still discover and repair the breakage?
 Unmodified runs check that learned fixes are retained. Neither establishes
 generalization to unseen repositories or releases.
