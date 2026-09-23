@@ -486,8 +486,8 @@ derive_go_gets() {
   # NOTE: sigs.k8s.io/ packages whose current version happens to match
   # v[0-9]+.${OLD_MINOR}.* are excluded from Rule 1 (sigs filter) AND
   # from Rule 3 (OLD_MINOR exclusion). No go get is emitted for them.
-  # sigs.k8s.io/controller-tools versions exactly this way (v0.N.P for
-  # k8s 1.N) and falls into this gap.
+  # sigs.k8s.io/controller-tools does not version this way (v0.19-v0.21
+  # for k8s 1.34-1.36), so it is not in this gap.
   # For DIRECT sigs.k8s.io deps the omission will surface as a build
   # error after vendor update. For INDIRECT deps the gap is silent:
   # the package compiles at the old minor API, no build error is emitted,
