@@ -81,8 +81,9 @@ Fix hints for non-zero counts:
 
 - Check 3 (missing commits): check step1.log for errors in that
   module's processing. If the module has k8s.io deps and no
-  commit exists, run in that module's directory:
-  `bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" k8s.io/<dep>@$(cat "$REPO/.rebase-tmp/target-k8s-api-version.txt")`
+  commit exists, run in that module's directory, with `<target>` from
+  `.rebase-tmp/target-k8s-api-version.txt`:
+  `bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" k8s.io/<dep>@<target>`
   then commit with `-s`. If the module has no k8s.io deps,
   count 0 (no commit expected).
 
