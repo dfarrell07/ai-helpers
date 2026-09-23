@@ -35,8 +35,10 @@ review what is pending, and return to the parent, which alone calls
 orchestrator advances only when every expected gate has a report with one
 recognized verdict, stamped with the current HEAD, and that verdict is PASS
 or SKIP. It checks form and freshness; reviewers own the reasoning, counts,
-and SKIP justifications behind each verdict. Step 5 runs after DONE and never
-calls `advance`.
+and SKIP justifications behind each verdict. The rules reserve SKIP for checks
+that do not apply: a check that could not run is INCONCLUSIVE, so a missing
+tool or network outage never reads as a pass. Step 5 runs after DONE and
+never calls `advance`.
 
 | Signal | Meaning |
 | --- | --- |
