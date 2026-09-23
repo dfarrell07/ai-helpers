@@ -82,22 +82,21 @@ gate prompts, not just the reports that happen to exist:
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" reports "$REPO_ROOT"
 ```
 
-Nonzero exit stops reporting. Copy the printed verdict totals; list gates
-without adding hand-counted subtotals. Retain all freshness warnings.
-Successful inventory is not passing validation.
-Read each report's HEAD, exact VERDICT, and findings, plus
+Nonzero exit stops reporting; a successful inventory is not passing
+validation. Copy its verdict totals and freshness warnings rather than
+hand-counting. Read each report's HEAD, exact VERDICT, and findings, and
 `.rebase-tmp/status/INCOMPLETE` if present; quote its force-advance wording
-without relabeling attempts as repairs or tests. List every unresolved/unverified
-check, including prior steps, whether or not INCOMPLETE mentions it.
-Missing/unreadable/malformed reports are unverified, not PASS; INCOMPLETE
-records only the latest force-advance and cannot identify every missing check.
+and do not describe advance attempts as repairs or tests. INCOMPLETE records
+only the latest force-advance, so list every unresolved or unverified check
+from the inventory, including prior steps. Missing, unreadable, or malformed
+reports are unverified, not PASS.
 
-Keep PASS, justified SKIP (with its reason), and unresolved FAIL/INCONCLUSIVE
-distinct in the PR body. Prior-step PASS is evidence at its
-recorded SHA, not proof of retesting the final tip; stale final-step reports
-do not establish final-HEAD verification. Do not manufacture or relabel reports
-to fill gaps. Neither DONE, force-advancement, aggregate counts, nor independent
-source-review approval changes another gate's verdict.
+In the PR body, keep PASS, justified SKIP (with its reason), and unresolved
+FAIL/INCONCLUSIVE distinct. A prior-step PASS is evidence at its recorded
+SHA, not a retest of the final tip, and a stale final-step report does not
+verify final HEAD. Never manufacture or relabel reports to fill gaps: DONE,
+force-advancement, aggregate counts, and independent review approval change
+no gate's verdict.
 
 Inspect `git diff "$BASE..HEAD"` and `git log --oneline "$BASE..HEAD"`.
 Describe dependency bumps as old → new from removed/added lines, not unchanged

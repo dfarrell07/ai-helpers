@@ -107,13 +107,11 @@ the completed state's empty step filename is not a file to load.
    ```
 
    - Exit 0 → read the next step file and continue
-   - Exit 1 → shared gate-fix loop in rules.md; keep its retry budget
-     across worker/parent handoffs, not another nested fix loop. If that
-     budget is exhausted in Steps 2–4, report unresolved gates and submit
-     remaining blocked advancement attempts to the existing force-advance policy,
-     without starting another fix cycle. These are deliberate retries,
-     not status polls; stop retrying as soon as state advances. Step 1
-     structural failures stop; never submit them to force-advance.
+   - Exit 1 → blocked: run rules.md's gate-fix loop, sharing its budget
+     across worker and parent handoffs rather than nesting another loop.
+     Once the budget is exhausted in Steps 2–4, report unresolved gates and
+     call `advance` again only to reach the force-advance threshold; stop as
+     soon as state advances. Step 1 structural failures stop instead.
    - Exit 2 with FORCE_ADVANCE in output → force-advance: read and report the
      WARNING output and .rebase-tmp/status/INCOMPLETE, then run `status` to
      find the new step or completion. State has already advanced.
@@ -125,10 +123,10 @@ the completed state's empty step filename is not a file to load.
 
 6. After DONE: read and execute
    `${PLUGIN_ROOT}/skills/k8s-rebase/steps/step5-pr.md`
-   (PR command generation + cleanup). Step 5 has no gates — it runs
-   after the orchestrator confirms all gated steps are complete. DONE
-   does not certify every gate passed. Preserve unresolved findings in
-   the final summary; INCOMPLETE records only the latest force-advance.
+   (full-rebase review, PR command, cleanup). Step 5 has no gates. DONE
+   marks the gated traversal complete, not every gate passed: preserve
+   unresolved findings in the final summary, and remember INCOMPLETE
+   records only the latest force-advance.
 
 ## Recovery
 
