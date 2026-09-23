@@ -5,7 +5,8 @@ across modules, regenerate code, update version references, and fix build,
 lint, and test breakage. A state machine above the agent owns progress:
 scripts do repeatable work, the agent repairs, and 32 verification gates
 decide when a step may advance. The [workflow design](docs/design.md)
-explains how that structure resists reward hacking.
+explains how that structure resists reward hacking; its patterns apply to
+other long-running agent workflows.
 
 ## Install
 
@@ -41,16 +42,26 @@ Codex:       $k8s-rebase:k8s-rebase 1.36.2
 Accepts `1.Y` or `1.Y.Z`; `1.Y` means `1.Y.0`. The no-op check compares
 Kubernetes minors, so this workflow does not perform patch-only upgrades.
 
-The skill creates a rebase branch and separate commits for dependencies,
-codegen, version references, and fixes. Four gated steps lead to final
-review and a printed `gh pr create` command; the skill does not publish.
-After bounded repairs, Steps 2–4 can advance with unresolved checks.
-Those findings remain in the PR body: DONE is not an all-checks-passed claim.
+The skill creates a rebase branch with separate commits for each kind of
+change, then prints a `gh pr create` command; it never pushes.
+
+| Step | Work |
+| --- | --- |
+| 1 | Script bumps `k8s.io/*` in each module, runs codegen, and updates version references |
+| 2 | Agent fixes build and vet errors |
+| 3 | Autofix applies known patterns; the agent repairs what remains |
+| 4 | Lint, tests, and an independent review of the fixes |
+| 5 | Full-branch review, PR command, and cleanup |
+
+Steps 1–4 each end at verification gates. After bounded repairs, Steps 2–4
+can advance with unresolved checks; those findings remain in the PR body,
+so finishing is not an all-checks-passed claim.
 
 ### Optional tooling updates
 
 Add `--bump-tools` before the version to include non-Kubernetes updates in
-separate commits. Where present, the script syncs `GINKGO_VERSION` from
+separate commits, for projects that expect rebase PRs to keep tooling
+current. Where present, the script syncs `GINKGO_VERSION` from
 go.mod and updates `NODE_VERSION`, `NPM_VERSION`, and `NVM_VERSION`.
 Step 4d updates non-k8s direct Go dependencies individually, preserving
 Kubernetes pins and skipping replacements and commit-pinned dependencies.
