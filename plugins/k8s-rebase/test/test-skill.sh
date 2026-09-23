@@ -603,10 +603,11 @@ cmd_run() {
       --permission-mode "$PERMISSION_MODE" \
       "$_prompt" \
       --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(sleep *)' \
-      2>/dev/null)
+      2>&1)
     session_id=$(echo "$session_output" | grep 'backgrounded' | grep -oE '[a-f0-9]{8,}' | head -1)
     : "${session_id:=unknown}"
-    [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short"; continue; }
+    # Show why (e.g. an untrusted workspace) instead of failing silently.
+    [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short: $(tail -3 <<< "$session_output")"; continue; }
     info "Launched $short -> $session_id"
     local _rk
     _rk=$(running_key "$version" "$repo")

@@ -8,7 +8,9 @@ Claude. Offline checks cover shared interfaces. These are separate from
 
 Run these commands from `plugins/k8s-rebase/`. The workflow harness needs
 `claude`, Go-based `yq` v4, `jq`, Git, and `rsync` in addition to the
-rebase prerequisites.
+rebase prerequisites. Its background sessions refuse untrusted workspaces:
+run `claude` once in each clone under `test/.repos/` and accept the trust
+prompt, or a launch fails with that message.
 
 | Check | Command | What it establishes |
 | --- | --- | --- |
