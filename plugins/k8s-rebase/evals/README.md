@@ -15,7 +15,7 @@ rebase prerequisites.
 | Offline contracts | `make test-compatibility test-version-selection assert-evidence-paths` | Hook/review/gate interfaces, version selection, companion paths; no model calls or rebases |
 | One full-skill run | `make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none` | Launches a background rebase; inspect with `make watch version=1.35`, then `make results version=1.35` |
 | Known-good comparison | `make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35` | Adversarial review of the result against its configured reference |
-| Configured matrix | `make matrix spec=none` | Runs all configured repo/version cases, court, and bounded retries |
+| Configured matrix | `make matrix spec=none` | Runs all configured repo/version cases, court, and bounded retries; takes 4–8 hours |
 | Eval artifacts | `make eval case=012` | Synchronous run capturing metrics and evidence for the eval judges |
 
 `version=1.35` selects `test/config-1.35.yaml`, whose target is 1.35.3.
@@ -48,7 +48,9 @@ help on known cases, not generalization to unseen breakage. See the
 ## Running pattern-retention evals
 
 Full runs call models and build real projects; start with one case at a time.
-The eval runner defaults to 200 turns per case. Time and cost vary by repo.
+The eval runner defaults to 200 turns per case. With the default model,
+observed cost was about $17–27 for a light case and $40–60 for a heavy one
+such as ovn-kubernetes.
 
 ### Single-case runs
 
