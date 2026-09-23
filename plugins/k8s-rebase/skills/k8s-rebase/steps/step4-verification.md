@@ -205,7 +205,9 @@ scope, not subsequent changes; Step 5 reviews the full final branch.
 ## 4d. Non-k8s Go module updates (--bump-tools only)
 
 If `--bump-tools` was passed, discover and bump outdated non-k8s
-direct Go dependencies. Skip deps in replace directives or pinned
+direct Go dependencies, one at a time with
+`bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" <module>@<version>` in
+the module that requires it. Skip deps in replace directives or pinned
 to commit hashes. Verify k8s pins stay intact after each bump.
 One commit per dep.
 

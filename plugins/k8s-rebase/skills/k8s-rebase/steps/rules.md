@@ -108,7 +108,8 @@ and parent; do not nest another retry loop at handoff. Preserve the step's
 stop condition (Step 1 structural failure stops). The parent alone calls
 `advance` and handles its retry/force-advance output as in SKILL.md. Workers
 return verdicts, unresolved issues, and attempts already used. Never call a
-gate passed until a fresh report says PASS or spend advances as status polls.
+gate passed until a fresh report says PASS, and never spend advances as
+status polls.
 For Steps 2–4 only, if the fix budget is exhausted, the parent may retry a
 BLOCKED handoff to reach the existing force-advance threshold. Step 1
 structural failures must not call `advance`, even to record the failure.
@@ -144,9 +145,10 @@ golang container if they need Go tools.
 
 ## Feature Gates
 
-SetFromMap validates parent-dependent consistency. Every disabled gate and
-its dependents go in both SetFromMap and the `KUBE_FEATURE_` env vars. The
-autofix wires this; never remove gates from its SetFromMap.
+SetFromMap validates parent-dependent consistency. Disable each gate with
+its dependents in every mechanism the repo uses: `KUBE_FEATURE_` exports,
+`Setenv` calls, and SetFromMap. The autofix wires this; never remove gates
+from its SetFromMap.
 
 ## Execution and reviewer roles
 
