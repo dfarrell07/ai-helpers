@@ -1,6 +1,6 @@
-Read rules.md first — it contains shared rules for all steps.
-
 # Step 1: Deterministic Rebase
+
+Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 For a fresh run, start from the working branch (normally master/main).
 The script creates a new timestamped rebase branch.
@@ -39,11 +39,11 @@ launch with the same quoted argv, log, and PID paths; check the process
 until it actually exits. A "still running" check is not a notification.
 On recovery, inspect the recorded process and log before any new launch.
 
-After process completion, look at the last lines of the log.
-**Exit 0** = already at target version, nothing to do — stop without
-advancement or a PR command. The script removes its temporary state and
-restores the pre-push hook on this path.
-**Exit 2** = success — proceed to validation. **Exit 1** = error.
+After process completion, check the exit status and the log's last lines.
+**Exit 0** = already at the target minor, nothing to do — stop without
+advancement or a PR command. The script deletes `.rebase-tmp/`, including
+state, the session marker, and this log, and restores the pre-push hook.
+**Exit 2** = success — proceed to the gate. **Exit 1** = error.
 The `step1-result.txt` marker is written before optional tooling finishes;
 even `EXIT 2` there is not proof of process completion. If the result is
 missing or the exit failed, inspect `tail -20 .rebase-tmp/step1.log`
@@ -52,6 +52,10 @@ Manually verify version references
 (Dockerfiles, CI configs, lint version) since the script may
 have crashed before updating them, then complete the Step 1 gate below.
 Only the parent can advance to Step 2 after that handoff.
+
+If `.rebase-tmp/summary.txt` contains `## CODEGEN FAILURE`, fix the codegen
+script (for example, remove a dropped flag), rerun the repo's codegen target,
+and commit before the gate.
 
 Do NOT re-run the script. Do NOT run the autofix script
 or make manual go.mod changes before the rebase script completes — the
@@ -92,10 +96,6 @@ Gate file:
 Use rules.md's shared gate-fix loop for missing codegen, uncommitted changes,
 stale replacements, or incorrect dependency versions. If the gate remains
 unresolved after that budget, stop and report the structural failure.
-
-Also check `.rebase-tmp/summary.txt` for `## CODEGEN FAILURE`.
-If present, fix the codegen script (e.g., remove dropped flags),
-re-run codegen, commit, and re-verify.
 
 ## Advance
 

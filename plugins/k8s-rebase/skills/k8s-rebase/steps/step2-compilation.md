@@ -1,13 +1,11 @@
-<!-- markdownlint-disable MD013 -->
-
-**Read `rules.md` first** — it defines scope, module safety, commit discipline, and gate-fix sequencing that apply to every step.
-
 # Step 2: Fix Compilation Errors
+
+Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
 ## Validate
 
-Allow at least 10 minutes for validation; containerized lint can take
-longer. Use native process waiting as described in rules.md and Step 1.
+Validation can auto-containerize; allow at least 10 minutes and wait for
+actual completion as described in rules.md.
 
 ```bash
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --quick
@@ -74,11 +72,8 @@ Anti-patterns to avoid:
 ## OpenShift Dependencies
 
 **For OpenShift deps** (`openshift/api`, `openshift/client-go`,
-`openshift/library-go`): use the correct release branch per the
-OCP mapping in rules.md (k8s 1.N -> OCP 4.(N-13), or 5.(N-36)
-for k8s >=1.36). Do NOT escalate to a newer release branch to
-fix dependency conflicts — find newer commits on the correct
-branch instead. Wrong branch = MVS pulls k8s deps to the wrong
+`openshift/library-go`): use the release branch from rules.md's OCP
+mapping. A wrong branch lets MVS pull Kubernetes deps to the wrong
 version, which the version-consistency gate will catch.
 
 **Do NOT bump non-k8s dependencies** in other modules (e.g.,
@@ -92,8 +87,7 @@ code), a direct dependency is incompatible with the bumped k8s
 packages. Extract the module path (between `/go/pkg/mod/` and
 `@`) and fix with:
 `bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" <module>@<compatible-version>`
-Run in the affected module and verify Kubernetes pins afterward, as required
-by Module Safety in rules.md.
+Run it in the affected module and verify Kubernetes pins afterward.
 
 **NEVER modify files under vendor/ directly.** CI runs
 `go mod vendor` which regenerates vendor from source, erasing
@@ -102,11 +96,12 @@ interface, search for an active upstream rebase PR that bumps
 that dep. If found, identify the branch or fork it uses and add
 a `replace` directive:
 `replace github.com/openshift/library-go => github.com/ORG/library-go v0.0.0-DATE-HASH`
-Add a tracking comment: `// TODO: remove replace when official library-go merges k8s bump`.
-Then run `bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" --sync` in that module.
+Add a tracking comment, such as
+`// TODO: remove replace when official library-go merges k8s bump`.
 In multi-module repos, add the replace to each module that depends
 on the affected package (Go replace directives do not propagate
-across module boundaries).
+across module boundaries). Then, in each of those modules, run
+`bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" --sync`.
 If no active PR or fork exists, report it as a blocker and move on.
 Do NOT vendor-patch; verify-deps CI will reject it.
 

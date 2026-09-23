@@ -123,9 +123,8 @@ do not skip it.
 
 - Body lines <= 72 chars.
 - Each commit gets exactly one `Signed-off-by` and one
-  `Assisted-by: Claude Code <noreply@anthropic.com>` trailer
-  (scripts add automatically).
-
+  `Assisted-by: Claude Code <noreply@anthropic.com>` trailer. Scripts add
+  both; for your commits use `git commit -s --trailer "<that trailer>"`.
 - Do not amend — create new commits on top.
 - No `org/repo#N` in commit messages.
 - If adding a `replace` directive, add a TODO comment.
@@ -140,12 +139,6 @@ do not skip it.
 Prefer `podman` with `--userns=keep-id --security-opt label=disable`.
 Tell subagents to use `podman run --userns=keep-id` with the
 golang container if they need Go tools.
-
-## Feature Gates
-
-SetFromMap validates parent-dep consistency. ALL gates must go in
-SetFromMap AND env vars. The autofix script handles this; do not
-remove gates from its SetFromMap.
 
 ## Execution and reviewer roles
 

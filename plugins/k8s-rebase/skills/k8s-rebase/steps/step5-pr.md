@@ -15,9 +15,6 @@ IS_DOWNSTREAM=$(git remote -v 2>/dev/null | grep -q 'openshift/' && echo true ||
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 ```
 
-**OCP version mapping** (see rules.md for the full table):
-k8s 1.N → OCP 4.(N-13) for k8s ≤1.35. k8s 1.N → OCP 5.(N-36) for k8s ≥1.36.
-
 If `IS_DOWNSTREAM` is true, the PR title needs a Jira ticket key.
 If interactive, ask. If background mode, use `REPLACE-WITH-JIRA-KEY:`.
 
