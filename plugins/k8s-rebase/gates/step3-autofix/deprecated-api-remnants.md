@@ -26,7 +26,8 @@ Step 3 — Promoted x/ package check:
   `grep -rn '"golang.org/x/' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
   For each x/ import, derive the stdlib name and check whether it is
   available in the Go version this repo targets. Extract the target:
-  `GO_MINOR=$(grep '^go ' go.mod | awk '{print $2}' | cut -d. -f2)`
+  `GO_MINOR=$(grep '^go ' <module>/go.mod | awk '{print $2}' | cut -d. -f2)`
+  using the go.mod of the module that contains each hit.
   Known stdlib promotions and their minimum Go minor version:
     golang.org/x/exp/slices → slices (Go 1.21+)
     golang.org/x/exp/maps   → maps   (Go 1.21+; Keys/Values need 1.23+)

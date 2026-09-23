@@ -22,6 +22,9 @@ MANDATORY first action — run these before any analysis:
 Collect the results. Apply the pre-existing check below before
 counting any as FAIL — klog bare imports may be pre-existing.
 
+Run Steps 1–2 in each non-vendor module directory; the main module may be
+nested (for example `go-controller/`).
+
 Step 1 — Discover major-version modules from go.mod:
   `grep -E '/v[0-9]+' go.mod | grep -v '^//' | sed 's|.*\([a-z].*\/v[0-9]*\).*|\1|' | sort -u`
   For each versioned module path (e.g., k8s.io/klog/v2), check

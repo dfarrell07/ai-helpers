@@ -29,8 +29,7 @@ VERDICT criteria: FAIL if a CI config uses a different k8s MINOR
 version (e.g., v1.35.x when targeting 1.36). PASS if configs use
 the correct minor version, even if the patch differs because the
 KIND image isn't published yet (note as INFO in details, not FAIL).
-SKIP if the repo has no CI configuration files. Never use WARN —
-only PASS, FAIL, or SKIP.
+SKIP if the repo has no CI configuration files. Never use WARN.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
 `go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

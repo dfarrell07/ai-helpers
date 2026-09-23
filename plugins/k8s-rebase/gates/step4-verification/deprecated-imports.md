@@ -7,7 +7,8 @@ Promoted x/ packages:
 
 For each hit, check if a stdlib equivalent is available in the Go
 version this repo targets:
-  `GO_MINOR=$(grep '^go ' go.mod | awk '{print $2}' | cut -d. -f2)`
+  `GO_MINOR=$(grep '^go ' <module>/go.mod | awk '{print $2}' | cut -d. -f2)`
+  using the go.mod of the module that contains each hit.
 
 Known stdlib promotions (require GO_MINOR at or above the listed value):
   golang.org/x/exp/slices → slices    (Go 1.21+)
@@ -58,6 +59,8 @@ If GO_MINOR is below the required floor for a given package: INFO
 regardless of tier (can't migrate if stdlib equivalent doesn't exist yet).
 
 Report count of FAIL-tier findings only. Cite file:line for each hit.
+
+VERDICT: FAIL if any FAIL-tier finding remains; otherwise PASS.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, or any
 command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

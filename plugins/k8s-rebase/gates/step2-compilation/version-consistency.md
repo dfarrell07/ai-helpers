@@ -36,7 +36,7 @@ Report inconsistency count.
 Also verify versions match the REBASE TARGET, not just that they
 are consistent with each other. If `.rebase-tmp/target-k8s-api-version.txt`
 exists, read the expected version (e.g. `v0.34.1`). Check that
-`grep 'k8s.io/api ' go.mod` matches it. If ALL k8s deps are at a
+`k8s.io/api` matches it in every go.mod that requires it. If ALL k8s deps are at a
 DIFFERENT consistent version (e.g. all at v0.35.1 when target is
 v0.34.1), that is a FAIL — the rebase was reverted or mis-targeted
 by MVS. Count this as 1 inconsistency.

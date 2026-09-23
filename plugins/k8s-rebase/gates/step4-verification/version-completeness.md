@@ -50,6 +50,8 @@ This enables the gate-fix loop to sed-replace them.
 Report count of NEW genuinely stale previous-version references
 plus count of un-bumped Makefile version variables.
 
+VERDICT: FAIL if either count is nonzero; otherwise PASS.
+
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
 `go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
 `go vet`, `go test` (with `-mod=vendor` if vendor/ exists),
