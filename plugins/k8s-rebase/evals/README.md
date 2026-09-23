@@ -38,10 +38,12 @@ Mutations affect a copied plugin, leaving the source intact:
 | `fn:<tag>` | One `fix_<tag>` function |
 
 `pattern:<key>` removes one `###` section of the pattern guide. Several tags
-share a section, some map to loosely related guidance, and table rows and
-other prompts stay intact, so a targeted run withholds less than its tag
-suggests. These runs test recovery with less help on known cases, not
-generalization to unseen breakage. See the [design guide](../docs/design.md).
+share a section, some map to loosely related guidance, and table rows stay
+intact, so a targeted run withholds less than its tag suggests. Under every
+spec, step instructions and gate prompts keep their own migration guidance,
+such as Step 3's feature-gate wiring. These runs test recovery with less
+help on known cases, not generalization to unseen breakage. See the
+[design guide](../docs/design.md).
 
 ## Running pattern-retention evals
 
@@ -103,8 +105,9 @@ pinned baseline and known-good commits.
 | case-016 | openshift/cluster-network-operator | [1.35.3](cases/pattern-retention/case-016/input.yaml) |
 
 The 1.34 config omits ovn-kubernetes-mcp and ingress-node-firewall.
-Case-014 uses an AI-produced known-good reference; the others use the
-existing rebase references.
+Case-014's reference is an AI-produced rebase that no configured remote
+publishes, so neither the eval runner nor court can compare against it
+until that commit is pushed; the other cases use existing rebase references.
 
 Configuration records the cases to run, not their results for a new revision.
 For review, retain the plugin commit, runtime/model, mutation spec, baseline
@@ -127,14 +130,19 @@ Read the artifacts behind a score:
 - `all_gates_resolved` checks reports that exist; it does not inventory
   all expected gates or verify their HEAD stamps. Use the orchestrator's
   `reports` inventory for completeness and freshness.
-- The version judge checks a minor-version anchor in the diff, not exact
-  pins in every module. The PR-command judge checks text presence, not the
+- The version check looks for a minor-version anchor in the diff, not exact
+  pins in every module. The PR-command check looks for text, not the
   accuracy of its verification claims.
 - LLM scores are a smoke check, not the adversarial court. Scope and gap-analysis
   thresholds remain provisional. Known-good references are comparison
   evidence, not the only valid implementation.
 
-The workflow harness can count advisory verdicts and older failures as SKIP.
+The workflow harness scores more leniently than the orchestrator advances.
+It counts every non-PASS report from `commit-messages`, `skill-improvement`,
+`dep-cve-check`, and `maintainer-review` as SKIP (`INFO_GATES` in
+`test/test-skill.sh`), although the last two can block advancement. It also
+counts a FAIL report older than the branch tip as SKIP and does not read
+`status/INCOMPLETE`, so a force-advanced run can score PASS.
 Court excludes vendor, go.sum, package metadata, and mocks from its diff;
 an identical filtered diff returns PASS without a jury. Preserve raw reports
 and findings: these summaries do not turn an unresolved gate into PASS.
@@ -147,6 +155,8 @@ and findings: these summaries do not turn an unresolved gate into PASS.
   bad diffs to check that judges reject plausible regressions.
 - Check expected report completeness/freshness and final PR claims directly;
   existing verdict/text checks do not establish those properties.
+- Decide whether the workflow harness should fail force-advanced runs and
+  FAILs from blocking gates instead of counting them as SKIP.
 - LLM prompt templates currently read only `outputs.files`, while deterministic
   checks also read `modified_files`. Verify artifact delivery when changing
   the harness; empty judge inputs must not look like clean diffs.
