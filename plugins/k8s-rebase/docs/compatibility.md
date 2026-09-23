@@ -30,8 +30,8 @@ Installation alone is not proof that hooks are active.
 
 The [offline tests](../test/test_compatibility.py) exercise the shared review,
 hook, state, and cleanup contracts. Full repo/version runs use Claude Code.
-Codex has passed focused installed-runtime fixtures for review routing and
-finalization, not a full rebase.
+Focused installed-runtime fixtures on both hosts have covered review routing
+and finalization; Codex has not run a full rebase.
 
 To qualify both hosts, run the existing `openshift/multus-cni` baseline in
 [config-1.36.yaml](../test/config-1.36.yaml) on each, in disposable clones
@@ -40,7 +40,7 @@ committed boundary. Require applicable gates to pass, justified SKIPs, actual
 independent reviews, accurate final reporting, and a restored hook;
 force-advancement or a review fallback does not qualify. Retain the source
 revision, runtime and model, raw reports, and actual tool outcomes: an agent
-declining an action is not a hook denial. Still unexercised on either host:
+declining an action is not a hook denial. Cover these cases on each host:
 
 - Hook denials through each host's tools, with quoted paths and bad arguments.
 - Interruption after Step 1's early result marker, missing or malformed state,
