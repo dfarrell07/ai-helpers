@@ -67,7 +67,8 @@ Each gate report carries exactly one verdict:
 | INCONCLUSIVE | The check applies but could not be completed or attributed | Blocks |
 
 A check that did not run is INCONCLUSIVE, never PASS or SKIP: missing
-coverage is not a zero count. Pre-existing findings are INFO, not FAIL.
+coverage is not a zero count. Pre-existing findings are INFO, not FAIL,
+unless the gate's rubric says otherwise.
 The informational commit-messages and skill-improvement gates always PASS
 and carry their findings in DETAILS. Never relabel a SKIP as PASS.
 Include this section in every gate reviewer's context.
