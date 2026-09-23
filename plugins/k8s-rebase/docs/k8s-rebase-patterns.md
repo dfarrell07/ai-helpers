@@ -205,7 +205,7 @@ Repos using operator-sdk have additional version refs:
 `CONTROLLER_TOOLS_VERSION`, `OPERATOR_SDK_VERSION`, `VERSION`
 in Makefile, plus bundle manifests (`bundle/`, `config/`).
 Detect them through `PROJECT` or `operator-sdk` in Makefile. controller-tools
-releases track Kubernetes minors (v0.21 for 1.36): bump controller-tools and
+minors track Kubernetes (v0.19–v0.21 for 1.34–1.36): bump controller-tools and
 operator-sdk to the latest versions compatible with the target, regenerate
 bundles through the repo's target (usually `make bundle`), and review the
 diff. A `VERSION` variable may be the operator's own release version; leave it.

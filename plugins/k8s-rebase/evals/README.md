@@ -112,8 +112,9 @@ publishes, so neither the eval runner nor court can compare against it
 until that commit is pushed; the other cases use existing rebase references.
 
 Configuration records the cases to run, not their results for a new revision.
-For review, retain the plugin commit, runtime/model, mutation spec, baseline
-and resolved reference SHAs, raw gate reports, and court result. Some workflow
+For review, retain the plugin commit (`test/.matrix-state/results.tsv` does
+not record it), runtime/model, mutation spec, baseline and resolved reference
+SHAs, raw gate reports, and court result. Some workflow
 configs use moving reference branches; resolve them before comparing runs.
 
 ## Interpreting scores
