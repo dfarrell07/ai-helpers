@@ -345,6 +345,8 @@ fi
 # Discover openshift/* versions — use release-4.X/5.X branches to avoid pulling
 # k8s deps beyond the target minor. @latest sorts by timestamp and may pick a commit
 # from a newer OCP branch, causing go mod tidy to fail with removed API packages.
+# build-machinery-go has no release-5.0 branch; its @latest fallback is accepted
+# only after checking its module requirements against the requested k8s minor.
 # k8s 1.N maps to OCP 4.(N-13) for N<=35 and 5.(N-36) for N>=36.
 if [[ "$K8S_MINOR" -le 35 ]]; then
   OCP_MINOR=$((K8S_MINOR - 13))
@@ -355,11 +357,16 @@ else
 fi
 
 _resolve_openshift_version() {
-  local pkg="$1"
-  local _info ver
+  local pkg="$1" ref="${2:-$OPENSHIFT_BRANCH}"
+  local _info ver url
+  if [[ "$ref" == "@latest" ]]; then
+    url="https://proxy.golang.org/${pkg}/@latest"
+  else
+    url="https://proxy.golang.org/${pkg}/@v/${ref}.info"
+  fi
   if ! _info=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
-    "https://proxy.golang.org/${pkg}/@v/${OPENSHIFT_BRANCH}.info" 2>/dev/null); then
-    info "WARNING: cannot resolve ${pkg}@${OPENSHIFT_BRANCH} from the proxy"
+    "$url" 2>/dev/null); then
+    info "WARNING: cannot resolve ${pkg}@${ref} from the proxy"
     return 0
   fi
   if ! ver=$(perl -MJSON::PP -0777 -e '
@@ -422,8 +429,24 @@ OPENSHIFT_API_VERSION=$(_resolve_openshift_version "github.com/openshift/api")
 OPENSHIFT_API_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/api" "$OPENSHIFT_API_VERSION")
 OPENSHIFT_LIBRARY_GO_VERSION=$(_resolve_openshift_version "github.com/openshift/library-go")
 OPENSHIFT_LIBRARY_GO_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/library-go" "$OPENSHIFT_LIBRARY_GO_VERSION")
+OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION=$(_resolve_openshift_version "github.com/openshift/controller-runtime-common")
+OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION=$(_validate_openshift_k8s_minor \
+  "github.com/openshift/controller-runtime-common" "$OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION")
 OPENSHIFT_BUILD_MACHINERY_VERSION=$(_resolve_openshift_version "github.com/openshift/build-machinery-go")
 OPENSHIFT_BUILD_MACHINERY_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/build-machinery-go" "$OPENSHIFT_BUILD_MACHINERY_VERSION")
+if [[ -z "$OPENSHIFT_BUILD_MACHINERY_VERSION" ]]; then
+  # build-machinery-go does not publish release-5.0 today. Its latest module
+  # metadata is acceptable only when its direct Kubernetes requirements match
+  # the target (or it has no direct core requirements at all).
+  _build_machinery_latest=$(_resolve_openshift_version "github.com/openshift/build-machinery-go" "@latest")
+  OPENSHIFT_BUILD_MACHINERY_VERSION=$(_validate_openshift_k8s_minor \
+    "github.com/openshift/build-machinery-go" "$_build_machinery_latest")
+  if [[ -n "$OPENSHIFT_BUILD_MACHINERY_VERSION" ]]; then
+    info "openshift/build-machinery-go: $OPENSHIFT_BUILD_MACHINERY_VERSION (@latest; Kubernetes requirements verified)"
+  else
+    info "WARNING: no target-compatible build-machinery-go version available from @latest"
+  fi
+fi
 
 [[ -n "$OPENSHIFT_CLIENT_GO_VERSION" ]] && \
   info "openshift/client-go: $OPENSHIFT_CLIENT_GO_VERSION (branch $OPENSHIFT_BRANCH)" || \
@@ -431,6 +454,9 @@ OPENSHIFT_BUILD_MACHINERY_VERSION=$(_validate_openshift_k8s_minor "github.com/op
 [[ -n "$OPENSHIFT_API_VERSION" ]] && \
   info "openshift/api: $OPENSHIFT_API_VERSION (branch $OPENSHIFT_BRANCH)" || \
   info "openshift/api: no verified $OPENSHIFT_BRANCH version available"
+[[ -n "$OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION" ]] && \
+  info "openshift/controller-runtime-common: $OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION (branch $OPENSHIFT_BRANCH)" || \
+  info "openshift/controller-runtime-common: no verified $OPENSHIFT_BRANCH version available"
 
 # Discover the kube-openapi version required by k8s.io/apimachinery at the target version.
 # kube-openapi uses date-based pseudo-versions and @latest may jump to a version that
@@ -508,7 +534,7 @@ derive_go_gets() {
   # CR_VERSION is resolved earlier by querying the Go module proxy for a
   # compatible release; it is empty when no compatible version was found,
   # in which case a bare go get lets MVS pick the best available version.
-  if grep -q "controller-runtime" "$gomod"; then
+  if grep -qE '^[[:space:]]*sigs[.]k8s[.]io/controller-runtime([[:space:]"]|$)' "$gomod"; then
     if [[ -n "$CR_VERSION" ]]; then
       cmds+=("go get sigs.k8s.io/controller-runtime@${CR_VERSION}")
     else
@@ -519,11 +545,11 @@ derive_go_gets() {
   # Rule 2b: openshift/* packages
   # Versions are resolved earlier via the release-4.X/5.X branch to avoid @latest
   # picking a commit from a newer OCP branch that pulls k8s.io/api beyond the target.
-  # All four packages need checked metadata. Neither an unversioned update nor
+  # All five packages need checked metadata. Neither an unversioned update nor
   # skipping one direct update guarantees that MVS retains compatible versions.
   # Match actual requirements, not comments, replacements, or the module itself.
   local _os_pkg _os_ver _os_requirements=""
-  if grep -qE 'github[.]com/openshift/(api|client-go|library-go|build-machinery-go)([[:space:]"]|$)' "$gomod"; then
+  if grep -qE 'github[.]com/openshift/(api|client-go|library-go|build-machinery-go|controller-runtime-common)([[:space:]"]|$)' "$gomod"; then
     if ! _os_requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json /dev/stdin < "$gomod" | \
       perl -MJSON::PP -0777 -e '
         my $mod = decode_json(<STDIN>);
@@ -534,19 +560,21 @@ derive_go_gets() {
     fi
   fi
   for _os_pkg in "github.com/openshift/client-go" "github.com/openshift/api" \
-                  "github.com/openshift/library-go" "github.com/openshift/build-machinery-go"; do
+                  "github.com/openshift/library-go" "github.com/openshift/build-machinery-go" \
+                  "github.com/openshift/controller-runtime-common"; do
     if grep -qxF "$_os_pkg" <<< "$_os_requirements"; then
       case "$_os_pkg" in
         *client-go)        _os_ver="$OPENSHIFT_CLIENT_GO_VERSION" ;;
         */api)             _os_ver="$OPENSHIFT_API_VERSION" ;;
         *library-go)       _os_ver="$OPENSHIFT_LIBRARY_GO_VERSION" ;;
         *build-machinery*) _os_ver="$OPENSHIFT_BUILD_MACHINERY_VERSION" ;;
+        *controller-runtime-common) _os_ver="$OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION" ;;
         *)                 _os_ver="" ;;
       esac
       if [[ -n "$_os_ver" ]]; then
         cmds+=("go get ${_os_pkg}@${_os_ver}")
       else
-        info "ERROR: no verified ${OPENSHIFT_BRANCH} version for ${_os_pkg}; cannot derive updates for ${gomod}"
+        info "ERROR: no verified target-compatible version for ${_os_pkg} (branch ${OPENSHIFT_BRANCH}); cannot derive updates for ${gomod}"
         return 1
       fi
     fi
@@ -571,6 +599,28 @@ derive_go_gets() {
     [[ "$pkg" == "github.com/openshift/api" ]] && continue
     [[ "$pkg" == "github.com/openshift/library-go" ]] && continue
     [[ "$pkg" == "github.com/openshift/build-machinery-go" ]] && continue
+    [[ "$pkg" == "github.com/openshift/controller-runtime-common" ]] && continue
+    if [[ "$pkg" == "sigs.k8s.io/controller-tools" ]]; then
+      # controller-tools v0.N targets Kubernetes 1.(N+15). Bare go get
+      # selects the newest release (currently one Kubernetes minor ahead),
+      # which raises k8s.io/* through MVS and can invalidate the rebase.
+      # Verify the mapped release's module requirements before using it.
+      local _controller_tools_minor=$((K8S_MINOR - 15))
+      if [[ "$_controller_tools_minor" -lt 1 ]]; then
+        info "ERROR: no controller-tools release mapping for Kubernetes 1.${K8S_MINOR}"
+        return 1
+      fi
+      local _controller_tools_candidate="v0.${_controller_tools_minor}.0"
+      local _controller_tools_version
+      _controller_tools_version=$(_validate_openshift_k8s_minor \
+        "sigs.k8s.io/controller-tools" "$_controller_tools_candidate")
+      if [[ -z "$_controller_tools_version" ]]; then
+        info "ERROR: controller-tools ${_controller_tools_candidate} is not verified for Kubernetes 1.${K8S_MINOR}"
+        return 1
+      fi
+      cmds+=("go get ${pkg}@${_controller_tools_version}")
+      continue
+    fi
     # Pin kube-openapi to the version required by apimachinery to avoid v6/v7 conflicts.
     if [[ "$pkg" == "k8s.io/kube-openapi" ]]; then
       if [[ -n "$KUBE_OPENAPI_VERSION" ]]; then

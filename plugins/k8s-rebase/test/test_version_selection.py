@@ -12,7 +12,7 @@ import unittest
 
 PLUGIN = Path(__file__).resolve().parents[1]
 SOURCE = (PLUGIN / "scripts/k8s-rebase.sh").read_text()
-PACKAGES = ("client-go", "api", "library-go", "build-machinery-go")
+PACKAGES = ("client-go", "api", "library-go", "build-machinery-go", "controller-runtime-common")
 VERSION = "v0.0.0-20260904224155-42fb550ea02a"
 
 
@@ -66,6 +66,12 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
 
     def response(self, package, suffix, body, rc=0):
         self.responses[f"https://proxy.golang.org/github.com/openshift/{package}/@v/{suffix}"] = [rc, body]
+
+    def response_module(self, module, version, body, rc=0):
+        self.responses[f"https://proxy.golang.org/{module}/@v/{version}.mod"] = [rc, body]
+
+    def response_latest(self, package, body, rc=0):
+        self.responses[f"https://proxy.golang.org/github.com/openshift/{package}/@latest"] = [rc, body]
 
     def module(self, package="api", requirements="require k8s.io/api v0.35.1\n"):
         return f"module github.com/openshift/{package}\ngo 1.23.0\n{requirements}"
@@ -180,14 +186,19 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout, "")
 
-    def test_all_openshift_packages_use_checked_branch_versions(self):
+    def test_all_openshift_packages_use_verified_target_versions(self):
         for minor, branch in ((35, "release-4.22"), (36, "release-5.0")):
             with self.subTest(minor=minor):
                 self.gomod.write_text("module example.invalid/fixture\nrequire (\n k8s.io/api v0.34.1\n" +
                                       "".join(f" github.com/openshift/{p} v0.0.1\n" for p in PACKAGES) + ")\n")
                 for package in PACKAGES:
-                    self.response(package, branch + ".info", json.dumps({"Version": VERSION}))
-                    self.response(package, VERSION + ".mod", self.module(package, f"require k8s.io/api v0.{minor}.1\n"))
+                    if package == "build-machinery-go":
+                        self.response_latest(package, json.dumps({"Version": VERSION}))
+                        requirements = ""
+                    else:
+                        self.response(package, branch + ".info", json.dumps({"Version": VERSION}))
+                        requirements = f"require k8s.io/api v0.{minor}.1\n"
+                    self.response(package, VERSION + ".mod", self.module(package, requirements))
                 result = self.selection(minor)
                 self.assertEqual(result.returncode, 0, result.stderr)
                 self.assertEqual(result.stdout.splitlines(), [f"go get k8s.io/api@v0.{minor}.3"] +
@@ -200,15 +211,53 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
                     self.responses.clear()
                     self.gomod.write_text("module example.invalid/fixture\nrequire (\n k8s.io/api v0.34.1\n"
                                           f" github.com/openshift/{package} v0.0.1\n)\n")
-                    if failure != "no branch":
+                    if failure != "no branch" and package != "build-machinery-go":
                         self.response(package, "release-4.22.info", json.dumps({"Version": VERSION}))
+                    if package == "build-machinery-go" and failure != "no branch":
+                        self.response_latest(package, json.dumps({"Version": VERSION}))
                     if failure == "wrong minor":
                         self.response(package, VERSION + ".mod", self.module(package, "require k8s.io/api v0.36.2\n"))
+                    if package == "build-machinery-go" and failure == "wrong minor":
+                        self.response_latest(package, json.dumps({"Version": VERSION}))
+                        self.response(package, VERSION + ".mod", self.module(package, "require k8s.io/api v0.36.2\n"))
+                    if package == "build-machinery-go" and failure == "no module":
+                        self.response_latest(package, json.dumps({"Version": VERSION}))
+                        self.response(package, VERSION + ".mod", "", rc=22)
                     result = self.selection()
                     self.assertNotEqual(result.returncode, 0)
                     self.assertEqual(result.stdout, "")
                     self.assertIn("ERROR:", result.stderr)
                     self.assertNotIn("will use @latest", result.stderr)
+
+    def test_controller_tools_selects_target_minor_release(self):
+        for minor, candidate in ((34, "v0.19.0"), (35, "v0.20.0"), (36, "v0.21.0")):
+            with self.subTest(minor=minor, candidate=candidate):
+                self.gomod.write_text(
+                    "module example.invalid/fixture\nrequire (\n"
+                    " k8s.io/api v0.33.1\n"
+                    " sigs.k8s.io/controller-tools v0.20.1\n)\n")
+                module = (f"module sigs.k8s.io/controller-tools\ngo 1.26.0\n"
+                          f"require k8s.io/api v0.{minor}.0\n")
+                self.response_module("sigs.k8s.io/controller-tools", candidate, module)
+                result = self.selection(minor)
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn(f"go get sigs.k8s.io/controller-tools@{candidate}", result.stdout.splitlines())
+                self.assertNotIn("go get sigs.k8s.io/controller-tools\n", result.stdout)
+                requests = (self.root / "requests").read_text()
+                self.assertIn(f"/sigs.k8s.io/controller-tools/@v/{candidate}.mod", requests)
+                self.assertNotIn("/sigs.k8s.io/controller-tools/@latest", requests)
+
+    def test_controller_tools_minor_mismatch_stops_derivation(self):
+        self.gomod.write_text(
+            "module example.invalid/fixture\nrequire (\n"
+            " k8s.io/api v0.35.1\n"
+            " sigs.k8s.io/controller-tools v0.20.1\n)\n")
+        self.response_module("sigs.k8s.io/controller-tools", "v0.21.0",
+                             "module sigs.k8s.io/controller-tools\nrequire k8s.io/api v0.37.0\n")
+        result = self.selection(36)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.assertIn("ERROR: controller-tools v0.21.0 is not verified for Kubernetes 1.36", result.stderr)
 
     def test_no_openshift_dependency_does_not_need_optional_metadata(self):
         result = self.selection()
