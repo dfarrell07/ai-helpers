@@ -262,7 +262,14 @@ _tally_gates() {
     _head=$(grep '^HEAD:' "$_gf_file") || _head=""
     _reviewed="${_head#HEAD: }"
     _verdict=$(grep '^VERDICT:' "$_gf_file") || _verdict=""
+    local _cve_fresh=true _cve_digest _cve_recorded
+    if [[ "$_gn" == step4-dep-cve-check && "$_verdict" =~ ^VERDICT:\ (PASS|SKIP)$ ]]; then
+      _cve_digest=$(python3 "$PLUGIN_DIR/scripts/check-cve-evidence.py" "$_repo_root" "$_ref" 2>/dev/null) || _cve_fresh=false
+      _cve_recorded=$(sed -n 's/^EVIDENCE_SHA256: //p' "$_gf_file")
+      [[ -n "$_cve_digest" && "$_cve_recorded" == "$_cve_digest" ]] || _cve_fresh=false
+    fi
     if [[ "$_verdict" =~ ^VERDICT:\ (PASS|SKIP)$ ]] &&
+       [[ "$_cve_fresh" == true ]] &&
        [[ "$_head" =~ ^HEAD:\ [0-9a-f]+$ ]] && [[ ${#_reviewed} -eq ${#_ref} ]] &&
        [[ -n "$_ref" ]] && git -C "$_repo_root" merge-base --is-ancestor "$_reviewed" "$_ref" 2>/dev/null &&
        { [[ "$_gn" != step4-* ]] || [[ "$_reviewed" == "$_ref" ]]; }; then
@@ -737,7 +744,7 @@ cmd_run() {
       --plugin-dir "$PLUGIN_DIR" \
       --permission-mode "$PERMISSION_MODE" \
       "$_prompt" \
-      --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(sleep *)' \
+      --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(sleep *)' \
       2>&1)
     session_id=$(echo "$session_output" | grep 'backgrounded' | grep -oE '[a-f0-9]{8,}' | head -1)
     : "${session_id:=unknown}"

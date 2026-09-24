@@ -731,8 +731,20 @@ exec "{real_git}" "$@"
                    "git-push origin HEAD", "git send-pack origin HEAD",
                    "git status; git push", "git status && git push",
                    "git status\ngit push", 'bash -c "git push origin HEAD"',
-                   "gh pr create --title test", "gh api repos/org/repo/pulls -X POST")
+                   "gh pr create --title test", "gh api repos/org/repo/pulls -X POST",
+                   "gh api -XPOST repos/org/repo/pulls", "gh api --method=PATCH repos/org/repo/pulls/4",
+                   "gh api repos/org/repo/pulls -f title=example", "gh api repos/org/repo/pulls -F draft=true",
+                   "gh api repos/org/repo/pulls --raw-field=title=example", "gh api repos/org/repo/pulls --input body.json",
+                   "gh api repos/org/repo/pulls --method '$METHOD'", "gh api repos/org/repo/pulls -X",
+                   "gh api \\\n repos/org/repo/pulls \\\n -X POST",
+                   "gh api repos/org/repo/pulls/4\ngh api repos/org/repo/pulls -f title=fixture",
+                   "gh api repos/org/repo/pulls/4; gh api repos/org/repo/pulls -X POST")
         allowed = ('git status; cat "$HOOK_DIR/pre-push"',
+                   'gh api "repos/org/repo/pulls/4" --jq \'{head: .head.sha, base: .base.sha}\'',
+                   "gh api repos/org/repo/pulls --paginate", "gh api -X GET repos/org/repo/pulls/4/files",
+                   "gh api --method=GET repos/org/repo/pulls -f state=open",
+                   "gh api repos/org/repo/pulls/4 --method HEAD",
+                   "gh api \\\n repos/org/repo/pulls/4 \\\n --jq '.head.sha'",
                    'git rev-parse --git-common-dir; mv pre-push.bak.k8s-rebase pre-push')
         for command in blocked:
             with self.subTest(command=command):

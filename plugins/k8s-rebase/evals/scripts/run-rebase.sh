@@ -171,7 +171,7 @@ env -u AI_HELPERS_DIR -u PLUGIN_DIR claude -p "/k8s-rebase:k8s-rebase $VERSION" 
   --append-system-prompt "This is an isolated evaluation. Treat the plugin, harness, and eval files as read-only. Do not edit or repair them. If a skill script fails, report the blocker and stop; make any rebase changes only in the target repository." \
   --plugin-dir "$PLUGIN_SNAPSHOT" \
   --permission-mode "$PERMISSION_MODE" \
-  --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go get *),Bash(go generate *),Bash(go run *)' \
+  --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go get *),Bash(go generate *),Bash(go run *)' \
   2>"$OUTPUT_DIR/session-stderr.log" \
   | tee "$OUTPUT_DIR/session-output.json"
 PIPE_STATUS=("${PIPESTATUS[@]}")  # snapshot before set -e resets it

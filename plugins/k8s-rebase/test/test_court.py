@@ -143,6 +143,50 @@ class CourtHarnessTests(unittest.TestCase):
         self.harness("results")
         return (self.state / "results.tsv").read_text().splitlines()[-1].split("\t")[4:]
 
+    def cve_workflow(self):
+        scratch = self.completed_workflow()
+        (scratch / "base-commit").write_text(self.run_base + "\n")
+        (self.plugin / "gates/step4-verification").mkdir()
+        (self.plugin / "gates/step4-verification/dep-cve-check.md").write_text("gate\n")
+        (self.plugin / "scripts").mkdir()
+        for name in ("check-cve-evidence.py", "resolve-rebase-base.sh"):
+            shutil.copy(PLUGIN / "scripts" / name, self.plugin / "scripts" / name)
+        evidence = scratch / "gates/step4-dep-cve-check.evidence"
+        evidence.write_text(f"HEAD: {self.result}\nSCAN_HEAD: {self.result}\nBASE: {self.run_base}\n"
+                            "COVERAGE: COMPLETE\nEXPECTED_GRAPHS: 2\nCOMPLETED_GRAPHS: 2\n"
+                            "EXPECTED_QUERIES: 0\nCOMPLETED_QUERIES: 0\n"
+                            "EXPECTED_ADVISORIES: 0\nCOMPLETED_ADVISORIES: 0\n")
+        subprocess.run(["bash", str(PLUGIN / "scripts/write-gate-report.sh"), str(self.repo),
+                        "step4-dep-cve-check", "PASS", "0", "fixture review"],
+                       env=self.env, check=True, capture_output=True)
+        # The harness evaluates the result branch even when it is not checked out.
+        self.git("switch", "-q", "main")
+        return scratch, evidence
+
+    def test_cve_evidence_qualifies_result_branch_without_checkout(self):
+        self.cve_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+
+    def test_missing_cve_evidence_cannot_qualify_completed_run(self):
+        _, evidence = self.cve_workflow()
+        evidence.unlink()
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_incomplete_cve_evidence_cannot_qualify_completed_run(self):
+        _, evidence = self.cve_workflow()
+        evidence.write_text(evidence.read_text().replace("COVERAGE: COMPLETE", "COVERAGE: INCOMPLETE"))
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_changed_cve_evidence_requires_a_new_review(self):
+        _, evidence = self.cve_workflow()
+        evidence.write_text(evidence.read_text() + "ADVISORY: newly collected facts\n")
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_corrected_cve_base_cannot_reuse_old_scope_review(self):
+        scratch, _ = self.cve_workflow()
+        (scratch / "base-commit").write_text(self.common_base + "\n")
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
     def test_live_session_is_not_stopped_when_gates_finish(self):
         scratch = self.completed_workflow()
         (scratch / ".session-active").touch()
