@@ -1,6 +1,8 @@
 <!-- markdownlint-disable MD013 -->
 Review the branch as a maintainer would. Does every change serve the k8s
 version bump, or are there unrelated cleanups, style changes, or logic alterations?
+Step 4c's selected-commit review covers a narrower scope. Its approval cannot
+replace this gate's review of the commit history and aggregate branch diff.
 
 Step 1 — read the commit history (subjects AND bodies — both are required):
   BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git log --format="%H%n%s%n%b%n---END---" "$BASE"..HEAD

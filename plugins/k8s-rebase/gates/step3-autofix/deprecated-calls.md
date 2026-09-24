@@ -33,7 +33,11 @@ Step 3 — Fallback (if staticcheck unavailable and no vendor):
 Find module directories:
   `find . -name go.mod -not -path '*/vendor/*' -exec dirname {} \;`
 
-Run the check in each module directory.
+Run both scans in each module directory, using its own vendor or resolved
+module-cache source. An absent repository-root vendor directory does not
+mean nested modules have no dependencies. Retain complete diagnostics and
+the analyzer's exit status before displaying excerpts; a truncated sample
+does not establish coverage of the remaining findings or modules.
 
 Report each deprecated call with file:line and what to replace
 it with (if the deprecation comment says). FAIL if any NEW

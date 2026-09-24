@@ -125,6 +125,11 @@ done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" 
 out exact root_pkgs that need CAP_NET_ADMIN). Retain each package's module
 heading and execute the discovered unit-test packages, one module per
 invocation. `--no-test` and compilation with `-run='^$'` do not execute them.
+Keep the complete discovery output; `head` or a sample of subtrees can omit
+changed-code consumers and entire nested modules. Before returning results,
+reconcile every discovered package with a completed test result or a stated
+infrastructure requirement. Wait for all launched validation/test/review jobs
+and retain their real exits; refresh any verdict that used provisional output.
 Retain each test command's exit status and log for the parent handoff and
 Step 5; identify packages requiring unavailable infrastructure separately.
 From `REPO_ROOT`, pass that

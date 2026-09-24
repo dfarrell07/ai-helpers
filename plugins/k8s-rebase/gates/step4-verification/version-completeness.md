@@ -8,6 +8,10 @@ previous is 1.NN-1).
 Count stale version refs from the PREVIOUS k8s version only.
 Check yml/yaml/sh/Makefile/Dockerfile files (go.mod and .go
 files are covered by go-version-check and compilation gates).
+Also inspect runnable commands in Markdown/code blocks. For example,
+`setup-envtest use 1.x.y` selects Kubernetes test-server binaries, not the
+independently versioned setup-envtest tool. Trace the consumer before excluding
+an old version as prose or a tool tag.
 Exclude:
 
 - K8S_VERSION if the kindest/node image isn't published yet

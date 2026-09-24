@@ -108,6 +108,9 @@ Include this section in every gate reviewer's context.
    `--no-test` in 4), then run `gates` again. Every current-step report at the
    old HEAD is stale, including PASS reports: complete all newly pending
    reviews, not just the previously failing ones.
+   Leave prior-step reports at their actual reviewed SHAs. Later commits do
+   not authorize restamping them; changing a prior report's HEAD requires
+   recollecting its evidence and performing that review again.
 5. If a cached report needs deliberate invalidation at the **same HEAD**,
    remove only that current-step report **before** rerunning `gates`.
    Never delete a newly regenerated companion report or prior-step reports.
@@ -191,6 +194,10 @@ from its SetFromMap.
   logs and recovery information; a single "still running" check or an early
   result file does not establish completion. Do not launch the same work twice.
   Keep the user informed while work runs; stop and report genuine blockers.
+  Save complete output and capture the work command's exit status before
+  displaying excerpts. In `command | tail`, `$?` is normally the filter's
+  status; retain `PIPESTATUS` or use `pipefail` when logging through a pipeline.
+  A successful output filter cannot turn a failed check into PASS.
 
 ## OCP Version Mapping
 
