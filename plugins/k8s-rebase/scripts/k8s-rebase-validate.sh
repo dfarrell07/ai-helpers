@@ -25,6 +25,7 @@
 set -uo pipefail
 
 VALIDATE_ARGS=("$@")
+SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 MODE="default"
 TEST_ONLY_MODULE=""
 TEST_ONLY_PKGS=()
@@ -196,7 +197,7 @@ if [[ "${K8S_REBASE_IN_CONTAINER:-}" == "1" ]]; then
   fi
   # jq: needed by verify-third-party-licenses
   if ! command -v jq &>/dev/null; then
-    curl -sL https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq 2>/dev/null \
+    curl -fsSL --connect-timeout 10 --max-time 45 https://github.com/jqlang/jq/releases/download/jq-1.7.1/jq-linux-amd64 -o /tmp/jq 2>/dev/null \
       && echo "5942c9b0934e510ee61eb3e30273f1b3fe2590df93933a93d7c58b81d19c8ff5  /tmp/jq" | sha256sum -c --quiet 2>/dev/null \
       && chmod +x /tmp/jq && export PATH="/tmp:$PATH"
   fi
@@ -560,8 +561,12 @@ while IFS= read -r gomod; do
           # When vendor/ changed (k8s rebase), test ALL non-privileged
           # packages — vendored dep changes affect all consumers, not
           # just packages with source changes.
-          MERGE_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null || git -C "$REPO_ROOT" merge-base HEAD main 2>/dev/null || echo "HEAD~20")
-          VENDOR_CHANGED=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/vendor/" 2>/dev/null | head -1 || true)
+          if MERGE_BASE=$(bash "$SCRIPT_DIR/resolve-rebase-base.sh" "$REPO_ROOT"); then
+            VENDOR_CHANGED=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/vendor/" 2>/dev/null | head -1 || true)
+          else
+            echo "  Baseline unavailable — testing all non-privileged packages; attribution unresolved"
+            VENDOR_CHANGED=unknown
+          fi
           _vendor_flag=""
           [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && _vendor_flag="-mod vendor"
           TEST_PKGS=""
@@ -725,13 +730,15 @@ fi # end MODE != quick
 # Agents must never add test skips during a rebase (SKILL.md rule).
 # Diff-based: only flags newly added skip calls, not pre-existing ones.
 
-SKIP_MERGE_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null \
-  || git -C "$REPO_ROOT" merge-base HEAD main 2>/dev/null \
-  || echo "HEAD~20")
-
-SKIP_HITS=$(git -C "$REPO_ROOT" diff "$SKIP_MERGE_BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' \
-  | grep -E '^\+.*\bt\.Skip[f]?\s*\(|^\+.*\bginkgo\.Skip[f]?\s*\(|^\+.*\be2eskipper\.Skip[f]?\s*\(|^\+.*\bskipper\.Skip[f]?\s*\(' \
-  || true)
+SKIP_HITS=""
+if SKIP_MERGE_BASE=$(bash "$SCRIPT_DIR/resolve-rebase-base.sh" "$REPO_ROOT"); then
+  SKIP_HITS=$(git -C "$REPO_ROOT" diff "$SKIP_MERGE_BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' \
+    | grep -E '^\+.*\bt\.Skip[f]?\s*\(|^\+.*\bginkgo\.Skip[f]?\s*\(|^\+.*\be2eskipper\.Skip[f]?\s*\(|^\+.*\bskipper\.Skip[f]?\s*\(' \
+    || true)
+else
+  echo "## INCONCLUSIVE TEST SKIP CHECK — rebase baseline unavailable" >> "$SUMMARY"
+  ERRORS_FOUND=1
+fi
 
 if [[ -n "$SKIP_HITS" ]]; then
   echo ""

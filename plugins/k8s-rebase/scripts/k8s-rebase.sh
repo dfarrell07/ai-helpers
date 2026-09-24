@@ -515,6 +515,18 @@ if git rev-parse --verify "$BRANCH_NAME" &>/dev/null; then
   BRANCH_NAME="bump${K8S_MAJOR_MINOR}-$(date +%Y%m%d%H%M%S)"
   info "bump${K8S_MAJOR_MINOR} already exists, using $BRANCH_NAME"
 fi
+# Record the immutable start after any default-branch fast-forward. A resumed
+# run keeps its original record; a conflicting record must never be replaced.
+if [[ -e "$REBASE_TMP/base-commit" || -L "$REBASE_TMP/base-commit" ]]; then
+  _base_helper="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/resolve-rebase-base.sh"
+  REBASE_BASE=$(bash "$_base_helper" "$REPO_ROOT") \
+    || die "Existing rebase baseline is invalid; preserve .rebase-tmp/base-commit for recovery"
+else
+  REBASE_BASE=$(git rev-parse --verify 'HEAD^{commit}')
+  (set -o noclobber; printf '%s\n' "$REBASE_BASE" > "$REBASE_TMP/base-commit") \
+    || die "Cannot record rebase baseline without overwriting existing state"
+fi
+info "Rebase baseline: $REBASE_BASE"
 git checkout -b "$BRANCH_NAME"
 echo "$BRANCH_NAME" > "$REBASE_TMP/branch-name"
 info "Created branch: $BRANCH_NAME"

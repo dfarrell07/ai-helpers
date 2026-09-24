@@ -3,13 +3,13 @@ Review the branch as a maintainer would. Does every change serve the k8s
 version bump, or are there unrelated cleanups, style changes, or logic alterations?
 
 Step 1 — read the commit history (subjects AND bodies — both are required):
-  git log --format="%H%n%s%n%b%n---END---" $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
+  git log --format="%H%n%s%n%b%n---END---" $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD
 
   Use the commit bodies to verify: are commit messages accurate? Do they match the diff?
   Individual commits map changes to SHAs — needed for citing evidence in any FAIL finding.
 
 Step 2 — read the aggregate diff:
-  git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD
+  git diff $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD
 
 Check:
 
@@ -23,12 +23,14 @@ Check:
 - Are any expected changes missing (e.g., version refs not
   updated, type conversions incomplete)?
 
-Note: the autofix script applies deterministic rebase patterns
-that ARE required — these are NOT scope creep. Changes from the
-autofix are expected, even if they touch e2e infrastructure,
-version references, or test configuration. Do not flag
-patch-level version mismatches as scope creep — the autofix
-picks the latest available patch releases. DO flag minor-version
+Inspect autofix changes under the same scope rule. Their scripted origin
+does not prove they were required. Flag unrelated formatting of unchanged
+code or optional aliases without a rebase-triggered diagnostic. Go import
+identifiers follow the dependency's declared package name; a numeric path
+segment alone does not require an alias. Check the package declaration or
+actual compiler output before claiming otherwise.
+Do not flag verified patch-level version differences as scope creep — KIND
+may require an available earlier patch of the target minor. DO flag minor-version
 mismatches (versions from a different minor release than the
 target).
 
@@ -39,7 +41,7 @@ suppressed via `.golangci.yml` (exclude-functions, exclude-rules, or
 linter settings). The config is the right place; inline annotations are
 for rare, targeted, one-off exceptions that can't be expressed in config.
 Check:
-  `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD | grep '^\+.*//nolint:'`
+  `git diff $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD | grep '^\+.*//nolint:'`
 For each hit, verify the suppressed linter is NOT already covered by
 `.golangci.yml`. If it is — FAIL. If the annotation is genuinely
 site-specific with no config equivalent — INFO only.
@@ -52,7 +54,7 @@ confirms a replacement exists — FAIL; if go doc is inconclusive or the
 package is unavailable, note the check as unverifiable in DETAILS and do
 not FAIL. If vendor/ exists, use these steps:
 
-  1. Find the new nolint lines: `git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD | grep '^\+.*//nolint:staticcheck'`
+  1. Find the new nolint lines: `git diff $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD | grep '^\+.*//nolint:staticcheck'`
   2. For each, look at the suppressed call on the same or adjacent line.
   3. Identify the package: find the import path in the file's import block.
   4. Locate the deprecation notice: `grep -rn 'Deprecated' vendor/<import-path>/`

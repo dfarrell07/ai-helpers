@@ -47,7 +47,7 @@ MANDATORY pre-existing check — run for EVERY finding before
 counting it:
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 # For each finding at <file>:<line> with <symbol>:
 base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<symbol>')
 curr_count=$(grep -c '<symbol>' "<file>" 2>/dev/null)

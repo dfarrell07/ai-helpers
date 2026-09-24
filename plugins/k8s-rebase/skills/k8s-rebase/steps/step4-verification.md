@@ -10,6 +10,11 @@ Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-validate.sh" --no-test
 ```
 
+Inspect which commands actually ran. `--no-test` also builds and vets; its
+exit zero does not prove lint ran. If no lint target is found, inspect the
+repository's CI/configuration for its lint entrypoint. Run it if configured;
+otherwise report lint as not configured, with no lint PASS claim.
+
 **Scope rule (applies before fixing anything):** Only fix lint errors that
 are caused by changes required for this rebase. Inspect the finding and the
 merge-base diff, including dependencies and lint/toolchain configuration.
@@ -18,12 +23,11 @@ itself prove the diagnostic is new. Use existing baseline evidence when
 sufficient. If baseline execution is needed, use a separate disposable clone,
 not a worktree; never stash, reset, or switch the active checkout for comparison.
 
-With `REPO_ROOT` bound and `TMPDIR` pointing outside the target checkout:
+With `PLUGIN_ROOT` and `REPO_ROOT` bound, and `TMPDIR` outside the target checkout:
 
 ```bash
-LINT_BASE=$(git -C "$REPO_ROOT" merge-base HEAD master 2>/dev/null ||
-            git -C "$REPO_ROOT" merge-base HEAD main) || {
-  echo "ERROR: cannot resolve lint baseline from master/main" >&2
+LINT_BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$REPO_ROOT") || {
+  echo "ERROR: cannot resolve lint baseline" >&2
   exit 1
 }
 LINT_BASE_DIR=$(mktemp -d "${TMPDIR:-/tmp}/k8s-rebase-lint-base.XXXXXX") || exit 1

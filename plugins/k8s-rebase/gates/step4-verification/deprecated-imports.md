@@ -35,7 +35,7 @@ already cover those.
 MANDATORY pre-existing check — run for EVERY deprecated import finding:
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 # For each finding at <file> with <import-path>:
 base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<import-path>')
 was_modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)

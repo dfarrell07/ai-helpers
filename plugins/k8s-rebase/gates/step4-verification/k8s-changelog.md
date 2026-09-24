@@ -7,17 +7,32 @@ requires one, which may be nested (for example `go-controller/go.mod`).
 If K8S_MINOR is still empty, write INCONCLUSIVE with summary
 "could not determine K8S_MINOR".
 
-Read the Kubernetes changelog for the target minor version.
-Try the tag-based URL first (more reliable), fall back to master:
-  curl -sfL "https://raw.githubusercontent.com/kubernetes/kubernetes/refs/tags/v1.${K8S_MINOR}.0/CHANGELOG/CHANGELOG-1.${K8S_MINOR}.md"
-If that returns 404:
-  curl -sfL "https://raw.githubusercontent.com/kubernetes/kubernetes/master/CHANGELOG/CHANGELOG-1.${K8S_MINOR}.md"
+Read the Kubernetes changelog for the target minor and requested patch.
+Derive the exact target from the same target record or primary go.mod above
+(for example v0.37.1 means v1.37.1). Fetch that Kubernetes tag's
+`CHANGELOG/CHANGELOG-1.${K8S_MINOR}.md`. Check that its headings include the
+requested stable release: a successful HTTP response may contain stale notes.
+If the tag file is missing or lacks the target heading, fetch the
+`release-1.${K8S_MINOR}` branch file, then the exact GitHub release body as
+needed. Report the actual URL and reviewed headings. Do not silently use
+`.0` notes as verification of a later patch, or include a newer patch as if
+it were part of the requested target.
+
+For example, the release branch source is:
+  `https://raw.githubusercontent.com/kubernetes/kubernetes/release-1.${K8S_MINOR}/CHANGELOG/CHANGELOG-1.${K8S_MINOR}.md`
 
 If the changelog is too large, focus on these sections only:
 
 - "Urgent Upgrade Notes"
 - "Deprecation"
 - "API Change"
+
+Read these sections across the target minor's development and stable release
+entries, plus changes through the requested patch. A truncated web response
+is incomplete evidence, even when it summarizes other sections. Retrieve
+the omitted sections using bounded raw-source reads; if that cannot be
+completed, list the missing sections and report INCONCLUSIVE. Never infer
+"no relevant urgent notes" from missing text.
 
 Filter for entries most relevant to this repo's component. For
 network-focused repos, prioritize [SIG Network], [SIG API Machinery],
@@ -53,11 +68,14 @@ Report per entry:
   [client-go] summary: ADDRESSED / N/A / NOT ADDRESSED
 
 If the client-go changelog is unavailable, note it in DETAILS and continue.
+Include the source URLs, release ranges/sections actually read, affected
+symbols checked, and any missing coverage in the report.
 
 VERDICT criteria: FAIL if any NOT ADDRESSED entry is in
 "Urgent Upgrade Notes" or "API Change" and affects symbols
 used by this repo. PASS if all relevant entries are ADDRESSED
-or N/A. If the Kubernetes changelog is unavailable, write
+or N/A and the required Kubernetes sections were read completely. If the
+Kubernetes changelog is unavailable or relevant sections remain unread, write
 INCONCLUSIVE with summary "Kubernetes changelog unavailable — upgrade
 notes not checked".
 

@@ -14,8 +14,7 @@ report 0 — do not hold the rebase to a stricter standard than
 the project enforces on itself.
 
 Then check all rebase commits:
-  git log --oneline $(git merge-base HEAD main 2>/dev/null ||
-    git merge-base HEAD master)..HEAD
+  git log --oneline $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD
 
 For each commit, check:
 

@@ -38,7 +38,7 @@ handles that). Focus on these unique checks:
 4. Test assertion weakening: Check if `assert.Equal` was changed
    to `assert.EqualValues` in the diff. Prefer updating expected
    value literals to match new types over weakening the assertion.
-   Run: `git diff $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)..HEAD -- '*_test.go' | grep -E '^\-.*assert\.Equal\b|^\+.*assert\.EqualValues' | head -20`
+   Run: `git diff $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD -- '*_test.go' | grep -E '^\-.*assert\.Equal\b|^\+.*assert\.EqualValues' | head -20`
    Flag new EqualValues introductions as INFO in DETAILS — do NOT
    count toward FAIL unless the change demonstrably loses type
    precision that would hide a real bug. Pre-existing EqualValues
@@ -65,7 +65,7 @@ MANDATORY pre-existing check — run for EVERY finding:
 For check 3 (Eventf/Event scan — repo-wide grep, additive):
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 # For each finding at <file> with <pattern>:
 base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<pattern>')
 curr_count=$(grep -c '<pattern>' "<file>" 2>/dev/null)

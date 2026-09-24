@@ -31,7 +31,7 @@ For each error (which cites file:line), determine its origin. Compare the
 line on base with the current line:
 
 ```bash
-BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 base_line=$(git show "$BASE:<file>" 2>/dev/null | sed -n '<line>p')
 curr_line=$(sed -n '<line>p' "<file>")
 was_modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)

@@ -12,6 +12,19 @@ changes are not a contract. Run repo-level commands at `REPO_ROOT`, and
 module-local operations in their module. Keep the session itself rooted at
 the checkout so the existing hook guards remain active.
 
+Resolve the baseline with the shared helper, never a guessed `HEAD~N` or a
+hardcoded branch name:
+
+```bash
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$REPO_ROOT") || exit 1
+```
+
+Step 1 records `.rebase-tmp/base-commit` before changing dependencies. The
+helper validates that record against HEAD and supports release branches when
+recovering older runs. Bind BASE again in each shell call that needs it.
+If resolution fails, retain the error and report unresolved scope; never
+substitute an arbitrary ancestor or claim a zero-issue diff.
+
 ## Scope
 
 Every change must be required by the requested rebase: dependency alignment,
@@ -28,7 +41,7 @@ Preserve nil semantics: `*int32` nil means "server default",
 Adapt type signatures without altering surrounding logic.
 Verify the issue against base, including its dependencies and configuration;
 unchanged source alone does not establish that a failure is pre-existing:
-`git show $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main):<file>`
+`git show $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)"):<file>`
 
 Do not add struct tags (like omitempty), merge functions, rename
 interfaces, or restructure packages.

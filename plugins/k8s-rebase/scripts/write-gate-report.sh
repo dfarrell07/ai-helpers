@@ -21,6 +21,28 @@ shift 5
 [[ "$VERDICT" =~ ^(PASS|FAIL|SKIP|INCONCLUSIVE)$ ]] || { echo "ERROR: verdict must be PASS, FAIL, SKIP, or INCONCLUSIVE (got: $VERDICT)" >&2; exit 1; }
 [[ "$GATE_NAME" =~ ^[a-zA-Z0-9_-]+$ ]] || { echo "ERROR: invalid gate name: $GATE_NAME" >&2; exit 1; }
 
+# A successful vulnerability verdict requires complete query coverage, not a
+# sample of dependencies. The companion collects facts; the reviewer still
+# decides severity, attribution, reachability, and the final verdict.
+if [[ "$GATE_NAME" == step4-dep-cve-check && "$VERDICT" =~ ^(PASS|SKIP)$ ]]; then
+  evidence="$REPO/.rebase-tmp/gates/$GATE_NAME.evidence"
+  head=$(git -C "$REPO" rev-parse HEAD)
+  _field() { sed -n "s/^$1: //p" "$evidence" 2>/dev/null; }
+  if [[ ! -f "$evidence" ]] || [[ "$(_field HEAD)" != "$head" ]] ||
+     [[ "$(_field SCAN_HEAD)" != "$head" ]] || [[ "$(_field COVERAGE)" != COMPLETE ]]; then
+    echo "ERROR: $GATE_NAME requires fresh COMPLETE companion evidence; collect missing coverage or report INCONCLUSIVE" >&2
+    exit 1
+  fi
+  for kind in QUERIES ADVISORIES; do
+    expected=$(_field "EXPECTED_$kind")
+    completed=$(_field "COMPLETED_$kind")
+    if [[ ! "$expected" =~ ^[0-9]+$ ]] || [[ "$completed" != "$expected" ]]; then
+      echo "ERROR: $GATE_NAME has incomplete $kind coverage" >&2
+      exit 1
+    fi
+  done
+fi
+
 mkdir -p "$REPO/.rebase-tmp/gates"
 {
   echo "HEAD: $(git -C "$REPO" rev-parse HEAD 2>/dev/null || echo unknown)"

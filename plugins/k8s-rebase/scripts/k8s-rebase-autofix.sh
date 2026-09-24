@@ -1000,11 +1000,13 @@ fix_imports() {
   #    multi-group layout like stdlib/external/k8s.io/local)
   # Find all Go files changed since the rebase started (not just unstaged).
   # Import issues may have been committed by earlier steps.
-  local merge_base modified
-  merge_base=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main 2>/dev/null || echo "HEAD~10")
-  modified=$(git diff --name-only "$merge_base" -- '*.go' | grep -v vendor | grep -v 'zz_generated')
-  [[ -z "$modified" ]] && modified=$(git diff --name-only -- '*.go' | grep -v vendor | grep -v 'zz_generated')
-  [[ -z "$modified" ]] && return 0
+  local merge_base helper_dir f
+  local -a modified=()
+  helper_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd) || return 1
+  merge_base=$(bash "$helper_dir/resolve-rebase-base.sh" "$REPO_ROOT") || return 1
+  mapfile -d '' -t modified < <(git diff --name-only -z --diff-filter=ACMRT "$merge_base" -- \
+    '*.go' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/zz_generated*')
+  [[ ${#modified[@]} -eq 0 ]] && return 0
 
   # Step 1: goimports fixes import grouping
   if ! command -v goimports &>/dev/null; then
@@ -1013,9 +1015,9 @@ fix_imports() {
     fi
   fi
   if command -v goimports &>/dev/null; then
-    echo ":: Running goimports on $(wc -l <<< "$modified") modified files"
-    for f in $modified; do
-      [[ -f "$f" ]] && goimports -w "$f"
+    echo ":: Running goimports on ${#modified[@]} modified files"
+    for f in "${modified[@]}"; do
+      [[ -f "$f" ]] && goimports -w "$REPO_ROOT/$f"
     done
   fi
 
@@ -1046,7 +1048,7 @@ fix_imports() {
       local gci_dir="."
       [[ -n "$PRIMARY_GOMOD" ]] && gci_dir="$(dirname "$PRIMARY_GOMOD")"
       echo ":: Running gci on modified files (${gci_args[*]})"
-      for f in $modified; do
+      for f in "${modified[@]}"; do
         [[ -f "$f" ]] && (cd "$gci_dir" && gci write "${gci_args[@]}" "$REPO_ROOT/$f") 2>/dev/null || true
       done
     fi

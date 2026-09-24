@@ -70,6 +70,42 @@ class CompatibilityTests(unittest.TestCase):
         self.stub("mktemp", '[[ "${@: -1}" == *XXXXXX ]] || exit 97\n'
                   f'exec "{real_mktemp}" "$@"\n')
 
+    def test_cve_report_rejects_incomplete_or_stale_collection(self):
+        gates = self.repo / ".rebase-tmp/gates"
+        gates.mkdir(parents=True)
+        evidence = gates / "step4-dep-cve-check.evidence"
+        report = gates / "step4-dep-cve-check.report"
+        helper = PLUGIN / "scripts/write-gate-report.sh"
+        complete = (f"HEAD: {self.git_sha()}\nSCAN_HEAD: {self.git_sha()}\n"
+                    "COVERAGE: COMPLETE\nEXPECTED_QUERIES: 45\nCOMPLETED_QUERIES: 45\n"
+                    "EXPECTED_ADVISORIES: 2\nCOMPLETED_ADVISORIES: 2\n")
+        for text in (None, complete.replace('COVERAGE: COMPLETE', 'COVERAGE: INCOMPLETE'),
+                     complete.replace('COMPLETED_QUERIES: 45', 'COMPLETED_QUERIES: 7'),
+                     complete.replace('COMPLETED_ADVISORIES: 2', 'COMPLETED_ADVISORIES: 1'),
+                     complete.replace(self.git_sha(), self.base, 1),
+                     complete.replace(f'SCAN_HEAD: {self.git_sha()}', f'SCAN_HEAD: {self.base}'),
+                     complete + 'COVERAGE: COMPLETE\n'):
+            with self.subTest(evidence=text):
+                evidence.unlink(missing_ok=True)
+                if text is not None:
+                    evidence.write_text(text)
+                for verdict in ('PASS', 'SKIP'):
+                    report.write_text('preserve prior report\n')
+                    result = self.run_cmd('bash', str(helper), str(self.repo),
+                                          'step4-dep-cve-check', verdict, '0', 'fixture')
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn('ERROR:', result.stderr)
+                    self.assertEqual(report.read_text(), 'preserve prior report\n')
+        for verdict in ('FAIL', 'INCONCLUSIVE'):
+            result = self.run_cmd('bash', str(helper), str(self.repo),
+                                  'step4-dep-cve-check', verdict, '1', 'missing coverage')
+            self.assertEqual(result.returncode, 0, result.stderr)
+        evidence.write_text(complete)
+        result = self.run_cmd('bash', str(helper), str(self.repo),
+                              'step4-dep-cve-check', 'PASS', '0', 'reviewed all findings')
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertIn('VERDICT: PASS', report.read_text())
+
     def test_prompt_scopes_and_no_claude(self):
         fix = self.review("fix", "--print-prompt", "HEAD", "undefined: oldAPI")
         pr = self.review("pr", "--print-prompt", self.base, "1.36.0")
@@ -389,7 +425,7 @@ class CompatibilityTests(unittest.TestCase):
         hook.chmod(0o755)
         scratch = self.root / "baseline comparisons"
         scratch.mkdir()
-        self.env.update(REPO_ROOT=str(self.repo), TMPDIR=str(scratch))
+        self.env.update(REPO_ROOT=str(self.repo), PLUGIN_ROOT=str(PLUGIN), TMPDIR=str(scratch))
         instructions = (PLUGIN / "skills/k8s-rebase/steps/step4-verification.md").read_text()
         example = next(block.split("```", 1)[0] for block in instructions.split("```bash\n")[1:]
                        if "LINT_BASE=" in block.split("```", 1)[0])
@@ -482,6 +518,7 @@ exec "{real_git}" "$@"
             copied = self.root / f"script copy {kind}"
             copied.mkdir()
             script = shutil.copy(PLUGIN / "scripts/k8s-rebase-review.sh", copied)
+            shutil.copy(PLUGIN / "scripts/resolve-rebase-base.sh", copied)
             if kind == "directory":
                 (copied / "k8s-rebase-review-prompt.md").mkdir()
             for print_prompt in (True, False):
@@ -501,6 +538,7 @@ exec "{real_git}" "$@"
         copied = self.root / "script copy"
         copied.mkdir()
         script = shutil.copy(PLUGIN / "scripts/k8s-rebase-review.sh", copied)
+        shutil.copy(PLUGIN / "scripts/resolve-rebase-base.sh", copied)
         template = copied / "k8s-rebase-review-prompt.md"
         self.env["REVIEW_TEMPLATE"] = str(template)
         real_git = shutil.which("git")
@@ -904,6 +942,10 @@ exec "{real_git}" "$@"
         retained = {"state.json": (state / "state.json").read_text(),
                     "gates/step4-review.report": "VERDICT: FAIL\n",
                     "status/INCOMPLETE": "unresolved fixture\n",
+                    "base-commit": self.git_sha() + "\n",
+                    "test-only-fixture": "actual test output\n",
+                    "root-build.log": "actual build output\n",
+                    "summary.txt": "actual validation summary\n",
                     "unrelated.fixture": "keep\n"}
         for name, body in retained.items():
             path = state / name
@@ -911,7 +953,7 @@ exec "{real_git}" "$@"
             path.write_text(body)
         scratch = [Path(self.run_cmd("mktemp", str(state / f"{prefix}-XXXXXX"),
                                      check=True).stdout.strip())
-                   for prefix in ("test-only", "step4-review", "step5-review")]
+                   for prefix in ("step4-review", "step5-review")]
         hook = self.repo / ".git/hooks/pre-push"
         hook.write_text("#!/bin/sh\nexit 1 # k8s-rebase guard\n")
         backup = hook.with_name("pre-push.bak.k8s-rebase")
@@ -952,21 +994,21 @@ exec "{real_git}" "$@"
                     self.assertEqual(hook.stat().st_mode & 0o777, 0o751)
 
     @unittest.skipUnless(shutil.which("zsh"), "zsh is not installed")
-    def test_cleanup_from_zsh_handles_unmatched_globs_and_removes_logs(self):
+    def test_cleanup_from_zsh_handles_unmatched_globs_and_preserves_evidence(self):
         self.activate(step=5)
         state = self.repo / ".rebase-tmp"
         (state / "gates").mkdir()
         report = state / "gates/step4-check.report"
         report.write_text(f"HEAD: {self.git_sha()}\nVERDICT: PASS\n")
         for name in ("root-build.log", "go-get.log", "summary.txt"):
-            (state / name).write_text("scratch\n")
+            (state / name).write_text("verification evidence\n")
         # There are deliberately no step*.pid or test-only-* matches.
         result = self.run_cmd("zsh", "-f", "-c", self.cleanup_example())
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertNotIn("no matches found", result.stderr)
         self.assertFalse((state / ".session-active").exists())
-        self.assertFalse(list(state.glob("*.log")))
-        self.assertFalse(list(state.glob("*.txt")))
+        for name in ("root-build.log", "go-get.log", "summary.txt"):
+            self.assertEqual((state / name).read_text(), "verification evidence\n")
         self.assertTrue(report.exists())
         self.assertTrue((state / "state.json").exists())
 

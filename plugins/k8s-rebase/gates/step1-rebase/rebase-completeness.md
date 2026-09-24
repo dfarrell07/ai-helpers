@@ -26,7 +26,7 @@ Report a count for each check:
    the script's commit step failed.
 
 3. Rebase commits: check `git log --oneline "$BASE"..HEAD` (where
-   $BASE is from `git merge-base HEAD master 2>/dev/null || git merge-base HEAD main`).
+   $BASE is the validated commit from `scripts/resolve-rebase-base.sh`).
    Count MISSING expected commits:
 
    - "Rebase" commits (at least 1 per go.mod with k8s.io deps,
@@ -62,8 +62,7 @@ Report a count for each check:
        appears at the same version in this go.mod on the
        base branch.
    To check the base-branch version of any go.mod:
-   `git show $(git merge-base HEAD master 2>/dev/null ||
-   git merge-base HEAD main):<path>` — substitute the
+   `git show $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)"):<path>` — substitute the
    relative path of the go.mod being checked (e.g. go.mod,
    go-controller/go.mod).
    Direct release-versioned requires without a `replace` are

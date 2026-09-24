@@ -37,7 +37,10 @@ class ValidationTests(unittest.TestCase):
                         BASH_ENV="", ENV="", GOTOOLCHAIN="local", GOWORK="off",
                         GOPROXY="off", GOSUMDB="off", GOFLAGS="-p=2", GOMAXPROCS="2",
                         K8S_REBASE_IN_CONTAINER="", TEST_ROOT=str(self.root))
-        self.run_cmd("git", "init", "-q", "-b", "rebase", check=True)
+        self.run_cmd("git", "init", "-q", "-b", "main", check=True)
+        self.run_cmd("git", "-c", "user.name=fixture", "-c", "user.email=fixture@example.invalid",
+                     "commit", "-q", "--allow-empty", "-m", "Baseline", check=True)
+        self.run_cmd("git", "checkout", "-q", "-b", "rebase", check=True)
         self.stub("go", '''import json, os, sys
 from pathlib import Path
 with (Path(os.environ["TEST_ROOT"]) / "go-calls.jsonl").open("a") as log:

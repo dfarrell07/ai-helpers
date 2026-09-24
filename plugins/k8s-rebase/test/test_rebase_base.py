@@ -1,0 +1,283 @@
+#!/usr/bin/env python3
+"""Rebase baseline and import-repair scope checks using real Git histories."""
+
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+
+PLUGIN = Path(__file__).resolve().parents[1]
+HELPER = PLUGIN / "scripts/resolve-rebase-base.sh"
+AUTOFIX = (PLUGIN / "scripts/k8s-rebase-autofix.sh").read_text()
+IMPORTS = "fix_imports() {" + AUTOFIX.split("fix_imports() {", 1)[1].split(
+    "\nfix_bounding_dirs() {", 1)[0]
+REBASE = (PLUGIN / "scripts/k8s-rebase.sh").read_text()
+BRANCH = REBASE.split("# Ensure default branch is current with remote\n", 1)[1].split(
+    "# ── Derivation function", 1)[0]
+
+
+class RebaseBaseTests(unittest.TestCase):
+    def setUp(self):
+        work = PLUGIN.parents[1] / ".work/rebase-base-tests"
+        work.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(prefix="case-", dir=work)
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.repo = self.root / "repo with spaces"
+        self.repo.mkdir()
+        self.env = dict(os.environ)
+        for key in list(self.env):
+            if key.startswith(("GIT_", "BASH_FUNC_")):
+                del self.env[key]
+        self.env.update(GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+                        BASH_ENV="", ENV="")
+        self.git("init", "-q", "-b", "release-5.1")
+        self.git("config", "user.name", "Baseline Fixture")
+        self.git("config", "user.email", "baseline@example.invalid")
+        (self.repo / ".git/info/exclude").write_text(".rebase-tmp/\n")
+        self.write("go.mod", "module example.invalid/fixture\ngo 1.26.0\n")
+        self.write("active.go", "package fixture\nvar    Active = 1\n")
+        self.initial = self.commit("initial")
+        self.record = self.repo / ".rebase-tmp/base-commit"
+        self.record.parent.mkdir()
+        self.scripts = self.root / "scripts"
+        self.scripts.mkdir()
+        shutil.copyfile(HELPER, self.scripts / HELPER.name)
+
+    def run_cmd(self, *args, check=True, cwd=None):
+        return subprocess.run(args, cwd=cwd or self.repo, env=self.env, text=True,
+                              capture_output=True, check=check, timeout=20)
+
+    def git(self, *args, check=True):
+        return self.run_cmd("git", *args, check=check)
+
+    def write(self, path, content):
+        target = self.repo / path
+        target.parent.mkdir(parents=True, exist_ok=True)
+        target.write_text(content)
+
+    def commit(self, message):
+        self.git("add", "-A")
+        self.git("commit", "-qm", message, "--allow-empty")
+        return self.git("rev-parse", "HEAD").stdout.strip()
+
+    def resolve(self, tip=None, check=True):
+        args = ["bash", str(HELPER), str(self.repo)]
+        if tip is not None:
+            args.append(tip)
+        return self.run_cmd(*args, check=check)
+
+    def remote_default(self, commit):
+        self.git("update-ref", "refs/remotes/origin/release-5.1", commit)
+        self.git("symbolic-ref", "refs/remotes/origin/HEAD",
+                 "refs/remotes/origin/release-5.1")
+
+    def record_base(self, commit):
+        self.record.write_text(commit + "\n")
+
+    def install_formatters(self):
+        binary = self.root / "bin"
+        binary.mkdir()
+        self.format_log = self.root / "formatters.jsonl"
+        formatter = """#!/usr/bin/env python3
+import json, os, pathlib, sys
+with open(os.environ['FORMAT_LOG'], 'a') as out:
+    out.write(json.dumps({'tool': pathlib.Path(sys.argv[0]).name, 'args': sys.argv[1:]}) + '\\n')
+if pathlib.Path(sys.argv[0]).name == 'goimports':
+    path = pathlib.Path(sys.argv[-1])
+    path.write_text(path.read_text().replace('var    ', 'var '))
+"""
+        for tool in ("goimports", "gci"):
+            path = binary / tool
+            path.write_text(formatter)
+            path.chmod(0o755)
+        self.env.update(PATH=str(binary) + os.pathsep + self.env["PATH"],
+                        FORMAT_LOG=str(self.format_log))
+
+    def import_fix(self, check=True):
+        wrapper = self.scripts / "import-test.sh"
+        wrapper.write_text('''#!/bin/bash
+set -uo pipefail
+REPO_ROOT=$1
+PRIMARY_GOMOD=go.mod
+''' + IMPORTS + "\nfix_imports\n")
+        return self.run_cmd("bash", str(wrapper), str(self.repo), check=check)
+
+    def branch_creation(self, check=True):
+        wrapper = self.scripts / "branch-test.sh"
+        wrapper.write_text('''#!/bin/bash
+set -euo pipefail
+REPO_ROOT=$1
+REBASE_TMP="$REPO_ROOT/.rebase-tmp"
+K8S_MAJOR_MINOR=1.37
+info() { printf ':: %s\\n' "$*" >&2; }
+die() { printf 'ERROR: %s\\n' "$*" >&2; exit 1; }
+''' + BRANCH)
+        return self.run_cmd("bash", str(wrapper), str(self.repo), check=check)
+
+    def test_recorded_commit_wins_when_remote_default_moves(self):
+        self.record_base(self.initial)
+        self.remote_default(self.initial)
+        self.git("switch", "-qc", "bump1.37")
+        self.write("active.go", "package fixture\nvar    Active = 2\n")
+        tip = self.commit("rebase")
+        self.remote_default(tip)
+        result = self.resolve()
+        self.assertEqual(result.stdout, self.initial + "\n")
+        self.assertEqual(result.stderr, "")
+        self.assertEqual(self.resolve(self.initial).stdout, self.initial + "\n")
+
+    def test_release_default_without_master_or_main(self):
+        self.remote_default(self.initial)
+        self.git("switch", "-qc", "bump1.37")
+        self.commit("rebase")
+        self.assertEqual(self.resolve().stdout, self.initial + "\n")
+        for name in ("master", "main"):
+            self.assertNotEqual(self.git("show-ref", "--verify", "refs/heads/" + name,
+                                        check=False).returncode, 0)
+
+    def test_release_tracking_branch_without_origin_head(self):
+        self.git("remote", "add", "origin", str(self.root / "not-contacted"))
+        self.git("update-ref", "refs/remotes/origin/release-5.1", self.initial)
+        self.git("branch", "--set-upstream-to", "origin/release-5.1")
+        self.commit("local work")
+        self.assertEqual(self.resolve().stdout, self.initial + "\n")
+
+    def test_default_remote_precedes_legacy_master(self):
+        self.git("branch", "master", self.initial)
+        base = self.commit("release advances")
+        self.remote_default(base)
+        self.git("switch", "-qc", "bump1.37")
+        self.commit("rebase")
+        self.assertEqual(self.resolve().stdout, base + "\n")
+
+    def test_legacy_main_is_used_when_no_default_metadata_exists(self):
+        self.git("branch", "main", self.initial)
+        self.commit("rebase")
+        self.assertEqual(self.resolve().stdout, self.initial + "\n")
+
+    def test_invalid_record_never_falls_back_to_valid_remote(self):
+        self.remote_default(self.initial)
+        for invalid in ("HEAD\n", self.initial[:12] + "\n", "", "f" * 40 + "\n",
+                        self.initial + "\n" + self.initial + "\n"):
+            with self.subTest(record=invalid):
+                self.record.write_text(invalid)
+                result = self.resolve(check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertEqual(result.stdout, "")
+                self.assertIn("ERROR: Cannot resolve rebase baseline:", result.stderr)
+                self.assertEqual(self.record.read_text(), invalid)
+
+    def test_recorded_commit_must_be_ancestor_of_requested_tip(self):
+        later = self.commit("later")
+        self.record_base(later)
+        self.remote_default(self.initial)
+        result = self.resolve(self.initial, check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not an ancestor", result.stderr)
+        self.assertEqual(self.resolve().stdout, later + "\n")
+        self.assertNotEqual(self.resolve("not-a-tip", check=False).returncode, 0)
+
+    def test_unrelated_record_is_rejected(self):
+        orphan = self.git("commit-tree", "HEAD^{tree}", "-m", "unrelated root").stdout.strip()
+        self.record_base(orphan)
+        self.remote_default(self.initial)
+        result = self.resolve(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("not an ancestor", result.stderr)
+        self.assertEqual(self.record.read_text(), orphan + "\n")
+
+    def test_no_arbitrary_history_fallback_or_formatting(self):
+        for index in range(12):
+            self.commit(f"history {index}")
+        self.write("active.go", "package fixture\nvar    Active = 2\n")
+        self.install_formatters()
+        before = (self.repo / "active.go").read_bytes()
+        result = self.import_fix(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("no recorded baseline or usable default/tracking branch", result.stderr)
+        self.assertFalse(self.format_log.exists())
+        self.assertEqual((self.repo / "active.go").read_bytes(), before)
+
+    def test_imports_ignore_historical_files_and_handle_filenames_safely(self):
+        historical = "package fixture\nvar    Historical = 1\n"
+        for index in range(9):
+            self.commit(f"history {index}")
+        self.write("historical.go", historical)
+        self.commit("unformatted file before rebase")
+        self.write("removed.go", "package fixture\n")
+        base = self.commit("starting release")
+        self.record_base(base)
+        self.git("switch", "-qc", "bump1.37")
+        self.write("active.go", "package fixture\nvar    Active = 2\n")
+        self.commit("committed rebase change")
+        self.assertIn("historical.go", self.git("diff", "--name-only", "HEAD~10").stdout)
+        unusual = "nested dir/file with\na newline.go"
+        self.write(unusual, "package fixture\nvar    Added = 1\n")
+        self.write("vendor/dep/ignored.go", "package dep\nvar    Vendor = 1\n")
+        self.write("nested/vendor/dep/ignored.go", "package dep\nvar    Nested = 1\n")
+        self.write("nested/zz_generated.deepcopy.go", "package fixture\nvar    Generated = 1\n")
+        self.git("add", "-A")
+        (self.repo / "removed.go").unlink()
+        self.write(".golangci.yml", "linters:\n  gci:\n    sections:\n      - standard\n      - default\n")
+        self.install_formatters()
+        self.import_fix()
+        calls = [json.loads(line) for line in self.format_log.read_text().splitlines()]
+        wanted = {str(self.repo / "active.go"), str(self.repo / unusual)}
+        for tool in ("goimports", "gci"):
+            self.assertEqual({call["args"][-1] for call in calls if call["tool"] == tool}, wanted)
+        self.assertEqual((self.repo / "historical.go").read_text(), historical)
+        self.assertIn("var Added", (self.repo / unusual).read_text())
+        self.assertIn("var    Vendor", (self.repo / "vendor/dep/ignored.go").read_text())
+
+    def test_imports_use_release_default_without_record(self):
+        self.write("historical.go", "package fixture\nvar    Historical = 1\n")
+        base = self.commit("starting release")
+        self.remote_default(base)
+        self.git("switch", "-qc", "bump1.37")
+        self.write("active.go", "package fixture\nvar    Active = 2\n")
+        self.commit("rebase")
+        self.install_formatters()
+        self.import_fix()
+        calls = [json.loads(line) for line in self.format_log.read_text().splitlines()]
+        self.assertEqual([call["args"][-1] for call in calls], [str(self.repo / "active.go")])
+        self.assertIn("var    Historical", (self.repo / "historical.go").read_text())
+
+    def test_step1_records_after_default_fast_forward(self):
+        origin = self.root / "origin.git"
+        self.run_cmd("git", "clone", "--bare", "-q", str(self.repo), str(origin))
+        for key, value in (("user.name", "Baseline Fixture"),
+                           ("user.email", "baseline@example.invalid")):
+            self.run_cmd("git", "-C", str(origin), "config", key, value)
+        newer = self.run_cmd("git", "-C", str(origin), "commit-tree", "HEAD^{tree}",
+                             "-p", self.initial, "-m", "upstream advance").stdout.strip()
+        self.run_cmd("git", "-C", str(origin), "update-ref", "refs/heads/release-5.1", newer)
+        self.git("remote", "add", "origin", str(origin))
+        self.remote_default(self.initial)
+        self.branch_creation()
+        self.assertEqual(self.record.read_text(), newer + "\n")
+        self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "bump1.37")
+        self.assertEqual(self.resolve().stdout, newer + "\n")
+
+    def test_step1_preserves_existing_compatible_record(self):
+        self.record_base(self.initial)
+        self.commit("already recorded work")
+        self.branch_creation()
+        self.assertEqual(self.record.read_text(), self.initial + "\n")
+
+    def test_step1_rejects_incompatible_record_before_branch_creation(self):
+        original = "HEAD\n"
+        self.record.write_text(original)
+        result = self.branch_creation(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("Existing rebase baseline is invalid", result.stderr)
+        self.assertEqual(self.record.read_text(), original)
+        self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "release-5.1")
+
+
+if __name__ == "__main__":
+    unittest.main()

@@ -54,15 +54,10 @@ init_gate() {
   # re-run does not leave misleading state alongside the fresh evidence file.
   rm -f "$REPO/.rebase-tmp/gates/${GATE_NAME}.crash" 2>/dev/null || true
 
-  BASE=$(git merge-base HEAD main 2>/dev/null \
-      || git merge-base HEAD master 2>/dev/null \
-      || git merge-base HEAD origin/main 2>/dev/null \
-      || git merge-base HEAD origin/master 2>/dev/null \
-      || git merge-base HEAD FETCH_HEAD 2>/dev/null \
-      || echo "")
-  if [[ -z "$BASE" ]]; then
-    echo "NO_BASE: cannot determine merge base — skipping pre-existing filter"
-  fi
+  BASE=$(bash "$SCRIPT_DIR/resolve-rebase-base.sh" "$REPO") || {
+    echo "NO_BASE: cannot establish rebase scope — no gate evidence produced" >&2
+    return 1
+  }
 
   # shellcheck disable=SC2034  # used by sourcing scripts after init_gate
   NEW_ISSUES=0

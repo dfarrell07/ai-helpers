@@ -60,7 +60,7 @@ Only CONFIRMED findings should be rated above LOW risk.
 MANDATORY pre-existing check — run for EVERY CONFIRMED finding:
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 git show "$BASE:<file>"
 git show "$BASE:<relevant-go.mod-path>"
 # Compare the finding against the base dependency versions, APIs, and CI

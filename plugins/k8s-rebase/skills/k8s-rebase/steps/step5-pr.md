@@ -14,7 +14,7 @@ PRIMARY_GOMOD=$(find . -name go.mod -not -path '*/vendor/*' -not -path '*/.claud
 K8S_VER=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v[0-9.]+' | head -1)
 GO_VER=$(grep '^go ' "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}')
 IS_DOWNSTREAM=$(git remote -v 2>/dev/null | grep -q 'openshift/' && echo true || echo false)
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 ```
 
 If `IS_DOWNSTREAM` is true, the PR title needs a Jira ticket key.
@@ -35,7 +35,7 @@ Preserve the nested reviewer and its existing failure policy. Do not use
 `--print-prompt` or substitute a native review agent:
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 VERDICT=$(bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" "$BASE" "$VERSION")
 echo ":: Pre-PR review: $VERDICT"
 ```
@@ -51,7 +51,7 @@ in a unique scratch file, preserving it beyond tool-output limits. Check the
 completed status; preparation success is not approval:
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main) || exit 1
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
 REVIEW_PROMPT=$(mktemp "$REPO_ROOT/.rebase-tmp/step5-review-XXXXXX") || exit 1
 prep_rc=0
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --print-prompt "$BASE" "$VERSION" > "$REVIEW_PROMPT" || prep_rc=$?
@@ -115,6 +115,10 @@ when that test command completed successfully at the stated revision.
 Derive any package/test counts from complete output; a tail of the log cannot
 establish totals. If the full output is unavailable, report the verified
 command outcome and scope without inventing counts.
+Include nonzero command exits and their failed/blocked scope. A successful
+`validate --no-test` wrapper is not lint evidence when its output contains
+no linter execution; label an absent lint configuration explicitly.
+Do not rule out regressions solely because failing test source is unchanged.
 
 Inspect `git diff "$BASE..HEAD"` and `git log --oneline "$BASE..HEAD"`.
 Describe dependency bumps as old → new from removed/added lines, not unchanged
@@ -164,15 +168,17 @@ if [[ -f "$HOOK_DIR/pre-push" ]]; then
     fi
   fi
 fi
-rm -rf .rebase-tmp/step*.log .rebase-tmp/step*.pid .rebase-tmp/*.log \
-       .rebase-tmp/*.txt .rebase-tmp/*.pid \
-       .rebase-tmp/test-only-* .rebase-tmp/step[45]-review-* \
+rm -rf .rebase-tmp/step*.pid .rebase-tmp/*.pid \
+       .rebase-tmp/step[45]-review-* \
        .rebase-tmp/crd-pre-codegen/ || exit 1
 rm -f .rebase-tmp/.session-active || exit 1
 K8S_REBASE_CLEANUP
 ```
 
-Do NOT delete `.rebase-tmp/gates/`. If cleanup cannot be completed with allowed
+Preserve `.rebase-tmp/gates/`, `base-commit`, target-version records,
+validation summaries, full `*.log` files, and `test-only-*` test output. These
+are verification evidence needed to audit the PR's claims, not disposable
+process scratch. If cleanup cannot be completed with allowed
 tools/access, report incomplete cleanup; do not disable guards or change permissions.
 Verify the original hook (including executable mode) and that the listed
 scratch targets are gone before claiming cleanup is complete.

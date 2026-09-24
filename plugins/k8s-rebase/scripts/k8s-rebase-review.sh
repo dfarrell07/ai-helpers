@@ -43,25 +43,18 @@ if [[ "$PRINT_PROMPT" == true ]]; then
 fi
 
 # Pre-fetch evidence deterministically
-MERGE_BASE=$(git -C "$REPO_ROOT" merge-base "$COMMIT" master 2>/dev/null \
-  || git -C "$REPO_ROOT" merge-base "$COMMIT" main 2>/dev/null \
-  || git -C "$REPO_ROOT" merge-base "$COMMIT" trunk 2>/dev/null \
-  || { echo "WARNING: Cannot find merge-base against master/main/trunk, using COMMIT~1" >&2; echo "$COMMIT~1"; })
-if ! git -C "$REPO_ROOT" rev-parse "$MERGE_BASE" &>/dev/null; then
-  echo "WARNING: Cannot resolve merge-base '$MERGE_BASE' (shallow clone?), using COMMIT~1" >&2
-  MERGE_BASE="$COMMIT~1"
-fi
+MERGE_BASE=$(bash "$SCRIPT_DIR/resolve-rebase-base.sh" "$REPO_ROOT" "$COMMIT") || exit 1
 
 if [[ "$PRINT_PROMPT" == true ]]; then
   MERGE_BASE=$(git -C "$REPO_ROOT" rev-parse --verify --end-of-options "${MERGE_BASE}^{commit}") \
     || { echo "ERROR: Cannot resolve review base" >&2; exit 1; }
 fi
 
-# Verify COMMIT is on the rebase branch (not a master/main commit)
+# Verify COMMIT is after the validated rebase baseline.
 _ANCESTOR_RC=0
 git -C "$REPO_ROOT" merge-base --is-ancestor "$COMMIT" "$MERGE_BASE" 2>/dev/null || _ANCESTOR_RC=$?
 if [[ "$_ANCESTOR_RC" -eq 0 ]]; then
-  echo "ERROR: commit $COMMIT is on master/main, not the rebase branch" >&2
+  echo "ERROR: commit $COMMIT is at or before the rebase baseline" >&2
   echo "ERROR: Current branch: $(git -C "$REPO_ROOT" branch --show-current), HEAD: $(git -C "$REPO_ROOT" rev-parse --short HEAD)" >&2
   exit 1
 fi

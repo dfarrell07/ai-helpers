@@ -71,7 +71,8 @@ capture_diagnostics() {
       git -C "$workspace" status --short 2>/dev/null || true
       printf '\n'
     } >> "$OUTPUT_DIR/working-tree-status.txt"
-    for log in "$workspace"/.rebase-tmp/*.log; do
+    for log in "$workspace"/.rebase-tmp/*.log "$workspace"/.rebase-tmp/*.txt \
+               "$workspace"/.rebase-tmp/test-only-* "$workspace"/.rebase-tmp/base-commit; do
       [[ -f "$log" ]] || continue
       cp -f "$log" "$OUTPUT_DIR/script-logs/$key/$(basename "$log")"
     done

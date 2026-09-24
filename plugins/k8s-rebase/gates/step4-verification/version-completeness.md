@@ -1,5 +1,5 @@
 Determine the previous k8s version: read the base branch's primary go.mod
-(`git show $(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main):<path>`),
+(`git show $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)"):<path>`),
 the first non-vendor go.mod that requires k8s.io/api, which may be nested
 (for example `go-controller/go.mod`), and extract the k8s.io/api version.
 If unavailable, derive from the target version (if target is 1.NN,
@@ -33,12 +33,18 @@ release and that repository's `openshift/release` configuration; verify the
 replacement images exist. Check this even if Go is unchanged. An unavailable
 image or unresolved release configuration is missing verification: report it
 as INCONCLUSIVE rather than inventing a tag or calling the check passed.
+List every applicable image reference with its base stream, target stream,
+replacement verification, and file:line. For example, a Dockerfile still
+using OCP 5.0 during a 5.1 rebase is unresolved even if unchanged: use FAIL
+when the correct replacement is verified and still missing, or INCONCLUSIVE
+when that replacement cannot be verified. This image-specific rule takes
+precedence over the general stale-reference count below. Neither case is PASS.
 
 MANDATORY pre-existing check — run for EVERY finding before
 counting it. Skip this check and your verdict is WRONG.
 
 ```bash
-BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 git show "$BASE:<file>"
 git show "$BASE:<primary-go.mod-path>"
 # Compare whether the reference was valid for the BASE dependencies/config

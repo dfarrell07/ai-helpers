@@ -24,7 +24,7 @@ in the diff, trace data flow. Prioritize by risk tier:
 State the tier for each function. Depth matters more than breadth.
 
 Before flagging anything FAIL: run `git show $BASE:<file>` where
-`BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`.
+`BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")`.
 If the issue exists at BASE, it is pre-existing — report INFO, not FAIL.
 
 Also check: if CRD/API schema files (`manifests/*.yaml`, `*crd*.yaml`) were modified,
@@ -63,7 +63,7 @@ not just say "no issues" — show what you traced. This is the
 primary correctness gate — thoroughness matters more than speed.
 
 For each finding, check the base branch:
-  `BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)`
+  `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")`
   `git show $BASE:<file> 2>/dev/null | grep -c '<pattern>'`
 If the same issue exists on the base branch, it is pre-existing —
 report as INFO but do NOT count toward FAIL. Only issues

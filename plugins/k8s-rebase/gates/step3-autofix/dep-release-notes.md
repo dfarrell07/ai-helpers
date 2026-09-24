@@ -3,7 +3,7 @@ Identify non-Kubernetes-release dependencies whose major or minor version
 changed. Inspect every non-vendor module, including nested modules:
 
 ```bash
-BASE=$(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
 git diff "$BASE"..HEAD -- ':(glob)**/go.mod' ':(exclude,glob)**/vendor/**'
 ```
 
@@ -41,19 +41,27 @@ For each concern found, check whether:
 2. The repo actually uses the affected feature (grep source
    AND grep CI scripts like kind-common.sh for flags/defaults)
 
-Report format per dep:
-  [dep] old → new: BREAKING / DEPRECATION / none found
+Account for every in-scope dependency and tool pin in a coverage list:
+  [dep] old → new: source URL + reviewed release range + BREAKING / DEPRECATION / none found / UNVERIFIED
+
+Fetch and read the source; compilation, an indirect requirement, a minor
+version bump, or a module's API shape cannot substitute for release notes
+about changed behavior. Record inaccessible/missing sources individually.
+If a response is truncated, retrieve the omitted relevant sections before
+claiming coverage. Do not label an unfetched source "none found".
 
 If a dependency's release notes are unavailable, list it as
 unverified in DETAILS and continue. Modules that publish no release
 notes (for example `golang.org/x/*`) are listed the same way and do not
-by themselves make this gate inconclusive. Write INCONCLUSIVE only if no
-release-note source could be reached for any dependency that publishes one.
+by themselves make this gate inconclusive. An unattempted check, inaccessible
+published notes, or an unread relevant release range leaves this gate
+INCONCLUSIVE. List completed and missing coverage separately.
 
 VERDICT: FAIL if any dependency release note documents a breaking
 change that affects this repo and is not addressed in the rebase.
-PASS if all relevant changes are addressed or no breaking changes
-found.
+PASS only when the coverage list is complete and all reviewed relevant
+changes are addressed or no breaking changes were found. Explicit absence
+of published notes remains a named coverage limitation.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
 `go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,
