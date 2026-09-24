@@ -20,62 +20,10 @@ BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --sho
 If `IS_DOWNSTREAM` is true, the PR title needs a Jira ticket key.
 If interactive, ask. If background mode, use `REPLACE-WITH-JIRA-KEY:`.
 
-## 5b. Adversarial pre-PR review
+## 5b. Draft the PR body
 
-Before generating the PR command, review the full rebase, not just the
-last fix. The shared preparation and existing four-check rubric live in
-`scripts/k8s-rebase-pr-review.sh`.
-
-Select **only** the branch for the parent's host runtime from SKILL.md.
-Delegating this step does not change that choice.
-
-### Claude Code only
-
-Preserve the nested reviewer and its existing failure policy. Do not use
-`--print-prompt` or substitute a native review agent:
-
-```bash
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
-VERDICT=$(bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" "$BASE" "$VERSION")
-echo ":: Pre-PR review: $VERDICT"
-```
-
-Investigate `REJECT:` before proceeding. For Claude, `APPROVE:` or a missing
-verdict from infrastructure failure retains the existing continuation policy;
-report a missing verdict as review not performed.
-
-### Codex only
-
-Collect checked evidence without invoking Claude. Capture the complete prompt
-in a unique scratch file, preserving it beyond tool-output limits. Check the
-completed status; preparation success is not approval:
-
-```bash
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
-REVIEW_PROMPT=$(mktemp "$REPO_ROOT/.rebase-tmp/step5-review-XXXXXX") || exit 1
-prep_rc=0
-bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --print-prompt "$BASE" "$VERSION" > "$REVIEW_PROMPT" || prep_rc=$?
-printf '\nPreparation exit status: %s\n' "$prep_rc"
-if [[ "$prep_rc" -eq 0 ]]; then
-  printf 'Review prompt file: %s\n' "$REVIEW_PROMPT"
-fi
-exit "$prep_rc"
-```
-
-Only after successful preparation, give that invocation's prompt-file path,
-repo path, base, and HEAD to a fresh-context read-only native reviewer. Require
-it to read the complete file, using bounded chunks if needed, including the
-scope and any helper truncation warning. Do not substitute a tool preview or
-a prior prompt file. Require an explicit
-`APPROVE: <reason>` or `REJECT: <reason>`. Missing/malformed verdicts, failed
-preparation, or no independent reviewer stop this path; do not substitute
-parent self-review. Investigate rejection before proceeding. On resume,
-repeat review if its decision for this SHA/scope is unavailable. Do not
-reuse approval after changes; refresh affected gates and review the final tip.
-
-## 5c. Generate `gh pr create` command
-
-**Do NOT execute this.** Print for user to copy-paste.
+Write `.rebase-tmp/pr-body.md` for the independent review below. Do not
+present the command until review completes.
 
 Before drafting verification claims, run this inventory from the expected
 gate prompts, not just the reports that happen to exist:
@@ -134,18 +82,81 @@ new module. Commit subjects alone do not establish changes. PR body:
   and unverified coverage identified above.
 - Footer: "All commits carry `Assisted-by: Claude Code <noreply@anthropic.com>` trailers."
 
-Output `gh pr create --title "..." --body "..."` using a heredoc, followed by
-cleanup status. Keep the verification account in that PR body; do not add a
-second recap with new counts or change claims. Expected gates are not executed checks.
+Include the retained log path for each executed command and its actual argv,
+revision, scope, and completed exit. Reopen those logs before drafting: do not
+reconstruct invocation details from memory or assume a linter was absent.
+Expected gates are not executed checks.
 
-## 5d. Suggest CI monitoring
+## 5c. Adversarial pre-PR review
+
+Review the full rebase and the draft verification account before presenting
+the PR command. The shared preparation and review rubric live in
+`scripts/k8s-rebase-pr-review.sh`.
+
+Select **only** the branch for the parent's host runtime from SKILL.md.
+Delegating this step does not change that choice.
+
+### Claude Code only
+
+Preserve the nested reviewer and its existing failure policy. Do not use
+`--print-prompt` or substitute a native review agent:
+
+```bash
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
+VERDICT=$(bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --verification "$REPO_ROOT/.rebase-tmp/pr-body.md" "$BASE" "$VERSION")
+echo ":: Pre-PR review: $VERDICT"
+```
+
+Investigate `REJECT:` before proceeding. For Claude, `APPROVE:` or a missing
+verdict from infrastructure failure retains the existing continuation policy;
+report a missing verdict as review not performed.
+
+### Codex only
+
+Collect checked evidence without invoking Claude. Capture the complete prompt
+in a unique scratch file, preserving it beyond tool-output limits. Check the
+completed status; preparation success is not approval:
+
+```bash
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
+REVIEW_PROMPT=$(mktemp "$REPO_ROOT/.rebase-tmp/step5-review-XXXXXX") || exit 1
+prep_rc=0
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-pr-review.sh" --print-prompt --verification "$REPO_ROOT/.rebase-tmp/pr-body.md" "$BASE" "$VERSION" > "$REVIEW_PROMPT" || prep_rc=$?
+printf '\nPreparation exit status: %s\n' "$prep_rc"
+if [[ "$prep_rc" -eq 0 ]]; then
+  printf 'Review prompt file: %s\n' "$REVIEW_PROMPT"
+fi
+exit "$prep_rc"
+```
+
+Only after successful preparation, give that invocation's prompt-file path,
+repo path, base, and HEAD to a fresh-context read-only native reviewer. Require
+it to read the complete file, using bounded chunks if needed, including the
+scope and any helper truncation warning. Do not substitute a tool preview or
+a prior prompt file. Require an explicit
+`APPROVE: <reason>` or `REJECT: <reason>`. Missing/malformed verdicts, failed
+preparation, or no independent reviewer stop this path; do not substitute
+parent self-review. Investigate rejection before proceeding. On resume,
+repeat review if its decision for this SHA/scope is unavailable. Do not
+reuse approval after changes; refresh affected gates and review the final tip.
+
+## 5d. Present the reviewed command
+
+After review, print `gh pr create --title "..." --body "..."` using a heredoc
+containing the reviewed body. **Do not execute it.** Investigate every rejection,
+correct claims against raw evidence or complete the missing check, and repeat
+review of the revised draft. Honest limitations may remain. Never change a
+verification claim after approval without reviewing the amended draft.
+Follow with cleanup status; do not add a second recap with new counts or claims.
+
+## 5e. Suggest CI monitoring
 
 For Claude when `/loop` is available, suggest:
 `/loop 5m check CI on the PR, explore any failures max carefully`.
 Otherwise suggest asking the agent to check CI after the user creates the PR;
 do not configure automation.
 
-## 5e. Clean up
+## 5f. Clean up
 
 Use host-approved file operations: restore the hook, remove scratch, then
 remove the session marker last. Stop on any failure. The Bash block is an

@@ -34,7 +34,7 @@ compile, so fixing build errors reveals new vet errors.
 
 **Parallel investigation:** If summary.txt has multiple error
 categories, use read-only native workers to investigate
-each in parallel. Give each subagent the errors and ask it to
+each sequentially. Give each subagent the errors and ask it to
 read the relevant source AND test files and vendored types, then
 report what changed and what the fix should be. Investigation
 subagents must NOT edit files — apply fixes yourself based on
@@ -170,8 +170,8 @@ REPO_ROOT=$(git rev-parse --show-toplevel)
 bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" gates "$REPO_ROOT" 2
 ```
 
-Follow the gate procedure in rules.md. Delegate PENDING gates in a parallel
-wave when workers are available, or review inline. Supply the absolute repo
+Follow the gate procedure in rules.md. Delegate PENDING gates one at a time
+when workers are available, or review inline if no worker tool exists. Supply the absolute repo
 and plugin paths, version, module safety and verdict rules, and the gate prompt path.
 Inspect cached non-PASS verdicts as well as pending work.
 

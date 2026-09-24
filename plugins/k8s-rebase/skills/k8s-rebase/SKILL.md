@@ -3,7 +3,7 @@ name: k8s-rebase
 description: Use when rebasing a Go project to a new Kubernetes minor — align dependencies, regenerate code, repair compatibility issues, verify gates, and prepare a PR command.
 argument-hint: "[--bump-tools] <version> (e.g., 1.36.0 or --bump-tools 1.36.0)"
 user-invocable: true
-allowed-tools: Bash, Read, Agent
+allowed-tools: Bash, Read, Agent, Task
 ---
 
 # Kubernetes Rebase
@@ -91,8 +91,10 @@ the completed state's empty step filename is not a file to load.
    orchestrator's returned `STEP_FILE` verbatim: it already includes
    `steps/` and `.md`.
 
-3. Use a native step worker when available; otherwise execute ordinary
-   step work inline. Supply the absolute repo/plugin paths, version,
+3. Use a native step worker when available (`Agent` or `Task` in Claude,
+   native subagents in Codex); execute ordinary step work inline only when
+   the host exposes no worker tool. Run one worker at a time unless the user
+   explicitly requests parallel work. Supply the absolute repo/plugin paths, version,
    tools flag, parent's host runtime and matching review branch, rules,
    step file, and gate directory. Workers return results;
    **only the parent calls `advance`**. Independent reviews in Steps 4–5

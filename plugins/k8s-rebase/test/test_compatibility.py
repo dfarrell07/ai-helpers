@@ -127,6 +127,35 @@ class CompatibilityTests(unittest.TestCase):
         self.assertNotIn("COMMIT COMPLETENESS", fix.stdout)
         self.assertFalse(self.claude_called.exists())
 
+    def test_pr_review_includes_draft_literally_and_requires_readable_evidence(self):
+        draft = self.repo / ".rebase-tmp/pr body.md"
+        draft.parent.mkdir()
+        draft.write_text("Verified command: $(touch must-not-execute) `false` $HOME\n")
+        prepared = self.review("pr", "--print-prompt", "--verification", str(draft),
+                               self.base, "1.37.1")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertIn(draft.read_text(), prepared.stdout)
+        self.assertIn("VERIFICATION ACCURACY", prepared.stdout)
+        self.assertIn(str(self.repo / ".rebase-tmp"), prepared.stdout)
+        self.assertFalse((self.repo / "must-not-execute").exists())
+        self.assertFalse(self.claude_called.exists())
+        nested = self.review("pr", "--verification", str(draft), self.base, "1.37.1")
+        self.assertEqual(nested.returncode, 0, nested.stderr)
+        self.assertEqual(prepared.stdout, self.claude_called.read_text())
+        for missing in (False, True):
+            with self.subTest(missing=missing):
+                if missing:
+                    draft.unlink()
+                else:
+                    draft.write_text("")
+                self.claude_called.unlink(missing_ok=True)
+                for flags in ((), ("--print-prompt",)):
+                    result = self.review("pr", *flags, "--verification", str(draft),
+                                         self.base, "1.37.1")
+                    self.assertNotEqual(result.returncode, 0)
+                    self.assertIn("ERROR:", result.stderr)
+                    self.assertFalse(self.claude_called.exists())
+
     def test_invalid_references_and_missing_arguments(self):
         for scope in ("fix", "pr"):
             context = "context" if scope == "fix" else "1.36.0"
@@ -179,6 +208,7 @@ class CompatibilityTests(unittest.TestCase):
         self.portable_mktemp()
         self.env.update(PLUGIN_ROOT=str(PLUGIN), REPO_ROOT=str(self.repo), VERSION="1.36.0")
         self.activate(step=4)
+        (self.repo / ".rebase-tmp/pr-body.md").write_text("Verification remains unverified.\n")
         real_git = shutil.which("git")
         for step in ("step4-verification", "step5-pr"):
             with self.subTest(step=step):
@@ -206,6 +236,8 @@ class CompatibilityTests(unittest.TestCase):
                                           "// DELIVERY_END_SENTINEL\n")
         self.commit("large evidence fixture")
         self.activate(step=4)
+        draft = self.repo / ".rebase-tmp/pr-body.md"
+        draft.write_text("Verification remains unverified.\n")
         self.env.update(PLUGIN_ROOT=str(PLUGIN), REPO_ROOT=str(self.repo), VERSION="1.36.0")
         for step, scope, ref, context in (("step4-verification", "fix", "HEAD", "k8s rebase"),
                                           ("step5-pr", "pr", self.base, "1.36.0")):
@@ -220,11 +252,13 @@ class CompatibilityTests(unittest.TestCase):
                 prompt = prompt_path.read_text()
                 self.assertGreater(len(prompt), 32000)
                 self.assertIn("DELIVERY_END_SENTINEL", prompt)
-                self.assertEqual(prompt, self.review(scope, "--print-prompt", ref, context).stdout)
+                flags = ("--verification", str(draft)) if scope == "pr" else ()
+                self.assertEqual(prompt, self.review(scope, "--print-prompt", *flags, ref, context).stdout)
         self.assertFalse(self.claude_called.exists())
 
     def test_prompt_allocation_failure_preserves_prior_payload(self):
         self.activate(step=4)
+        (self.repo / ".rebase-tmp/pr-body.md").write_text("Verification remains unverified.\n")
         self.env.update(PLUGIN_ROOT=str(PLUGIN), REPO_ROOT=str(self.repo), VERSION="1.36.0")
         for step in ("step4-verification", "step5-pr"):
             with self.subTest(step=step):
@@ -1119,6 +1153,35 @@ exec "{real_git}" "$@"
                               "PASS", "0", "wrong base scope")
         self.assertNotEqual(result.returncode, 0)
         self.assertIn("BASE", result.stderr)
+
+    def test_large_gate_evidence_survives_bounded_output(self):
+        self.isolated_orchestrator()
+        self.activate(step=4)
+        plugin = self.root / "plugin"
+        shutil.copy(PLUGIN / "scripts/gate-script-lib.sh", plugin / "scripts")
+        payload = "advisory detail " + "x" * 100 + "\n"
+        payload *= 10000
+        (self.repo / "payload.txt").write_text(payload)
+        companion = plugin / "gates/step4-verification/check.sh"
+        companion.write_text(
+            '#!/bin/bash\n'
+            'source "$(dirname "$0")/../../scripts/gate-script-lib.sh"\n'
+            'init_gate "$@"\n'
+            'finish_evidence "large fixture" "$(cat "$REPO/payload.txt")"\n')
+        companion.chmod(0o755)
+        result = self.run_cmd(
+            "bash", "-o", "pipefail", "-c",
+            'bash "$1" gates "$2" 4 2>&1 | head -80', "fixture",
+            str(plugin / "scripts/k8s-rebase-orchestrator.sh"), str(self.repo))
+        evidence = self.repo / ".rebase-tmp/gates/step4-check.evidence"
+        self.assertTrue(evidence.exists(), result.stdout + result.stderr)
+        self.assertEqual(evidence.read_text(),
+                         f"HEAD: {self.git_sha()}\nSUMMARY: large fixture\n" + payload)
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("PENDING: check", result.stdout)
+        self.assertLess(len(result.stdout), 2000)
+        self.assertFalse(evidence.with_suffix(".crash").exists())
+        self.assertFalse(evidence.with_suffix(".evidence.tmp").exists())
 
     def test_fresh_pass_and_skip_advance_without_retries(self):
         run = self.isolated_orchestrator()

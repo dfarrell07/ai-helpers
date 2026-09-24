@@ -87,7 +87,7 @@ reproducible, not impossible, so scripted work is still gated.
 
 ## Separate evidence, judgment, and repair
 
-Eight companion scripts collect facts into `.evidence` files; the gate
+Nine companion scripts collect facts into `.evidence` files; the gate
 reviewer turns them into a verdict. `gates` runs each companion once, caches
 fresh reports, and defers crashed companions to review. A crash, empty output,
 or missing tool is not evidence of a successful check.
@@ -106,7 +106,8 @@ debt — but unchanged source can break against a changed dependency, so an
 unchanged line alone does not make a failure pre-existing.
 
 Independent review receives evidence and a rubric, not the implementer's
-reasoning. Step 4 reviews a selected commit; Step 5 reviews the full branch.
+reasoning. Step 4 reviews a selected commit; Step 5 reviews the full branch
+and checks the draft PR verification claims against retained logs and reports.
 Approval covers only that revision and scope and never changes a gate
 verdict; a review that did not run approves nothing.
 

@@ -6,7 +6,9 @@ contract; the [design guide](design.md) explains its boundaries.
 
 ## Review and hook requirements
 
-Ordinary step work and gates can run inline or use native workers. The
+Ordinary step work and gates use native workers when available (`Agent` or
+`Task` in Claude, native subagents in Codex), or run inline when none exists.
+Execution is sequential unless the user explicitly requests parallel work. The
 independent reviews in [Step 4](../skills/k8s-rebase/steps/step4-verification.md)
 and [Step 5](../skills/k8s-rebase/steps/step5-pr.md) have different host routes:
 
@@ -17,7 +19,8 @@ and [Step 5](../skills/k8s-rebase/steps/step5-pr.md) have different host routes:
 
 Use the parent session's host, including after a handoff. A model vendor or
 installed CLI does not select the route. Approval applies only to the
-reviewed revision and scope; it does not change gate verdicts.
+reviewed revision and scope; it does not change gate verdicts. Step 5 also
+checks the drafted PR claims against retained logs before presentation.
 
 Hooks activate through `.rebase-tmp/.session-active` relative to the
 session cwd. Start at the target checkout root, use separate clones for

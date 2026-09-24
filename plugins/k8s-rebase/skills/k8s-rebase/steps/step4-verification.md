@@ -100,9 +100,10 @@ unless the check actually completed successfully.
 
 ## 4b. Verification wave
 
-Source-read-only tests and gates may run in parallel, with test workers writing
-separate logs and gate reviewers writing only their own reports. Do not overlap
-them with source mutations or full validation that replaces shared evidence.
+Run tests and gates sequentially, with test workers writing separate logs and
+gate reviewers writing only their own reports. Do not overlap them with source
+mutations or full validation that replaces shared evidence. Parallel work is
+allowed only on explicit user request under rules.md's execution constraints.
 Commit 4a's fixes before collecting their final evidence;
 if HEAD changes, refresh every current-step review as in rules.md.
 Use native workers when available, or run the same checks inline.
@@ -143,6 +144,12 @@ Do not combine packages from different modules or rely on the caller's cwd;
 without `--module`, the helper uses the primary module. Discovery also finds
 integration suites: inspect their runtime requirements and report missing
 infrastructure as INCONCLUSIVE, never as a unit-test pass.
+Inspect CI and each suite's setup for separate runtime modes. A package named
+`e2e` may have both offline and live-cluster modes: account for each mode and
+its actual prerequisites. A missing cluster does not explain omitted offline
+coverage. Record concrete missing binaries, fixtures, privileges, or services
+when a mode cannot run. Pass discovered package names as separate argv values
+(for example a Bash array), never one quoted space-delimited string.
 For large packages (>20k test lines), use native waiting.
 Split by test line count, cap ~30k per agent. Check `free -h` first.
 

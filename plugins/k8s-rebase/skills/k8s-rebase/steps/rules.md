@@ -97,12 +97,20 @@ Include this section in every gate reviewer's context.
    the current commit; missing/stale evidence after a companion crash is not
    usable. Gather fresh read-only evidence as that prompt permits, or report
    inability to judge. Use a native gate worker when available, otherwise
-   review inline under the same read-only constraints.
+   review inline under the same read-only constraints only if no worker tool
+   is exposed. Give each gate a separate bounded task; wait for its completion
+   before starting the next worker. Pass source paths and raw evidence, not
+   a proposed verdict. Resource limits require sequential delegation, not
+   replacing available workers with parent self-review.
 3. Write reports through `scripts/write-gate-report.sh` at the known plugin
    root. Confirm HEAD has not changed during review before it stamps the
    report. Choose one actual verdict; `PASS|FAIL` is notation, not a
    shell pipeline. A missing helper is an error, not grounds to fabricate
    an unstamped report.
+   Before accepting a report, compare its coverage with the gate prompt.
+   A fresh stamp only establishes the reviewed SHA. Missing required source
+   URLs/ranges, incomplete scans, or unexecuted applicable checks require
+   further evidence or INCONCLUSIVE; they cannot support PASS.
 4. Triage findings against base under Scope, fix in-scope issues, and commit
    before refreshing evidence. Re-validate as the step requires (`--quick` in 2–3,
    `--no-test` in 4), then run `gates` again. Every current-step report at the
@@ -158,6 +166,11 @@ do not skip it.
 Prefer `podman` with `--userns=keep-id --security-opt label=disable`.
 Tell subagents to use `podman run --userns=keep-id` with the
 golang container if they need Go tools.
+Carry the user's CPU/memory limits into container arguments explicitly;
+host `GOMAXPROCS`/`GOFLAGS` are not inherited automatically. When a repository
+launcher does not forward them, use its supported runtime/options override
+or reproduce its container invocation with explicit `-e` arguments. Retain
+the actual invocation and report any limit that could not be enforced.
 
 ## Feature Gates
 
@@ -185,6 +198,9 @@ from its SetFromMap.
   read gate prompts. Independent review in Steps 4–5 is different: Codex
   needs a fresh-context read-only reviewer with rubric/evidence, not the
   parent's reasoning history. Stop at that boundary if none is available.
+- Run only one worker, build, generator, test, scan, or validation command at
+  a time by default. Wait for completion before starting the next. Parallel
+  execution requires an explicit user request and separate writable logs/state.
 - **Companion gate scripts:** Let `gates` run the adjacent `.sh` files;
   do not launch them directly. Current collectors write evidence, not
   verdicts. A successful collector exit still requires gate review.
@@ -198,6 +214,20 @@ from its SetFromMap.
   displaying excerpts. In `command | tail`, `$?` is normally the filter's
   status; retain `PIPESTATUS` or use `pipefail` when logging through a pipeline.
   A successful output filter cannot turn a failed check into PASS.
+  Never pipe a live producer to `head` or another early-exiting filter: it can
+  kill the producer with SIGPIPE. A simple Bash pattern avoids both errors:
+
+  ```bash
+  rc=0
+  command arg1 arg2 > "$REPO_ROOT/.rebase-tmp/check.log" 2>&1 || rc=$?
+  printf 'EXIT_STATUS: %s\n' "$rc"
+  tail -80 "$REPO_ROOT/.rebase-tmp/check.log"
+  exit "$rc"
+  ```
+
+  Use a descriptive, unique log path for each actual command. Keep its argv,
+  revision, scope, completed exit, and log path in the handoff; do not recreate
+  a command from memory when drafting the PR.
 
 ## OCP Version Mapping
 

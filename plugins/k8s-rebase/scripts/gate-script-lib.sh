@@ -75,9 +75,12 @@ _write_evidence() {
   local summary="$1"; shift
   mkdir -p "$REPO/.rebase-tmp/gates"
   local evidence_path="$REPO/.rebase-tmp/gates/${GATE_NAME}.evidence"
+  # Publish the complete evidence before writing to the caller's output stream.
+  # A bounded tool preview or downstream head must not interrupt publication.
   { echo "HEAD: $(_head_sha)"; echo "SUMMARY: $summary"; printf '%s\n' "$@"; } \
-    | tee "$evidence_path.tmp"
+    > "$evidence_path.tmp"
   mv "$evidence_path.tmp" "$evidence_path"
+  echo "SUMMARY: $summary"
   echo "PENDING: $GATE_NAME"; echo "EVIDENCE: $evidence_path"
 }
 
