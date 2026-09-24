@@ -102,8 +102,26 @@ Run it in the affected module and verify Kubernetes pins afterward.
 `go mod vendor` which regenerates vendor from source, erasing
 hand-patches. If a vendored dependency is missing a method or
 interface, search for an active upstream rebase PR that bumps
-that dep. If found, identify the branch or fork it uses and add
-a `replace` directive:
+that dep. For Kubernetes 1.37, consult `docs/k8s-1.37.md` for the
+known OpenShift plumbing changes, then refresh its upstream evidence.
+Read structured PR metadata to distinguish its proposed head from the base
+release branch. For example, with the actual upstream repository and PR:
+
+```bash
+gh api "repos/<upstream-repo>/pulls/<number>" --jq \
+  '{state, merged, head: {repo: .head.repo.full_name, ref: .head.ref, sha: .head.sha}, base: {ref: .base.ref, sha: .base.sha}}'
+```
+
+Inspect the failing source file and go.mod at that exact **head SHA**, using
+a read-only API/blob request or separate upstream clone. A release-branch
+SHA in the compatibility table is not the PR head. A PR title, webpage
+summary, or unchanged base file does not establish that the fix is absent.
+Before declaring no compatible fix exists, record the head inspected and
+the relevant symbols/diff. Unavailable metadata or source is an unresolved
+investigation, not proof that upstream has no fix.
+
+If the proposed source fixes the incompatibility, pin its verified commit
+through the compatible upstream module version or a `replace` directive:
 `replace github.com/openshift/library-go => github.com/ORG/library-go v0.0.0-DATE-HASH`
 Add a tracking comment, such as
 `// TODO: remove replace when official library-go merges k8s bump`.
@@ -111,6 +129,9 @@ In multi-module repos, add the replace to each module that depends
 on the affected package (Go replace directives do not propagate
 across module boundaries). Then, in each of those modules, run
 `bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" --sync`.
+Also inspect the dependency PR's own replacements: they do not propagate
+to consumers either. Apply required companion replacements at verified
+commits in every affected consumer, then build and recheck the target pins.
 If no active PR or fork exists, report it as a blocker and move on.
 Do NOT vendor-patch; verify-deps CI will reject it.
 
