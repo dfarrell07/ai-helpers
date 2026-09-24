@@ -157,6 +157,36 @@ class CompatibilityTests(unittest.TestCase):
                     self.assertIn("ERROR:", result.stderr)
                     self.assertFalse(self.claude_called.exists())
 
+    def test_nested_pr_review_can_read_criteria_and_retains_failed_attempts(self):
+        draft = self.repo / ".rebase-tmp/pr-body.md"
+        draft.parent.mkdir()
+        draft.write_text("Verification awaiting review.\n")
+        argv = self.root / "review-argv"
+        self.env["REVIEW_ARGV"] = str(argv)
+        self.stub("claude", 'printf "%s\\n" "$@" > "$REVIEW_ARGV"\n'
+                  'cat > "$REVIEW_CAPTURE"\n'
+                  'echo "fixture transport failure" >&2\n'
+                  'echo "partial review; no verdict"\nexit 17\n')
+        for _ in range(2):
+            result = self.review("pr", "--verification", str(draft), self.base, "1.37.1")
+            self.assertEqual(result.returncode, 17)
+            self.assertEqual(result.stdout, "partial review; no verdict\n")
+        args = argv.read_text().splitlines()
+        self.assertEqual(args[args.index("--add-dir") + 1], str(PLUGIN / "gates"))
+        for flag in ("--tools", "--allowedTools"):
+            self.assertEqual(set(args[args.index(flag) + 1].split(",")),
+                             {"Read", "Glob", "Grep"})
+        self.assertIn("--strict-mcp-config", args)
+        attempts = list(draft.parent.glob("pr-review-*"))
+        self.assertEqual(len(attempts), 2)
+        for attempt in attempts:
+            self.assertEqual((attempt / "exit-code").read_text(), "17\n")
+            self.assertEqual((attempt / "stderr.log").read_text(),
+                             "fixture transport failure\n")
+            self.assertEqual((attempt / "result.txt").read_text(), result.stdout)
+            self.assertEqual((attempt / "prompt.txt").read_text(),
+                             self.claude_called.read_text())
+
     def test_verification_review_stops_when_gate_rubrics_are_missing(self):
         # A relocated helper must not silently review verdicts without criteria.
         helper = self.root / "incomplete plugin/scripts/k8s-rebase-pr-review.sh"

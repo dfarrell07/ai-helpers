@@ -124,5 +124,23 @@ fi
 if [[ "$PRINT_PROMPT" == true ]]; then
   printf '%s\n' "$PROMPT"
 else
-  claude -p --output-format text 2>/dev/null <<< "$PROMPT"
+  # The nested CLI does not inherit the parent's allowed directories. Give it
+  # the criteria explicitly, with only read tools: repository access alone
+  # cannot support a verification review of this external plugin's rubrics.
+  review_args=(--tools Read,Glob,Grep --allowedTools Read,Glob,Grep --strict-mcp-config)
+  if [[ -n "$VERIFICATION_FILE" ]]; then
+    review_args+=(--add-dir "$GATE_ROOT")
+  fi
+  REPO_ROOT=$(git rev-parse --show-toplevel) || exit 1
+  mkdir -p "$REPO_ROOT/.rebase-tmp" || exit 1
+  REVIEW_DIR=$(mktemp -d "$REPO_ROOT/.rebase-tmp/pr-review-XXXXXX") || exit 1
+  printf '%s\n' "$PROMPT" > "$REVIEW_DIR/prompt.txt" || exit 1
+  review_rc=0
+  claude -p --output-format text "${review_args[@]}" \
+    < "$REVIEW_DIR/prompt.txt" > "$REVIEW_DIR/result.txt" \
+    2> "$REVIEW_DIR/stderr.log" || review_rc=$?
+  printf '%s\n' "$review_rc" > "$REVIEW_DIR/exit-code"
+  printf 'Pre-PR review evidence: %s (exit %s)\n' "$REVIEW_DIR" "$review_rc" >&2
+  cat "$REVIEW_DIR/result.txt"
+  exit "$review_rc"
 fi
