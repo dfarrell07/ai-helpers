@@ -82,7 +82,7 @@ if [[ "$_current_branch" == "master" || "$_current_branch" == "main" ]]; then
   exit 1
 fi
 
-# Auto-containerize if local Go is too old for the repo's go.mod
+# Auto-containerize for an older Go toolchain or --full without root.
 cd "$REPO_ROOT" || exit 1
 PRIMARY_MOD=""
 if [[ "$MODE" == "test-only" ]]; then
@@ -117,16 +117,22 @@ for gm in "${GO_MOD_CANDIDATES[@]}"; do
   [[ -f "$gm" ]] && REQUIRED_GO=$(grep "^go " "$gm" | awk '{print $2}') && break
 done
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
-if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
-  REQ_MINOR=$(cut -d. -f2 <<< "$REQUIRED_GO")
+NEEDS_PRIVILEGED_CONTAINER=false
+[[ "$MODE" == "full" && "$(id -u)" != "0" ]] && NEEDS_PRIVILEGED_CONTAINER=true
+if [[ -n "$REQUIRED_GO" || "$NEEDS_PRIVILEGED_CONTAINER" == true ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
+  REQ_MINOR=$(cut -d. -f2 <<< "${REQUIRED_GO:-0.0}")
   CUR_MINOR=$(cut -d. -f2 <<< "$CURRENT_GO")
-  if [[ "$CUR_MINOR" -lt "$REQ_MINOR" ]] 2>/dev/null; then
+  if [[ "$NEEDS_PRIVILEGED_CONTAINER" == true ]] || [[ "$CUR_MINOR" -lt "$REQ_MINOR" ]] 2>/dev/null; then
     CONTAINER_RT=""
     command -v podman &>/dev/null && CONTAINER_RT=podman
     [[ -z "$CONTAINER_RT" ]] && command -v docker &>/dev/null && CONTAINER_RT=docker
     if [[ -n "$CONTAINER_RT" ]]; then
-      GO_IMAGE="docker.io/library/golang:${REQUIRED_GO}"
-      echo ":: Go $CURRENT_GO < $REQUIRED_GO — re-running validate inside $GO_IMAGE"
+      GO_IMAGE="docker.io/library/golang:${REQUIRED_GO:-${CURRENT_GO%%-*}}"
+      if [[ "$NEEDS_PRIVILEGED_CONTAINER" == true ]]; then
+        echo ":: --full requires root — re-running validate inside $GO_IMAGE"
+      else
+        echo ":: Go $CURRENT_GO < $REQUIRED_GO — re-running validate inside $GO_IMAGE"
+      fi
       SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
       USERNS_FLAG=""
       [[ "$CONTAINER_RT" == "podman" ]] && [[ "$MODE" != "full" ]] && USERNS_FLAG="--userns=keep-id"
@@ -741,34 +747,40 @@ if [[ "$MODE" == "full" ]]; then
     PRIV_PKGS=$(sed -n '/root_pkgs=(/,/)/p' "$TEST_GO_SH" | grep -oE 'pkg/[^"]+' | sort -u)
     [[ -z "$PRIV_PKGS" ]] && continue
 
-    # In --full mode, the container runs as root (no --userns=keep-id)
-    if [[ "$(id -u)" != "0" ]]; then
-      echo "  NOTE: Privileged tests need root — run with --full flag"
-      echo "  (--full disables --userns=keep-id so the container runs as root)"
-    else
-      # We ARE root — run privileged tests directly
+    _priv_vendor_flag=""
+    [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && _priv_vendor_flag="-mod vendor"
+    for pkg in $PRIV_PKGS; do
+      # Skip packages whose directories no longer exist (stale root_pkgs entries)
+      if [[ ! -d "$REPO_ROOT/$mod_dir/$pkg" ]]; then
+        echo "  Skipping stale: $pkg (directory does not exist)"
+        continue
+      fi
+      # A missing runtime or an unexpectedly nonroot container must not turn
+      # requested but unexecuted privileged coverage into a successful --full.
+      if [[ "$(id -u)" != "0" ]]; then
+        echo "  INCONCLUSIVE: privileged tests did not run: $mod_dir/$pkg (not root)"
+        {
+          echo "## INCONCLUSIVE PRIVILEGED TESTS ($mod_dir/$pkg)"
+          echo "--full requested this package, but validation is not running as root."
+          echo "Run in a working root container with the required capabilities."
+          echo ""
+        } >> "$SUMMARY"
+        ERRORS_FOUND=1
+        continue
+      fi
       if ! command -v sudo &>/dev/null; then
         printf '#!/bin/sh\nwhile [ "${1#-}" != "$1" ]; do shift; done\nexec "$@"\n' > /usr/local/bin/sudo
         chmod +x /usr/local/bin/sudo
       fi
-      _priv_vendor_flag=""
-      [[ -d "$REPO_ROOT/$mod_dir/vendor" ]] && _priv_vendor_flag="-mod vendor"
-      for pkg in $PRIV_PKGS; do
-        # Skip packages whose directories no longer exist (stale root_pkgs entries)
-        if [[ ! -d "$REPO_ROOT/$mod_dir/$pkg" ]]; then
-          echo "  Skipping stale: $pkg (directory does not exist)"
-          continue
-        fi
-        step_failed=0
-        run_validation "priv-${pkg##*/}" "${GATE_EXPORTS} cd $mod_dir && GOMAXPROCS=\${GOMAXPROCS:-2} go test $_priv_vendor_flag -count=1 -timeout 5m ./$pkg/..." || step_failed=1
-        if [[ "$step_failed" -eq 1 ]]; then
-          echo "## PRIVILEGED TEST FAILURE ($pkg)" >> "$SUMMARY"
-          tail -10 "$REBASE_TMP/priv-${pkg##*/}.log" >> "$SUMMARY"
-          echo "" >> "$SUMMARY"
-          ERRORS_FOUND=1
-        fi
-      done
-    fi
+      step_failed=0
+      run_validation "priv-${pkg##*/}" "${GATE_EXPORTS} cd $mod_dir && GOMAXPROCS=\${GOMAXPROCS:-2} go test $_priv_vendor_flag -count=1 -timeout 5m ./$pkg/..." || step_failed=1
+      if [[ "$step_failed" -eq 1 ]]; then
+        echo "## PRIVILEGED TEST FAILURE ($pkg)" >> "$SUMMARY"
+        tail -10 "$REBASE_TMP/priv-${pkg##*/}.log" >> "$SUMMARY"
+        echo "" >> "$SUMMARY"
+        ERRORS_FOUND=1
+      fi
+    done
   done
 fi
 

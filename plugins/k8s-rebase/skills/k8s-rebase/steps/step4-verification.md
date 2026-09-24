@@ -119,7 +119,11 @@ done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" 
 
 **Test agents:** Use ONLY packages from discovery above (filters
 out exact root_pkgs that need CAP_NET_ADMIN). Retain each package's module
-heading and run one module per invocation. From `REPO_ROOT`, pass that
+heading and execute the discovered unit-test packages, one module per
+invocation. `--no-test` and compilation with `-run='^$'` do not execute them.
+Retain each test command's exit status and log for the parent handoff and
+Step 5; identify packages requiring unavailable infrastructure separately.
+From `REPO_ROOT`, pass that
 repo-relative module explicitly, for example:
 
 ```bash
@@ -164,6 +168,13 @@ If test agents report failures:
 - **Container timing:** check if test code changed in rebase
 - **Pre-existing:** use 4a's baseline/evidence check; unchanged test code can
   fail because dependencies changed.
+
+For network-namespace permission failures, inspect the repository's container
+test setup. The validator's `--full` mode requests a privileged container on
+nonroot hosts even when local Go is current. Use it for requested privileged
+coverage when the runtime supports the required capabilities; otherwise
+retain the unresolved coverage and actual failure. Root inside a rootless
+container does not by itself prove that every needed capability is available.
 
 ## 4c. Independent review
 

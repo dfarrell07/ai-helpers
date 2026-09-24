@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-"""Offline execution checks for Step 4 discovery and test-only module routing."""
+"""Offline execution checks for discovery, module routing, and full coverage."""
 
 from concurrent.futures import ThreadPoolExecutor
 import json
@@ -222,6 +222,87 @@ from pathlib import Path
         self.assertIn("--userns=keep-id", argv)
         self.assertNotIn("--privileged", argv)
         self.assertEqual(argv[argv.index("--test-only") + 1:], list(args))
+
+    def test_full_on_nonroot_current_go_requests_privileged_container(self):
+        self.module()
+        self.env["FAKE_GOVERSION"] = "go1.99.0"
+        self.stub("id", 'print("1000")\n')
+        self.stub("podman", '''import json, os, sys
+from pathlib import Path
+(Path(os.environ["TEST_ROOT"]) / "container.json").write_text(json.dumps(sys.argv[1:]))
+sys.exit(125)
+''')
+        result = self.run_cmd("bash", str(VALIDATOR), "--full")
+        self.assertEqual(result.returncode, 125, result.stdout + result.stderr)
+        argv = json.loads((self.root / "container.json").read_text())
+        self.assertIn("--privileged", argv)
+        self.assertNotIn("--userns=keep-id", argv)
+        self.assertEqual(argv[-1], "--full")
+        self.assertNotIn("All validation passes", result.stdout)
+        self.assertFalse(any(c["argv"][0] == "test" for c in self.go_calls()))
+
+    def test_full_without_root_or_runtime_records_unresolved_coverage(self):
+        module = self.module()
+        self.package(module, "pkg/node", "must not execute", fail=True)
+        self.write_test_script(module, roots=("pkg/node", "pkg/stale"))
+        self.stub("id", 'print("1000")\n')
+        # Limit PATH to the tools used by validation, excluding both runtimes.
+        # No daemon is contacted even when the host has podman/docker installed.
+        for tool in ("bash", "git", "mkdir", "grep", "sed", "awk", "find", "sort",
+                     "head", "cut", "timeout", "tail", "cat", "wc", "chmod", "tr",
+                     "tee", "python3", "dirname", "basename"):
+            (self.bin / tool).symlink_to(shutil.which(tool))
+        self.env["PATH"] = str(self.bin)
+        result = self.run_cmd("bash", str(VALIDATOR), "--full")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertNotIn("All validation passes", result.stdout)
+        summary = (self.repo / ".rebase-tmp/summary.txt").read_text()
+        self.assertIn("INCONCLUSIVE PRIVILEGED TESTS", summary)
+        self.assertIn("pkg/node", summary)
+        self.assertNotIn("pkg/stale", summary)
+        self.assertIn("Skipping stale: pkg/stale", result.stdout)
+        calls = [c for c in self.go_calls() if c["argv"][0] == "test"]
+        self.assertTrue(calls)
+        self.assertTrue(all("-run=^$" in c["argv"] for c in calls))
+
+    def test_full_nonroot_container_does_not_report_privileged_pass(self):
+        module = self.module()
+        self.package(module, "pkg/node", "must not execute", fail=True)
+        self.write_test_script(module, roots=("pkg/node",))
+        self.env["K8S_REBASE_IN_CONTAINER"] = "1"
+        self.stub("id", 'print("1000")\n')
+        self.stub("jq", 'raise SystemExit("unexpected jq invocation")\n')
+        result = self.run_cmd("bash", str(VALIDATOR), "--full")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("INCONCLUSIVE PRIVILEGED TESTS", result.stdout)
+        self.assertNotIn("All validation passes", result.stdout)
+
+    def test_full_root_path_executes_tests_and_preserves_failure(self):
+        module = self.module()
+        self.write_test_script(module, roots=("pkg/node",), gate="full")
+        # Simulate only the shell's UID branch; the real Go fixture is harmless
+        # and runs under the invoking user's actual UID without host changes.
+        self.env["K8S_REBASE_IN_CONTAINER"] = "1"
+        self.stub("id", 'print("0")\n')
+        self.stub("sudo", 'raise SystemExit("unexpected sudo invocation")\n')
+        self.stub("jq", 'raise SystemExit("unexpected jq invocation")\n')
+        marker = self.root / "full-test-executed"
+        for fail in (False, True):
+            with self.subTest(fail=fail):
+                marker.unlink(missing_ok=True)
+                self.package(module, "pkg/node", "full test body executed", fail=fail, gate="full")
+                source = module / "pkg/node/reach_test.go"
+                source.write_text(source.read_text().replace(
+                    ' t.Log(', f' if err := os.WriteFile({json.dumps(str(marker))}, []byte("executed"), 0600); err != nil {{ t.Fatal(err) }}\n t.Log('))
+                result = self.run_cmd("bash", str(VALIDATOR), "--full")
+                self.assertEqual(result.returncode, int(fail), result.stdout + result.stderr)
+                self.assertEqual(marker.read_text(), "executed")
+                log = (self.repo / ".rebase-tmp/priv-node.log").read_text()
+                if fail:
+                    self.assertIn("intentional failure", log)
+                    self.assertIn("PRIVILEGED TEST FAILURE", result.stdout)
+                else:
+                    self.assertIn("All validation passes", result.stdout)
 
     def test_parallel_pass_and_failure_keep_separate_logs_and_shared_summary(self):
         module = self.module()
