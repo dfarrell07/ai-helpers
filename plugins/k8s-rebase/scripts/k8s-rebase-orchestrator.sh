@@ -119,7 +119,14 @@ report_is_fresh() {
   fi
   local cur_sha
   cur_sha=$(git -C "$repo" rev-parse HEAD 2>/dev/null)
-  [[ "$rpt_sha" == "$cur_sha" ]]
+  [[ "$rpt_sha" == "$cur_sha" ]] || return 1
+  if [[ "${rpt##*/}" == step4-dep-cve-check.report ]] && report_has_pass "$rpt"; then
+    local digest recorded_digest
+    digest=$(python3 "$PLUGIN_ROOT/scripts/check-cve-evidence.py" "$repo" 2>/dev/null) || return 1
+    recorded_digest=$(sed -n 's/^EVIDENCE_SHA256: //p' "$rpt")
+    [[ "$recorded_digest" == "$digest" ]] || return 1
+  fi
+  return 0
 }
 
 # --- Subcommands ---
@@ -397,7 +404,7 @@ cmd_reports() {
            [[ ${#raw_head} -eq $((${#head} + 6)) ]]; then
           verdict=$(awk '/^VERDICT: /{print $2}' "$rpt")
           reviewed_head="${raw_head#HEAD: }"
-          if [[ "$raw_head" == "HEAD: $head" ]]; then
+          if [[ "$raw_head" == "HEAD: $head" ]] && report_is_fresh "$rpt" "$repo"; then
             freshness=current
             [[ "$verdict" != PASS ]] || pass_current=$((pass_current + 1))
             echo "FRESHNESS: current HEAD"
@@ -405,7 +412,7 @@ cmd_reports() {
             freshness=stale
             stale_count=$((stale_count + 1))
             [[ "$verdict" != PASS ]] || pass_stale=$((pass_stale + 1))
-            echo "FRESHNESS: STALE final-step report; not final-HEAD verification"
+            echo "FRESHNESS: STALE final-step report or supporting evidence; not final-HEAD verification"
           else
             freshness=historical
             [[ "$verdict" != PASS ]] || pass_prior=$((pass_prior + 1))

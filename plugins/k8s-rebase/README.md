@@ -93,7 +93,7 @@ and resolve recovery before restarting.
 
 The configs cover six repositories across Kubernetes 1.34.1, 1.35.3, and
 1.36.2, with 16 reference cases; two 1.34 combinations are absent. Six
-additional pinned [1.37.0 exploration baselines](test/config-1.37.yaml)
+additional pinned [1.37.1 exploration baselines](test/config-1.37.yaml)
 cover the next rebase. Read the [1.37 / OpenShift 5.1 notes](docs/k8s-1.37.md)
 for downstream readiness and testing instructions. See the
 [coverage table](evals/README.md#coverage) for exact cases and references.

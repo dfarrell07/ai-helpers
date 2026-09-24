@@ -3,6 +3,7 @@
 
 import importlib.util
 import base64
+import hashlib
 import io
 import json
 import os
@@ -26,7 +27,7 @@ def advisory(identifier):
             "summary": "Reviewer must assess severity and reachability"}
 
 
-class InventoryTests(unittest.TestCase):
+class GitFixture(unittest.TestCase):
     def setUp(self):
         self.temp = tempfile.TemporaryDirectory(prefix="k8s-cve-evidence-")
         self.addCleanup(self.temp.cleanup)
@@ -76,6 +77,16 @@ class InventoryTests(unittest.TestCase):
     def baseline(self):
         self.base = self.commit()
         self.run_cmd("git", "switch", "-qc", "rebase")
+
+
+class InventoryTests(GitFixture):
+    def setUp(self):
+        super().setUp()
+        # These tests isolate declarations/checksum history. Real graph loading
+        # and integration with the union are covered by GraphInventoryTests.
+        patch = mock.patch.object(CVE, "graph_inventory", return_value=([], [], []))
+        patch.start()
+        self.addCleanup(patch.stop)
 
     def test_nested_modules_added_removed_retained_versions_and_vendor_exclusion(self):
         self.sums("go.sum", ("example.invalid/shared", "v1.0.0"),
@@ -282,6 +293,97 @@ class InventoryTests(unittest.TestCase):
         self.assertNotIn("VERDICT:", evidence)
         self.assertFalse((directory / "step4-dep-cve-check.report").exists())
         self.assertEqual(self.run_cmd("git", "diff", "HEAD").stdout, "")
+
+
+class GraphInventoryTests(GitFixture):
+    def setUp(self):
+        super().setUp()
+        self.proxy = Path(self.temp.name) / "proxy"
+        self.proxy.mkdir()
+        self.mod_sums = []
+        patch = mock.patch.dict(os.environ, GOPROXY=self.proxy.as_uri(), GOSUMDB="off",
+                                GOMODCACHE=str(Path(self.temp.name) / "module-cache"))
+        patch.start()
+        self.addCleanup(patch.stop)
+
+    def release(self, module, version, requires=""):
+        directory = self.proxy / module / "@v"
+        directory.mkdir(parents=True, exist_ok=True)
+        content = f"module {module}\ngo 1.20\n{requires}"
+        (directory / (version + ".mod")).write_text(content)
+        (directory / (version + ".info")).write_text(json.dumps(
+            {"Version": version, "Time": "2026-01-01T00:00:00Z"}))
+        digest = hashlib.sha256(content.encode()).hexdigest() + "  go.mod\n"
+        checksum = "h1:" + base64.b64encode(hashlib.sha256(digest.encode()).digest()).decode()
+        self.mod_sums.append(f"{module} {version}/go.mod {checksum}\n")
+
+    def history(self):
+        for version in ("v1.0.0", "v1.1.0"):
+            self.release("example.invalid/transitive", version)
+            self.release("example.invalid/direct", version,
+                         f"require example.invalid/transitive {version}\n")
+        self.module("require example.invalid/direct v1.0.0\n")
+        # Both transitive versions already exist in checksum history. Neither
+        # go.sum diff nor the root's require diff reveals their selected bump.
+        self.write("go.sum", "".join(self.mod_sums))
+        self.baseline()
+        self.module("require example.invalid/direct v1.1.0\n")
+
+    def test_real_go_graph_finds_transitive_bump_in_unchanged_checksum_history(self):
+        self.history()
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "COMPLETE", result["errors"])
+        self.assertIn(("example.invalid/transitive", "v1.0.0"), requested)
+        self.assertIn(("example.invalid/transitive", "v1.1.0"), requested)
+        self.assertEqual(len(requested), 4)
+        self.assertEqual([g["status"] for g in result["graphs"]], ["COMPLETE", "COMPLETE"])
+        self.assertIn("EXPECTED_GRAPHS: 2", CVE.render(result))
+        self.assertTrue(any(i.get("selected_graph") == "go.mod" and
+                            i["module"] == "example.invalid/transitive" for i in result["inventory"]))
+
+    def test_nested_module_graphs_remain_independent_and_removed_modules_are_queried(self):
+        self.history()
+        self.module("require example.invalid/direct v1.0.0\n", "nested space/go.mod")
+        self.write("nested space/go.sum", "".join(self.mod_sums))
+        base = self.commit()
+        self.module("")
+        changes, graphs, errors = CVE.graph_inventory(self.repo, base, self.commit())
+        self.assertEqual(errors, [])
+        self.assertEqual(len(graphs), 4)
+        self.assertTrue(changes)
+        self.assertTrue(all(i["selected_graph"] == "go.mod" and not i["new_versions"] for i in changes))
+
+    def test_missing_metadata_retains_partial_facts_and_blocks_complete(self):
+        self.history()
+        (self.proxy / "example.invalid/transitive/@v/v1.1.0.mod").unlink()
+        (self.proxy / "example.invalid/transitive/@v/v1.1.0.info").unlink()
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "INCOMPLETE")
+        self.assertTrue(result["errors"])
+        self.assertEqual([g["status"] for g in result["graphs"]], ["COMPLETE", "INCOMPLETE"])
+        self.assertIn(("example.invalid/direct", "v1.1.0"), requested)
+
+    def test_local_replacement_graph_is_explicitly_unresolved(self):
+        self.module("")
+        self.module("", "local/go.mod")
+        self.baseline()
+        self.module("require example.invalid/local v1.0.0\nreplace example.invalid/local => ./local\n")
+        result, _ = self.collect_empty()
+        self.assertEqual(result["coverage"], "INCOMPLETE")
+        self.assertIn("local replacement", " ".join(result["errors"]))
+
+    def test_timeout_or_manifest_mutation_never_claims_graph_complete(self):
+        self.history()
+        head = self.commit()
+        def mutation(directory):
+            (directory / "go.mod").write_text("changed\n")
+            return {}
+        for resolver in (mock.Mock(side_effect=subprocess.TimeoutExpired("go list", 180)), mutation):
+            with self.subTest(resolver=resolver):
+                _, graphs, errors = CVE.graph_inventory(self.repo, self.base, head, resolve=resolver)
+                self.assertEqual(len(errors), 2)
+                self.assertTrue(all(g["status"] == "INCOMPLETE" for g in graphs))
+                self.assertEqual(self.run_cmd("git", "status", "--porcelain").stdout, "")
 
 
 class OSVCoverageTests(unittest.TestCase):

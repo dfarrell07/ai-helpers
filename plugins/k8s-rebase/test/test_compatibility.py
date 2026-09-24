@@ -77,13 +77,18 @@ class CompatibilityTests(unittest.TestCase):
         report = gates / "step4-dep-cve-check.report"
         helper = PLUGIN / "scripts/write-gate-report.sh"
         complete = (f"HEAD: {self.git_sha()}\nSCAN_HEAD: {self.git_sha()}\n"
+                    f"BASE: {self.base}\n"
                     "COVERAGE: COMPLETE\nEXPECTED_QUERIES: 45\nCOMPLETED_QUERIES: 45\n"
+                    "EXPECTED_GRAPHS: 2\nCOMPLETED_GRAPHS: 2\n"
                     "EXPECTED_ADVISORIES: 2\nCOMPLETED_ADVISORIES: 2\n")
         for text in (None, complete.replace('COVERAGE: COMPLETE', 'COVERAGE: INCOMPLETE'),
+                     complete.replace('COMPLETED_GRAPHS: 2', 'COMPLETED_GRAPHS: 1'),
+                     complete.replace('EXPECTED_GRAPHS: 2\nCOMPLETED_GRAPHS: 2\n', ''),
                      complete.replace('COMPLETED_QUERIES: 45', 'COMPLETED_QUERIES: 7'),
                      complete.replace('COMPLETED_ADVISORIES: 2', 'COMPLETED_ADVISORIES: 1'),
                      complete.replace(self.git_sha(), self.base, 1),
                      complete.replace(f'SCAN_HEAD: {self.git_sha()}', f'SCAN_HEAD: {self.base}'),
+                     complete.replace(f'BASE: {self.base}', f'BASE: {self.git_sha()}'),
                      complete + 'COVERAGE: COMPLETE\n'):
             with self.subTest(evidence=text):
                 evidence.unlink(missing_ok=True)
@@ -1048,6 +1053,8 @@ exec "{real_git}" "$@"
         (isolated / "scripts").mkdir(parents=True)
         orch = isolated / "scripts/k8s-rebase-orchestrator.sh"
         shutil.copy(PLUGIN / "scripts/k8s-rebase-orchestrator.sh", orch)
+        shutil.copy(PLUGIN / "scripts/check-cve-evidence.py", isolated / "scripts")
+        shutil.copy(PLUGIN / "scripts/resolve-rebase-base.sh", isolated / "scripts")
         for name in ("step1-rebase", "step2-compilation", "step3-autofix", "step4-verification"):
             directory = isolated / "gates" / name
             directory.mkdir(parents=True)
@@ -1057,6 +1064,49 @@ exec "{real_git}" "$@"
             return self.run_cmd("bash", str(orch), action, str(self.repo), *args)
 
         return run
+
+    def test_cve_cache_requires_review_of_exact_current_evidence(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=4)
+        gate_dir = self.root / "plugin/gates/step4-verification"
+        (gate_dir / "check.md").rename(gate_dir / "dep-cve-check.md")
+        gates = self.repo / ".rebase-tmp/gates"
+        gates.mkdir()
+        evidence = gates / "step4-dep-cve-check.evidence"
+        report = gates / "step4-dep-cve-check.report"
+        complete = (f"HEAD: {self.git_sha()}\nSCAN_HEAD: {self.git_sha()}\nCOVERAGE: COMPLETE\n"
+                    f"BASE: {self.base}\n"
+                    "EXPECTED_GRAPHS: 2\nCOMPLETED_GRAPHS: 2\n"
+                    "EXPECTED_QUERIES: 2\nCOMPLETED_QUERIES: 2\n"
+                    "EXPECTED_ADVISORIES: 0\nCOMPLETED_ADVISORIES: 0\n")
+        evidence.write_text(complete.replace("EXPECTED_GRAPHS: 2\nCOMPLETED_GRAPHS: 2\n", ""))
+        # Legacy writer accepted this same-HEAD report without graph evidence.
+        report.write_text(f"HEAD: {self.git_sha()}\nVERDICT: PASS\n")
+        for collected in (False, True):
+            if collected:
+                evidence.write_text(complete)
+            result = run("gates")
+            self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+            self.assertIn("PENDING: dep-cve-check", result.stdout)
+            self.assertIn("STALE final-step", run("reports").stdout)
+        writer = PLUGIN / "scripts/write-gate-report.sh"
+        self.run_cmd("bash", str(writer), str(self.repo), "step4-dep-cve-check",
+                     "PASS", "0", "reviewed current facts", check=True)
+        self.assertEqual(run("gates").returncode, 0)
+        self.assertIn("FRESHNESS: current HEAD", run("reports").stdout)
+        # Valid coverage and HEAD still match, but a new advisory body needs review.
+        evidence.write_text(complete + "ADVISORY: new facts\n")
+        self.assertEqual(run("gates").returncode, 1)
+        self.assertEqual(run("advance").returncode, 1)
+        self.assertIn("STALE final-step", run("reports").stdout)
+        evidence.write_text(complete)
+        # A corrected starting commit changes scope without changing HEAD.
+        (self.repo / ".rebase-tmp/base-commit").write_text(self.git_sha() + "\n")
+        self.assertEqual(run("gates").returncode, 1)
+        result = self.run_cmd("bash", str(writer), str(self.repo), "step4-dep-cve-check",
+                              "PASS", "0", "wrong base scope")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("BASE", result.stderr)
 
     def test_fresh_pass_and_skip_advance_without_retries(self):
         run = self.isolated_orchestrator()
