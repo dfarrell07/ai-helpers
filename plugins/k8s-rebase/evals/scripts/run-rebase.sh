@@ -3,11 +3,11 @@ set -euo pipefail
 
 # run-rebase.sh — eval runner for the k8s-rebase skill.
 #
-# Invokes the skill exactly like test-skill.sh's cmd_run does (same
-# --plugin-dir / --permission-mode / --disallowed-tools flags — do not
-# drop or modify these, they are what makes the skill's own safety
-# hooks load and enforce in a headless session), but synchronously
-# (claude -p, not claude --bg) so cost/tokens are directly capturable.
+# Invokes an isolated snapshot of the skill with the same
+# --plugin-dir / --permission-mode / --disallowed-tools flags, but
+# synchronously (claude -p, not claude --bg) so cost/tokens are directly
+# capturable. The snapshot prevents a recovery attempt from editing the
+# developer's live plugin source during an eval.
 #
 # Usage:
 #   run-rebase.sh <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]
@@ -28,9 +28,67 @@ AI_HELPERS_DIR=${AI_HELPERS_DIR:-$(cd "$(dirname "$0")/../../../.." && pwd)}
 PLUGIN_DIR="$AI_HELPERS_DIR/plugins/k8s-rebase"
 PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 MAX_TURNS="${SKILL_MAX_TURNS:-200}"
+KNOWN_GOOD_SHA=""
 
 OUTPUT_DIR="$(pwd)/output"
 mkdir -p "$OUTPUT_DIR"
+PLUGIN_SNAPSHOT_DIR=""
+
+cleanup_plugin_snapshot() {
+  [[ -n "$PLUGIN_SNAPSHOT_DIR" ]] && rm -rf "$PLUGIN_SNAPSHOT_DIR"
+}
+trap cleanup_plugin_snapshot EXIT
+
+capture_diagnostics() {
+  local -a workspaces=()
+  local workspace index=0 key log file
+  local -a excludes=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' \
+    ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' \
+    ':(exclude,glob)**/mocks/**')
+  mapfile -t workspaces < <(git -C "$REPO_DIR" worktree list --porcelain \
+    | sed -n 's/^worktree //p')
+  local -a current_workspaces=("$REPO_DIR")
+  for workspace in "${workspaces[@]}"; do
+    [[ "$workspace" == "$REPO_DIR" ]] && continue
+    local branch_file="$workspace/.rebase-tmp/branch-name"
+    local branch_mtime
+    [[ -f "$branch_file" ]] || continue
+    branch_mtime=$(stat -c '%Y' "$branch_file" 2>/dev/null || echo 0)
+    [[ "$branch_mtime" -ge "$RUN_STARTED_AT" ]] && current_workspaces+=("$workspace")
+  done
+  workspaces=("${current_workspaces[@]}")
+  mkdir -p "$OUTPUT_DIR/script-logs"
+  : > "$OUTPUT_DIR/working-tree.patch"
+  : > "$OUTPUT_DIR/files-changed-working-tree.txt"
+  : > "$OUTPUT_DIR/working-tree-status.txt"
+  for workspace in "${workspaces[@]}"; do
+    [[ -d "$workspace" ]] || continue
+    index=$((index + 1))
+    key="$(printf '%02d-%s' "$index" "${workspace##*/}")"
+    mkdir -p "$OUTPUT_DIR/script-logs/$key"
+    {
+      printf 'Workspace: %s\n' "$workspace"
+      git -C "$workspace" status --short 2>/dev/null || true
+      printf '\n'
+    } >> "$OUTPUT_DIR/working-tree-status.txt"
+    for log in "$workspace"/.rebase-tmp/*.log; do
+      [[ -f "$log" ]] || continue
+      cp -f "$log" "$OUTPUT_DIR/script-logs/$key/$(basename "$log")"
+    done
+    {
+      printf '# Workspace: %s\n' "$workspace"
+      git -C "$workspace" diff "$FROM_COMMIT" -- . "${excludes[@]}" 2>/dev/null || true
+    } >> "$OUTPUT_DIR/working-tree.patch"
+    while IFS= read -r file; do
+      [[ -n "$file" ]] && printf '%s/%s\n' "$key" "$file" \
+        >> "$OUTPUT_DIR/files-changed-working-tree.txt"
+    done < <(git -C "$workspace" diff --name-only "$FROM_COMMIT" -- . "${excludes[@]}" 2>/dev/null || true)
+    while IFS= read -r file; do
+      [[ -n "$file" ]] && printf '%s/%s (untracked)\n' "$key" "$file" \
+        >> "$OUTPUT_DIR/files-changed-working-tree.txt"
+    done < <(git -C "$workspace" ls-files --others --exclude-standard 2>/dev/null || true)
+  done
+}
 
 REPO_DIR="${EVAL_REPO_DIR:-$AI_HELPERS_DIR/plugins/k8s-rebase/evals/.repos/$(echo "$REPO_URL" | sed -E 's#https?://github\.com/##; s#/#_#g')}"
 
@@ -77,14 +135,33 @@ git clean -fdx
 rm -rf "$REPO_DIR/.rebase-tmp"  # not removed by git clean if gitignored
 git config user.name "k8s-rebase-eval"
 git config user.email "eval@k8s-rebase.local"
+FROM_COMMIT=$(git rev-parse --verify 'HEAD^{commit}')
+RUN_STARTED_AT=$(date +%s)
+jq -n --arg repo_url "$REPO_URL" --arg from_commit "$FROM_COMMIT" --arg version "$VERSION" \
+  --arg model "$SKILL_MODEL" --argjson started_at "$RUN_STARTED_AT" \
+  '{repo_url:$repo_url,from_commit:$from_commit,version:$version,model:$model,started_at:$started_at}' \
+  > "$OUTPUT_DIR/run-input.json"
+
+# Load the exact current plugin contents from a disposable snapshot. Exclude
+# local clones/state so the model receives the skill, scripts, and gates without
+# copying unrelated eval data or shared harness state.
+PLUGIN_SNAPSHOT_DIR=$(mktemp -d "${TMPDIR:-/tmp}/k8s-rebase-plugin.XXXXXX")
+PLUGIN_SNAPSHOT="$PLUGIN_SNAPSHOT_DIR/k8s-rebase"
+mkdir -p "$PLUGIN_SNAPSHOT"
+tar -C "$PLUGIN_DIR" \
+  --exclude='./.git' --exclude='./.work' --exclude='./test/.repos' \
+  --exclude='./test/.matrix-state' --exclude='./evals/.repos' \
+  --exclude='./evals/results' --exclude='./output' \
+  -cf - . | tar -C "$PLUGIN_SNAPSHOT" -xf -
 
 set +e
-claude -p "/k8s-rebase:k8s-rebase $VERSION" \
+env -u AI_HELPERS_DIR -u PLUGIN_DIR claude -p "/k8s-rebase:k8s-rebase $VERSION" \
   --output-format stream-json \
   --verbose \
   --max-turns "$MAX_TURNS" \
   --model "$SKILL_MODEL" \
-  --plugin-dir "$PLUGIN_DIR" \
+  --append-system-prompt "This is an isolated evaluation. Treat the plugin, harness, and eval files as read-only. Do not edit or repair them. If a skill script fails, report the blocker and stop; make any rebase changes only in the target repository." \
+  --plugin-dir "$PLUGIN_SNAPSHOT" \
   --permission-mode "$PERMISSION_MODE" \
   --disallowed-tools 'Bash(git push *),Bash(*git push*),Bash(git -c *push*),Bash(*send-pack*),Bash(gh pr create *),Bash(*gh pr create*),Bash(*gh api*repos*pulls*),Bash(go mod tidy*),Bash(go mod get*),Bash(go mod vendor*),Bash(go mod edit*),Bash(go get *),Bash(go generate *),Bash(go run *)' \
   2>"$OUTPUT_DIR/session-stderr.log" \
@@ -93,13 +170,6 @@ PIPE_STATUS=("${PIPESTATUS[@]}")  # snapshot before set -e resets it
 SKILL_EXIT=${PIPE_STATUS[0]}
 TEE_EXIT=${PIPE_STATUS[1]}
 set -e
-
-if [[ $SKILL_EXIT -ne 0 ]]; then
-  write_status "infra_error" "skill exited $SKILL_EXIT"; exit 1
-fi
-if [[ $TEE_EXIT -ne 0 ]]; then
-  write_status "infra_error" "tee failed writing session-output.json (disk full?)"; exit 1
-fi
 
 # Extract cost/tokens into metrics.json (CLI runner contract).
 # tail -1: in multi-turn sessions the last "type":"result" event has
@@ -120,28 +190,86 @@ grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null \
 echo "Cost/tokens:"
 cat "$OUTPUT_DIR/metrics.json"
 
+CLAUDE_RESULT_ERROR=false
+_result_event=$(grep '"type":"result"' "$OUTPUT_DIR/session-output.json" 2>/dev/null | tail -1 || true)
+if [[ -n "$_result_event" ]] && jq -e \
+  '(.is_error == true) or (.terminal_reason == "aborted_streaming")' \
+  <<< "$_result_event" >/dev/null 2>&1; then
+  CLAUDE_RESULT_ERROR=true
+fi
+if [[ $SKILL_EXIT -ne 0 || $TEE_EXIT -ne 0 || "$CLAUDE_RESULT_ERROR" == true ]]; then
+  capture_diagnostics
+  if [[ $SKILL_EXIT -ne 0 ]]; then
+    write_status "infra_error" "Claude session exited $SKILL_EXIT"
+  elif [[ $TEE_EXIT -ne 0 ]]; then
+    write_status "infra_error" "tee failed writing session-output.json (disk full?)"
+  else
+    write_status "infra_error" "Claude session reported an execution error or interruption"
+  fi
+  exit 1
+fi
+
+# Claude Code can keep the rebase in a managed linked worktree. Collect all
+# repo workspaces and use the newest branch-name marker written during this
+# run as the result/status workspace.
+mapfile -t RUN_WORKSPACES < <(git -C "$REPO_DIR" worktree list --porcelain \
+  | sed -n 's/^worktree //p')
+RUN_ARTIFACT_ROOTS=("$REPO_DIR")
+RUN_ROOT="$REPO_DIR"
+RESULT_BRANCH=""
+RESULT_BRANCH_MTIME=0
+for workspace in "${RUN_WORKSPACES[@]}"; do
+  branch_file="$workspace/.rebase-tmp/branch-name"
+  [[ -f "$branch_file" ]] || continue
+  branch_mtime=$(stat -c '%Y' "$branch_file" 2>/dev/null || echo 0)
+  [[ "$branch_mtime" -ge "$RUN_STARTED_AT" && "$branch_mtime" -ge "$RESULT_BRANCH_MTIME" ]] || continue
+  branch_name=$(cat "$branch_file")
+  git -C "$REPO_DIR" rev-parse --verify "${branch_name}^{commit}" >/dev/null 2>&1 || continue
+  RUN_ROOT="$workspace"
+  RESULT_BRANCH="$branch_name"
+  RESULT_BRANCH_MTIME="$branch_mtime"
+  if [[ "$workspace" != "$REPO_DIR" ]]; then
+    RUN_ARTIFACT_ROOTS+=("$workspace")
+  fi
+done
+capture_diagnostics
+
 # cmd_status exits 0 in both DONE:true and DONE:false paths; the judge
 # reads the output text, not the exit code.
-bash "$PLUGIN_DIR/scripts/k8s-rebase-orchestrator.sh" status "$REPO_DIR" \
+bash "$PLUGIN_DIR/scripts/k8s-rebase-orchestrator.sh" status "$RUN_ROOT" \
   > "$OUTPUT_DIR/final-status.txt" 2>&1
 
 # .rebase-tmp/status/INCOMPLETE is written unconditionally on force-advance;
-# orchestrator `status` only surfaces it conditionally, so check directly.
-if [[ -f "$REPO_DIR/.rebase-tmp/status/INCOMPLETE" ]]; then
-  cp "$REPO_DIR/.rebase-tmp/status/INCOMPLETE" "$OUTPUT_DIR/force-advance.log"
-else
-  : > "$OUTPUT_DIR/force-advance.log"
-fi
+# status only surfaces it conditionally, so check every workspace used by this run.
+: > "$OUTPUT_DIR/force-advance.log"
+for workspace in "${RUN_ARTIFACT_ROOTS[@]}"; do
+  marker="$workspace/.rebase-tmp/status/INCOMPLETE"
+  [[ -f "$marker" ]] || continue
+  printf 'Workspace: %s\n' "$workspace" >> "$OUTPUT_DIR/force-advance.log"
+  cat "$marker" >> "$OUTPUT_DIR/force-advance.log"
+  printf '\n' >> "$OUTPUT_DIR/force-advance.log"
+done
 
 mkdir -p "$OUTPUT_DIR/gate-reports"
-cp "$REPO_DIR"/.rebase-tmp/gates/*.report "$OUTPUT_DIR/gate-reports/" 2>/dev/null || true
+declare -A GATE_REPORT_MTIMES=()
+for workspace in "${RUN_ARTIFACT_ROOTS[@]}"; do
+  for report in "$workspace"/.rebase-tmp/gates/*.report; do
+    [[ -f "$report" ]] || continue
+    report_name=$(basename "$report")
+    report_mtime=$(stat -c '%Y' "$report" 2>/dev/null || echo 0)
+    [[ -n "${GATE_REPORT_MTIMES[$report_name]:-}" && "$report_mtime" -lt "${GATE_REPORT_MTIMES[$report_name]}" ]] && continue
+    cp "$report" "$OUTPUT_DIR/gate-reports/$report_name"
+    GATE_REPORT_MTIMES[$report_name]="$report_mtime"
+  done
+done
 
 # Same exclusions as cmd_court (test-skill.sh) — vendor/go.sum/packages/mocks
 # are generated/resolver output that would blow up the diff an LLM judge reads.
 COURT_EXCLUDES=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' ':(exclude,glob)**/mocks/**')
-git diff "$FROM_COMMIT"..HEAD -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/diff.patch" 2>/dev/null || true
-git diff "$FROM_COMMIT"..HEAD --name-only -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/files-changed.txt" 2>/dev/null || true
-git diff "$FROM_COMMIT"..HEAD --name-only > "$OUTPUT_DIR/files-changed-all.txt" 2>/dev/null || true
+RESULT_REF=$(git rev-parse --verify "${RESULT_BRANCH:-HEAD}^{commit}")
+git diff "$FROM_COMMIT".."$RESULT_REF" -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/diff.patch" 2>/dev/null || true
+git diff "$FROM_COMMIT".."$RESULT_REF" --name-only -- . "${COURT_EXCLUDES[@]}" > "$OUTPUT_DIR/files-changed.txt" 2>/dev/null || true
+git diff "$FROM_COMMIT".."$RESULT_REF" --name-only > "$OUTPUT_DIR/files-changed-all.txt" 2>/dev/null || true
 
 if [[ -n "$KNOWN_GOOD_REF" ]]; then
   _kg_fetch_ok=false
@@ -231,6 +359,11 @@ jq -rs '[.[] | select(.type=="assistant")
 
 # Remove large files the harness would otherwise load into outputs["files"].
 rm -f "$OUTPUT_DIR/session-output.json" "$OUTPUT_DIR/session-stderr.log"
+
+jq --arg result_ref "$RESULT_REF" --arg known_good_ref "$KNOWN_GOOD_SHA" \
+  '. + {result_ref:$result_ref,known_good_ref:(if $known_good_ref == "" then null else $known_good_ref end)}' \
+  "$OUTPUT_DIR/run-input.json" > "$OUTPUT_DIR/run-input.json.tmp"
+mv "$OUTPUT_DIR/run-input.json.tmp" "$OUTPUT_DIR/run-input.json"
 
 trap - ERR
 write_status "completed" ""

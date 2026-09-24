@@ -54,6 +54,7 @@ outputs:
   - path: "output"
     schema: |
         run-status.json         — {"status": "completed"|"infra_error", "reason": "..."}
+        run-input.json          — exact from_commit, target version, model, and result/known-good SHAs
         metrics.json            — CLI runner contract: token_usage, cost_usd, num_turns, model
         final-status.txt        — orchestrator `status` output (contains "DONE: true" on success)
         force-advance.log       — empty on a clean run; non-empty if orchestrator force-advanced

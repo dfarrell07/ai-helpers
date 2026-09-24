@@ -243,6 +243,142 @@ class CompatibilityTests(unittest.TestCase):
                 self.assertEqual(patch.read_text(), expected_patch)
         self.assertFalse(self.claude_called.exists())
 
+    def test_eval_runner_collects_current_linked_worktree_artifacts(self):
+        runner = PLUGIN / "evals/scripts/run-rebase.sh"
+        source = self.root / "eval-source"
+        source.mkdir()
+        env = dict(self.env, PATH=f"{self.bin}:{os.environ['PATH']}")
+
+        def git(repo, *args):
+            return subprocess.run(["git", "-C", str(repo), *args], env=env,
+                                  text=True, capture_output=True, check=True)
+
+        git(source, "init", "-q", "-b", "main")
+        git(source, "config", "user.name", "Eval Fixture")
+        git(source, "config", "user.email", "eval@example.invalid")
+        (source / "base.txt").write_text("baseline\n")
+        git(source, "add", ".")
+        git(source, "commit", "-qm", "baseline")
+        baseline = git(source, "rev-parse", "HEAD").stdout.strip()
+        remote = self.root / "eval-origin.git"
+        subprocess.run(["git", "clone", "-q", "--bare", str(source), str(remote)],
+                       env=env, check=True)
+
+        repo = self.root / "eval-repo"
+        subprocess.run(["git", "clone", "-q", str(remote), str(repo)], env=env, check=True)
+        git(repo, "config", "user.name", "Eval Fixture")
+        git(repo, "config", "user.email", "eval@example.invalid")
+        stale_wt = self.root / "stale-worktree"
+        git(repo, "worktree", "add", "-q", "-b", "bump1.36-stale", str(stale_wt), "HEAD")
+        stale_marker = stale_wt / ".rebase-tmp/status/INCOMPLETE"
+        stale_marker.parent.mkdir(parents=True)
+        stale_marker.write_text("stale marker\n")
+        stale_branch_file = stale_wt / ".rebase-tmp/branch-name"
+        stale_branch_file.write_text("bump1.36-stale\n")
+        stale_report = stale_wt / ".rebase-tmp/gates/step1-example.report"
+        stale_report.parent.mkdir(parents=True)
+        stale_report.write_text("VERDICT: FAIL\n")
+        os.utime(stale_branch_file, (1, 1))
+
+        helpers = self.root / "eval-helpers"
+        orchestrator = helpers / "plugins/k8s-rebase/scripts/k8s-rebase-orchestrator.sh"
+        orchestrator.parent.mkdir(parents=True)
+        orchestrator.write_text(
+            '#!/bin/bash\nprintf "%s\\n" "$2" > "$STATUS_ROOT_CAPTURE"\necho "DONE: true"\n'
+        )
+        orchestrator.chmod(0o755)
+        live_plugin_script = helpers / "plugins/k8s-rebase/scripts/k8s-rebase.sh"
+        live_plugin_script.write_text("original eval plugin source\n")
+        current_wt = self.root / "current-worktree"
+        result_sha_file = self.root / "result-sha"
+        self.stub(
+            "claude",
+            'plugin_dir=""\n'
+            'while [[ $# -gt 0 ]]; do\n'
+            '  if [[ "$1" == "--plugin-dir" ]]; then plugin_dir="$2"; shift 2; else shift; fi\n'
+            'done\n'
+            'printf "%s\\n" "$plugin_dir" > "$PLUGIN_DIR_CAPTURE"\n'
+            'echo "eval recovery edit" > "$plugin_dir/scripts/k8s-rebase.sh"\n'
+            'repo=$(pwd)\n'
+            'if [[ "${FAKE_CLAUDE_ERROR:-false}" == true ]]; then\n'
+            '  mkdir -p "$repo/.rebase-tmp"\n'
+            '  echo "go mod tidy failed" > "$repo/.rebase-tmp/step1.log"\n'
+            '  echo "interrupted target edit" >> "$repo/base.txt"\n'
+            '  printf \'%s\\n\' \'{"type":"result","is_error":true,"terminal_reason":"aborted_streaming","usage":{"input_tokens":1,"output_tokens":2},"total_cost_usd":0.1,"num_turns":1}\'\n'
+            '  exit 0\n'
+            'fi\n'
+            'git -C "$repo" worktree add -q -b bump1.36-current "$CURRENT_WT" HEAD\n'
+            'mkdir -p "$CURRENT_WT/.rebase-tmp/status" "$CURRENT_WT/.rebase-tmp/gates"\n'
+            'mkdir -p "$repo/.rebase-tmp/status"\n'
+            'echo bump1.36-current > "$CURRENT_WT/.rebase-tmp/branch-name"\n'
+            'echo "VERDICT: PASS" > "$CURRENT_WT/.rebase-tmp/gates/step1-example.report"\n'
+            'echo "incomplete in main" > "$repo/.rebase-tmp/status/INCOMPLETE"\n'
+            'echo "from current worktree" > "$CURRENT_WT/from-worktree.txt"\n'
+            'git -C "$CURRENT_WT" add from-worktree.txt\n'
+            'git -C "$CURRENT_WT" commit -qm "worktree result"\n'
+            'echo "post-commit dirty change" >> "$CURRENT_WT/base.txt"\n'
+            'echo "step1 run log" > "$CURRENT_WT/.rebase-tmp/step1.log"\n'
+            'git -C "$CURRENT_WT" rev-parse HEAD > "$RESULT_SHA_FILE"\n'
+            'printf \'{"type":"result","usage":{"input_tokens":1,"output_tokens":1},"total_cost_usd":0.01,"num_turns":1}\\n\'\n'
+        )
+
+        run_dir = self.root / "eval-run"
+        run_dir.mkdir()
+        env.update(
+            AI_HELPERS_DIR=str(helpers), EVAL_REPO_DIR=str(repo), CURRENT_WT=str(current_wt),
+            RESULT_SHA_FILE=str(result_sha_file), STATUS_ROOT_CAPTURE=str(self.root / "status-root"),
+            PLUGIN_DIR_CAPTURE=str(self.root / "plugin-dir-capture"),
+        )
+        result = subprocess.run(
+            ["bash", str(runner), str(remote), baseline, "1.36.2", "fixture-model"],
+            cwd=run_dir, env=env, text=True, capture_output=True, timeout=60,
+        )
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        output = run_dir / "output"
+        inputs = json.loads((output / "run-input.json").read_text())
+        self.assertEqual(inputs["from_commit"], baseline)
+        self.assertEqual(inputs["result_ref"], result_sha_file.read_text().strip())
+        self.assertIn("from-worktree.txt", (output / "files-changed.txt").read_text())
+        self.assertIn("base.txt", (output / "files-changed-working-tree.txt").read_text())
+        self.assertIn("post-commit dirty change", (output / "working-tree.patch").read_text())
+        script_logs = list((output / "script-logs").glob("*/step1.log"))
+        self.assertEqual(len(script_logs), 1)
+        self.assertEqual(script_logs[0].read_text(), "step1 run log\n")
+        self.assertEqual((output / "gate-reports/step1-example.report").read_text(), "VERDICT: PASS\n")
+        force_log = (output / "force-advance.log").read_text()
+        self.assertIn("incomplete in main", force_log)
+        self.assertNotIn("stale marker", force_log)
+        self.assertEqual(Path((self.root / "status-root").read_text().strip()), current_wt)
+        plugin_dir = Path((self.root / "plugin-dir-capture").read_text().strip())
+        self.assertNotEqual(plugin_dir, live_plugin_script.parent.parent)
+        self.assertEqual(live_plugin_script.read_text(), "original eval plugin source\n")
+
+        error_repo = self.root / "eval-repo-error"
+        subprocess.run(["git", "clone", "-q", str(remote), str(error_repo)], env=env, check=True)
+        git(error_repo, "config", "user.name", "Eval Fixture")
+        git(error_repo, "config", "user.email", "eval@example.invalid")
+        error_run_dir = self.root / "eval-run-error"
+        error_run_dir.mkdir()
+        error_env = dict(
+            env, EVAL_REPO_DIR=str(error_repo), FAKE_CLAUDE_ERROR="true",
+        )
+        error_result = subprocess.run(
+            ["bash", str(runner), str(remote), baseline, "1.36.2", "fixture-model"],
+            cwd=error_run_dir, env=error_env, text=True, capture_output=True, timeout=60,
+        )
+        self.assertNotEqual(error_result.returncode, 0)
+        error_output = error_run_dir / "output"
+        status = json.loads((error_output / "run-status.json").read_text())
+        self.assertEqual(status["status"], "infra_error")
+        self.assertIn("interruption", status["reason"])
+        self.assertTrue((error_output / "session-output.json").exists())
+        self.assertIn("go mod tidy failed",
+                      (error_output / "script-logs/01-eval-repo-error/step1.log").read_text())
+        self.assertIn("interrupted target edit",
+                      (error_output / "working-tree.patch").read_text())
+        self.assertIn("01-eval-repo-error/base.txt",
+                      (error_output / "files-changed-working-tree.txt").read_text())
+
     def lint_baseline_fixture(self):
         (self.repo / "main.go").write_text("package main\n// unrelated saved work\n")
         self.run_cmd("git", "stash", "push", "-qm", "unrelated work", check=True)

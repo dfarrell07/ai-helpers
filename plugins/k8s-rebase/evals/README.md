@@ -65,6 +65,11 @@ the caller's `output/` directory. Use a dedicated directory under `.work/`.
 The runner caches clones under `evals/.repos/`, or `EVAL_REPO_DIR` when set.
 It resets that checkout and deletes prior run changes and rebase branches;
 use only disposable eval clones. Run cases sharing a clone sequentially.
+Each invocation loads the plugin from a temporary snapshot and explicitly
+directs the model to treat plugin and harness files as read-only; edits made
+to the snapshot are discarded when the run ends.
+Each output directory includes `run-input.json` with the resolved starting
+commit and result/reference SHAs so later reviews can use the exact case inputs.
 
 `make eval` and the direct runner collect artifacts; they do **not** execute
 the YAML judges.
