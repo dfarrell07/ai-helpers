@@ -1,6 +1,8 @@
-If e2e infrastructure was modified (kind-common or kind-common.sh, kind.yaml.j2,
-e2e-kind.sh, install-kind.sh, CI workflows), verify the changes
-are consistent with the target k8s version.
+Review modified e2e infrastructure (kind-common or kind-common.sh, kind.yaml.j2,
+e2e-kind.sh, install-kind.sh, CI workflows) for consistency with the target
+k8s version. SKIP means no e2e infrastructure exists. Existing infrastructure
+with no modified files receives PASS for this gate's scope; Step 4's
+ci-readiness gate checks references across the repository.
 
 For each modified e2e file, check:
 
@@ -47,14 +49,14 @@ MANDATORY pre-existing check — run for EVERY finding:
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
 # For each finding at <file> with a stale version string:
 modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
-# If modified==0: PRE-EXISTING (file not touched by this branch)
+# If modified==0: outside this gate's modified-file scope
 # If modified>0: NEW (rebase touched this file; stale version should have been updated)
 ```
 
 Do NOT use "old version string appears on base" as the pre-existing
 signal — the old version WAS correct on base, so it appears in every
 file. Only files MODIFIED by this branch are in scope.
-If ALL findings are in unmodified files, verdict MUST be PASS.
+If ALL findings are in unmodified files, verdict MUST be PASS, not SKIP.
 
 VERDICT: FAIL only if NEW e2e infrastructure issues exist (not
 on base branch). PASS if all issues are pre-existing or all

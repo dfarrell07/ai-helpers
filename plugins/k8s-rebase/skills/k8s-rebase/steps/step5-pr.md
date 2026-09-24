@@ -112,6 +112,9 @@ failed during environment setup remains failed/blocked, even when an isolated
 base run reproduces that failure. Give the affected package or suite and
 reason; mark skipped or unexecuted coverage unverified. Claim test PASS only
 when that test command completed successfully at the stated revision.
+Derive any package/test counts from complete output; a tail of the log cannot
+establish totals. If the full output is unavailable, report the verified
+command outcome and scope without inventing counts.
 
 Inspect `git diff "$BASE..HEAD"` and `git log --oneline "$BASE..HEAD"`.
 Describe dependency bumps as old → new from removed/added lines, not unchanged
