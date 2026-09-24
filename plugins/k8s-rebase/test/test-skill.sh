@@ -22,12 +22,6 @@ COURT_MODEL="${COURT_MODEL:-claude-sonnet-4-6}"
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"
 _MAX_CONCURRENT_FROM_ENV="${MAX_CONCURRENT:-}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-2}"
-# INFO_GATES — space-separated list of BARE gate names (no step prefix).
-# Gates in this list are counted as SKIP rather than FAIL when their verdict
-# is not PASS.  They are matched against report filenames after stripping the
-# leading stepN- prefix (e.g. step4-dep-cve-check -> dep-cve-check).
-# Update this list whenever a new advisory-only gate is added to gates/step*/.
-INFO_GATES="dep-cve-check skill-improvement commit-messages maintainer-review"
 COURT_RUBRIC_VERSION="court-review-v2"
 COURT_DIFF_ONLY=false
 
@@ -72,6 +66,8 @@ _run_result_is_current() {
   local state_dir="$1" version="$2" key="$3" short="$4" repo="$5"
   local spec="$6" recorded_at="$7" verdict="$8"
   local path branch="" result_ref=""
+  [[ -e "$state_dir/running/${version}_${key}" ||
+     -e "$state_dir/done/$(_done_key "$version" "$spec" "$key").prel" ]] && return 1
   path=$(_run_inputs_file "$state_dir" "$version" "$key")
   branch=$(find_newest_branch "$repo" "$version")
   if [[ -n "$branch" ]]; then
@@ -245,50 +241,40 @@ _tally_gates() {
       fi
     done
   done
-  # Stale-report detection: cache branch-tip timestamp per gate dir
-  local -A _tip_cache=()
   for _gn in "${!_gate_files[@]}"; do
     local _gf_file="${_gate_files[$_gn]}"
+    # Count only named gates from this plugin, never arbitrary extra reports.
+    local _expected=false _md _step _name
+    for _md in "$PLUGIN_DIR/gates"/step*/*.md; do
+      [[ -f "$_md" ]] || continue
+      _step="${_md%/*}"; _step="${_step##*/}"; _step="${_step%%-*}"
+      _name="${_md##*/}"; _name="${_name%.md}"
+      [[ "$_gn" == "${_step}-${_name}" ]] && { _expected=true; break; }
+    done
+    $_expected || continue
     _gt=$((_gt + 1))
-    local _gdir="${_gf_file%/*}"
-    if [[ -z "${_tip_cache[$_gdir]+x}" ]]; then
-      local _repo_root="${_gdir%/.rebase-tmp/gates}"
-      local _ts=0
-      if [[ -d "$_repo_root/.git" || -f "$_repo_root/.git" ]]; then
-        _ts=$(git -C "$_repo_root" log -1 --format='%ct' 2>/dev/null || echo 0)
-      fi
-      _tip_cache[$_gdir]="$_ts"
+    local _repo_root="${_gf_file%/.rebase-tmp/gates/*}"
+    local _ref="${_TALLY_RESULT_REF:-}" _branch _head _reviewed _verdict
+    if [[ -z "$_ref" ]]; then
+      _branch=$(cat "$_repo_root/.rebase-tmp/branch-name" 2>/dev/null) || _branch="HEAD"
+      _ref=$(git -C "$_repo_root" rev-parse --verify "${_branch}^{commit}" 2>/dev/null) || _ref=""
     fi
-    local _branch_tip_ts="${_tip_cache[$_gdir]}"
-    local _gv
-    _gv=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$_gf_file" 2>/dev/null | head -1)
-    _gv="${_gv^^}"
-    # If the AI wrote PASS but the companion evidence says SKIP, honour the evidence.
-    local _ev_file="${_gf_file%.report}.evidence"
-    if [[ "$_gv" == *PASS* && -f "$_ev_file" ]] && grep -qiE '^SUMMARY:[[:space:]]*SKIP:' "$_ev_file"; then
-      _gv="SKIP:"
-    fi
-    if [[ "$_gv" == *SKIP* || " $INFO_GATES " == *" ${_gn#step?-} "* ]]; then
-      _gs=$((_gs + 1))
-    elif [[ "$_gv" == *PASS* ]]; then
-      : # counted in _gt
+    _head=$(grep '^HEAD:' "$_gf_file") || _head=""
+    _reviewed="${_head#HEAD: }"
+    _verdict=$(grep '^VERDICT:' "$_gf_file") || _verdict=""
+    if [[ "$_verdict" =~ ^VERDICT:\ (PASS|SKIP)$ ]] &&
+       [[ "$_head" =~ ^HEAD:\ [0-9a-f]+$ ]] && [[ ${#_reviewed} -eq ${#_ref} ]] &&
+       [[ -n "$_ref" ]] && git -C "$_repo_root" merge-base --is-ancestor "$_reviewed" "$_ref" 2>/dev/null &&
+       { [[ "$_gn" != step4-* ]] || [[ "$_reviewed" == "$_ref" ]]; }; then
+      [[ "$_verdict" != 'VERDICT: SKIP' ]] || _gs=$((_gs + 1))
     else
-      # FAIL or missing verdict — check if report predates the branch tip
-      if _is_stale_fail "$_gf_file" "$_branch_tip_ts"; then
-        _gs=$((_gs + 1))
-      else
-        _gfail=$((_gfail + 1))
-        _gfail_names="${_gfail_names:+$_gfail_names,}${_gn}"
-      fi
+      # Old, malformed, inconclusive, and failed reviews remain unresolved.
+      # A later commit does not prove that an earlier failure was repaired.
+      _gfail=$((_gfail + 1))
+      _gfail_names="${_gfail_names:+$_gfail_names,}${_gn}"
     fi
   done
   echo "$_gt $_gfail $_gs $_gfail_names"
-}
-
-_is_stale_fail() {
-  local _file="$1" _tip_ts="$2"
-  local _rts; _rts=$(stat -c '%Y' "$_file" 2>/dev/null || echo 0)
-  [[ "$_rts" -gt 0 && "$_tip_ts" -gt "$_rts" ]]
 }
 
 # EXPECTED_GATES is computed at load time by counting every .md in the gates tree.
@@ -438,11 +424,14 @@ _set_worktree_base() {
 _session_alive() {
   local sid="$1"
   [[ -z "$sid" ]] && return 1
-  build_session_cache
+  build_session_cache || {
+    warn "Cannot verify session state; deferring completion of $sid"
+    return 0
+  }
   echo "$_SESSION_CACHE" | while IFS=$'\t' read -r _cwd _st _el _pid _sid _rest; do
-    [[ "$_sid" == "$sid"* ]] && [[ "$_st" == "working" ]] && echo "yes" && break
-    # NOTE: 'working' is the only live state reported by `claude agents --json`.
-    # If the claude CLI adds new active states (e.g. 'thinking'), update this check.
+    # Only an explicit terminal state establishes completion for a listed ID.
+    # New or ambiguous states must not cause polling to cancel the session.
+    [[ "$_sid" == "$sid"* && "$_st" != "done" ]] && echo "yes" && break
   done | grep -q yes
 }
 
@@ -469,26 +458,35 @@ default_branch() {
 
 _SESSION_CACHE=""
 _SESSION_CACHE_AGE=0
+_SESSION_CACHE_VALID=false
 
 _SESSION_PARSER=$(cat <<'PYEOF'
 import json, sys, time
 try:
     data = json.load(sys.stdin)
-    if not isinstance(data, list): sys.exit(0)
-except (json.JSONDecodeError, ValueError): sys.exit(0)
+    if not isinstance(data, list): sys.exit(1)
+except (json.JSONDecodeError, ValueError): sys.exit(1)
 now = time.time() * 1000
 for s in data:
     try:
-        cwd = s.get('cwd', '')
+        if not isinstance(s, dict): raise ValueError('invalid session record')
+        cwd = s.get('cwd')
+        if not isinstance(cwd, str) or not cwd: raise ValueError('missing cwd')
         raw_state = s.get('state')
         raw_status = s.get('status')
-        if raw_state == 'working' and raw_status == 'done':
-            st = raw_status  # state='working'+status='done' means the agent finished; promote to 'done' so session_for_repo skips it
+        if any(value is not None and not isinstance(value, str) for value in (raw_state, raw_status)):
+            raise ValueError('invalid state')
+        if raw_status == 'done' or (raw_state == 'done' and raw_status in (None, 'done')):
+            st = 'done'
+        elif 'working' in (raw_state, raw_status):
+            st = 'working'
         else:
             st = raw_state or raw_status or '?'
         pid = s.get('pid') or '0'
-        full_sid = s.get('sessionId', '?')
-        sid = s.get('id') or full_sid[:8]
+        full_sid = s.get('sessionId') or s.get('id')
+        sid = s.get('id') or full_sid
+        if not isinstance(sid, str) or not sid or not isinstance(full_sid, str):
+            raise ValueError('missing session ID')
         started = s.get('startedAt', 0)
         try:
             elapsed = max(0, int((now - started) / 60000)) if started else 0
@@ -496,18 +494,20 @@ for s in data:
             elapsed = 0  # startedAt was not a number (e.g. ISO string); treat as unknown
         # done is done — don't remap to idle even if PID lingers
         print(f'{cwd}\t{st}\t{elapsed}\t{pid}\t{sid}\t{full_sid}')
-    except (TypeError, ValueError): pass
+    except (TypeError, ValueError): sys.exit(1)
 PYEOF
 )
 
 build_session_cache() {
   local now
   now=$(date +%s)
-  [[ $((now - _SESSION_CACHE_AGE)) -lt 5 ]] && return 0
-  command -v claude &>/dev/null || { _SESSION_CACHE_AGE=$now; return 0; }
-  _SESSION_CACHE=$(claude agents --json 2>/dev/null \
-    | python3 -c "$_SESSION_PARSER" 2>/dev/null || true)
+  [[ $((now - _SESSION_CACHE_AGE)) -lt 5 ]] && { $_SESSION_CACHE_VALID; return; }
+  _SESSION_CACHE_VALID=false
   _SESSION_CACHE_AGE=$now
+  command -v claude &>/dev/null || return 1
+  _SESSION_CACHE=$(claude agents --json 2>/dev/null \
+    | python3 -c "$_SESSION_PARSER" 2>/dev/null) || { _SESSION_CACHE=""; return 1; }
+  _SESSION_CACHE_VALID=true
 }
 
 
@@ -1263,17 +1263,8 @@ _do_record_one() {
   local gtotal=0 gfail=0 gskip=0
   _collect_gate_dirs "$repo"
   if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
-    read -r gtotal gfail gskip gfail_names <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
-    # Reduce expected count for missing informational gates
-    local _missing_info=0
-    for _ig in $INFO_GATES; do
-      local _found=false
-      for _gd in "${_GATE_DIRS[@]}"; do
-        for f in "$_gd"/*"${_ig}"*; do [[ -f "$f" ]] && { _found=true; break 2; }; done
-      done
-      $_found || _missing_info=$((_missing_info + 1))
-    done
-    [[ "$gtotal" -ge $((EXPECTED_GATES - _missing_info)) && "$gfail" -eq 0 ]] && verdict="PASS"
+    read -r gtotal gfail gskip gfail_names <<< "$(_TALLY_RESULT_REF="$result_ref" _tally_gates "${_GATE_DIRS[@]}")"
+    [[ "$gtotal" -eq "$EXPECTED_GATES" && "$gfail" -eq 0 ]] && verdict="PASS"
   fi
 
   local incomplete_marker=""
@@ -1296,8 +1287,6 @@ _do_record_one() {
     kg_hunks="$kg_diff_nv"
     [[ "$kg_diff_all" -gt "$kg_diff_nv" ]] && kg_vendor="$((kg_diff_all - kg_diff_nv))"
   fi
-
-  local _prel_sid="${7:-}"    # session ID written to .prel sentinel for post-session update check
   local update_mode="${8:-}"  # "update" = bypass done_key guard; append corrected row only
 
   # Build human-readable detail
@@ -1347,11 +1336,22 @@ _do_record_one() {
       [[ -n "$kg_vendor" ]] && detail="$detail (+${kg_vendor} vendor)"
     fi
   else
-    detail="all gates pass (no known-good set)"
+    detail="all required gates resolved${_gate_suffix} (no known-good set)"
   fi
   if [[ -n "$incomplete_marker" ]]; then
     verdict="FAIL"
     detail="${detail:+$detail; }run recorded force-advance INCOMPLETE marker"
+  fi
+  local result_root="${wt_path:-$repo}"
+  if ! jq -e --arg version "$_rec_version" \
+       '.current_step == 5 and .version == $version' \
+       "$result_root/.rebase-tmp/state.json" >/dev/null 2>&1; then
+    verdict="FAIL"
+    detail="${detail:+$detail; }gated workflow did not complete"
+  fi
+  if [[ -e "$result_root/.rebase-tmp/.session-active" ]]; then
+    verdict="FAIL"
+    detail="${detail:+$detail; }Step 5 cleanup did not complete"
   fi
   local ts
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -1372,17 +1372,6 @@ _do_record_one() {
   _write_run_result "$state_dir" "$_rec_version" "$repo_key" "$short" "$spec" "$ts" "$verdict" "$result_ref" \
     || warn "$short: run/result association metadata could not be saved"
   touch "$state_dir/done/$done_key"
-  # Write prel sentinel so auto_record can append a corrected row when the session
-  # finishes with new commits after gate-complete recording.
-  # Fields: sid, recorded_sha, version, spec, repo_key (all needed for update).
-  if [[ -n "$_prel_sid" ]]; then
-    local _prel_bn; _prel_bn=$(cat "$repo/.rebase-tmp/branch-name" 2>/dev/null)
-    [[ -z "$_prel_bn" && -n "$_WT_PATH" ]] && _prel_bn=$(cat "$_WT_PATH/.rebase-tmp/branch-name" 2>/dev/null)
-    local _prel_sha; _prel_sha=$(echo "$_prel_bn" | xargs -I{} git -C "$repo" log -1 --format='%H' {} 2>/dev/null || echo "")
-    [[ -n "$_prel_sha" ]] && printf '%s\t%s\t%s\t%s\t%s\n' \
-      "$_prel_sid" "$_prel_sha" "$_rec_version" "$spec" "$repo_key" \
-      > "$state_dir/done/${done_key}.prel"
-  fi
   rm -f "$state_dir/running/${_rec_version}_${repo_key}"
   rm -f "$state_dir/court/${_rec_version}_${repo_key}"
   printf '%-20s %-42s %-8s %s' "$spec" "$short" "$verdict" "$detail"
@@ -1410,43 +1399,19 @@ auto_record() {
     [[ -z "$repo" || ! -d "$repo" ]] && continue
     local short
     short=$(repo_short "$repo")
+    # Gates can finish before the final review, PR command, and cleanup.
+    # Let the session finish naturally, even with an older preliminary record.
+    _session_alive "$_run_sid" && continue
     local done_key
     done_key=$(_done_key "$_run_version" "$spec" "$repo_key")
     [[ -f "$state_dir/done/$done_key" ]] && { [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true; rm -f "$running_file"; continue; }
-
-    local _session_dead=false
-    if _session_alive "$_run_sid"; then
-      # Session still running — check if gates are complete (scan all worktrees)
-      _collect_gate_dirs "$repo"
-      local _report_count=0
-      if [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
-        local -A _seen_reports=()
-        for _gd in "${_GATE_DIRS[@]}"; do
-          for _gf in "$_gd"/*.report; do
-            [[ -f "$_gf" ]] || continue
-            _seen_reports[$(basename "$_gf" .report)]=1
-          done
-        done
-        _report_count=${#_seen_reports[@]}
-      fi
-      # _report_count counts unique .report basenames; EXPECTED_GATES counts .md files.
-      # If an INFO gate never runs and produces no .report, this check will not pass
-      # until the session dies and the dead-session path records the result.
-      if [[ "$_report_count" -ge "$EXPECTED_GATES" ]]; then
-        info "Gate-complete: $spec on $short ($_report_count/$EXPECTED_GATES gates)"
-      else
-        continue
-      fi
-    else
-      _session_dead=true
-    fi
 
     local result
     if result=$(_do_record_one "$repo" "$repo_key" "$spec" "$state_dir" "$launch_epoch" "$_run_version" "$_run_sid"); then
       [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
       recorded=$((recorded + 1))
       info "Recorded: $result"
-    elif $_session_dead; then
+    else
       local _fail_detail="${result:-session ended without result}"
       local ts
       ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
@@ -1464,16 +1429,11 @@ auto_record() {
       rm -f "$running_file"
       recorded=$((recorded + 1))
       warn "Recorded FAIL for $short ($_fail_detail)"
-    else
-      # live session but _do_record_one failed (no branch, stale branch)
-      warn "Record deferred for $short: ${result:-no branch found} (session alive, will retry)"
     fi
   done
 
-  # Prel scan runs unconditionally — needed even when running_dir is empty,
-  # because the session that wrote the sentinel may have already finished.
-  # Scan .prel sentinel files written at gate-complete. When the session later
-  # finishes with new commits (e.g. lint fixes after gates), append a corrected row.
+  # Recheck legacy preliminary records after the session finishes, including
+  # an unchanged SHA: finalization changes state and markers without a commit.
   # Each .prel file stores: sid TAB recorded_sha TAB version TAB spec TAB repo_key
   for _pf in "$state_dir/done"/*.prel; do
     [[ -f "$_pf" ]] || continue
@@ -1492,11 +1452,11 @@ auto_record() {
     fi
     [[ -z "$_bn" ]] && { rm -f "$_pf"; continue; }
     local _cur_sha; _cur_sha=$(git -C "$_prepo" log -1 --format='%H' "$_bn" 2>/dev/null || echo "")
-    if [[ -n "$_cur_sha" && "$_cur_sha" != "$_psha" ]]; then
+    if [[ -n "$_cur_sha" ]]; then
       local _upd
       if _upd=$(_do_record_one "$_prepo" "$_prk" "$_psp" "$state_dir" "0" "$_pver" "" update); then
         recorded=$((recorded + 1))
-        info "Updated (branch advanced after gate-complete): $_upd"
+        info "Updated legacy preliminary result: $_upd"
       fi
     fi
     rm -f "$_pf"
@@ -2228,13 +2188,10 @@ _results_one() {
   elif [[ ${#_GATE_DIRS[@]} -gt 0 ]]; then
     local total=0 gfail=0 gskip=0 _gfn=""
     read -r total gfail gskip _gfn <<< "$(_tally_gates "${_GATE_DIRS[@]}")"
-    # _gfn (comma-separated failing gate names from _tally_gates) is not used here.
-    # Failing gates are re-discovered by scanning .report files below, which also
-    # provides the DETAILS: body needed for display.
     local _skip_note=""
     [[ "$gskip" -gt 0 ]] && _skip_note=", $gskip skipped"
     if [[ "$total" -ge "$EXPECTED_GATES" && "$gfail" -eq 0 ]]; then
-      echo "Gates: all $total pass${_skip_note}"
+      echo "Gates: all $total resolved${_skip_note}"
     elif [[ "$gfail" -gt 0 ]]; then
       echo "Gates: $gfail FAILED ($total/$EXPECTED_GATES complete${_skip_note})"
     else
@@ -2260,18 +2217,7 @@ _results_one() {
     done
     for _gn in "${!_rgate_files[@]}"; do
       local f="${_rgate_files[$_gn]}"
-      local v
-      v=$(grep -iE '^(VERDICT|STATUS|RESULT):' "$f" 2>/dev/null | head -1)
-      v="${v^^}"
-      [[ "$v" != *"FAIL"* ]] && continue
-      [[ " $INFO_GATES " == *" ${_gn#step?-} "* ]] && continue
-      local _gdir="${f%/*}"
-      local _repo_root="${_gdir%/.rebase-tmp/gates}"
-      local _branch_tip_ts=0
-      if [[ -d "$_repo_root/.git" || -f "$_repo_root/.git" ]]; then
-        _branch_tip_ts=$(git -C "$_repo_root" log -1 --format='%ct' 2>/dev/null || echo 0)
-      fi
-      _is_stale_fail "$f" "$_branch_tip_ts" && continue
+      [[ ",$_gfn," == *",$_gn,"* ]] || continue
       echo ""
       echo "FAILED: $_gn"
       # Indent every line after the DETAILS: header so it reads as a sub-block.
@@ -2540,7 +2486,7 @@ _results_for_version() {
 
 _results_all_versions() {
   local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
-  [[ ! -f "$tsv" ]] && { echo "No results yet. Run: make test"; return 0; }
+  [[ ! -f "$tsv" ]] && { echo "No results yet. Run: make test"; return 1; }
 
   local saved_config="$CONFIG_FILE"
   local versions_pass=0 versions_total=0 first=true
@@ -2568,6 +2514,7 @@ _results_all_versions() {
   else
     echo "SUMMARY: $versions_pass of $versions_total versions PASS"
   fi
+  [[ "$versions_total" -gt 0 && "$versions_pass" -eq "$versions_total" ]]
 }
 
 # ── Configuration ──────────────────────────────────────────────────────

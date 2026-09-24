@@ -17,7 +17,7 @@ help: ## Show available targets
 	@echo "k8s-rebase workflow testing ($(words $(wildcard gates/step[1-4]-*/*.md)) gates)"
 	@echo ""
 	@echo "Offline checks (no model calls):"
-	@echo "  make test-compatibility test-version-selection test-version-references test-go-version-gate test-court assert-evidence-paths"
+	@echo "  make test-compatibility test-version-selection test-version-references test-go-version-gate test-validation test-court assert-evidence-paths"
 	@echo ""
 	@echo "One rebase, then review its result:"
 	@echo "  make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none"
@@ -105,6 +105,10 @@ test-version-references: ## Offline same-Go OpenShift stream and image checks
 .PHONY: test-go-version-gate
 test-go-version-gate: ## Offline Go-reference attribution against real Git baselines
 	@python3 test/test_go_version_gate.py
+
+.PHONY: test-validation
+test-validation: ## Offline test execution and module/package coverage checks
+	@python3 test/test_validation.py
 
 test-court: ## Offline court scope/cache checks with a fake reviewer
 	@python3 test/test_court.py

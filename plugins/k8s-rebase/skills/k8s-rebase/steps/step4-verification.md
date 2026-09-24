@@ -105,21 +105,32 @@ Use native workers when available, or run the same checks inline.
 First, discover test packages:
 
 ```bash
-TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
-ROOT_PKGS=""
-[ -n "$TEST_GO_SH" ] && ROOT_PKGS=$(sed -n '/root_pkgs=(/,/)/p' "$TEST_GO_SH" | grep -oE 'pkg/[^"]+' | tr '\n' '|')
-for mod_dir in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort); do
+while IFS= read -r mod_dir; do
+  TEST_GO_SH="$mod_dir/hack/test-go.sh"
+  ROOT_PKGS=""
+  [ -f "$TEST_GO_SH" ] && ROOT_PKGS=$(sed -n '/root_pkgs=(/,/)/p' "$TEST_GO_SH" | grep -oE 'pkg/[^"]+' || true)
   echo "=== $mod_dir ==="
-  for pkg in $(cd "$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort -u); do
-    [ -n "$ROOT_PKGS" ] && echo "$pkg" | grep -qE "^\./(${ROOT_PKGS%|})(/.+)?$" && continue
+  while IFS= read -r pkg; do
+    [ -n "$ROOT_PKGS" ] && grep -Fxq -- "${pkg#./}" <<< "$ROOT_PKGS" && continue
     echo "$pkg"
-  done
-done
+  done < <(cd "$mod_dir" && find . -type d \( -name vendor -o -name .claude -o -name .git -o \( ! -path . -exec test -f '{}/go.mod' \; \) \) -prune -o -name "*_test.go" -exec dirname {} \; | sort -u)
+done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort)
 ```
 
 **Test agents:** Use ONLY packages from discovery above (filters
-out root_pkgs that need CAP_NET_ADMIN). Use the validate script's
-`--test-only` flag. For large packages (>20k test lines), use native waiting.
+out exact root_pkgs that need CAP_NET_ADMIN). Retain each package's module
+heading and run one module per invocation. From `REPO_ROOT`, pass that
+repo-relative module explicitly, for example:
+
+```bash
+bash "$PLUGIN_ROOT/scripts/k8s-rebase-validate.sh" --test-only --module ./test/e2e ./ipalloc
+```
+
+Do not combine packages from different modules or rely on the caller's cwd;
+without `--module`, the helper uses the primary module. Discovery also finds
+integration suites: inspect their runtime requirements and report missing
+infrastructure as INCONCLUSIVE, never as a unit-test pass.
+For large packages (>20k test lines), use native waiting.
 Split by test line count, cap ~30k per agent. Check `free -h` first.
 
 **Gate agents:** Run the orchestrator's gates command first:

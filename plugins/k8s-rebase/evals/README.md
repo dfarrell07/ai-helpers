@@ -14,7 +14,7 @@ prompt, or a launch fails with that message.
 
 | Check | Command | What it establishes |
 | --- | --- | --- |
-| Offline contracts | `make test-compatibility test-version-selection test-version-references test-go-version-gate test-court assert-evidence-paths` | Hook/review/gate interfaces, version selection, OpenShift image references, Go-reference attribution, court scope/cache behavior, companion paths; no model calls or rebases |
+| Offline contracts | `make test-compatibility test-version-selection test-version-references test-go-version-gate test-validation test-court assert-evidence-paths` | Hook/review/gate interfaces, version selection, OpenShift image references, Go-reference attribution, test module/package coverage, court scope/cache behavior, companion paths; no model calls or rebases |
 | One full-skill run | `make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none` | Launches a background rebase; inspect with `make watch version=1.35`, then `make results version=1.35` |
 | Diff review | `make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35` | Adversarial review of the result diff against its configured reference; does not establish that the run completed |
 | Configured matrix | `make matrix spec=none` | Runs all configured repo/version cases, court, and bounded retries; takes 4–8 hours |
@@ -30,6 +30,13 @@ the diff review found no supported regression. Check the separate RUN verdict,
 target-version evidence, and gate inventory before treating a rebase as
 successful. `make results` reports the run and diff review separately, and its
 combined overall status stays pending/failing until the required review passes.
+Polling waits for the session to finish naturally: a complete gate inventory
+must not interrupt Step 5. A recorded workflow PASS also requires completed
+orchestrator state and removal of the session marker during cleanup. Inspect
+the final response for the actual independent review and PR command.
+Unavailable or ambiguous session metadata defers recording; it does not
+authorize cancellation. Legacy preliminary records remain unqualified until
+the session finishes and its final state is rechecked, even at unchanged HEAD.
 Harness state and court transcripts live under
 `test/.matrix-state/`.
 
@@ -169,12 +176,12 @@ Read the artifacts behind a score:
   thresholds remain provisional. Known-good references are comparison
   evidence, not the only valid implementation.
 
-The workflow harness scores more leniently than the orchestrator advances.
-It counts every non-PASS report from `commit-messages`, `skill-improvement`,
-`dep-cve-check`, and `maintainer-review` as SKIP (`INFO_GATES` in
-`test/test-skill.sh`), although the last two can block advancement. It also
-counts a FAIL report older than the branch tip as SKIP. A recorded
-`status/INCOMPLETE` marker now forces the workflow-harness run verdict to FAIL,
+The workflow harness requires every expected gate's exact PASS/SKIP verdict
+and a valid reviewed commit. Prior-step reviews may cover an ancestor;
+Step 4 reviews must cover the final result. Missing, malformed, failed,
+inconclusive, and stale final-step reports remain unresolved, including
+reports from advisory gates. Extra report names cannot replace missing gates.
+A recorded `status/INCOMPLETE` marker forces the workflow run verdict to FAIL,
 and `force-advance.log` makes the corresponding eval judge fail.
 Court excludes vendor, go.sum, package metadata, and mocks from its diff;
 an identical filtered diff returns PASS without a jury. Preserve raw reports
@@ -188,8 +195,6 @@ and findings: these summaries do not turn an unresolved gate into PASS.
   bad diffs to check that judges reject plausible regressions.
 - Check expected report completeness/freshness and final PR claims directly;
   existing verdict/text checks do not establish those properties.
-- Add dedicated regression fixtures for force-advanced runs and FAIL reports
-  from gates that block orchestrator advancement.
 - LLM prompt templates currently read only `outputs.files`, while deterministic
   checks also read `modified_files`. Verify artifact delivery when changing
   the harness; empty judge inputs must not look like clean diffs.

@@ -88,7 +88,8 @@ class CourtHarnessTests(unittest.TestCase):
         claude = self.bin / "claude"
         claude.write_text(
             "#!/bin/bash\n"
-            'if [[ "${1:-}" == "agents" ]]; then echo "[]"; exit 0; fi\n'
+            'if [[ "${1:-}" == "agents" ]]; then printf "%s\\n" "${AGENT_STATE:-[]}"; exit "${AGENT_EXIT:-0}"; fi\n'
+            'if [[ "${1:-}" == "stop" ]]; then echo "$*" >> "$PROMPT_DIR/stops"; exit 0; fi\n'
             'if [[ "${1:-}" == "--bg" ]]; then echo "Session backgrounded 1234abcd"; exit 0; fi\n'
             "prompt=$(cat)\n"
             'printf "%s\\n" "$prompt" > "$PROMPT_DIR/prompt-$BASHPID.txt"\n'
@@ -122,6 +123,151 @@ class CourtHarnessTests(unittest.TestCase):
 
     def court_result(self):
         return self.state / "court/1.36.2_acme_demo"
+
+    def completed_workflow(self):
+        self.git("switch", "bump1.36")
+        scratch = self.repo / ".rebase-tmp"
+        (scratch / "gates").mkdir(parents=True)
+        (scratch / "branch-name").write_text("bump1.36\n")
+        (scratch / "state.json").write_text(json.dumps({
+            "current_step": 5, "version": "1.36.2", "repo": str(self.repo),
+        }))
+        (scratch / "gates/step1-court-fixture.report").write_text(
+            f"HEAD: {self.result}\nVERDICT: PASS\n")
+        running = self.state / "running"
+        running.mkdir(parents=True)
+        (running / "1.36.2_acme_demo").write_text("none\t0\tfixture-session\t1.36.2\n")
+        return scratch
+
+    def recorded_verdict(self):
+        self.harness("results")
+        return (self.state / "results.tsv").read_text().splitlines()[-1].split("\t")[4:]
+
+    def test_live_session_is_not_stopped_when_gates_finish(self):
+        scratch = self.completed_workflow()
+        (scratch / ".session-active").touch()
+        self.env["AGENT_STATE"] = json.dumps([{
+            "cwd": str(self.repo), "state": "working", "id": "fixture-session",
+        }])
+        self.harness("results")
+        self.assertFalse((self.prompts / "stops").exists())
+        self.assertFalse((self.state / "results.tsv").exists())
+        self.assertTrue((self.state / "running/1.36.2_acme_demo").exists())
+
+    def test_dead_session_before_cleanup_cannot_pass(self):
+        scratch = self.completed_workflow()
+        (scratch / ".session-active").touch()
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_session_list_errors_do_not_cancel_or_record_live_work(self):
+        self.completed_workflow()
+        for state, rc in (("[]", "1"), ('{"error":', "0"), ('{"error":"unavailable"}', "0")):
+            with self.subTest(state=state, rc=rc):
+                self.env.update(AGENT_STATE=state, AGENT_EXIT=rc)
+                result = self.harness("results")
+                self.assertFalse((self.prompts / "stops").exists(), result.stderr)
+                self.assertFalse((self.state / "results.tsv").exists())
+                self.assertTrue((self.state / "running/1.36.2_acme_demo").exists())
+
+    def test_ambiguous_session_records_preserve_running_work(self):
+        self.completed_workflow()
+        records = (
+            {"state": "thinking"}, {}, {"state": []},
+            {"state": "waiting", "status": "working"},
+            {"state": "working", "cwd": ""}, {"id": "", "state": "working"},
+        )
+        for record in records:
+            with self.subTest(record=record):
+                self.env["AGENT_STATE"] = json.dumps([
+                    dict(cwd=str(self.repo), id="fixture-session") | record])
+                self.harness("results")
+                self.assertFalse((self.prompts / "stops").exists())
+                self.assertFalse((self.state / "results.tsv").exists())
+                self.assertTrue((self.state / "running/1.36.2_acme_demo").exists())
+
+    def test_legacy_preliminary_pass_is_rechecked_without_head_change(self):
+        scratch = self.completed_workflow()
+        (scratch / ".session-active").touch()
+        (self.state / "running/1.36.2_acme_demo").unlink()
+        done = self.state / "done"
+        done.mkdir()
+        (done / "1.36.2_none_acme_demo").touch()
+        (done / "1.36.2_none_acme_demo.prel").write_text(
+            f"fixture-session\t{self.result}\t1.36.2\tnone\tacme_demo\n")
+        (self.state / "results.tsv").write_text(
+            "2026-09-24T00:00:00Z\t1.36.2\tnone\tacme/demo\tPASS\tpreliminary\n")
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_live_preliminary_result_cannot_qualify_with_matching_court(self):
+        scratch = self.completed_workflow()
+        (scratch / ".session-active").touch()
+        self.env["AGENT_STATE"] = json.dumps([{
+            "cwd": str(self.repo), "state": "working", "id": "fixture-session",
+        }])
+        (self.state / "results.tsv").write_text(
+            "2026-09-24T00:00:00Z\t1.36.2\tnone\tacme/demo\tPASS\tpreliminary\n")
+        result = self.harness("results", "acme/demo", "--court")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("Workflow run verdict: UNVERIFIED", result.stdout)
+        self.assertEqual(self.harness("results").returncode, 1)
+
+    def test_reports_without_completed_state_cannot_pass(self):
+        scratch = self.completed_workflow()
+        (scratch / "state.json").write_text('{"current_step":4,"version":"1.36.2"}')
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_completed_workflow_records_pass(self):
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+
+    def test_blocking_advisory_gate_failure_is_not_hidden(self):
+        scratch = self.completed_workflow()
+        (self.plugin / "gates/step4-verification").mkdir()
+        (self.plugin / "gates/step4-verification/maintainer-review.md").write_text("gate\n")
+        (scratch / "gates/step4-maintainer-review.report").write_text(
+            f"HEAD: {self.result}\nVERDICT: FAIL\nDETAILS: unresolved correctness issue\n")
+        verdict, detail = self.recorded_verdict()
+        self.assertEqual(verdict, "FAIL")
+        self.assertIn("step4-maintainer-review", detail)
+
+    def test_missing_advisory_gate_is_not_optional(self):
+        self.completed_workflow()
+        (self.plugin / "gates/step4-verification").mkdir()
+        (self.plugin / "gates/step4-verification/maintainer-review.md").write_text("gate\n")
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_old_failure_does_not_become_skip_after_commit(self):
+        scratch = self.completed_workflow()
+        report = scratch / "gates/step1-court-fixture.report"
+        report.write_text(f"HEAD: {self.run_base}\nVERDICT: FAIL\n")
+        os.utime(report, (1, 1))
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_malformed_verdict_cannot_pass(self):
+        scratch = self.completed_workflow()
+        (scratch / "gates/step1-court-fixture.report").write_text(
+            f"HEAD: {self.result}\nVERDICT: PASS\nVERDICT: FAIL\n")
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_extra_report_cannot_fill_missing_gate(self):
+        scratch = self.completed_workflow()
+        report = scratch / "gates/step1-court-fixture.report"
+        report.rename(scratch / "gates/step1-made-up.report")
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_final_step_pass_requires_result_head(self):
+        scratch = self.completed_workflow()
+        (self.plugin / "gates/step4-verification").mkdir()
+        (self.plugin / "gates/step4-verification/correctness.md").write_text("gate\n")
+        (scratch / "gates/step4-correctness.report").write_text(
+            f"HEAD: {self.run_base}\nVERDICT: PASS\n")
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
+    def test_prior_step_pass_can_be_historical_ancestor(self):
+        scratch = self.completed_workflow()
+        (scratch / "gates/step1-court-fixture.report").write_text(
+            f"HEAD: {self.run_base}\nVERDICT: PASS\n")
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
 
     def test_court_uses_run_base_and_recourts_changed_inputs(self):
         (self.state / "results.tsv").write_text(
@@ -317,6 +463,13 @@ class CourtHarnessTests(unittest.TestCase):
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("No results yet", result.stdout)
         self.assertNotIn("OVERALL (run + diff review): PASS", result.stdout)
+        self.assertEqual(self.harness("results", "--all-versions").returncode, 1)
+
+    def test_all_versions_propagates_failed_qualification(self):
+        self.completed_workflow()
+        result = self.harness("results", "--all-versions")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("SUMMARY: 0 of 1 versions PASS", result.stdout)
 
     def test_old_pass_row_cannot_certify_new_result_commit(self):
         (self.state / "results.tsv").write_text(

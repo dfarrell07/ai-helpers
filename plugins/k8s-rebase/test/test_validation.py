@@ -1,0 +1,248 @@
+#!/usr/bin/env python3
+"""Offline execution checks for Step 4 discovery and test-only module routing."""
+
+from concurrent.futures import ThreadPoolExecutor
+import json
+import os
+from pathlib import Path
+import shutil
+import subprocess
+import tempfile
+import unittest
+
+
+PLUGIN = Path(__file__).resolve().parents[1]
+VALIDATOR = PLUGIN / "scripts/k8s-rebase-validate.sh"
+
+
+class ValidationTests(unittest.TestCase):
+    def setUp(self):
+        scratch = PLUGIN.parents[1] / ".work/k8s-validation-tests"
+        scratch.mkdir(parents=True, exist_ok=True)
+        self.temp = tempfile.TemporaryDirectory(prefix="case-", dir=scratch)
+        self.addCleanup(self.temp.cleanup)
+        self.root = Path(self.temp.name)
+        self.repo = self.root / "repo with spaces"
+        self.repo.mkdir()
+        self.bin = self.root / "bin"
+        self.bin.mkdir()
+        self.env = dict(os.environ)
+        for key in list(self.env):
+            if key.startswith(("GIT_", "BASH_FUNC_", "KUBE_FEATURE_")):
+                del self.env[key]
+        real_go = shutil.which("go")
+        self.assertTrue(real_go, "Go is required for real fixture test execution")
+        self.env.update(PATH=f"{self.bin}:{os.environ['PATH']}", REAL_GO=real_go,
+                        GIT_CONFIG_GLOBAL=os.devnull, GIT_CONFIG_NOSYSTEM="1",
+                        BASH_ENV="", ENV="", GOTOOLCHAIN="local", GOWORK="off",
+                        GOPROXY="off", GOSUMDB="off", GOFLAGS="-p=2", GOMAXPROCS="2",
+                        K8S_REBASE_IN_CONTAINER="", TEST_ROOT=str(self.root))
+        self.run_cmd("git", "init", "-q", "-b", "rebase", check=True)
+        self.stub("go", '''import json, os, sys
+from pathlib import Path
+with (Path(os.environ["TEST_ROOT"]) / "go-calls.jsonl").open("a") as log:
+    log.write(json.dumps({"cwd": os.getcwd(), "argv": sys.argv[1:]}) + "\\n")
+if sys.argv[1:] == ["env", "GOVERSION"] and os.getenv("FAKE_GOVERSION"):
+    print(os.environ["FAKE_GOVERSION"])
+else:
+    os.execv(os.environ["REAL_GO"], [os.environ["REAL_GO"], *sys.argv[1:]])
+''')
+
+    def stub(self, name, body):
+        path = self.bin / name
+        path.write_text("#!/usr/bin/env python3\n" + body)
+        path.chmod(0o755)
+
+    def run_cmd(self, *args, check=False, cwd=None, env=None):
+        return subprocess.run(args, cwd=cwd or self.repo, env=env or self.env,
+                              capture_output=True, text=True, check=check, timeout=60)
+
+    def module(self, directory=".", version="1.23.0", vendor=False):
+        path = self.repo / directory
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "go.mod").write_text(f"module example.invalid/fixture\ngo {version}\n")
+        if vendor:
+            (path / "vendor").mkdir()
+            (path / "vendor/modules.txt").write_text("")
+        return path
+
+    def package(self, module, package, label, fail=False, gate=""):
+        path = module / package
+        path.mkdir(parents=True, exist_ok=True)
+        (path / "reach_test.go").write_text('''package fixture
+import ("os"; "testing")
+func TestReachability(t *testing.T) {
+ t.Log(LABEL)
+ if GATE != "" && os.Getenv("KUBE_FEATURE_Fixture") != GATE { t.Fatal("wrong feature gate") }
+ if FAIL { t.Fatal("intentional failure") }
+}
+'''.replace("LABEL", json.dumps(label)).replace("GATE", json.dumps(gate))
+                .replace("FAIL", "true" if fail else "false"))
+
+    def write_test_script(self, module, roots=(), gate=""):
+        hack = module / "hack"
+        hack.mkdir(exist_ok=True)
+        text = "#!/bin/bash\nroot_pkgs=(\n"
+        text += "".join(f' "example.invalid/fixture/{p}"\n' for p in roots) + ")\n"
+        if gate:
+            text += f"export KUBE_FEATURE_Fixture={gate}\n"
+        (hack / "test-go.sh").write_text(text)
+
+    def validate(self, *args, cwd=None):
+        return self.run_cmd("bash", str(VALIDATOR), "--test-only", *args, cwd=cwd)
+
+    def logs(self):
+        return sorted((self.repo / ".rebase-tmp").glob("test-only-*"))
+
+    def go_calls(self):
+        path = self.root / "go-calls.jsonl"
+        return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
+
+    def test_legacy_primary_module_and_prefixed_packages(self):
+        primary = self.module("go-controller", vendor=True)
+        root = self.module()
+        self.package(primary, "pkg/safe", "primary executed", gate="primary")
+        self.package(root, "pkg/safe", "wrong root", fail=True)
+        self.write_test_script(primary, gate="primary")
+        for package in ("./pkg/safe", "./go-controller/pkg/safe"):
+            with self.subTest(package=package):
+                before = set(self.logs())
+                result = self.validate(package, "-v")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn("primary executed", (set(self.logs()) - before).pop().read_text())
+        calls = [c for c in self.go_calls() if c["argv"][0] == "test"]
+        self.assertEqual(len(calls), 2)
+        self.assertTrue(all(c["cwd"] == str(primary) and "-mod=vendor" in c["argv"] for c in calls))
+
+    def test_explicit_secondary_module_and_argument_boundaries(self):
+        primary = self.module("go-controller")
+        secondary = self.module("test/unit tests")
+        self.package(primary, "pkg/shared", "wrong primary", fail=True)
+        self.package(secondary, "pkg/shared", "secondary executed", gate="fallback")
+        self.write_test_script(primary, roots=("pkg/shared",), gate="fallback")
+        regex = "^TestReachability$|^not a test$"
+        result = self.validate("--module", "test/unit tests", "./pkg/shared", "-run", regex, "-v",
+                               cwd=secondary)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("secondary executed", self.logs()[0].read_text())
+        call = next(c for c in self.go_calls() if c["argv"][0] == "test")
+        self.assertEqual(call["cwd"], str(secondary))
+        self.assertIn(regex, call["argv"])
+
+    def test_root_module_can_be_selected_when_go_controller_exists(self):
+        primary = self.module("go-controller")
+        root = self.module()
+        self.package(primary, "pkg/shared", "wrong primary", fail=True)
+        self.package(root, "pkg/shared", "root executed")
+        result = self.validate("--module", ".", "./pkg/shared", "-v")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("root executed", self.logs()[0].read_text())
+
+    def test_exact_privileged_exclusion_preserves_unlisted_children(self):
+        module = self.module()
+        self.package(module, "pkg/node", "privileged test must not execute", fail=True)
+        self.package(module, "pkg/node/util", "child executed", gate="local")
+        self.write_test_script(module, roots=("pkg/node",), gate="local")
+        for packages in (("./pkg/node/util",), ("./pkg/node", "./pkg/node/util"),
+                         ("./pkg/node/...",), ("./...",)):
+            with self.subTest(packages=packages):
+                before = set(self.logs())
+                result = self.validate(*packages, "-v")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                log = (set(self.logs()) - before).pop().read_text()
+                self.assertIn("child executed", log)
+                self.assertNotIn("privileged test must not execute", log)
+
+    def test_all_privileged_is_explicit_skip_with_independent_log(self):
+        module = self.module()
+        self.package(module, "pkg/node", "must not execute", fail=True)
+        self.write_test_script(module, roots=("pkg/node",))
+        result = self.validate("./pkg/node", "-v")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("SKIP", result.stdout)
+        self.assertNotIn("PASS", result.stdout)
+        self.assertIn("no tests ran", self.logs()[0].read_text())
+        self.assertFalse(any(c["argv"][0] == "test" for c in self.go_calls()))
+
+    def test_failed_or_empty_wildcard_expansion_is_not_pass(self):
+        module = self.module()
+        self.write_test_script(module, roots=("pkg/node",))
+        for pattern in ("./missing/...", "not-a-package/..."):
+            with self.subTest(pattern=pattern):
+                before = set(self.logs())
+                result = self.validate(pattern)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertNotIn("PASS", result.stdout)
+                self.assertTrue((set(self.logs()) - before).pop().read_text())
+        self.assertFalse(any(c["argv"][0] == "test" for c in self.go_calls()))
+
+    def test_discovery_retains_modules_and_prunes_nested_module_packages(self):
+        root = self.module()
+        nested = self.module("test/e2e")
+        self.package(root, "pkg/node", "root excluded")
+        self.package(root, "pkg/node/util", "root child")
+        self.package(nested, "pkg/node", "nested allowed")
+        self.write_test_script(root, roots=("pkg/node",))
+        instructions = (PLUGIN / "skills/k8s-rebase/steps/step4-verification.md").read_text()
+        discovery = instructions.split("First, discover test packages:\n\n```bash\n", 1)[1].split("\n```", 1)[0]
+        result = self.run_cmd("bash", "-ec", discovery)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertEqual(result.stdout.splitlines(), ["=== . ===", "./pkg/node/util",
+                                                     "=== ./test/e2e ===", "./pkg/node"])
+
+    def test_invalid_module_fails_before_running_tests(self):
+        self.module()
+        (self.repo / "empty").mkdir()
+        outside = self.root / "outside"
+        outside.mkdir()
+        (outside / "go.mod").write_text("module example.invalid/outside\ngo 1.23.0\n")
+        (self.repo / "escape").symlink_to(outside, target_is_directory=True)
+        for args in (("--module",), ("--module", "--bad", "."), ("--module", "empty", "."),
+                     ("--module", "missing", "."), ("--module", "../outside", "."),
+                     ("--module", "escape", "."), ("--module", str(outside), ".")):
+            with self.subTest(args=args):
+                result = self.validate(*args)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("ERROR:", result.stdout + result.stderr)
+        self.assertFalse(any(c["argv"][0] == "test" for c in self.go_calls()))
+
+    def test_container_uses_selected_module_version_and_preserves_argv(self):
+        self.module("go-controller", version="1.23.0")
+        self.module("test/unit tests", version="1.25.0")
+        self.env["FAKE_GOVERSION"] = "go1.23.0"
+        self.stub("podman", '''import json, os, sys
+from pathlib import Path
+(Path(os.environ["TEST_ROOT"]) / "container.json").write_text(json.dumps(sys.argv[1:]))
+''')
+        args = ("--module", "test/unit tests", "./pkg/safe", "-run", "name with spaces")
+        result = self.validate(*args)
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        argv = json.loads((self.root / "container.json").read_text())
+        self.assertIn("docker.io/library/golang:1.25.0", argv)
+        self.assertIn("--userns=keep-id", argv)
+        self.assertNotIn("--privileged", argv)
+        self.assertEqual(argv[argv.index("--test-only") + 1:], list(args))
+
+    def test_parallel_pass_and_failure_keep_separate_logs_and_shared_summary(self):
+        module = self.module()
+        self.package(module, "pkg/pass", "pass executed")
+        self.package(module, "pkg/fail", "failure executed", fail=True)
+        tmp = self.repo / ".rebase-tmp"
+        tmp.mkdir()
+        summary = tmp / "summary.txt"
+        summary.write_text("previous full validation evidence\n")
+        with ThreadPoolExecutor(max_workers=2) as pool:
+            passed = pool.submit(self.validate, "./pkg/pass", "-v")
+            failed = pool.submit(self.validate, "./pkg/fail", "-v")
+            self.assertEqual(passed.result().returncode, 0)
+            self.assertEqual(failed.result().returncode, 1)
+        self.assertEqual(len(self.logs()), 2)
+        content = "".join(p.read_text() for p in self.logs())
+        self.assertIn("pass executed", content)
+        self.assertIn("failure executed", content)
+        self.assertIn("intentional failure", content)
+        self.assertEqual(summary.read_text(), "previous full validation evidence\n")
+
+
+if __name__ == "__main__":
+    unittest.main()

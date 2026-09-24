@@ -4,12 +4,13 @@
 # Runs build, lint, and test for all modules. Captures output to logs.
 # Parses logs to extract actionable errors. Writes categorized summary.
 #
-# Usage: k8s-rebase-validate.sh [--quick|--no-test|--full|--test-only PKG...]
+# Usage: k8s-rebase-validate.sh [--quick|--no-test|--full|--test-only [--module DIR] PKG...]
 #   Flags are mutually exclusive — only the first argument is inspected.
 #   --quick      Build + vet only (~1 min)
 #   --no-test    Build + vet + lint, no tests (~5 min)
 #   --full       All checks + privileged tests as root (~25 min)
 #   --test-only  Run tests for specified packages only (for parallel agents)
+#                --module DIR selects a repo-relative module (default: primary).
 #                Packages requiring CAP_NET_ADMIN (root_pkgs in hack/test-go.sh)
 #                are automatically excluded; container runs without --privileged
 #   default      All checks except privileged tests (~15 min)
@@ -23,15 +24,22 @@
 
 set -uo pipefail
 
+VALIDATE_ARGS=("$@")
 MODE="default"
-TEST_ONLY_PKGS=""
+TEST_ONLY_MODULE=""
+TEST_ONLY_PKGS=()
 [[ "${1:-}" == "--quick" ]] && MODE="quick"
 [[ "${1:-}" == "--no-test" ]] && MODE="no-test"
 [[ "${1:-}" == "--full" ]] && MODE="full"
-TEST_ONLY_EXTRA=""
+TEST_ONLY_EXTRA=()
 if [[ "${1:-}" == "--test-only" ]]; then
   MODE="test-only"
   shift
+  if [[ "${1:-}" == "--module" ]]; then
+    [[ -n "${2:-}" && "$2" != -* ]] || { echo "ERROR: --module requires a repo-relative directory" >&2; exit 1; }
+    TEST_ONLY_MODULE="$2"
+    shift 2
+  fi
   # Separate packages from go test flags. Once we see a -flag, treat
   # everything from that point as extra args (flags + their values).
   in_flags=false
@@ -40,19 +48,17 @@ if [[ "${1:-}" == "--test-only" ]]; then
       in_flags=true
     fi
     if $in_flags; then
-      TEST_ONLY_EXTRA="$TEST_ONLY_EXTRA $arg"
+      TEST_ONLY_EXTRA+=("$arg")
     else
-      TEST_ONLY_PKGS="$TEST_ONLY_PKGS $arg"
+      TEST_ONLY_PKGS+=("$arg")
     fi
   done
-  TEST_ONLY_PKGS="${TEST_ONLY_PKGS# }"
-  TEST_ONLY_EXTRA="${TEST_ONLY_EXTRA# }"
-  [[ -z "$TEST_ONLY_PKGS" ]] && { echo "ERROR: --test-only requires package arguments" >&2; exit 1; }
+  [[ "${#TEST_ONLY_PKGS[@]}" -eq 0 ]] && { echo "ERROR: --test-only requires package arguments" >&2; exit 1; }
 fi
 # Reject unknown flags — unrecognized $1 silently falls through to default mode
 if [[ -n "${1:-}" ]] && [[ "${1:-}" == --* ]] && [[ "$MODE" == "default" ]]; then
   echo "ERROR: Unknown flag: $1" >&2
-  echo "Usage: k8s-rebase-validate.sh [--quick|--no-test|--full|--test-only PKG...]" >&2
+  echo "Usage: k8s-rebase-validate.sh [--quick|--no-test|--full|--test-only [--module DIR] PKG...]" >&2
   exit 1
 fi
 
@@ -78,8 +84,36 @@ fi
 
 # Auto-containerize if local Go is too old for the repo's go.mod
 cd "$REPO_ROOT" || exit 1
+PRIMARY_MOD=""
+if [[ "$MODE" == "test-only" ]]; then
+  if [[ -n "$TEST_ONLY_MODULE" ]]; then
+    [[ "$TEST_ONLY_MODULE" != /* ]] || { echo "ERROR: --module must be repo-relative" >&2; exit 1; }
+    _module_path=$(cd "$TEST_ONLY_MODULE" 2>/dev/null && pwd -P) || {
+      echo "ERROR: Module directory does not exist: $TEST_ONLY_MODULE" >&2; exit 1;
+    }
+    _repo_path=$(pwd -P)
+    if [[ "$_module_path" == "$_repo_path" ]]; then
+      PRIMARY_MOD=.
+    elif [[ "$_module_path" == "$_repo_path/"* ]]; then
+      PRIMARY_MOD="${_module_path#"$_repo_path/"}"
+    else
+      echo "ERROR: --module must remain inside the repository" >&2; exit 1
+    fi
+  else
+    for candidate in go-controller .; do
+      [[ -f "$candidate/go.mod" ]] && PRIMARY_MOD="$candidate" && break
+    done
+    [[ -z "$PRIMARY_MOD" ]] && PRIMARY_MOD=$(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort | head -1)
+    PRIMARY_MOD="${PRIMARY_MOD#./}"
+  fi
+  [[ -n "$PRIMARY_MOD" && -f "$PRIMARY_MOD/go.mod" ]] || {
+    echo "ERROR: No go.mod in selected test module: ${PRIMARY_MOD:-<none>}" >&2; exit 1;
+  }
+fi
 REQUIRED_GO=""
-for gm in go-controller/go.mod go.mod; do
+GO_MOD_CANDIDATES=(go-controller/go.mod go.mod)
+[[ "$MODE" == "test-only" ]] && GO_MOD_CANDIDATES=("$PRIMARY_MOD/go.mod")
+for gm in "${GO_MOD_CANDIDATES[@]}"; do
   [[ -f "$gm" ]] && REQUIRED_GO=$(grep "^go " "$gm" | awk '{print $2}') && break
 done
 CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
@@ -96,12 +130,8 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
       SCRIPT_PATH="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/$(basename "${BASH_SOURCE[0]}")"
       USERNS_FLAG=""
       [[ "$CONTAINER_RT" == "podman" ]] && [[ "$MODE" != "full" ]] && USERNS_FLAG="--userns=keep-id"
-      MODE_FLAG=""
-      [[ "$MODE" != "default" ]] && MODE_FLAG="--$MODE"
       PRIV_FLAG=""
       [[ "$MODE" == "full" ]] && PRIV_FLAG="--privileged"
-      EXTRA_ARGS=""
-      [[ "$MODE" == "test-only" ]] && EXTRA_ARGS="$TEST_ONLY_PKGS $TEST_ONLY_EXTRA"
       GIT_COMMON_DIR="$(git rev-parse --git-common-dir 2>/dev/null)"
       WORKTREE_MOUNT=""
       if [[ -n "$GIT_COMMON_DIR" ]] && [[ "$GIT_COMMON_DIR" != ".git" ]] && [[ "$GIT_COMMON_DIR" != "$REPO_ROOT/.git" ]]; then
@@ -127,7 +157,7 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
         -e K8S_REBASE_IN_CONTAINER=1 \
         -e GOMODCACHE="$HOST_GOMODCACHE" \
         "$GO_IMAGE" \
-        bash "$SCRIPT_PATH" $MODE_FLAG $EXTRA_ARGS
+        bash "$SCRIPT_PATH" "${VALIDATE_ARGS[@]}"
     fi
   fi
 fi
@@ -269,64 +299,95 @@ cd "$REPO_ROOT" || exit 1
 run_test_only() {
   echo "━━━━ Testing specified packages ━━━━"
   echo ""
-  echo "Packages: $TEST_ONLY_PKGS"
+  echo "Module: $PRIMARY_MOD"
+  echo "Packages: ${TEST_ONLY_PKGS[*]}"
 
-  # Find primary module
-  local PRIMARY_MOD=""
-  for candidate in go-controller .; do
-    [[ -f "$candidate/go.mod" ]] && PRIMARY_MOD="$candidate" && break
-  done
-  [[ -z "$PRIMARY_MOD" ]] && PRIMARY_MOD=$(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort | head -1)
-
-  # Export feature gate env vars
+  # Prefer module-local test configuration. Other modules may still need the
+  # repository's feature gates, but must not inherit its root-package list.
+  local root_test_go_sh=""
+  [[ -f "$PRIMARY_MOD/hack/test-go.sh" ]] && root_test_go_sh="$PRIMARY_MOD/hack/test-go.sh"
   local TEST_GO_SH
-  TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" 2>/dev/null | head -1)
+  TEST_GO_SH="$root_test_go_sh"
+  [[ -z "$TEST_GO_SH" ]] && TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" 2>/dev/null | head -1)
   if [[ -n "$TEST_GO_SH" ]]; then
     while IFS='=' read -r _key _val; do
       [[ "$_key" =~ ^export\ KUBE_FEATURE_[A-Za-z0-9_]+$ ]] && export "${_key#export }=$_val"
     done < <(grep "^export KUBE_FEATURE_" "$TEST_GO_SH")
   fi
 
-  local VENDOR_FLAG=""
-  [[ -d "$PRIMARY_MOD/vendor" ]] && VENDOR_FLAG="-mod vendor"
+  local VENDOR_FLAGS=()
+  [[ -d "$PRIMARY_MOD/vendor" ]] && VENDOR_FLAGS=(-mod=vendor)
 
   # Strip module dir prefix from package paths if present
   # (agent may pass ./go-controller/pkg/ovn/... instead of ./pkg/ovn/...)
   if [[ "$PRIMARY_MOD" != "." ]]; then
-    local cleaned=""
-    for pkg in $TEST_ONLY_PKGS; do
-      pkg="${pkg#./${PRIMARY_MOD}/}"   # strip ./go-controller/
-      pkg="${pkg#${PRIMARY_MOD}/}"     # strip go-controller/
+    local cleaned=()
+    for pkg in "${TEST_ONLY_PKGS[@]}"; do
+      pkg="${pkg#./"${PRIMARY_MOD}"/}"   # strip ./go-controller/
+      pkg="${pkg#"${PRIMARY_MOD}"/}"     # strip go-controller/
       [[ "$pkg" != ./* ]] && pkg="./$pkg"
-      cleaned="$cleaned $pkg"
+      cleaned+=("$pkg")
     done
-    TEST_ONLY_PKGS="${cleaned# }"
+    TEST_ONLY_PKGS=("${cleaned[@]}")
   fi
 
-  # Filter out root_pkgs (need CAP_NET_ADMIN, always fail unprivileged)
-  # Reuse TEST_GO_SH from above (removed duplicate find)
-  local test_go_sh="$TEST_GO_SH"
-  if [[ -n "$test_go_sh" ]]; then
-    local root_pkgs_pattern
-    root_pkgs_pattern=$(sed -n '/root_pkgs=(/,/)/p' "$test_go_sh" | grep -oE 'pkg/[^"]+' | tr '\n' '|' || true)
-    if [[ -n "$root_pkgs_pattern" ]]; then
-      local filtered=""
-      for pkg in $TEST_ONLY_PKGS; do
-        if [[ "$pkg" =~ ^\./(${root_pkgs_pattern%|})(/|$) ]]; then
-          echo ":: Skipping root_pkg $pkg (needs CAP_NET_ADMIN)"
+  # Reserve a log before package expansion so failed discovery and exclusions
+  # also have independent evidence. Full validation owns summary.txt.
+  local LOG_NAME
+  LOG_NAME=$(mktemp "$REBASE_TMP/test-only-XXXXXX") || exit 1
+  chmod +rw "$LOG_NAME" || exit 1
+  LOG_NAME=${LOG_NAME##*/}
+
+  # root_pkgs is an exact package list, not a list of privileged subtrees.
+  # Expand wildcard requests first so ./... cannot include a root package,
+  # while an unlisted child of a root package can still run.
+  if [[ -n "$root_test_go_sh" ]]; then
+    local root_pkgs
+    root_pkgs=$(sed -n '/root_pkgs=(/,/)/p' "$root_test_go_sh" | grep -oE 'pkg/[^"]+' || true)
+    if [[ -n "$root_pkgs" ]]; then
+      local expanded=() filtered=() directories directory module_path
+      module_path=$(cd "$PRIMARY_MOD" && pwd -P) || exit 1
+      for pkg in "${TEST_ONLY_PKGS[@]}"; do
+        if [[ "$pkg" == *...* ]]; then
+          if ! directories=$(cd "$PRIMARY_MOD" && go list "${VENDOR_FLAGS[@]}" -f '{{.Dir}}' "$pkg" 2>> "$REBASE_TMP/$LOG_NAME"); then
+            echo "FAIL — package expansion failed (see $REBASE_TMP/$LOG_NAME)"
+            cat "$REBASE_TMP/$LOG_NAME"
+            exit 1
+          fi
+          [[ -n "$directories" ]] || { echo "FAIL — no packages matched $pkg" | tee -a "$REBASE_TMP/$LOG_NAME"; exit 1; }
+          while IFS= read -r directory; do
+            if [[ "$directory" == "$module_path" ]]; then
+              expanded+=(.)
+            elif [[ "$directory" == "$module_path/"* ]]; then
+              expanded+=("./${directory#"$module_path/"}")
+            else
+              echo "FAIL — package outside selected module: $directory" | tee -a "$REBASE_TMP/$LOG_NAME"
+              exit 1
+            fi
+          done <<< "$directories"
         else
-          filtered="$filtered $pkg"
+          expanded+=("$pkg")
         fi
       done
-      TEST_ONLY_PKGS="${filtered# }"
-      [[ -z "$TEST_ONLY_PKGS" ]] && { echo "All packages are root_pkgs — nothing to test unprivileged"; exit 0; }
+      for pkg in "${expanded[@]}"; do
+        if grep -Fxq -- "${pkg#./}" <<< "$root_pkgs"; then
+          echo ":: Skipping root_pkg $pkg (needs CAP_NET_ADMIN)"
+        else
+          filtered+=("$pkg")
+        fi
+      done
+      TEST_ONLY_PKGS=("${filtered[@]}")
+      if [[ "${#TEST_ONLY_PKGS[@]}" -eq 0 ]]; then
+        echo "SKIP — all packages are root_pkgs; no tests ran" | tee -a "$REBASE_TMP/$LOG_NAME"
+        exit 0
+      fi
     fi
   fi
 
   # Determine timeout — 60m for packages over 30k test lines, 30m otherwise
   local TEST_TIMEOUT="30m"
   local TOTAL_LINES=0
-  for pkg in $TEST_ONLY_PKGS; do
+  for pkg in "${TEST_ONLY_PKGS[@]}"; do
     local pkg_dir="${PRIMARY_MOD}/${pkg#./}"
     pkg_dir="${pkg_dir%/...}"
     if [[ -d "$pkg_dir" ]]; then
@@ -349,14 +410,11 @@ run_test_only() {
   # Match outer timeout to Go test timeout so the container isn't killed early
   VALIDATION_TIMEOUT="$TEST_TIMEOUT"
 
-  # Reserve a unique log even when containers share PID values and start times.
-  local LOG_NAME
-  LOG_NAME=$(mktemp "$REBASE_TMP/test-only-XXXXXX") || exit 1
-  # Match ordinary log creation, honoring umask (also for host reads after Docker).
-  chmod +rw "$LOG_NAME" || exit 1
-  LOG_NAME=${LOG_NAME##*/}
+  local test_command module_command
+  printf -v module_command '%q' "$PRIMARY_MOD"
+  printf -v test_command '%q ' go test "${VENDOR_FLAGS[@]}" -count=1 -timeout "$TEST_TIMEOUT" "${TEST_ONLY_EXTRA[@]}" "${TEST_ONLY_PKGS[@]}"
   local step_failed=0
-  run_validation "$LOG_NAME" "cd $PRIMARY_MOD && go test $VENDOR_FLAG -count=1 -timeout $TEST_TIMEOUT $TEST_ONLY_EXTRA $TEST_ONLY_PKGS" || step_failed=1
+  run_validation "$LOG_NAME" "cd $module_command && $test_command" || step_failed=1
 
   if [[ "$step_failed" -eq 1 ]]; then
     echo ""
