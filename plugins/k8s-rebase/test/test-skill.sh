@@ -28,6 +28,127 @@ MAX_CONCURRENT="${MAX_CONCURRENT:-2}"
 # leading stepN- prefix (e.g. step4-dep-cve-check -> dep-cve-check).
 # Update this list whenever a new advisory-only gate is added to gates/step*/.
 INFO_GATES="dep-cve-check skill-improvement commit-messages maintainer-review"
+COURT_RUBRIC_VERSION="court-review-v2"
+COURT_DIFF_ONLY=false
+
+_run_inputs_file() {
+  local state_dir="$1" version="$2" key="$3"
+  echo "$state_dir/run-inputs/${version}_${key}.json"
+}
+
+_write_run_inputs() {
+  local state_dir="$1" version="$2" key="$3" repo="$4" base_ref="$5" started_at="$6"
+  local path tmp
+  path=$(_run_inputs_file "$state_dir" "$version" "$key")
+  mkdir -p "$(dirname "$path")"
+  tmp="${path}.tmp.$$"
+  jq -n --arg version "$version" --arg repo "$repo" --arg base_ref "$base_ref" \
+    --argjson started_at "$started_at" \
+    '{version:$version,repo:$repo,base_ref:$base_ref,started_at:$started_at}' > "$tmp" \
+    && mv "$tmp" "$path" || { rm -f "$tmp"; return 1; }
+}
+
+_write_run_result() {
+  local state_dir="$1" version="$2" key="$3" repo="$4" spec="$5" recorded_at="$6" verdict="$7" result_ref="$8"
+  local path tmp
+  path=$(_run_inputs_file "$state_dir" "$version" "$key")
+  [[ -f "$path" ]] || return 1
+  tmp="${path}.tmp.$$"
+  jq --arg version "$version" --arg repo "$repo" --arg spec "$spec" \
+    --arg recorded_at "$recorded_at" --arg verdict "$verdict" --arg result_ref "$result_ref" \
+    '. + {version:$version,repo:$repo,spec:$spec,recorded_at:$recorded_at,workflow_verdict:$verdict,result_ref:(if $result_ref == "" then null else $result_ref end)}' \
+    "$path" > "$tmp" && mv "$tmp" "$path" || { rm -f "$tmp"; return 1; }
+}
+
+_run_inputs_match_result() {
+  local path="$1" version="$2" repo="$3" spec="$4" recorded_at="$5" verdict="$6" result_ref="$7"
+  jq -e --arg version "$version" --arg repo "$repo" --arg spec "$spec" \
+    --arg recorded_at "$recorded_at" --arg verdict "$verdict" --arg result_ref "$result_ref" \
+    '.version == $version and .repo == $repo and .spec == $spec and .recorded_at == $recorded_at and .workflow_verdict == $verdict and (.result_ref // "") == $result_ref' \
+    "$path" >/dev/null 2>&1
+}
+
+_run_result_is_current() {
+  local state_dir="$1" version="$2" key="$3" short="$4" repo="$5"
+  local spec="$6" recorded_at="$7" verdict="$8"
+  local path branch="" result_ref=""
+  path=$(_run_inputs_file "$state_dir" "$version" "$key")
+  branch=$(find_newest_branch "$repo" "$version")
+  if [[ -n "$branch" ]]; then
+    result_ref=$(git -C "$repo" rev-parse --verify "${branch}^{commit}" 2>/dev/null) || return 1
+  elif [[ "$verdict" == "PASS" ]]; then
+    # A successful workflow result must identify a concrete result commit.
+    return 1
+  fi
+  _run_inputs_match_result "$path" "$version" "$short" "$spec" "$recorded_at" "$verdict" "$result_ref"
+}
+
+_resolve_court_base_ref() {
+  local short="$1" version="$2" repo="$3" override="${4:-}"
+  local candidate="" path
+  if [[ -n "$override" ]]; then
+    candidate="$override"
+  else
+    path=$(_run_inputs_file "$PLUGIN_DIR/test/.matrix-state" "$version" "$(repo_key "$repo")")
+    if [[ -f "$path" ]]; then
+      candidate=$(jq -er '.base_ref | select(type == "string" and length > 0)' "$path" 2>/dev/null) \
+        || { warn "Invalid run-start metadata: $path"; return 1; }
+    else
+      warn "No run-start metadata for $short ($version); pass --from-commit with the exact starting SHA"
+      return 1
+    fi
+  fi
+  [[ -n "$candidate" && "$candidate" != "null" ]] || {
+    warn "No run starting commit recorded for $short ($version); pass --from-commit to review explicitly"
+    return 1
+  }
+  git -C "$repo" rev-parse --verify "${candidate}^{commit}" 2>/dev/null || {
+    warn "Run starting commit is unavailable in $repo: $candidate"
+    return 1
+  }
+}
+
+_court_state_file() {
+  local version="$1" key="$2"
+  echo "$PLUGIN_DIR/test/.matrix-state/court/${version}_${key}"
+}
+
+_court_state_verdict() {
+  local path="$1"
+  [[ -f "$path" ]] || return 1
+  if jq -e 'type == "object"' "$path" >/dev/null 2>&1; then
+    jq -r '.verdict // empty' "$path"
+  else
+    # Legacy verdict-only files lack input fingerprints and cannot be trusted.
+    echo "LEGACY"
+  fi
+}
+
+_court_state_matches() {
+  local path="$1" base_ref="$2" result_ref="$3" known_good_ref="$4"
+  jq -e --arg base "$base_ref" --arg result "$result_ref" --arg known_good "$known_good_ref" \
+    --arg rubric "$COURT_RUBRIC_VERSION" \
+    '.base_source == "run-input" and .base_ref == $base and .result_ref == $result and .known_good_ref == $known_good and .rubric_version == $rubric and (.verdict == "PASS" or .verdict == "FAIL")' \
+    "$path" >/dev/null 2>&1
+}
+
+_court_state_matches_explicit() {
+  local path="$1" result_ref="$2" known_good_ref="$3"
+  jq -e --arg result "$result_ref" --arg known_good "$known_good_ref" --arg rubric "$COURT_RUBRIC_VERSION" \
+    '.base_source == "explicit" and .result_ref == $result and .known_good_ref == $known_good and .rubric_version == $rubric and (.verdict == "PASS" or .verdict == "FAIL" or .verdict == "INCONCLUSIVE")' \
+    "$path" >/dev/null 2>&1
+}
+
+_write_court_state() {
+  local path="$1" verdict="$2" base_ref="$3" result_ref="$4" known_good_ref="$5" base_source="${6:-run-input}"
+  local tmp="${path}.tmp.$$"
+  mkdir -p "$(dirname "$path")"
+  jq -n --arg verdict "$verdict" --arg base "$base_ref" --arg result "$result_ref" \
+    --arg known_good "$known_good_ref" --arg base_source "$base_source" --arg rubric "$COURT_RUBRIC_VERSION" \
+    --arg reviewed_at "$(date -u +%Y-%m-%dT%H:%M:%SZ)" \
+    '{verdict:$verdict,base_ref:$base,base_source:$base_source,result_ref:$result,known_good_ref:$known_good,rubric_version:$rubric,reviewed_at:$reviewed_at}' \
+    > "$tmp" && mv "$tmp" "$path" || { rm -f "$tmp"; return 1; }
+}
 
 # ── Utilities ──────────────────────────────────────────────────────────
 
@@ -87,6 +208,17 @@ _collect_gate_dirs() {
     local _wtp; _wtp="${_wt_line%% *}"
     [[ -d "$_wtp/.rebase-tmp/gates" ]] && _GATE_DIRS+=("$_wtp/.rebase-tmp/gates")
   done < <(git -C "$_repo" worktree list 2>/dev/null | grep -F '.claude/worktrees')
+}
+
+_find_incomplete_marker() {
+  local repo="$1" root
+  while IFS= read -r root; do
+    [[ -n "$root" && -f "$root/.rebase-tmp/status/INCOMPLETE" ]] && {
+      echo "$root/.rebase-tmp/status/INCOMPLETE"
+      return 0
+    }
+  done < <(git -C "$repo" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
+  return 1
 }
 
 # Tally gate reports across one or more directories.
@@ -588,6 +720,9 @@ cmd_run() {
       reset_to_default "$repo" || { warn "Skipping $short"; continue; }
     fi
     local session_output session_id
+    local _run_base_ref _run_started_at
+    _run_base_ref=$(git -C "$repo" rev-parse --verify 'HEAD^{commit}') || { warn "$short: cannot resolve run base commit"; continue; }
+    _run_started_at=$(date +%s)
     local _prompt="/k8s-rebase:k8s-rebase $version"
     if [[ -n "$from_commit" ]]; then
       _prompt="IMPORTANT: Do NOT switch to master/main. You are on a test branch at a historical commit. Work from HEAD as-is. The worktree.baseRef is set to 'head' so your worktree will branch from the current commit.
@@ -608,6 +743,12 @@ cmd_run() {
     : "${session_id:=unknown}"
     # Show why (e.g. an untrusted workspace) instead of failing silently.
     [[ "$session_id" == "unknown" ]] && { error "Failed to launch $short: $(tail -3 <<< "$session_output")"; continue; }
+    local _run_state_dir="${HARNESS_STATE_DIR:-$PLUGIN_DIR/test/.matrix-state}"
+    if ! _write_run_inputs "$_run_state_dir" "$version" "$(repo_key "$repo")" "$short" "$_run_base_ref" "$_run_started_at"; then
+      claude stop "$session_id" 2>/dev/null || true
+      error "Failed to save run-start commit for $short; stopped session $session_id"
+      continue
+    fi
     info "Launched $short -> $session_id"
     local _rk
     _rk=$(running_key "$version" "$repo")
@@ -906,11 +1047,12 @@ cmd_test() {
     mkdir -p "$_state_dir/running" "$_state_dir/done"
     rm -f "$_state_dir/done/$_done_key"
     rm -f "$_state_dir/court/${version}_${_repo_key}"
+    rm -f "$(_run_inputs_file "$_state_dir" "$version" "$_repo_key")"
 
     # Clean stale worktree branches
     git -C "$repo" worktree prune 2>/dev/null || true
 
-    if ! (PLUGIN_DIR="$mutated" cmd_run "$version" "$repo" ${_from_commit:+--from-commit "$_from_commit"}); then
+    if ! (PLUGIN_DIR="$mutated" HARNESS_STATE_DIR="$_state_dir" cmd_run "$version" "$repo" ${_from_commit:+--from-commit "$_from_commit"}); then
       if [[ -n "$_from_commit" ]]; then
         local _db; _db=$(git -C "$repo" symbolic-ref refs/remotes/origin/HEAD 2>/dev/null | sed 's|refs/remotes/origin/||')
         : "${_db:=main}"
@@ -1102,6 +1244,9 @@ _do_record_one() {
         done | sort -n | tail -1 | awk '{print $2}')
   fi
   [[ -z "$result_branch" ]] && { echo "no branch found"; return 1; }
+  local result_ref
+  result_ref=$(git -C "$repo" rev-parse --verify "${result_branch}^{commit}" 2>/dev/null) \
+    || { echo "cannot resolve result branch $result_branch"; return 1; }
 
   if [[ "$launch_epoch" -gt 0 ]]; then
     local branch_tip_epoch
@@ -1130,6 +1275,9 @@ _do_record_one() {
     done
     [[ "$gtotal" -ge $((EXPECTED_GATES - _missing_info)) && "$gfail" -eq 0 ]] && verdict="PASS"
   fi
+
+  local incomplete_marker=""
+  incomplete_marker=$(_find_incomplete_marker "$repo") || true
 
   # Known-good diff (informational — does not affect verdict)
   # Use the version-appropriate config so INFW/other repos without known_good
@@ -1201,6 +1349,10 @@ _do_record_one() {
   else
     detail="all gates pass (no known-good set)"
   fi
+  if [[ -n "$incomplete_marker" ]]; then
+    verdict="FAIL"
+    detail="${detail:+$detail; }run recorded force-advance INCOMPLETE marker"
+  fi
   local ts
   ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
   local done_key
@@ -1211,10 +1363,14 @@ _do_record_one() {
     # update mode: session finished with new commits after gate-complete recording.
     # Append corrected row. Don't re-touch done_key or clear court.
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
+    _write_run_result "$state_dir" "$_rec_version" "$repo_key" "$short" "$spec" "$ts" "$verdict" "$result_ref" \
+      || warn "$short: run/result association metadata could not be saved"
     printf '%-20s %-42s %-8s %s (updated)' "$spec" "$short" "$verdict" "$detail"
     return 0
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
+  _write_run_result "$state_dir" "$_rec_version" "$repo_key" "$short" "$spec" "$ts" "$verdict" "$result_ref" \
+    || warn "$short: run/result association metadata could not be saved"
   touch "$state_dir/done/$done_key"
   # Write prel sentinel so auto_record can append a corrected row when the session
   # finishes with new commits after gate-complete recording.
@@ -1295,6 +1451,13 @@ auto_record() {
       local ts
       ts=$(date -u +%Y-%m-%dT%H:%M:%SZ)
       printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_run_version" "$spec" "$short" "FAIL" "$_fail_detail" >> "$state_dir/results.tsv"
+      local _failed_result_ref="" _failed_branch
+      _failed_branch=$(find_newest_branch "$repo" "$_run_version")
+      if [[ -n "$_failed_branch" ]]; then
+        _failed_result_ref=$(git -C "$repo" rev-parse --verify "${_failed_branch}^{commit}" 2>/dev/null) || _failed_result_ref=""
+      fi
+      _write_run_result "$state_dir" "$_run_version" "$repo_key" "$short" "$spec" "$ts" "FAIL" "$_failed_result_ref" \
+        || warn "$short: failed-run association metadata could not be saved"
       mkdir -p "$state_dir/done"
       touch "$state_dir/done/$done_key"
       [[ -n "$_run_sid" ]] && claude stop "$_run_sid" 2>/dev/null || true
@@ -1345,8 +1508,8 @@ auto_record() {
 # ── Adversarial Court ──────────────────────────────────────────────────
 
 cmd_court() {
-  [[ $# -lt 3 ]] && die "Usage: make court repo=<repo>"
-  local result_branch="$1" known_good="$2" repo="$3"
+  [[ $# -lt 4 ]] && die "Usage: make court repo=<repo> [from_commit=<sha>]"
+  local result_branch="$1" known_good="$2" repo="$3" base_ref="$4"
   # Short label for concurrent-court output — prefixed on every progress line
   # so interleaved output from parallel courts is always identifiable.
   local _log_prefix; _log_prefix="[$(repo_short "$repo") $VERSION]"
@@ -1354,6 +1517,8 @@ cmd_court() {
   cd "$repo" || { error "$_log_prefix Cannot cd to $repo"; return 1; }
   git rev-parse --verify "$result_branch" &>/dev/null || { error "$_log_prefix Branch not found: $result_branch"; return 1; }
   git rev-parse --verify "$known_good" &>/dev/null || { error "$_log_prefix Branch not found: $known_good"; return 1; }
+  base_ref=$(git rev-parse --verify "${base_ref}^{commit}" 2>/dev/null) \
+    || { error "$_log_prefix Run starting commit is unavailable: $base_ref"; return 2; }
 
   # Court exclusions. Vendor is generated; go.sum is pure resolver output
   # (module hashes) that the court criteria explicitly cannot act on — a
@@ -1368,7 +1533,10 @@ cmd_court() {
   local court_excludes=(':!.rebase-tmp' ':(exclude,glob)**/vendor/**' ':(exclude,glob)**/go.sum' ':(exclude,glob)**/packages/**' ':(exclude,glob)**/mocks/**')
   local diff_nv
   diff_nv=$(git diff "$known_good" "$result_branch" -- . "${court_excludes[@]}" 2>/dev/null)
-  [[ -z "$diff_nv" ]] && { info "$_log_prefix PASS: identical (non-vendor)"; return 0; }
+  [[ -z "$diff_nv" ]] && {
+    info "$_log_prefix DIFF REVIEW VERDICT: PASS (identical filtered diff; run completion is not assessed here)"
+    return 0
+  }
 
   local diff_bytes=${#diff_nv}
   # Backstop only. ~1.4 bytes/token for dense diffs, so 250 KB ≈ 180K tokens;
@@ -1394,9 +1562,13 @@ NOTE: vendor/ and go.sum are omitted from this DIFF (generated/resolver
 output). Do not treat their absence as 'unchanged'; judge dependency
 questions from go.mod version pins, not from go.sum hashes."
   local criteria="
-PASS/FAIL CRITERIA: PASS means the result is a valid, correct k8s rebase.
-FAIL means it has a data-correctness regression that would break compilation,
-tests, or runtime behavior.
+DIFF REVIEW ONLY: This court reviews the result-versus-known-good diff for
+rebase-introduced correctness regressions. PASS means no supported regression
+was established by this review. PASS does NOT establish that the workflow
+completed, that target-version requirements were met, or that required gates
+passed. The harness run verdict and gate inventory are separate evidence.
+FAIL means the diff contains a verified regression introduced after BASE_REF
+that breaks compilation, tests, or runtime behavior.
 Differences that are NOT regressions (vote PASS or ABSTAIN, not FAIL):
 - Style choices (import ordering, variable naming, comment wording)
 - Dependency version drift in non-k8s dependencies (newer or older
@@ -1454,14 +1626,12 @@ issue was introduced by the rebase, not pre-existing. If you make three
 claims, you need three BASE_REF-scoped VERIFIED: lines. A claim without a
 BASE_REF VERIFIED: line cannot contribute to a FAIL verdict — it can only be
 flagged as a concern."
-  local _base_ref
-  _base_ref=$(git merge-base "$known_good" "$result_branch" 2>/dev/null || echo "$known_good")
   local logs
-  logs=$(git log --oneline "$_base_ref".."$result_branch" 2>/dev/null | head -15)
+  logs=$(git log --oneline "$base_ref".."$result_branch" 2>/dev/null | head -15)
   local context="$direction
 $criteria
 
-BASE_REF: $_base_ref
+BASE_REF: $base_ref (the exact commit from which this run started)
 RESULT_REF: $result_branch
 
 DIFF (non-vendor):
@@ -1556,7 +1726,7 @@ EOF_JUDGE
   local _juror_prompt
   _juror_prompt=$(cat <<EOF_JUROR_PROMPT
 REPO: $repo
-BASE_REF: $_base_ref
+BASE_REF: $base_ref (the exact commit from which this run started)
 RESULT_REF: $result_branch
 
 $direction
@@ -1660,7 +1830,7 @@ EOF_JUROR_PROMPT
       return 2
   fi
   if [[ "$pass" -gt "$fail" ]]; then
-    info "$_log_prefix VERDICT: PASS ($pass-$fail)"
+    info "$_log_prefix DIFF REVIEW VERDICT: PASS ($pass-$fail)"
     return 0
   fi
   if [[ "$pass" -eq "$fail" ]]; then
@@ -1668,7 +1838,7 @@ EOF_JUROR_PROMPT
     _show_fail_reasons
     return 2
   fi
-  error "$_log_prefix VERDICT: FAIL ($fail-$pass)"
+  error "$_log_prefix DIFF REVIEW VERDICT: FAIL ($fail-$pass)"
   _show_fail_reasons
   return 1
 }
@@ -1707,8 +1877,6 @@ cmd_court_all() {
       local _rk
       _rk=$(repo_key "$repo")
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
-      # Skip repos already courted (PASS/FAIL); retry INCONCLUSIVE.
-      [[ -f "$_court_file" ]] && [[ "$(cat "$_court_file" 2>/dev/null)" != "INCONCLUSIVE" ]] && continue
       local latest_line
       latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
       [[ -z "$latest_line" ]] && continue  # no matrix result yet
@@ -1729,13 +1897,35 @@ cmd_court_all() {
       if [[ -z "$branch" ]]; then
         # If verdict is INCONCLUSIVE and the result branch is gone (cleaned after PASS),
         # clear the verdict so make results shows "pending" and re-courts on next test run.
-        if [[ "$(cat "$_court_file" 2>/dev/null)" == "INCONCLUSIVE" ]]; then
+        if [[ "$(_court_state_verdict "$_court_file" 2>/dev/null)" == "INCONCLUSIVE" ]]; then
           rm -f "$_court_file"
           warn "$short ($VERSION): INCONCLUSIVE verdict cleared (result branch gone — will re-court after next test run)"
         else
           warn "$short ($VERSION): no result branch found"
         fi
         skipped=$((skipped + 1)); continue
+      fi
+      local _recorded_ts _recorded_spec
+      _recorded_ts=$(echo "$latest_line" | cut -f1)
+      _recorded_spec=$(echo "$latest_line" | cut -f3)
+      if ! _run_result_is_current "$PLUGIN_DIR/test/.matrix-state" "$VERSION" "$_rk" "$short" "$repo" \
+        "$_recorded_spec" "$_recorded_ts" "$verdict"; then
+        warn "$short ($VERSION): recorded PASS does not match current run/result; skipping court review"
+        skipped=$((skipped + 1)); continue
+      fi
+
+      local base_ref result_ref known_good_ref
+      base_ref=$(_resolve_court_base_ref "$short" "$VERSION" "$repo") || {
+        warn "$short ($VERSION): no exact run starting commit; court is inconclusive"
+        rm -f "$_court_file"
+        skipped=$((skipped + 1)); continue
+      }
+      result_ref=$(git -C "$repo" rev-parse --verify "${branch}^{commit}") || { skipped=$((skipped + 1)); continue; }
+      known_good_ref=$(git -C "$repo" rev-parse --verify "${kg}^{commit}") || { skipped=$((skipped + 1)); continue; }
+      # Reuse a verdict only for the same base, result, known-good, and rubric.
+      # Old plain-text verdict files intentionally miss this check and are re-courted.
+      if _court_state_matches "$_court_file" "$base_ref" "$result_ref" "$known_good_ref"; then
+        continue
       fi
 
       # Throttle: wait for a slot if at concurrency limit
@@ -1751,7 +1941,7 @@ cmd_court_all() {
       run=$((run + 1))
       info "Court $run: $short ($VERSION)"
       (
-        if cmd_court "$branch" "$kg" "$repo"; then
+        if cmd_court "$branch" "$kg" "$repo" "$base_ref"; then
           _verdict="PASS"
         else
           local _rc=$?
@@ -1760,8 +1950,7 @@ cmd_court_all() {
             *) _verdict="INCONCLUSIVE" ;;
           esac
         fi
-        mkdir -p "$(dirname "$_court_file")"
-        echo "$_verdict" > "$_court_file"
+        _write_court_state "$_court_file" "$_verdict" "$base_ref" "$result_ref" "$known_good_ref"
         # Clean the worktree after PASS to prevent disk accumulation
         [[ "$_verdict" == "PASS" ]] && remove_worktrees "$repo" "$VERSION" 2>/dev/null || true
       ) &
@@ -1776,10 +1965,10 @@ cmd_court_all() {
         local _cf="${_court_files[$_idx]}" _cs="${_court_shorts[$_idx]}"
         if [[ -f "$_cf" ]]; then
           local _v
-          _v=$(cat "$_cf")
+          _v=$(_court_state_verdict "$_cf")
           case "$_v" in
-            PASS) passed=$((passed + 1)); info "$_cs ($VERSION): PASS" ;;
-            FAIL) failed=$((failed + 1)); warn "$_cs ($VERSION): FAIL" ;;
+            PASS) passed=$((passed + 1)); info "$_cs ($VERSION): diff review PASS" ;;
+            FAIL) failed=$((failed + 1)); warn "$_cs ($VERSION): diff review FAIL" ;;
             *) errors=$((errors + 1)); warn "$_cs ($VERSION): INCONCLUSIVE" ;;
           esac
         else
@@ -1806,7 +1995,7 @@ cmd_court_all() {
     echo "Non-PASS transcripts (most recent per repo):"
     for _idx in "${!_court_files[@]}"; do
       _cf="${_court_files[$_idx]}" _cs="${_court_shorts[$_idx]}"
-      local _v; _v=$(cat "$_cf" 2>/dev/null || echo "ERROR")
+      local _v; _v=$(_court_state_verdict "$_cf" 2>/dev/null || echo "ERROR")
       [[ "$_v" == "PASS" ]] && continue
       # Find the most recent court transcript dir for this repo
       local _rk; _rk="${_cs//\//\_}"
@@ -1987,14 +2176,27 @@ cmd_watch() {
 # ── Results Display ────────────────────────────────────────────────────
 
 cmd_results() {
-  local repo="" court=false all_versions=false
+  local repo="" court=false all_versions=false diff_only=false from_commit_override=""
   while [[ $# -gt 0 ]]; do
     case "$1" in
       --court) court=true ;;
+      --diff-only) diff_only=true ;;
       --all-versions) all_versions=true ;;
+      --from-commit)
+        [[ $# -ge 2 ]] || die "--from-commit needs a SHA"
+        from_commit_override="$2"
+        shift 2
+        continue
+        ;;
       *) repo="$1" ;;
     esac; shift
   done
+  [[ -n "$from_commit_override" && ( "$court" != true || -z "$repo" ) ]] \
+    && die "--from-commit requires --court and exactly one repo"
+  [[ "$diff_only" == true && "$court" != true ]] \
+    && die "--diff-only requires --court"
+  COURT_FROM_COMMIT_OVERRIDE="$from_commit_override"
+  COURT_DIFF_ONLY="$diff_only"
 
   auto_record
   if [[ -n "$repo" ]]; then
@@ -2008,6 +2210,7 @@ cmd_results() {
 
 _results_one() {
   local repo="$1" court="${2:-false}"
+  local court_exit=0 workflow_exit=2 workflow_verdict="UNRECORDED"
   local repo_input="$repo"
   repo=$(resolve_repo "$repo") || die "Not found: $repo_input — check the repo name matches config.yaml, or run make clone-all to clone missing repos"
   local short
@@ -2080,9 +2283,42 @@ _results_one() {
 
   # Derive version from TSV's latest entry to avoid cross-version known_good contamination
   local _tsv_ver="$VERSION"
-  local _tsv_latest; _tsv_latest=$(_latest_result_line "$short" "$VERSION" "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null)
-  [[ -z "$_tsv_latest" ]] && _tsv_latest=$(awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -1)
-  [[ -n "$_tsv_latest" ]] && _tsv_ver=$(echo "$_tsv_latest" | cut -f2)
+  local _tsv_latest="" _workflow_line=""
+  if [[ "$COURT_DIFF_ONLY" != true ]]; then
+    _tsv_latest=$(_latest_result_line "$short" "$VERSION" "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null)
+    _workflow_line="$_tsv_latest"
+    [[ -z "$_tsv_latest" ]] && _tsv_latest=$(awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -1)
+  fi
+  if [[ -n "$_tsv_latest" ]]; then
+    _tsv_ver=$(echo "$_tsv_latest" | cut -f2)
+  fi
+  if [[ -n "$_workflow_line" ]]; then
+    local _recorded_ts _recorded_spec _recorded_verdict _state_dir _repo_key
+    _recorded_ts=$(echo "$_workflow_line" | cut -f1)
+    _recorded_spec=$(echo "$_workflow_line" | cut -f3)
+    _recorded_verdict=$(echo "$_workflow_line" | cut -f5)
+    _state_dir="$PLUGIN_DIR/test/.matrix-state"
+    _repo_key=$(repo_key "$repo")
+    if _run_result_is_current "$_state_dir" "$_tsv_ver" "$_repo_key" "$short" "$repo" \
+      "$_recorded_spec" "$_recorded_ts" "$_recorded_verdict"; then
+      workflow_verdict="$_recorded_verdict"
+      case "$workflow_verdict" in
+        PASS) workflow_exit=0 ;;
+        FAIL)
+          if [[ "$(_config_val "$short" "expected_fail")" == "true" ]]; then
+            workflow_verdict="XFAIL"
+            workflow_exit=0
+          else
+            workflow_exit=1
+          fi
+          ;;
+        *) workflow_verdict="UNVERIFIED"; workflow_exit=2 ;;
+      esac
+    else
+      workflow_verdict="UNVERIFIED"
+      workflow_exit=2
+    fi
+  fi
   local _saved_cf_ro="$CONFIG_FILE" _saved_ver_ro="$VERSION"
   local _ver_cf_ro="${PLUGIN_DIR}/test/config-${_tsv_ver%.*}.yaml"
   if [[ -f "$_ver_cf_ro" ]]; then CONFIG_FILE="$_ver_cf_ro"; VERSION="$_tsv_ver"; fi
@@ -2101,22 +2337,70 @@ _results_one() {
       else
         echo "Diff vs known-good ${kg:0:12}: $nv code hunks differ"
       fi
-      # --court: run cmd_court and persist verdict to .matrix-state/court/ for use
-      # by _results_for_version. exit 0=PASS, exit 1=FAIL, exit 2+=infra error (not recorded).
+      # --court: review the code diff only. Run completion and gate status remain
+      # represented by the workflow verdict in results.tsv.
       if [[ "$court" == "true" ]]; then
-        local _court_verdict=""
-        if cmd_court "$branch" "$kg" "$repo"; then
-          _court_verdict="PASS"
+        local base_ref result_ref known_good_ref
+        base_ref=$(_resolve_court_base_ref "$short" "$_tsv_ver" "$repo" "$COURT_FROM_COMMIT_OVERRIDE") || base_ref=""
+        if [[ -z "$base_ref" ]]; then
+          warn "Court review not run: exact run starting commit is unavailable"
+          rm -f "$(_court_state_file "$_tsv_ver" "$(repo_key "$repo")")"
+          return 2
         else
-          local _exit=$?
-          # exit 1 = FAIL verdict; exit 2+ = infrastructure error (don't record)
-          [[ $_exit -eq 1 ]] && _court_verdict="FAIL"
+          result_ref=$(git -C "$repo" rev-parse --verify "${branch}^{commit}") || {
+            warn "Court review not run: cannot resolve result branch $branch"
+            return 2
+          }
+          known_good_ref=$(git -C "$repo" rev-parse --verify "${kg}^{commit}") || {
+            warn "Court review not run: cannot resolve known-good ref $kg"
+            return 2
+          }
+          local _court_verdict=""
+          if cmd_court "$branch" "$kg" "$repo" "$base_ref"; then
+            _court_verdict="PASS"
+          else
+            local _exit=$?
+            case $_exit in
+              1) _court_verdict="FAIL"; court_exit=1 ;;
+              *) _court_verdict="INCONCLUSIVE"; court_exit=2 ;;
+            esac
+          fi
+          local base_source="run-input"
+          [[ -n "$COURT_FROM_COMMIT_OVERRIDE" ]] && base_source="explicit"
+          if ! _write_court_state "$(_court_state_file "$_tsv_ver" "$(repo_key "$repo")")" \
+            "$_court_verdict" "$base_ref" "$result_ref" "$known_good_ref" "$base_source"; then
+            warn "Court verdict could not be saved for $short ($_tsv_ver)"
+            court_exit=2
+          fi
         fi
-        if [[ -n "$_court_verdict" ]]; then
-          mkdir -p "$PLUGIN_DIR/test/.matrix-state/court"
-          echo "$_court_verdict" > "$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$(repo_key "$repo")"
-        fi
+      elif [[ "$court" == "true" ]]; then
+        warn "Court review not run: no result branch found for $short ($_tsv_ver)"
+        court_exit=2
       fi
+    elif [[ "$court" == "true" ]]; then
+      warn "Court review not run: no result branch found for $short ($_tsv_ver)"
+      court_exit=2
+    fi
+  elif [[ "$court" == "true" ]]; then
+    warn "Court review not run: no known-good reference configured for $short ($_tsv_ver)"
+    court_exit=2
+  fi
+
+  if [[ "$court" == "true" ]]; then
+    if [[ "$COURT_DIFF_ONLY" == true ]]; then
+      echo "Workflow run verdict: NOT INCLUDED (diff-only review; inspect this run's status separately)"
+    else
+      case "$workflow_exit" in
+        0) echo "Workflow run verdict: $workflow_verdict" ;;
+        1) echo "Workflow run verdict: FAIL (diff review cannot override the run failure)" ;;
+        *)
+          if [[ "$workflow_verdict" == "UNVERIFIED" ]]; then
+            echo "Workflow run verdict: UNVERIFIED (record does not match current run/result; diff review is diagnostic only)"
+          else
+            echo "Workflow run verdict: UNRECORDED (diff review is diagnostic only)"
+          fi
+          ;;
+      esac
     fi
   fi
 
@@ -2124,9 +2408,18 @@ _results_one() {
   echo "Recent results:"
   # Field 4 is the short repo name (cols: 1=ts 2=ver 3=spec 4=repo 5=verdict 6=detail).
   # Intentionally not version-filtered: shows the last 5 entries across all versions.
-  awk -F'\t' -v r="$short" '$4==r' "$PLUGIN_DIR/test/.matrix-state/results.tsv" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts ver spec _r verdict detail; do
-    printf "  %-22s %-8s %-8s %s\n" "$ts" "$ver" "$verdict" "$detail"
-  done
+  local _results_file="$PLUGIN_DIR/test/.matrix-state/results.tsv"
+  if [[ -f "$_results_file" ]]; then
+    awk -F'\t' -v r="$short" '$4==r' "$_results_file" 2>/dev/null | tail -5 | while IFS=$'\t' read -r ts ver spec _r verdict detail; do
+      printf "  %-22s %-8s %-8s %s\n" "$ts" "$ver" "$verdict" "$detail"
+    done
+  fi
+  if [[ "$court" == "true" ]]; then
+    [[ "$court_exit" -eq 0 ]] || return "$court_exit"
+    [[ "$COURT_DIFF_ONLY" == true ]] && return 0
+    return "$workflow_exit"
+  fi
+  return 0
 }
 
 _results_for_version() {
@@ -2143,16 +2436,47 @@ _results_for_version() {
     local latest_line
     latest_line=$(_latest_result_line "$short" "$VERSION" "$tsv")
     if [[ -n "$latest_line" ]]; then
+      local recorded_at recorded_spec recorded_verdict
+      recorded_at=$(echo "$latest_line" | cut -f1)
+      recorded_spec=$(echo "$latest_line" | cut -f3)
+      recorded_verdict=$(echo "$latest_line" | cut -f5)
       local ts
-      ts=$(echo "$latest_line" | cut -f1 | sed 's/T/ /;s/Z//')
-      local verdict
-      verdict=$(echo "$latest_line" | cut -f5)
+      ts=$(echo "$recorded_at" | sed 's/T/ /;s/Z//')
+      local verdict="$recorded_verdict"
       local detail
       detail=$(echo "$latest_line" | cut -f6)
+      local _resolved_repo
+      _resolved_repo=$(resolve_repo "$short" 2>/dev/null) || _resolved_repo=""
+      if [[ -z "$_resolved_repo" ]] || ! _run_result_is_current "$PLUGIN_DIR/test/.matrix-state" "$VERSION" \
+        "$_rk" "$short" "$_resolved_repo" "$recorded_spec" "$recorded_at" "$recorded_verdict"; then
+        verdict="UNVERIFIED"
+        detail="${detail:+$detail; }run record does not match current run/result"
+      fi
       local court_result="-"
       local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
       if [[ -f "$_court_file" ]]; then
-        court_result=$(cat "$_court_file")
+        local _court_base="" _court_branch="" _court_result_ref="" _kg_ref=""
+        _court_base=$(_resolve_court_base_ref "$short" "$VERSION" "$repo" 2>/dev/null) || _court_base=""
+        _court_branch=$(find_newest_branch "$repo" "$VERSION")
+        [[ -n "$_court_branch" ]] && _court_result_ref=$(git -C "$repo" rev-parse --verify "${_court_branch}^{commit}" 2>/dev/null)
+        local _kg_branch
+        _kg_branch=$(_resolve_known_good "$short" "$repo")
+        [[ -n "$_kg_branch" ]] && _kg_ref=$(git -C "$repo" rev-parse --verify "${_kg_branch}^{commit}" 2>/dev/null)
+        if [[ -n "$_court_base" && -n "$_court_result_ref" && -n "$_kg_ref" ]] \
+          && _court_state_matches "$_court_file" "$_court_base" "$_court_result_ref" "$_kg_ref"; then
+          court_result=$(_court_state_verdict "$_court_file")
+        elif [[ -n "$_court_result_ref" && -n "$_kg_ref" ]] \
+          && _court_state_matches_explicit "$_court_file" "$_court_result_ref" "$_kg_ref"; then
+          local _explicit_base
+          _explicit_base=$(jq -r '.base_ref // empty' "$_court_file")
+          if git -C "$repo" rev-parse --verify "${_explicit_base}^{commit}" >/dev/null 2>&1; then
+            court_result=$(_court_state_verdict "$_court_file")
+          else
+            court_result="stale"
+          fi
+        else
+          court_result="stale"
+        fi
       elif [[ "$verdict" == "PASS" ]]; then
         local _kg
         _kg=$(yq ".repos.\"$short\".known_good // \"\"" "$CONFIG_FILE" 2>/dev/null)
@@ -2162,11 +2486,13 @@ _results_for_version() {
           court_result="pending"
         fi
       fi
-      if [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" != "PASS" ]]; then
+      if [[ "$verdict" == "UNVERIFIED" ]]; then
+        all_pass=false
+      elif [[ "$(_config_val "$short" "expected_fail")" == "true" && "$verdict" == "FAIL" ]]; then
         verdict="XFAIL"
       elif [[ "$verdict" != "PASS" ]]; then
         all_pass=false
-      elif [[ "$court_result" == "FAIL" ]]; then
+      elif [[ "$court_result" != "PASS" && "$court_result" != "N/A" ]]; then
         all_pass=false
       fi
       _res_rows+=("$short"$'\t'"$verdict"$'\t'"$court_result"$'\t'"$ts"$'\t'"$detail")
@@ -2186,7 +2512,7 @@ _results_for_version() {
     fi
   done
   # Dynamic column widths from actual data + header minimums
-  local w_rr=4 w_vd=7 w_ct=5 w_ts=8
+  local w_rr=4 w_vd=7 w_ct=11 w_ts=8
   for _rr in "${_res_rows[@]}"; do
     local _r _v _ct _ts _dt
     IFS=$'\t' read -r _r _v _ct _ts _dt <<< "$_rr"
@@ -2196,7 +2522,7 @@ _results_for_version() {
     [[ ${#_ts} -gt $w_ts ]] && w_ts=${#_ts}
   done
   local _rfmt="%-${w_rr}s  %-${w_vd}s  %-${w_ct}s  %-${w_ts}s  %s\n"
-  printf "$_rfmt" "REPO" "VERDICT" "COURT" "LAST RUN" "DETAIL"
+  printf "$_rfmt" "REPO" "RUN" "DIFF REVIEW" "LAST RUN" "DETAIL"
   printf "$_rfmt" "$(printf '%*s' $w_rr '' | tr ' ' '-')" \
                   "$(printf '%*s' $w_vd '' | tr ' ' '-')" \
                   "$(printf '%*s' $w_ct '' | tr ' ' '-')" \
@@ -2208,7 +2534,7 @@ _results_for_version() {
   done
 
   echo ""
-  if $all_pass; then echo "OVERALL: PASS"; return 0; else echo "OVERALL: FAIL"; return 1; fi
+  if $all_pass; then echo "OVERALL (run + diff review): PASS"; return 0; else echo "OVERALL (run + diff review): FAIL"; return 1; fi
 }
 
 _results_all_versions() {
@@ -2340,7 +2666,7 @@ cmd_matrix() {
         local _court_file="$PLUGIN_DIR/test/.matrix-state/court/${VERSION}_$_rk"
         if [[ -f "$_court_file" ]]; then
           local _cv
-          _cv=$(cat "$_court_file")
+          _cv=$(_court_state_verdict "$_court_file")
           if [[ "$_cv" == "INCONCLUSIVE" ]]; then
             court_only_repos+=("$repo")
           elif [[ "$_cv" == "FAIL" ]]; then

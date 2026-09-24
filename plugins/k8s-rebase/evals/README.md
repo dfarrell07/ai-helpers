@@ -14,16 +14,29 @@ prompt, or a launch fails with that message.
 
 | Check | Command | What it establishes |
 | --- | --- | --- |
-| Offline contracts | `make test-compatibility test-version-selection assert-evidence-paths` | Hook/review/gate interfaces, version selection, companion paths; no model calls or rebases |
+| Offline contracts | `make test-compatibility test-version-selection test-court assert-evidence-paths` | Hook/review/gate interfaces, version selection, court scope/cache behavior, companion paths; no model calls or rebases |
 | One full-skill run | `make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none` | Launches a background rebase; inspect with `make watch version=1.35`, then `make results version=1.35` |
-| Known-good comparison | `make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35` | Adversarial review of the result against its configured reference |
+| Diff review | `make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35` | Adversarial review of the result diff against its configured reference; does not establish that the run completed |
 | Configured matrix | `make matrix spec=none` | Runs all configured repo/version cases, court, and bounded retries; takes 4–8 hours |
 | Eval artifacts | `make eval case=012` | Synchronous run capturing metrics and evidence for the eval judges |
 
 `version=1.35` selects `test/config-1.35.yaml`, whose target is 1.35.3.
-Configs pair a pre-rebase `from_commit` with a `known_good` reference; compare
-from the rebase's original baseline, not an unrelated later main-branch tip.
-Harness state and court transcripts live under `test/.matrix-state/`.
+Configs pair a pre-rebase `from_commit` with a `known_good` reference. Court
+uses the run's recorded starting commit to check whether a suspected issue was
+introduced by that run; it does not infer the run base from the Git merge-base
+with the known-good reference. For an older run without recorded metadata, pass
+the exact SHA explicitly with `from_commit=<sha>`. Court PASS means only that
+the diff review found no supported regression. Check the separate RUN verdict,
+target-version evidence, and gate inventory before treating a rebase as
+successful. `make results` reports the run and diff review separately, and its
+combined overall status stays pending/failing until the required review passes.
+Harness state and court transcripts live under
+`test/.matrix-state/`.
+
+For evals without a matching matrix run, pass diff_only=1 to make court.
+This reviews the current diff without associating the verdict with an older
+workflow row for the same repository and version. Use the eval's
+run-status.json and final-status.txt for its workflow result.
 
 ### Withhold learned fixes
 
@@ -151,8 +164,9 @@ The workflow harness scores more leniently than the orchestrator advances.
 It counts every non-PASS report from `commit-messages`, `skill-improvement`,
 `dep-cve-check`, and `maintainer-review` as SKIP (`INFO_GATES` in
 `test/test-skill.sh`), although the last two can block advancement. It also
-counts a FAIL report older than the branch tip as SKIP and does not read
-`status/INCOMPLETE`, so a force-advanced run can score PASS.
+counts a FAIL report older than the branch tip as SKIP. A recorded
+`status/INCOMPLETE` marker now forces the workflow-harness run verdict to FAIL,
+and `force-advance.log` makes the corresponding eval judge fail.
 Court excludes vendor, go.sum, package metadata, and mocks from its diff;
 an identical filtered diff returns PASS without a jury. Preserve raw reports
 and findings: these summaries do not turn an unresolved gate into PASS.
@@ -165,8 +179,8 @@ and findings: these summaries do not turn an unresolved gate into PASS.
   bad diffs to check that judges reject plausible regressions.
 - Check expected report completeness/freshness and final PR claims directly;
   existing verdict/text checks do not establish those properties.
-- Decide whether the workflow harness should fail force-advanced runs and
-  FAILs from blocking gates instead of counting them as SKIP.
+- Add dedicated regression fixtures for force-advanced runs and FAIL reports
+  from gates that block orchestrator advancement.
 - LLM prompt templates currently read only `outputs.files`, while deterministic
   checks also read `modified_files`. Verify artifact delivery when changing
   the harness; empty judge inputs must not look like clean diffs.

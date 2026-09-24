@@ -1,5 +1,5 @@
 .DEFAULT_GOAL := help
-.PHONY: help matrix test watch results court set-known-good set-from-commit stop clean assert-evidence-paths eval
+.PHONY: help matrix test watch results court set-known-good set-from-commit stop clean assert-evidence-paths eval test-court
 
 SCRIPT := test/test-skill.sh
 SPEC ?= $(if $(spec),$(spec),none)
@@ -7,6 +7,7 @@ REPO ?= $(repo)
 REF ?= $(ref)
 URL ?= $(url)
 COMMIT ?= $(commit)
+FROM_COMMIT ?= $(from_commit)
 JOBS ?= $(jobs)
 VER ?= $(version)
 REPOS ?= $(repos_dir)
@@ -16,12 +17,14 @@ help: ## Show available targets
 	@echo "k8s-rebase workflow testing ($(words $(wildcard gates/step[1-4]-*/*.md)) gates)"
 	@echo ""
 	@echo "Offline checks (no model calls):"
-	@echo "  make test-compatibility test-version-selection assert-evidence-paths"
+	@echo "  make test-compatibility test-version-selection test-court assert-evidence-paths"
 	@echo ""
 	@echo "One rebase, then review its result:"
 	@echo "  make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none"
 	@echo "  make watch version=1.35"
 	@echo "  make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35"
+	@echo "  make court repo=openshift/cluster-network-operator version=1.36 from_commit=<sha>"
+	@echo "  make court repo=<repo> version=1.36 from_commit=<sha> diff_only=1  Eval diff review without matrix-row association"
 	@echo "  make results repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35"
 	@echo ""
 	@echo "Configured matrix (all versions, court, bounded retries):"
@@ -62,7 +65,9 @@ results: ## Show results
 
 court: ## Adversarial court review
 	@if [ -n "$(REPO)" ]; then \
-		$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO) --court; \
+		$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) results $(REPO) --court $(if $(FROM_COMMIT),--from-commit $(FROM_COMMIT)) $(if $(filter 1 true yes,$(diff_only)),--diff-only); \
+	elif [ -n "$(FROM_COMMIT)" ]; then \
+		echo "ERROR: from_commit requires repo=<repo> for a single court review"; exit 1; \
 	elif [ -z "$(VER)" ]; then \
 		$(if $(REPOS),REPOS_DIR=$(REPOS)) CONFIG_FILE=$(CONFIG) bash $(SCRIPT) court-all --all-versions; \
 	else \
@@ -92,6 +97,9 @@ test-compatibility: ## Offline Claude/Codex review, hook, and gate interface che
 .PHONY: test-version-selection
 test-version-selection: ## Offline Step 1 metadata and command-derivation checks
 	@python3 test/test_version_selection.py
+
+test-court: ## Offline court scope/cache checks with a fake reviewer
+	@python3 test/test_court.py
 
 eval: ## Collect one case's rebase artifacts (case=NNN required); does not run YAML judges
 	@test -n "$(case)" || (echo "ERROR: case required, e.g. make eval case=001" && exit 1)
