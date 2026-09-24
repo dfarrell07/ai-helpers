@@ -109,7 +109,7 @@ artifacts; verify harness and schema compatibility before YAML scoring.
 
 ## Coverage
 
-Kubernetes 1.37.0 has six additional exploratory baselines in
+Kubernetes 1.37.1 has six additional exploratory baselines in
 [config-1.37.yaml](../test/config-1.37.yaml). They start at pinned 1.36.2
 commits and deliberately omit `known_good`: no independently reviewed 1.37
 reference is established yet. Run one with
