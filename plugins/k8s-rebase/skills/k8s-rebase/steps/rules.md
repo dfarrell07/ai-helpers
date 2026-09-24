@@ -99,8 +99,10 @@ Include this section in every gate reviewer's context.
    inability to judge. Use a native gate worker when available, otherwise
    review inline under the same read-only constraints only if no worker tool
    is exposed. Give each gate a separate bounded task; wait for its completion
-   before starting the next worker. Pass source paths and raw evidence, not
-   a proposed verdict. Resource limits require sequential delegation, not
+   before starting the next worker. Pass the exact gate-file path, these rules,
+   and raw evidence. Require reading the complete gate; a shortened task prompt
+   must not replace its scope or criteria. Do not propose a verdict.
+   Resource limits require sequential delegation, not
    replacing available workers with parent self-review.
 3. Write reports through `scripts/write-gate-report.sh` at the known plugin
    root. Confirm HEAD has not changed during review before it stamps the

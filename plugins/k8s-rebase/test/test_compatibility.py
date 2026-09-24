@@ -137,6 +137,7 @@ class CompatibilityTests(unittest.TestCase):
         self.assertIn(draft.read_text(), prepared.stdout)
         self.assertIn("VERIFICATION ACCURACY", prepared.stdout)
         self.assertIn(str(self.repo / ".rebase-tmp"), prepared.stdout)
+        self.assertIn(str(PLUGIN / "gates"), prepared.stdout)
         self.assertFalse((self.repo / "must-not-execute").exists())
         self.assertFalse(self.claude_called.exists())
         nested = self.review("pr", "--verification", str(draft), self.base, "1.37.1")
@@ -155,6 +156,42 @@ class CompatibilityTests(unittest.TestCase):
                     self.assertNotEqual(result.returncode, 0)
                     self.assertIn("ERROR:", result.stderr)
                     self.assertFalse(self.claude_called.exists())
+
+    def test_verification_review_stops_when_gate_rubrics_are_missing(self):
+        # A relocated helper must not silently review verdicts without criteria.
+        helper = self.root / "incomplete plugin/scripts/k8s-rebase-pr-review.sh"
+        helper.parent.mkdir(parents=True)
+        shutil.copy2(PLUGIN / "scripts/k8s-rebase-pr-review.sh", helper)
+        draft = self.repo / "draft.md"
+        draft.write_text("Gate results await verification.\n")
+        for flags in ((), ("--print-prompt",)):
+            with self.subTest(flags=flags):
+                result = self.run_cmd("bash", str(helper), *flags, "--verification",
+                                      str(draft), self.base, "1.37.1")
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn("Cannot locate gate rubrics", result.stderr)
+                self.assertNotIn("VERIFICATION ACCURACY", result.stdout)
+                self.assertFalse(self.claude_called.exists())
+
+    def test_cve_scan_example_preserves_full_output_and_producer_failure(self):
+        instructions = (PLUGIN / "gates/step4-verification/dep-cve-check.md").read_text()
+        example = next(block.split("```", 1)[0] for block in instructions.split("```bash\n")[1:]
+                       if "SCAN_LOG=" in block.split("```", 1)[0])
+        (self.repo / ".rebase-tmp").mkdir()
+        self.env.update(REPO_ROOT=str(self.repo), GOMEMLIMIT="2GiB", GOMAXPROCS="1")
+        self.stub("govulncheck", '[[ "$GOMEMLIMIT" == 2GiB && "$GOMAXPROCS" == 1 ]] || exit 99\n'
+                  '[[ "$*" == "./..." ]] || exit 98\n'
+                  'for ((i=0; i<5000; i++)); do printf "finding %s\\n" "$i"; done\n'
+                  'echo "last diagnostic" >&2\nexit 7\n')
+        result = self.run_cmd("bash", "-ec", example)
+        self.assertEqual(result.returncode, 7, result.stderr)
+        self.assertLess(len(result.stdout), 1024)
+        logs = list((self.repo / ".rebase-tmp").glob("govulncheck-*.log"))
+        self.assertEqual(len(logs), 1)
+        output = logs[0].read_text()
+        self.assertEqual(output.count("finding "), 5000)
+        self.assertTrue(output.endswith("last diagnostic\n\nEXIT_STATUS: 7\n"))
+        self.assertIn(str(logs[0]), result.stdout)
 
     def test_invalid_references_and_missing_arguments(self):
         for scope in ("fix", "pr"):

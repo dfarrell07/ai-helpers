@@ -106,7 +106,8 @@ mutations or full validation that replaces shared evidence. Parallel work is
 allowed only on explicit user request under rules.md's execution constraints.
 Commit 4a's fixes before collecting their final evidence;
 if HEAD changes, refresh every current-step review as in rules.md.
-Use native workers when available, or run the same checks inline.
+Use native workers when available; run the same checks inline only when
+the host exposes no worker tool.
 First, discover test packages:
 
 ```bash
