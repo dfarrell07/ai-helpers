@@ -170,11 +170,14 @@ If test agents report failures:
   fail because dependencies changed.
 
 For network-namespace permission failures, inspect the repository's container
-test setup. The validator's `--full` mode requests a privileged container on
-nonroot hosts even when local Go is current. Use it for requested privileged
-coverage when the runtime supports the required capabilities; otherwise
-retain the unresolved coverage and actual failure. Root inside a rootless
-container does not by itself prove that every needed capability is available.
+test setup and try its isolated container path when a runtime is available.
+The validator's `--full` mode requests a privileged container on nonroot hosts
+even when local Go is current, preserving Go concurrency limits and caches.
+Rootless containers can provide capabilities inside their own user/network
+namespaces: a host permission failure does not prove container execution is
+unavailable. Run the tests there and retain the actual result or blocker.
+If container execution was not attempted, say so; do not claim the runtime
+cannot support it. Root in a container alone is not evidence of passing tests.
 
 ## 4c. Independent review
 

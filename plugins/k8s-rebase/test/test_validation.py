@@ -246,6 +246,8 @@ from pathlib import Path
     def test_full_on_nonroot_current_go_requests_privileged_container(self):
         self.module()
         self.env["FAKE_GOVERSION"] = "go1.99.0"
+        self.env.update(GOMAXPROCS="1", GOFLAGS="-p=1 -mod=readonly",
+                        GOCACHE=str(self.root / "cache with spaces"))
         self.stub("id", 'print("1000")\n')
         self.stub("podman", '''import json, os, sys
 from pathlib import Path
@@ -258,6 +260,10 @@ sys.exit(125)
         self.assertIn("--privileged", argv)
         self.assertNotIn("--userns=keep-id", argv)
         self.assertEqual(argv[-1], "--full")
+        self.assertIn("GOMAXPROCS=1", argv)
+        self.assertIn("GOFLAGS=-p=1 -mod=readonly", argv)
+        self.assertIn(f"GOCACHE={self.env['GOCACHE']}", argv)
+        self.assertIn(f"{self.env['GOCACHE']}:{self.env['GOCACHE']}", argv)
         self.assertNotIn("All validation passes", result.stdout)
         self.assertFalse(any(c["argv"][0] == "test" for c in self.go_calls()))
 

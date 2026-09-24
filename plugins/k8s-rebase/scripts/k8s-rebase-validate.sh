@@ -151,6 +151,12 @@ if [[ -n "$REQUIRED_GO" || "$NEEDS_PRIVILEGED_CONTAINER" == true ]] && [[ "${K8S
         mkdir -p "$HOST_GOMODCACHE"
         GOMODCACHE_MOUNT="-v $HOST_GOMODCACHE:$HOST_GOMODCACHE"
       fi
+      CACHE_ARGS=()
+      HOST_GOCACHE="$(go env GOCACHE 2>/dev/null || true)"
+      if [[ -n "$HOST_GOCACHE" && "$HOST_GOCACHE" != off ]]; then
+        mkdir -p "$HOST_GOCACHE"
+        CACHE_ARGS=(-v "$HOST_GOCACHE:$HOST_GOCACHE" -e "GOCACHE=$HOST_GOCACHE")
+      fi
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         $PRIV_FLAG \
@@ -158,10 +164,13 @@ if [[ -n "$REQUIRED_GO" || "$NEEDS_PRIVILEGED_CONTAINER" == true ]] && [[ "${K8S
         -v "$REPO_ROOT:$REPO_ROOT" \
         $WORKTREE_MOUNT \
         $GOMODCACHE_MOUNT \
+        "${CACHE_ARGS[@]}" \
         -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
         -w "$REPO_ROOT" \
         -e K8S_REBASE_IN_CONTAINER=1 \
         -e GOMODCACHE="$HOST_GOMODCACHE" \
+        -e GOMAXPROCS="${GOMAXPROCS:-2}" \
+        -e GOFLAGS="${GOFLAGS:--p=2}" \
         "$GO_IMAGE" \
         bash "$SCRIPT_PATH" "${VALIDATE_ARGS[@]}"
     fi
@@ -520,6 +529,8 @@ while IFS= read -r gomod; do
         }
       fi
       categorize_errors "$REBASE_TMP/${mod_name}-lint.log" "$mod_name lint" "$step_failed"
+    elif [[ "$MODE" != "quick" ]]; then
+      echo ":: SKIP lint ($mod_dir): no Makefile lint target; no linter executed"
     fi
 
     step_failed=0
