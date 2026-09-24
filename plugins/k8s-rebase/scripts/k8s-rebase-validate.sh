@@ -470,7 +470,12 @@ while IFS= read -r gomod; do
   # Try make first (if Makefile exists), fall back to go build
   step_failed=0
   if [[ -f "$REPO_ROOT/$mod_dir/Makefile" ]]; then
-    run_validation "${mod_name}-build" "make -C $mod_dir" || step_failed=1
+    # A repository's default target may update dependencies or print help.
+    # Prefer its explicit build entrypoint when declared in this Makefile.
+    build_target=()
+    grep -qE '^build[[:space:]]*:' "$REPO_ROOT/$mod_dir/Makefile" && build_target=(build)
+    printf -v build_command '%q ' make -C "$mod_dir" "${build_target[@]}"
+    run_validation "${mod_name}-build" "$build_command" || step_failed=1
     categorize_errors "$REBASE_TMP/${mod_name}-build.log" "$mod_name build" "$step_failed"
 
     step_failed=0

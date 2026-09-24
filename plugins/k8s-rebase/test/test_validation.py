@@ -98,6 +98,26 @@ func TestReachability(t *testing.T) {
         path = self.root / "go-calls.jsonl"
         return [json.loads(line) for line in path.read_text().splitlines()] if path.exists() else []
 
+    def test_quick_runs_build_target_instead_of_dependency_update_default(self):
+        self.module()
+        (self.repo / 'fixture.go').write_text('package fixture\n')
+        (self.repo / 'Makefile').write_text(
+            'deps-update:\n\ttouch deps-updated\n'
+            'build:\n\tgo build ./...\n\ttouch binary-built\n')
+        result = self.run_cmd('bash', str(VALIDATOR), '--quick')
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue((self.repo / 'binary-built').exists())
+        self.assertFalse((self.repo / 'deps-updated').exists())
+
+    def test_build_target_failure_is_not_hidden_by_successful_default_and_vet(self):
+        self.module()
+        (self.repo / 'fixture.go').write_text('package fixture\n')
+        (self.repo / 'Makefile').write_text('help:\n\t@echo usage\nbuild:\n\t@echo link failed\n\t@exit 1\n')
+        result = self.run_cmd('bash', str(VALIDATOR), '--quick')
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn('link failed', (self.repo / '.rebase-tmp/root-build.log').read_text())
+        self.assertNotIn('All validation passes', result.stdout)
+
     def test_legacy_primary_module_and_prefixed_packages(self):
         primary = self.module("go-controller", vendor=True)
         root = self.module()
