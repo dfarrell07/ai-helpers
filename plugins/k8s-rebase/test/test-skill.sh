@@ -339,6 +339,9 @@ _config_val() { yq ".repos.\"$1\".${2} // \"\"" "$CONFIG_FILE"; }
 
 _resolve_known_good() {
   local name="$1" repo_dir="$2"
+  local kg
+  kg=$(yq ".repos.\"$name\".known_good // \"\"" "$CONFIG_FILE")
+  [[ -z "$kg" || "$kg" == "null" ]] && return 1
   local _rk="${name//\//\_}"
   local _ver="${VERSION//./_}"
   local _cache="$PLUGIN_DIR/test/.matrix-state/known_good_resolved_${_rk}_${_ver}"
@@ -347,9 +350,6 @@ _resolve_known_good() {
     _cached=$(cat "$_cache")
     git -C "$repo_dir" rev-parse --verify "$_cached" &>/dev/null && echo "$_cached" && return 0
   fi
-  local kg
-  kg=$(yq ".repos.\"$name\".known_good // \"\"" "$CONFIG_FILE")
-  [[ -z "$kg" || "$kg" == "null" ]] && return 1
   local resolved=""
   # Plain-string path: $kg is a local branch or tag name.  $resolved stays a
   # mutable ref — the caller's git-diff always compares against the branch's
@@ -2424,7 +2424,7 @@ _results_one() {
 
 _results_for_version() {
   local tsv="$PLUGIN_DIR/test/.matrix-state/results.tsv"
-  if [[ ! -f "$tsv" ]]; then echo "No results yet. Run: make test"; return 0; fi
+  if [[ ! -f "$tsv" ]]; then echo "No results yet. Run: make test"; return 1; fi
 
   local all_pass=true
   local -a _res_rows=()
@@ -2481,7 +2481,8 @@ _results_for_version() {
         local _kg
         _kg=$(yq ".repos.\"$short\".known_good // \"\"" "$CONFIG_FILE" 2>/dev/null)
         if [[ -z "$_kg" || "$_kg" == "null" ]]; then
-          court_result="N/A"
+          court_result="no reference"
+          detail="${detail:+$detail; }known_good not configured"
         else
           court_result="pending"
         fi
@@ -2492,7 +2493,7 @@ _results_for_version() {
         verdict="XFAIL"
       elif [[ "$verdict" != "PASS" ]]; then
         all_pass=false
-      elif [[ "$court_result" != "PASS" && "$court_result" != "N/A" ]]; then
+      elif [[ "$court_result" != "PASS" ]]; then
         all_pass=false
       fi
       _res_rows+=("$short"$'\t'"$verdict"$'\t'"$court_result"$'\t'"$ts"$'\t'"$detail")

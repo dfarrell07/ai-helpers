@@ -1,6 +1,7 @@
 Analyze whether the rebase changes will cause CI failures.
-Only flag issues caused by or affected by the rebase diff —
-pre-existing CI steps that were not modified are out of scope.
+Only flag issues caused by or affected by the rebase. An unchanged CI step
+or call site can become incompatible with new dependencies or generated APIs;
+unrelated failures already present on the base are out of scope.
 Could any test pass locally but fail in CI due to:
 
 - Missing fixtures or CRDs?
@@ -44,11 +45,12 @@ Known ecosystem failures (report, may need manual fix):
   `vendor/**` glob exclusions are safe. Per-file repos may
   need manual `.snyk` updates or a switch to the glob approach.
 
-- `ci/prow/verify-deps` may fail if library-go or other
-  plumbing repos haven't merged their k8s bump yet. Verify
-  the skill added a `replace` directive in go.mod pointing
-  to a fork with the compatibility fix. If no replace was
-  added and library-go hasn't merged, flag as a blocker.
+- `ci/prow/verify-deps` may fail if a plumbing dependency needs an unmerged
+  compatibility fix. Establish the failure from a build or source/API
+  comparison; an older Kubernetes requirement floor or an open rebase PR
+  alone does not prove it. If a temporary replacement is needed, verify it
+  and any required API/client replacements in every consuming module.
+  Dependency-module replacements do not propagate to consumers.
 
 Check e2e test files, CI config (.github/workflows/test.yml),
 and KIND setup scripts. For each finding, classify as
@@ -59,17 +61,18 @@ MANDATORY pre-existing check — run for EVERY CONFIRMED finding:
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-# For each finding at <file> with <pattern>:
-base_has=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<pattern>')
-# If base_has > 0, the issue is PRE-EXISTING — do NOT count it
+git show "$BASE:<file>"
+git show "$BASE:<relevant-go.mod-path>"
+# Compare the finding against the base dependency versions, APIs, and CI
+# configuration. Where needed, reproduce the failure on an isolated base.
 ```
 
-If base_has > 0, the issue is PRE-EXISTING. It is still pre-existing
-even if the rebase modified the file — what matters is whether the
-rebase introduced or changed the specific offending pattern. Check the
-diff for the exact line: if the diff shows the offending export or sudo
-line as unchanged (no + or - on that specific line), it is pre-existing
-INFO. If the diff shows the pattern was added or modified, it is NEW FAIL.
+An unchanged call that was compatible with the base but fails against the
+new API is NEW, including failures in dependencies. An unchanged CI command
+that fails for the same reason on the base is PRE-EXISTING INFO, even if
+other lines in that file changed. The offending text's presence on the base
+alone does not establish either conclusion. Use source/API evidence or an
+actual comparison; do not infer a base failure from the rebased run alone.
 If ALL findings are pre-existing INFO, verdict MUST be PASS.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,

@@ -8,15 +8,14 @@ run `git rev-parse HEAD` and compare it to the file's `HEAD:` line.
 
 When evidence is fresh: if SUMMARY shows 0 Go version issues, skip
 the manual checks below and write PASS. When NEW_ISSUES > 0: analyze
-all detail lines in the evidence — the script excludes pre-existing
-references and version-correct references at collection time so every
-detail line is a version mismatch in a branch-modified file.
-There are no "PRE-EXISTING" lines in the evidence file.
+the `NEW MISMATCH:` detail lines. `INFO PRE-EXISTING:` lines and the
+base/result Go directives provide context and do not increase the count.
 
 If evidence is stale or absent, fall back to manual checks:
 
-The rebase bumped the Go version. Verify consistency across
-the repo and check for implications.
+First compare the base and result Go directives; dependency changes in
+go.mod do not establish a Go version bump. Verify consistency across
+the repo and check the implications of any actual directive change.
 
 1. go directive: are all go.mod files at the same Go version?
    git diff $(git merge-base HEAD main 2>/dev/null || git merge-base HEAD master)..HEAD -- '*/go.mod' 'go.mod' | grep '^[+-]go '
@@ -40,21 +39,29 @@ the repo and check for implications.
    Just note the Go version bump and its implications for
    stdlib additions.
 
-MANDATORY pre-existing check: For each Makefile/Dockerfile finding,
-check the base branch before counting:
+MANDATORY pre-existing check: For each module, Makefile, Dockerfile, or
+workflow finding, compare the actual directives and reference versions
+on the base branch before counting. Use the reference's nearest enclosing
+module; repository-level references use the primary module. Check every
+literal workflow matrix entry, including entries after the first:
   BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-  modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
-  If modified==0: PRE-EXISTING (file not touched by this branch) — do NOT count.
-  If modified>0: NEW (rebase touched this file; any remaining Go version mismatch
-  should have been updated). Do NOT use "version string appears on base" as a
-  pre-existing signal — the old Go version WAS correct on base; its presence there
-  does not make a post-bump mismatch pre-existing.
-  If ALL findings are in unmodified files, verdict MUST be PASS with 0 issues.
+  git show "$BASE:<owning-go.mod-path>"
+  git show "$BASE:<file>"
 
-VERDICT criteria: FAIL if go.mod files have inconsistent Go
-versions, or Makefiles/Dockerfiles use a Go version that
-doesn't match go.mod AND the mismatch is NEW (not present on
-the base branch). Migration opportunities (x/ packages,
+- A reference already mismatched on base is PRE-EXISTING when its version is
+  unchanged, even if dependencies or other content in its file changed.
+- A reference valid on base that becomes stale after an actual Go directive
+  bump is NEW, including in an unmodified file.
+- An added or changed stale reference is NEW. A new occurrence cannot inherit
+  the pre-existing status of an older occurrence in the same file.
+- Inconsistent module directives are pre-existing when those directives are
+  unchanged; editing their dependency requirements alone does not make the
+  inconsistency new.
+
+VERDICT criteria: FAIL for NEW inconsistent Go directives, NEW
+Makefile/Dockerfile version mismatches, or NEW workflow Go versions below
+the go.mod minimum. Workflow matrices may exercise newer Go versions.
+Migration opportunities (x/ packages,
 CI workflow improvements) are informational — report them
 in DETAILS but do not FAIL for them alone.
 

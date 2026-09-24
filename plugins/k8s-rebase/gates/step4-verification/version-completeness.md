@@ -27,23 +27,28 @@ the previous minor version number. Flag any that still reference
 the previous k8s minor version or a Go version that does not
 match the target release's Go toolchain.
 
+For OpenShift consumers, also inspect `.ci-operator.yaml` and Dockerfiles
+for `openshift-X.Y` and `ocp/X.Y:` streams. Compare with the mapped target
+release and that repository's `openshift/release` configuration; verify the
+replacement images exist. Check this even if Go is unchanged. An unavailable
+image or unresolved release configuration is missing verification: report it
+as INCONCLUSIVE rather than inventing a tag or calling the check passed.
+
 MANDATORY pre-existing check — run for EVERY finding before
 counting it. Skip this check and your verdict is WRONG.
 
 ```bash
 BASE=$(git merge-base HEAD master 2>/dev/null || git merge-base HEAD main)
-# Was this file modified by the rebase branch?
-modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
-# If modified==0: PRE-EXISTING (file untouched by this branch; stale ref predates rebase)
-# If modified>0: NEW (rebase touched this file; any remaining stale ref should have been updated)
+git show "$BASE:<file>"
+git show "$BASE:<primary-go.mod-path>"
+# Compare whether the reference was valid for the BASE dependencies/config
+# and whether the requested target makes it stale now.
 ```
 
-A finding is NEW only if the file was modified by this branch.
-Do NOT use "old version string appears on base" as a pre-existing
-signal — on the base branch, the old version WAS the current version
-and was correctly set; its presence there does not make a stale ref
-pre-existing. If ALL findings are in unmodified files, verdict MUST
-be PASS with 0 issues.
+A reference that was correct for the base but is stale for the requested
+target is NEW, including in an unmodified file: omission is a rebase defect.
+Count older unrelated debt as INFO. Neither an unchanged file nor the old
+version string's presence on base proves the finding was pre-existing.
 
 For each stale reference, report the file:line and what the
 correct value should be (the target k8s minor version).
@@ -52,7 +57,8 @@ This enables the gate-fix loop to sed-replace them.
 Report count of NEW genuinely stale previous-version references
 plus count of un-bumped Makefile version variables.
 
-VERDICT: FAIL if either count is nonzero; otherwise PASS.
+VERDICT: FAIL if either count is nonzero; INCONCLUSIVE if applicable target
+or image verification could not complete; otherwise PASS.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
 `go run`, or any command that modifies go.mod/go.sum/vendor. Allowed: `go build`,

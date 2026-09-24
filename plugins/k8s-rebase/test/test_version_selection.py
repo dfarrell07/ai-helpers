@@ -88,10 +88,10 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
         self.assertFalse((self.repo / "go.sum").exists())
         return result
 
-    def validate(self, module, minor=35, package="api", rc=0):
+    def validate(self, module, minor=35, package="api", rc=0, mode="exact"):
         self.response(package, VERSION + ".mod", module, rc)
         return self.run_shell(function("_validate_openshift_k8s_minor") +
-                              f'version=$(_validate_openshift_k8s_minor "github.com/openshift/{package}" "{VERSION}")\n'
+                              f'version=$(_validate_openshift_k8s_minor "github.com/openshift/{package}" "{VERSION}" "{mode}")\n'
                               'printf "%s" "$version"\n', minor)
 
     def selection(self, minor=35, invoke_module=False):
@@ -108,7 +108,7 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
         return self.run_shell("# Discover openshift/* versions" + block + function("derive_go_gets") + call, minor)
 
     def test_matching_minors_and_require_formats(self):
-        for minor in (35, 36):
+        for minor in (35, 36, 37):
             for requirements in (f"require k8s.io/api v0.{minor}.1\n",
                                  f"require (\n\tk8s.io/api v0.{minor}.1 // indirect\n)\n"):
                 with self.subTest(minor=minor, requirements=requirements):
@@ -187,7 +187,7 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
                 self.assertEqual(result.stdout, "")
 
     def test_all_openshift_packages_use_verified_target_versions(self):
-        for minor, branch in ((35, "release-4.22"), (36, "release-5.0")):
+        for minor, branch in ((35, "release-4.22"), (36, "release-5.0"), (37, "release-5.1")):
             with self.subTest(minor=minor):
                 self.gomod.write_text("module example.invalid/fixture\nrequire (\n k8s.io/api v0.34.1\n" +
                                       "".join(f" github.com/openshift/{p} v0.0.1\n" for p in PACKAGES) + ")\n")
@@ -230,7 +230,7 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
                     self.assertNotIn("will use @latest", result.stderr)
 
     def test_controller_tools_selects_target_minor_release(self):
-        for minor, candidate in ((34, "v0.19.0"), (35, "v0.20.0"), (36, "v0.21.0")):
+        for minor, candidate in ((34, "v0.19.0"), (35, "v0.20.0"), (36, "v0.21.0"), (37, "v0.22.0")):
             with self.subTest(minor=minor, candidate=candidate):
                 self.gomod.write_text(
                     "module example.invalid/fixture\nrequire (\n"
@@ -258,6 +258,51 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
         self.assertNotEqual(result.returncode, 0)
         self.assertEqual(result.stdout, "")
         self.assertIn("ERROR: controller-tools v0.21.0 is not verified for Kubernetes 1.36", result.stderr)
+
+    def test_137_uses_older_floors_from_release_51_without_branch_fallback(self):
+        self.gomod.write_text("module example.invalid/fixture\nrequire (\n k8s.io/api v0.36.2\n" +
+                              "".join(f" github.com/openshift/{p} v0.0.1\n" for p in PACKAGES) + ")\n")
+        for package in PACKAGES:
+            self.response(package, "release-5.1.info", json.dumps({"Version": VERSION}))
+            self.response(package, VERSION + ".mod", self.module(package, "require (\n"
+                          " k8s.io/api v0.36.2\n k8s.io/apimachinery v0.36.2\n"
+                          " k8s.io/client-go v0.36.2\n)\n"))
+        result = self.selection(37)
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertCountEqual(result.stdout.splitlines(), ["go get k8s.io/api@v0.37.3"] +
+                         [f"go get github.com/openshift/{p}@{VERSION}" for p in PACKAGES])
+        self.assertIn("needs build verification", result.stderr)
+        requests = (self.root / "requests").read_text()
+        self.assertNotIn("release-5.0", requests)
+        self.assertNotIn("@latest", requests)
+
+    def test_floor_mode_rejects_newer_and_unverifiable_requirements(self):
+        for version in ("v0.38.0", "v0.37.0-alpha.1", "v0.0.0", "v1.37.0"):
+            with self.subTest(version=version):
+                result = self.validate(self.module(requirements=f"require k8s.io/api {version}\n"),
+                                       minor=37, mode="floor")
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertEqual(result.stdout, "")
+        result = self.validate(self.module(requirements="require (\n k8s.io/api v0.36.2\n"
+                                          " k8s.io/client-go v0.38.0\n)\n"), minor=37, mode="floor")
+        self.assertEqual(result.stdout, "")
+
+    def test_tools_and_latest_do_not_accept_older_floors(self):
+        self.gomod.write_text("module example.invalid/fixture\nrequire (\n"
+                             " k8s.io/api v0.36.2\n sigs.k8s.io/controller-tools v0.21.0\n)\n")
+        self.response_module("sigs.k8s.io/controller-tools", "v0.22.0",
+                             "module sigs.k8s.io/controller-tools\nrequire k8s.io/api v0.36.2\n")
+        result = self.selection(37)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
+        self.gomod.write_text("module example.invalid/fixture\nrequire (\n"
+                             " k8s.io/api v0.36.2\n github.com/openshift/build-machinery-go v0.0.1\n)\n")
+        self.response_latest("build-machinery-go", json.dumps({"Version": VERSION}))
+        self.response("build-machinery-go", VERSION + ".mod",
+                      self.module("build-machinery-go", "require k8s.io/api v0.36.2\n"))
+        result = self.selection(37)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, "")
 
     def test_no_openshift_dependency_does_not_need_optional_metadata(self):
         result = self.selection()

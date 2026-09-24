@@ -178,8 +178,10 @@ before treating it as real; retain a failure that the host reproduces.
 Downstream OpenShift repos form a dependency chain:
 
 1. **Plumbing repos first**: `openshift/api`, `openshift/library-go`,
-   `openshift/client-go` — these must merge their k8s bump before
-   consumers can vendor them.
+   `openshift/client-go` — inspect their target release branches and rebase
+   PRs first. An older Kubernetes requirement is a minimum that consumers
+   can raise. Removed APIs may still require an upstream fix or a temporary
+   replacement before the consumer builds.
 2. **Consumer repos next**: CNO, CNCC, multus, ovnk — these consume
    the bumped plumbing repos through the rebase scripts.
 3. **OTE last**: the downstream `openshift/` module in ovnk has its

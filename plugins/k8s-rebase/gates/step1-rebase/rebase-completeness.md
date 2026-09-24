@@ -41,7 +41,13 @@ Report a count for each check:
      codegen commit in git log — then codegen produced no
      diff and a codegen commit is NOT expected (count 0).
 
-   - Version refs commit
+   - Version refs commit, when references need updating. Inspect the actual
+     CI/Dockerfile/Makefile references before accepting a no-change result;
+     an empty Phase 3 log alone is not evidence. OpenShift streams can change
+     even when Go does not (Kubernetes 1.36 to 1.37 uses Go 1.26 for both).
+     Compare with the target release's OpenShift CI config and available
+     images. If no relevant reference needs an update, cite the checked
+     files and count 0 instead of requiring an empty commit.
 4. Dependency versions: check all go.mod files (excluding
    vendor/) for Kubernetes release-versioned deps: staging modules use
    v0.Y.Z, and k8s.io/kubernetes uses v1.Y.Z. Count any NOT at the target

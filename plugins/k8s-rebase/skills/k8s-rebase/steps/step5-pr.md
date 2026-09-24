@@ -87,7 +87,11 @@ bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" reports "$REPO_ROOT"
 
 Nonzero exit stops reporting; a successful inventory is not passing
 validation. Copy its verdict totals and freshness warnings rather than
-hand-counting. Read each report's HEAD, exact VERDICT, and findings, and
+hand-counting. Copy the generated Markdown gate table into the PR body
+verbatim: keep every exact gate name, verdict, reviewed HEAD, and freshness
+label. Do not reconstruct names from memory, rename gates as test suites,
+combine rows into "additional gates", or add rows for checks absent from
+the inventory. Read each report's HEAD, exact VERDICT, and findings, and
 `.rebase-tmp/status/INCOMPLETE` if present; quote its force-advance wording
 and do not describe advance attempts as repairs or tests. INCOMPLETE records
 only the latest force-advance, so list every unresolved or unverified check
@@ -101,15 +105,26 @@ verify final HEAD. Never manufacture or relabel reports to fill gaps: DONE,
 force-advancement, aggregate counts, and independent review approval change
 no gate's verdict.
 
+Report executed build, vet, lint, and test commands separately from the gate
+table, using their actual outcomes. A PASS from a code-review or CI-prediction
+gate does not establish that unit or integration tests passed. A test that
+failed during environment setup remains failed/blocked, even when an isolated
+base run reproduces that failure. Give the affected package or suite and
+reason; mark skipped or unexecuted coverage unverified. Claim test PASS only
+when that test command completed successfully at the stated revision.
+
 Inspect `git diff "$BASE..HEAD"` and `git log --oneline "$BASE..HEAD"`.
 Describe dependency bumps as old → new from removed/added lines, not unchanged
-diff context. Commit subjects alone do not establish changes. PR body:
+diff context. Confirm both versions in the base and result go.mod files:
+moving an existing indirect requirement to the direct block is not adding a
+new module. Commit subjects alone do not establish changes. PR body:
 
 - One-line summary: "Rebase to Kubernetes <version> (Go <version>)."
 - What changed: categories supported by the diff
 - Commit table: git log output, note mechanical vs manual
-- Verification: checks actually performed, with the exact gate outcomes,
-  reasons for SKIP, unresolved findings, and unverified checks identified above.
+- Verification: the generated gate table and its totals/freshness warnings,
+  followed by actual command outcomes, reasons for SKIP, unresolved findings,
+  and unverified coverage identified above.
 - Footer: "All commits carry `Assisted-by: Claude Code <noreply@anthropic.com>` trailers."
 
 Output `gh pr create --title "..." --body "..."` using a heredoc, followed by
@@ -128,8 +143,12 @@ do not configure automation.
 Use host-approved file operations: restore the hook, remove scratch, then
 remove the session marker last. Stop on any failure. The Bash block is an
 example, not a required execution mechanism; keep its exact targets and order.
+When using a shell tool, preserve the explicit Bash wrapper: the host shell
+may be zsh, which rejects unmatched globs before `rm` runs. Such an error is
+failed cleanup, not an ignorable warning or proof that scratch was removed.
 
 ```bash
+bash <<'K8S_REBASE_CLEANUP'
 # Remove the pre-push hook installed by k8s-rebase.sh (restore backup if exists)
 HOOK_DIR="$(git rev-parse --git-common-dir)/hooks" || exit 1
 if [[ -f "$HOOK_DIR/pre-push" ]]; then
@@ -147,6 +166,7 @@ rm -rf .rebase-tmp/step*.log .rebase-tmp/step*.pid .rebase-tmp/*.log \
        .rebase-tmp/test-only-* .rebase-tmp/step[45]-review-* \
        .rebase-tmp/crd-pre-codegen/ || exit 1
 rm -f .rebase-tmp/.session-active || exit 1
+K8S_REBASE_CLEANUP
 ```
 
 Do NOT delete `.rebase-tmp/gates/`. If cleanup cannot be completed with allowed

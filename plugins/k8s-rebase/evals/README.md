@@ -14,7 +14,7 @@ prompt, or a launch fails with that message.
 
 | Check | Command | What it establishes |
 | --- | --- | --- |
-| Offline contracts | `make test-compatibility test-version-selection test-court assert-evidence-paths` | Hook/review/gate interfaces, version selection, court scope/cache behavior, companion paths; no model calls or rebases |
+| Offline contracts | `make test-compatibility test-version-selection test-version-references test-go-version-gate test-court assert-evidence-paths` | Hook/review/gate interfaces, version selection, OpenShift image references, Go-reference attribution, court scope/cache behavior, companion paths; no model calls or rebases |
 | One full-skill run | `make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none` | Launches a background rebase; inspect with `make watch version=1.35`, then `make results version=1.35` |
 | Diff review | `make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35` | Adversarial review of the result diff against its configured reference; does not establish that the run completed |
 | Configured matrix | `make matrix spec=none` | Runs all configured repo/version cases, court, and bounded retries; takes 4–8 hours |
@@ -101,6 +101,15 @@ This repository does not install or pin a scoring harness, and the built-in
 artifacts; verify harness and schema compatibility before YAML scoring.
 
 ## Coverage
+
+Kubernetes 1.37.0 has six additional exploratory baselines in
+[config-1.37.yaml](../test/config-1.37.yaml). They start at pinned 1.36.2
+commits and deliberately omit `known_good`: no independently reviewed 1.37
+reference is established yet. Run one with
+`make test repo=openshift/multus-cni version=1.37 spec=none`; these are not
+new pattern-retention eval cases. See the [1.37 preparation notes](../docs/k8s-1.37.md).
+`make matrix` discovers this config too; its overall qualification cannot
+pass until references and the required court reviews are available.
 
 Pattern retention covers the repos used to develop the autofix patterns;
 it does not test unseen breakage. The 16 cases cover the same repo/version

@@ -78,6 +78,13 @@ Anti-patterns to avoid:
 mapping. A wrong branch lets MVS pull Kubernetes deps to the wrong
 version, which the version-consistency gate will catch.
 
+The correct release branch may still declare the previous Kubernetes minor
+during a staged rebase. Step 1 accepts those minimum requirements, while
+rejecting newer minors. This establishes only a candidate: verify the resolved
+target pins and build every consumer module. If removed APIs break the
+dependency, use the upstream-fix procedure below; an older requirement floor
+alone is neither proof of compatibility nor a blocker.
+
 **Do NOT bump non-k8s dependencies** in other modules (e.g.,
 `test/conformance/`) unless the build actually fails. The
 conformance module may intentionally use a different version of

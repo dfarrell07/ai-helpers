@@ -372,12 +372,14 @@ cmd_advance() {
 cmd_reports() {
   local repo="${1:?Usage: $0 reports <repo-path>}"
   repo=$(cd "$repo" && pwd)
-  local head sd gate rpt raw_head verdict index
+  local head sd gate rpt raw_head verdict index freshness reviewed_head row
+  local LC_ALL=C
   head=$(git -C "$repo" rev-parse --verify HEAD) || die "Cannot resolve report inventory HEAD"
   local expected=0 stale_count=0
   local pass_current=0 pass_prior=0 pass_stale=0
   local labels=(PASS SKIP FAIL INCONCLUSIVE UNVERIFIED)
   local totals=(0 0 0 0 0)
+  local table_rows=()
   echo "INVENTORY HEAD: $head"
   for sd in "${STEP_DIRS[@]}"; do
     for gate in "$GATES_ROOT/$sd/"*.md; do
@@ -386,20 +388,26 @@ cmd_reports() {
       rpt=$(report_path "$repo" "$sd" "$(basename "$gate" .md)")
       printf '\nREPORT: %s\n' "$rpt"
       verdict=UNVERIFIED
+      freshness=unverified
+      reviewed_head=-
       if [[ -f "$rpt" && -r "$rpt" ]]; then
         cat "$rpt" || die "Cannot read report: $rpt"
         raw_head=$(grep '^HEAD:' "$rpt") || raw_head=""
         if report_has_verdict "$rpt" && [[ "$raw_head" =~ ^HEAD:\ [0-9a-f]+$ ]] &&
            [[ ${#raw_head} -eq $((${#head} + 6)) ]]; then
           verdict=$(awk '/^VERDICT: /{print $2}' "$rpt")
+          reviewed_head="${raw_head#HEAD: }"
           if [[ "$raw_head" == "HEAD: $head" ]]; then
+            freshness=current
             [[ "$verdict" != PASS ]] || pass_current=$((pass_current + 1))
             echo "FRESHNESS: current HEAD"
           elif [[ "$sd" == "${STEP_DIRS[$((STEP_COUNT - 1))]}" ]]; then
+            freshness=stale
             stale_count=$((stale_count + 1))
             [[ "$verdict" != PASS ]] || pass_stale=$((pass_stale + 1))
             echo "FRESHNESS: STALE final-step report; not final-HEAD verification"
           else
+            freshness=historical
             [[ "$verdict" != PASS ]] || pass_prior=$((pass_prior + 1))
             echo "FRESHNESS: historical report; not a final-HEAD retest"
           fi
@@ -410,6 +418,9 @@ cmd_reports() {
         echo "UNVERIFIED: missing or unreadable report"
       fi
       echo "ASSESSMENT: $verdict"
+      printf -v row '| `%s` | %s | %s | `%s` |' \
+        "${rpt##*/}" "$verdict" "$freshness" "${reviewed_head:0:12}"
+      table_rows+=("$row")
       for index in "${!labels[@]}"; do
         if [[ "$verdict" == "${labels[$index]}" ]]; then
           totals[index]=$((totals[index] + 1))
@@ -425,6 +436,10 @@ cmd_reports() {
   printf '\nFINAL-STEP STALE: %s\n' "$stale_count"
   printf 'PASS AT INVENTORY HEAD: %s\nHISTORICAL PRIOR-STEP PASS: %s\nSTALE FINAL-STEP PASS: %s\n' \
     "$pass_current" "$pass_prior" "$pass_stale"
+  printf '\nGATE TABLE:\n'
+  printf '| Gate report | Recorded verdict | Freshness | Reviewed HEAD |\n'
+  printf '| --- | --- | --- | --- |\n'
+  printf '%s\n' "${table_rows[@]}"
 }
 
 cmd_status() {

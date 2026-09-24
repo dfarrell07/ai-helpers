@@ -385,12 +385,20 @@ _resolve_openshift_version() {
 }
 
 # Check direct core Kubernetes requirements, including those in library-go.
+# Requirements are minimums. The selected OpenShift release branch may still
+# declare the previous minor while its rebase is in flight. Accept those floors
+# only for that explicit branch; builds and final pin checks establish actual
+# compatibility. Tools and the build-machinery-go @latest fallback stay exact.
 # Optional lookups return an empty version on failure without aborting callers
 # under errexit. derive_go_gets rejects unresolved packages that the repo needs.
 # This is not a transitive-graph proof; retain the existing post-update checks.
 _validate_openshift_k8s_minor() {
-  local pkg="$1" ver="$2"
+  local pkg="$1" ver="$2" mode="${3:-exact}"
   [[ -z "$ver" ]] && return 0
+  case "$mode" in
+    exact|floor) ;;
+    *) info "WARNING: unknown Kubernetes requirement check: $mode"; return 0 ;;
+  esac
   local _mod _requirements dep required
   if ! _mod=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
     "https://proxy.golang.org/${pkg}/@v/${ver}.mod" 2>/dev/null); then
@@ -414,26 +422,34 @@ _validate_openshift_k8s_minor() {
   fi
   while read -r dep required; do
     [[ -z "$dep" ]] && continue
-    if [[ ! "$required" =~ ^v0\.([0-9]+)\.[0-9]+$ ]] || \
-       [[ "${BASH_REMATCH[1]}" != "$K8S_MINOR" ]]; then
+    if [[ ! "$required" =~ ^v0\.([1-9][0-9]*)\.[0-9]+$ ]]; then
+      info "WARNING: ${pkg}@${ver} has unverifiable ${dep} ${required} — skipping this version"
+      return 0
+    fi
+    local required_minor="${BASH_REMATCH[1]}"
+    if (( required_minor > K8S_MINOR )) || \
+       { [[ "$mode" == exact ]] && (( required_minor != K8S_MINOR )); }; then
       info "WARNING: ${pkg}@${ver} requires ${dep} ${required}, target is v0.${K8S_MINOR}.x — skipping this version"
       return 0
+    fi
+    if (( required_minor < K8S_MINOR )); then
+      info "NOTE: ${pkg}@${ver} declares ${dep} ${required}; lifting its requirement floor to v0.${K8S_MINOR}.x needs build verification"
     fi
   done <<< "$_requirements"
   printf '%s\n' "$ver"
 }
 
 OPENSHIFT_CLIENT_GO_VERSION=$(_resolve_openshift_version "github.com/openshift/client-go")
-OPENSHIFT_CLIENT_GO_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/client-go" "$OPENSHIFT_CLIENT_GO_VERSION")
+OPENSHIFT_CLIENT_GO_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/client-go" "$OPENSHIFT_CLIENT_GO_VERSION" floor)
 OPENSHIFT_API_VERSION=$(_resolve_openshift_version "github.com/openshift/api")
-OPENSHIFT_API_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/api" "$OPENSHIFT_API_VERSION")
+OPENSHIFT_API_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/api" "$OPENSHIFT_API_VERSION" floor)
 OPENSHIFT_LIBRARY_GO_VERSION=$(_resolve_openshift_version "github.com/openshift/library-go")
-OPENSHIFT_LIBRARY_GO_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/library-go" "$OPENSHIFT_LIBRARY_GO_VERSION")
+OPENSHIFT_LIBRARY_GO_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/library-go" "$OPENSHIFT_LIBRARY_GO_VERSION" floor)
 OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION=$(_resolve_openshift_version "github.com/openshift/controller-runtime-common")
 OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION=$(_validate_openshift_k8s_minor \
-  "github.com/openshift/controller-runtime-common" "$OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION")
+  "github.com/openshift/controller-runtime-common" "$OPENSHIFT_CONTROLLER_RUNTIME_COMMON_VERSION" floor)
 OPENSHIFT_BUILD_MACHINERY_VERSION=$(_resolve_openshift_version "github.com/openshift/build-machinery-go")
-OPENSHIFT_BUILD_MACHINERY_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/build-machinery-go" "$OPENSHIFT_BUILD_MACHINERY_VERSION")
+OPENSHIFT_BUILD_MACHINERY_VERSION=$(_validate_openshift_k8s_minor "github.com/openshift/build-machinery-go" "$OPENSHIFT_BUILD_MACHINERY_VERSION" floor)
 if [[ -z "$OPENSHIFT_BUILD_MACHINERY_VERSION" ]]; then
   # build-machinery-go does not publish release-5.0 today. Its latest module
   # metadata is acceptable only when its direct Kubernetes requirements match
@@ -1216,68 +1232,121 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     info "  Reconciled Dockerfile Go version: $df"
   done < <(grep -rln "ARG GOLANG_VERSION=" --include="Dockerfile*" . | grep -v vendor | grep -v "/\.git/" || true)
 
-  # Update OCP version in CI builder image tags if we can detect
-  # the repo's target OCP version from openshift/release configs.
-  # Go 1.26 images may only exist for openshift-5.0, not 4.22.
-  if grep -q "golang-${NEW_GO_SHORT}.*openshift-" .ci-operator.yaml 2>/dev/null; then
-    old_ocp=$(grep -oE 'openshift-[0-9.]+' .ci-operator.yaml | head -1 | sed 's/openshift-//' || true)
-    _remote_url=$(git remote get-url origin 2>/dev/null || true)
-    if [[ -n "$_remote_url" ]]; then
-      repo_org=$(echo "$_remote_url" | sed 's|.*github\.com[:/]\([^/]*\)/.*|\1|')
-      repo_name=$(echo "$_remote_url" | sed 's|.*github\.com[:/][^/]*/\(.*\)|\1|; s|\.git$||')
-    else
-      repo_name=$(basename "$REPO_ROOT")
-      repo_org=$(basename "$(dirname "$REPO_ROOT")")
+
+fi
+
+# OCP streams change independently of Go: Kubernetes 1.36 and 1.37 both
+# require Go 1.26. Verify the mapped stream and each image before changing refs.
+sync_ocp_image_refs() {
+  [[ -f .ci-operator.yaml ]] || return 0
+  grep -qE 'golang-[0-9.]+.*openshift-[0-9.]+' .ci-operator.yaml || return 0
+  local target_ocp="${OPENSHIFT_BRANCH#release-}" remote repo_org repo_name
+  local config branch declared_stream="" confirmed=false
+  remote=$(git remote get-url origin 2>/dev/null || true)
+  if [[ "$remote" =~ github\.com[:/]([^/]+)/([^/]+) ]]; then
+    repo_org="${BASH_REMATCH[1]}"
+    repo_name="${BASH_REMATCH[2]%.git}"
+  else
+    info "NOTE: cannot identify upstream CI config; OCP image refs need review"
+    return 0
+  fi
+  for branch in "$OPENSHIFT_BRANCH" master main; do
+    config=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
+      "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null) || continue
+    # from_repository configs have no builder tag: latest.integration identifies
+    # their tested stream. Do not confuse the initial upgrade stream with latest.
+    declared_stream=$(awk '
+      /^[^[:space:]#]/ { releases=($0=="releases:"); latest=0; integration=0 }
+      releases && /^  [^[:space:]#]/ { latest=($0=="  latest:"); integration=0 }
+      latest && /^    [^[:space:]#]/ { integration=($0=="    integration:") }
+      integration && /^      name:/ { name=$2; gsub(/[\047"]/, "", name) }
+      integration && /^      namespace:/ { namespace=$2; gsub(/[\047"]/, "", namespace) }
+      END { if (namespace=="ocp") print name }
+    ' <<< "$config")
+    if [[ -z "$declared_stream" ]]; then
+      declared_stream=$(grep -oE 'openshift-[0-9]+\.[0-9]+' <<< "$config" | sed 's/openshift-//' | sort -u || true)
     fi
-    target_ocp=""
-    # Detect OCP target from openshift/release ci-operator config
-    for branch in master main; do
-      target_ocp=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep -oE 'openshift-[0-9]+\.[0-9]+' | tail -1 | sed 's/openshift-//' || true)
-      [[ -n "$target_ocp" ]] && break
-    done
-    if [[ -n "$target_ocp" ]]; then
-      # Update .ci-operator.yaml if needed
-      if [[ "$old_ocp" != "$target_ocp" ]]; then
-        info "  Updating OCP version in CI tags: openshift-${old_ocp} → openshift-${target_ocp}"
-        sed -i "s|openshift-${old_ocp}|openshift-${target_ocp}|g" .ci-operator.yaml && CHANGED_FILES+=".ci-operator.yaml"$'\n'
-      fi
-      # Also update ANY Dockerfile still referencing a stale OCP stream.
-      # Handles both patterns: openshift-X.Y (builder tag) and ocp/X.Y: (base image)
-      for ci_file in $(find . -maxdepth 2 -name "Dockerfile*" -not -path "*/vendor/*" | sed 's|^\./||' | sort); do
-        _fixed=0
-        # Skip legacy Dockerfiles with Go versions far behind the target.
-        # Dockerfile.rhel7 with golang-1.19 should not get openshift-5.0 tags.
-        _df_go=$(grep -oE 'golang-[0-9]+\.[0-9]+' "$ci_file" 2>/dev/null | head -1 | sed 's/golang-//' || true)
-        if [[ -n "$_df_go" ]]; then
-          _df_minor=$(cut -d. -f2 <<< "$_df_go")
-          _target_minor=$(cut -d. -f2 <<< "$NEW_GO_SHORT")
-          if [[ -n "$_df_minor" ]] && [[ -n "$_target_minor" ]] && (( _target_minor - _df_minor > 2 )) 2>/dev/null; then
-            info "  Skipping legacy $ci_file (Go $_df_go, target $NEW_GO_SHORT)"
-            continue
-          fi
-        fi
-        # Pattern 1: openshift-X.Y (builder image tag suffix)
-        if grep -qE "openshift-[0-9.]+" "$ci_file" && ! grep -q "openshift-${target_ocp}" "$ci_file"; then
-          for stale_ocp in $(grep -oE 'openshift-[0-9.]+' "$ci_file" | sed 's/openshift-//' | sort -u); do
-            sed -i "s|openshift-${stale_ocp}|openshift-${target_ocp}|g" "$ci_file"
-          done
-          _fixed=1
-        fi
-        # Pattern 2: ocp/X.Y: (base image reference)
-        if grep -qE "ocp/[0-9.]+:" "$ci_file" && ! grep -q "ocp/${target_ocp}:" "$ci_file"; then
-          for stale_base in $(grep -oE 'ocp/[0-9.]+:' "$ci_file" | sed 's|ocp/||;s|:||' | sort -u); do
-            sed -i "s|ocp/${stale_base}:|ocp/${target_ocp}:|g" "$ci_file"
-          done
-          _fixed=1
-        fi
-        [[ "$_fixed" -eq 1 ]] && info "  Updated OCP stream in $ci_file → ${target_ocp}" && CHANGED_FILES+="$ci_file"$'\n'
-      done
+    if [[ "$declared_stream" == "$target_ocp" ]]; then
+      confirmed=true
+      break
+    fi
+    info "NOTE: ${repo_org}/${repo_name} ${branch} CI stream '${declared_stream:-unknown}' does not confirm mapped OCP ${target_ocp}"
+  done
+  if [[ "$confirmed" != true ]]; then
+    info "NOTE: no CI config confirms OCP ${target_ocp}; existing OCP image refs retained"
+    return 0
+  fi
+
+  local -A verified_images=()
+  _ocp_image_available() {
+    local ref="$1" repository tag token
+    [[ -n "${verified_images[$ref]:-}" ]] && return 0
+    [[ "$ref" =~ ^registry\.ci\.openshift\.org/([a-z0-9._-]+/[a-z0-9._-]+):([a-zA-Z0-9._-]+)$ ]] || return 1
+    repository="${BASH_REMATCH[1]}"; tag="${BASH_REMATCH[2]}"
+    # Public registry metadata requires an anonymous bearer token. Never log it.
+    token=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 \
+      "https://registry.ci.openshift.org/openshift/token?service=registry.ci.openshift.org&scope=repository:${repository}:pull" 2>/dev/null | \
+      perl -MJSON::PP -0777 -e 'my $j=decode_json(<STDIN>); my $t=$j->{token}//$j->{access_token}//""; die "Invalid token\n" unless $t =~ /\A[A-Za-z0-9._-]+\z/; print $t' 2>/dev/null) || return 1
+    curl -sfI --retry 2 --connect-timeout 10 --max-time 30 \
+      -H "Authorization: Bearer ${token}" \
+      -H 'Accept: application/vnd.oci.image.index.v1+json, application/vnd.docker.distribution.manifest.list.v2+json, application/vnd.docker.distribution.manifest.v2+json' \
+      "https://registry.ci.openshift.org/v2/${repository}/manifests/${tag}" >/dev/null 2>&1 || return 1
+    verified_images[$ref]=1
+    info "Verified OCP image: $ref"
+  }
+
+  local ci_name ci_namespace ci_tag new_tag image
+  ci_name=$(awk '/^build_root_image:/ {inside=1; next} /^[^[:space:]#]/ {inside=0} inside && /^  name:/ {print $2}' .ci-operator.yaml)
+  ci_namespace=$(awk '/^build_root_image:/ {inside=1; next} /^[^[:space:]#]/ {inside=0} inside && /^  namespace:/ {print $2}' .ci-operator.yaml)
+  ci_tag=$(awk '/^build_root_image:/ {inside=1; next} /^[^[:space:]#]/ {inside=0} inside && /^  tag:/ {print $2}' .ci-operator.yaml)
+  # Parse only plain or quoted scalar image coordinates, never arbitrary YAML.
+  ci_name="${ci_name//[\"\']/}"; ci_namespace="${ci_namespace//[\"\']/}"; ci_tag="${ci_tag//[\"\']/}"
+  new_tag=$(sed -E "s/openshift-[0-9]+\.[0-9]+/openshift-${target_ocp}/g" <<< "$ci_tag")
+  image="registry.ci.openshift.org/${ci_namespace}/${ci_name}:${new_tag}"
+  if [[ -n "$ci_tag" && "$ci_tag" != "$new_tag" ]]; then
+    if _ocp_image_available "$image"; then
+      CI_OLD_TAG="$ci_tag" CI_NEW_TAG="$new_tag" perl -pi -e '
+        if (/^build_root_image:/) { $in_root=1 }
+        elsif (/^[^\s#]/) { $in_root=0 }
+        if ($in_root) {
+          s{^(  tag:[ \t]*)(["\047]?)\Q$ENV{CI_OLD_TAG}\E\2([ \t]*(?:\#.*)?$)}
+           {$1 . $2 . $ENV{CI_NEW_TAG} . $2 . $3}e;
+        }
+      ' .ci-operator.yaml
+      CHANGED_FILES+=".ci-operator.yaml"$'\n'
     else
-      info "  NOTE: CI builder image uses golang-${NEW_GO_SHORT}-openshift-${old_ocp}."
-      info "  Could not detect OCP target — check openshift/release CI configs for the correct stream."
+      info "NOTE: target image unavailable or unverifiable: $image; .ci-operator.yaml retained"
     fi
   fi
-fi
+
+  local df old_image new_image df_go target_go_minor
+  target_go_minor=$(cut -d. -f2 <<< "$NEW_GO_VERSION")
+  while IFS= read -r df; do
+    # Keep legacy Dockerfiles on their existing Go/OCP stream.
+    df_go=$(grep -oE 'golang-[0-9]+\.[0-9]+' "$df" | head -1 | sed 's/golang-//' || true)
+    if [[ -n "$df_go" && -n "$target_go_minor" ]] && (( target_go_minor - ${df_go#*.} > 2 )); then
+      continue
+    fi
+    while IFS= read -r old_image; do
+      if grep -qF "${old_image}@" "$df"; then
+        info "NOTE: digest-pinned image needs explicit digest review in $df: $old_image"
+        continue
+      fi
+      new_image=$(sed -E "s/openshift-[0-9]+\.[0-9]+/openshift-${target_ocp}/g; s|/ocp/[0-9]+\.[0-9]+:|/ocp/${target_ocp}:|g" <<< "$old_image")
+      [[ "$new_image" == "$old_image" ]] && continue
+      if _ocp_image_available "$new_image"; then
+        OCP_OLD_IMAGE="$old_image" OCP_NEW_IMAGE="$new_image" perl -pi -e '
+          s{(?<![A-Za-z0-9._:/@-])\Q$ENV{OCP_OLD_IMAGE}\E(?![A-Za-z0-9._:/@-])}
+           {$ENV{OCP_NEW_IMAGE}}g;
+        ' "$df"
+        CHANGED_FILES+="$df"$'\n'
+      else
+        info "NOTE: target image unavailable or unverifiable: $new_image; existing reference retained in $df"
+      fi
+    done < <(grep -oE 'registry\.ci\.openshift\.org/[a-z0-9._-]+/[a-zA-Z0-9._-]+:[a-zA-Z0-9._-]+' "$df" | sort -u || true)
+  done < <(find . -maxdepth 2 -name 'Dockerfile*' -not -path '*/vendor/*' | sort)
+}
+sync_ocp_image_refs
 
 # Reconcile ENVTEST_K8S_VERSION (kubebuilder test binary version).
 # Runs regardless of Go version change — it tracks k8s version.

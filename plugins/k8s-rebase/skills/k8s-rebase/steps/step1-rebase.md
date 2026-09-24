@@ -4,6 +4,11 @@ PROGRESS: 20% complete
 
 Read `${PLUGIN_ROOT}/skills/k8s-rebase/steps/rules.md` first.
 
+For Kubernetes 1.37, read `${PLUGIN_ROOT}/docs/k8s-1.37.md` before starting:
+it records the upstream toolchain, downstream dependency readiness, and test
+baselines. Recheck moving branches and PRs; the recorded snapshot is not proof
+that an upstream fix has merged.
+
 For a fresh run, start from the working branch (normally master/main).
 The script creates a new timestamped rebase branch; do not reuse branches
 from prior runs.
@@ -72,10 +77,10 @@ autofix adjusts K8S_VERSION to match the latest available
 kindest/node tag (e.g., v1.36.1). On other repos, K8S_VERSION
 stays at the go.mod version for kubectl/envtest downloads.
 
-If the output says "Could not detect OCP target", check the
-repo's CI config in `openshift/release` or compare with an
-existing manual rebase PR for the correct `openshift-X.Y`
-version in `.ci-operator.yaml` and Dockerfiles.
+If the output reports an unconfirmed OCP stream or an unavailable/unverifiable
+image, check the repo's target-release CI config in `openshift/release` and
+the candidate registry image. Keep unresolved verification visible in the
+gate report; another rebase PR's tag alone does not establish availability.
 
 ## Gate
 

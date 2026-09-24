@@ -294,6 +294,30 @@ class CourtHarnessTests(unittest.TestCase):
         self.assertIn("pending", result.stdout)
         self.assertIn("OVERALL (run + diff review): FAIL", result.stdout)
 
+    def test_exploration_without_reference_cannot_qualify(self):
+        config = Path(self.env["CONFIG_FILE"])
+        config.write_text(config.read_text().replace("    known_good: known-good\n", ""))
+        (self.state / "results.tsv").write_text(
+            "2026-09-24T00:00:00Z\t1.36.2\tnone\tacme/demo\tPASS\tfixture complete\n"
+        )
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("no reference", result.stdout)
+        self.assertIn("known_good not configured", result.stdout)
+        self.assertIn("OVERALL (run + diff review): FAIL", result.stdout)
+        # An old resolved-ref cache cannot supply a deliberately absent input.
+        (self.state / "known_good_resolved_acme_demo_1_36_2").write_text("known-good\n")
+        result = self.harness("results", "acme/demo", "--court")
+        self.assertEqual(result.returncode, 2, result.stdout + result.stderr)
+        self.assertIn("no known-good reference configured", result.stderr)
+        self.assertEqual(self.prompt_files(), [])
+
+    def test_no_runs_cannot_qualify(self):
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("No results yet", result.stdout)
+        self.assertNotIn("OVERALL (run + diff review): PASS", result.stdout)
+
     def test_old_pass_row_cannot_certify_new_result_commit(self):
         (self.state / "results.tsv").write_text(
             "2026-09-24T00:00:00Z\t1.36.2\tnone\tacme/demo\tPASS\tfixture complete\n"

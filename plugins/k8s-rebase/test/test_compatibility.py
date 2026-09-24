@@ -951,6 +951,25 @@ exec "{real_git}" "$@"
                     self.assertIn("original hook", hook.read_text())
                     self.assertEqual(hook.stat().st_mode & 0o777, 0o751)
 
+    @unittest.skipUnless(shutil.which("zsh"), "zsh is not installed")
+    def test_cleanup_from_zsh_handles_unmatched_globs_and_removes_logs(self):
+        self.activate(step=5)
+        state = self.repo / ".rebase-tmp"
+        (state / "gates").mkdir()
+        report = state / "gates/step4-check.report"
+        report.write_text(f"HEAD: {self.git_sha()}\nVERDICT: PASS\n")
+        for name in ("root-build.log", "go-get.log", "summary.txt"):
+            (state / name).write_text("scratch\n")
+        # There are deliberately no step*.pid or test-only-* matches.
+        result = self.run_cmd("zsh", "-f", "-c", self.cleanup_example())
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertNotIn("no matches found", result.stderr)
+        self.assertFalse((state / ".session-active").exists())
+        self.assertFalse(list(state.glob("*.log")))
+        self.assertFalse(list(state.glob("*.txt")))
+        self.assertTrue(report.exists())
+        self.assertTrue((state / "state.json").exists())
+
     def test_cleanup_without_backup_preserves_unrelated_hook(self):
         hook = self.repo / ".git/hooks/pre-push"
         for contents in ("#!/bin/sh\nexit 1 # k8s-rebase guard\n",
@@ -1205,6 +1224,77 @@ exec "{real_git}" "$@"
         self.assertIn("REPORT VERDICTS: PASS=3 SKIP=1 FAIL=0 INCONCLUSIVE=0 UNVERIFIED=0\n", result.stdout)
         self.assertIn("FINAL-STEP STALE: 1\n", result.stdout)
         self.assertIn("PASS AT INVENTORY HEAD: 1\nHISTORICAL PRIOR-STEP PASS: 1\nSTALE FINAL-STEP PASS: 1\n", result.stdout)
+        self.assertEqual({p: p.read_bytes() for p in state.rglob("*") if p.is_file()}, before)
+
+    def test_report_table_uses_exact_names_verdicts_and_freshness_without_mutation(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=5)
+        state = self.repo / ".rebase-tmp"
+        (state / "gates").mkdir()
+        gates = self.root / "plugin/gates"
+        for check in gates.glob("*/check.md"):
+            check.unlink()
+        head = self.git_sha()
+        cases = (
+            ("step1-rebase", "rebase-completeness", "PASS", self.base, "historical"),
+            ("step2-compilation", "test-compilation", "PASS", head, "current"),
+            ("step3-autofix", "feature-gates", "SKIP", head, "current"),
+            ("step4-verification", "correctness", "FAIL", head, "current"),
+            ("step4-verification", "go-version-check", "PASS", self.base, "stale"),
+            ("step4-verification", "maintainer-review", "INCONCLUSIVE", head, "current"),
+        )
+        rows = []
+        for step, gate, verdict, sha, freshness in cases:
+            (gates / step / f"{gate}.md").write_text("fixture gate\n")
+            name = f"{step.split('-', 1)[0]}-{gate}.report"
+            (state / "gates" / name).write_text(f"HEAD: {sha}\nVERDICT: {verdict}\n")
+            rows.append(f"| `{name}` | {verdict} | {freshness} | `{sha[:12]}` |")
+        before = {p: p.read_bytes() for p in state.rglob("*") if p.is_file()}
+        result = run("reports")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        table = result.stdout.split("\nGATE TABLE:\n", 1)[1]
+        self.assertEqual(table, "| Gate report | Recorded verdict | Freshness | Reviewed HEAD |\n"
+                         "| --- | --- | --- | --- |\n" + "\n".join(rows) + "\n")
+        self.assertIn("REPORT VERDICTS: PASS=3 SKIP=1 FAIL=1 INCONCLUSIVE=1 UNVERIFIED=0\n", result.stdout)
+        self.assertNotIn("unit-tests", table)
+        self.assertNotIn("integration", table)
+        self.assertEqual({p: p.read_bytes() for p in state.rglob("*") if p.is_file()}, before)
+
+    def test_report_table_marks_missing_and_malformed_reports_unverified(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=5)
+        state = self.repo / ".rebase-tmp"
+        (state / "gates").mkdir()
+        (state / "gates/step2-check.report").write_text(f"HEAD: {self.git_sha()}\nVERDICT: PASSING\n")
+        (state / "gates/step3-check.report").write_text("HEAD: unknown\nVERDICT: PASS\n")
+        (state / "gates/step4-check.report").write_text(
+            f"HEAD: {self.git_sha()}\nVERDICT: PASS\nVERDICT: SKIP\n")
+        before = {p: p.read_bytes() for p in state.rglob("*") if p.is_file()}
+        result = run("reports")
+        self.assertEqual(result.returncode, 0, result.stderr)
+        table = result.stdout.split("\nGATE TABLE:\n", 1)[1]
+        self.assertEqual(table.splitlines()[2:], [
+            f"| `step{step}-check.report` | UNVERIFIED | unverified | `-` |"
+            for step in range(1, 5)])
+        self.assertIn("REPORT VERDICTS: PASS=0 SKIP=0 FAIL=0 INCONCLUSIVE=0 UNVERIFIED=4\n", result.stdout)
+        self.assertEqual({p: p.read_bytes() for p in state.rglob("*") if p.is_file()}, before)
+
+    def test_report_table_is_not_emitted_if_head_changes_during_inventory(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=5)
+        state = self.repo / ".rebase-tmp"
+        (state / "gates").mkdir()
+        (state / "gates/step1-check.report").write_text(f"HEAD: {self.git_sha()}\nVERDICT: PASS\n")
+        before = {p: p.read_bytes() for p in state.rglob("*") if p.is_file()}
+        real_git = shutil.which("git")
+        self.stub("git", 'if [[ "${*: -2}" == "rev-parse HEAD" ]]; then\n'
+                  f'  printf "%s\\n" "{self.base}"; exit 0\nfi\nexec "{real_git}" "$@"\n')
+        result = run("reports")
+        self.assertNotEqual(result.returncode, 0)
+        self.assertIn("HEAD changed during report inventory", result.stderr)
+        self.assertNotIn("REPORT VERDICTS:", result.stdout)
+        self.assertNotIn("GATE TABLE:", result.stdout)
+        self.assertNotIn("| Gate report |", result.stdout)
         self.assertEqual({p: p.read_bytes() for p in state.rglob("*") if p.is_file()}, before)
 
 
