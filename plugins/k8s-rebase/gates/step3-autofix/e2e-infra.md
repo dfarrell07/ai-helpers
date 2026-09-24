@@ -9,6 +9,13 @@ For each modified e2e file, check:
 - Do version references (k8s version strings, kindest/node tags)
   match the target version from go.mod?
   `grep -rn 'kindest/node\|K8S_VERSION\|KIND_VERSION' . | grep -v vendor/`
+  Trace variable consumers and CI overrides to the effective node image;
+  variable names alone do not identify image pins. Verify that selected image
+  exists in its actual registry. A published patch in the target minor is
+  valid even when its patch differs from go.mod. A confirmed missing selected
+  tag with a published target-minor alternative is a NEW CI defect. If registry
+  access or target-minor publication prevents verification, use INCONCLUSIVE.
+  Review digest changes independently; a tag change leaves an old digest active.
 
 - KIND binary version: search the web for "kind releases" to
   find which KIND version supports the target k8s version.

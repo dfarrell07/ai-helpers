@@ -35,6 +35,14 @@ existing format: (1) `export KUBE_FEATURE_<gate>=false` in hack/test-go.sh,
 `KUBE_FEATURE_` variables, and (3) a key in test-suite `SetFromMap` calls.
 Add only gates present in the vendored k8s.io/ code.
 
+For KIND reference warnings, trace the effective image through scripts,
+Makefiles, and CI environment overrides. The helper only rewrites direct
+references and identifiable variable consumers; indirect consumers need
+review. A correct script default can still be overridden by an unavailable
+CI tag. Use a verified patch in the target minor, retain intentional upgrade
+source versions, and verify replacement digests or private-registry images
+separately. A registry lookup failure is unresolved verification.
+
 ## Gates
 
 Run the orchestrator to collect companion evidence and discover gate state:

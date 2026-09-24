@@ -14,7 +14,7 @@ prompt, or a launch fails with that message.
 
 | Check | Command | What it establishes |
 | --- | --- | --- |
-| Offline contracts | `make test-compatibility test-version-selection test-version-references test-go-version-gate test-validation test-court assert-evidence-paths` | Hook/review/gate interfaces, version selection, OpenShift image references, Go-reference attribution, test module/package coverage, court scope/cache behavior, companion paths; no model calls or rebases |
+| Offline contracts | `make test-compatibility test-version-selection test-version-references test-kind-images test-go-version-gate test-validation test-court assert-evidence-paths` | Hook/review/gate interfaces, version selection, OpenShift and KIND image references, Go-reference attribution, test module/package coverage, court scope/cache behavior, companion paths; no model calls or rebases |
 | One full-skill run | `make test repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35 spec=none` | Launches a background rebase; inspect with `make watch version=1.35`, then `make results version=1.35` |
 | Diff review | `make court repo=ovn-kubernetes/ovn-kubernetes-mcp version=1.35` | Adversarial review of the result diff against its configured reference; does not establish that the run completed |
 | Configured matrix | `make matrix spec=none` | Runs all configured repo/version cases, court, and bounded retries; takes 4–8 hours |

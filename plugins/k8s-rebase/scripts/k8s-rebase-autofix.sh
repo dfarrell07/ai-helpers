@@ -577,74 +577,90 @@ fix_lint_version() {
 }
 
 fix_kind_image() {
-  local NEW
+  local NEW OLD
   NEW=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | head -1 | grep -oE 'v0\.[0-9]+' | sed 's/v0\.//')
   [[ -z "$NEW" ]] && return 0
-  # Find the highest available kindest/node image for this minor version.
-  # Try specific tags first (less rate-limit-prone than listing all),
-  # fall back to listing API.
-  local kind_tag="" go_mod_patch
+  OLD=$((NEW-1))
+
+  # K8S_VERSION is also used for kubectl/envtest. Only reconcile it when
+  # repository-owned infrastructure connects it to kindest/node.
+  local -a ref_files=() kind_variable_files=()
+  local f has_kind=""
+  mapfile -t ref_files < <(grep -rlE 'kindest/node|\bK8S_VERSION\b' \
+    --include='*.yml' --include='*.yaml' --include='*.sh' --include='*.md' \
+    --include='Makefile*' --include='Dockerfile*' --include='kind-common' --exclude-dir=vendor \
+    --exclude-dir=.git --exclude-dir=.claude --exclude-dir=.rebase-tmp . 2>/dev/null || true)
+  for f in "${ref_files[@]}"; do
+    if grep -q 'kindest/node' "$f"; then
+      has_kind=1
+      if grep -qE '(^|[^[:alnum:]_./-]|:-)(docker[.]io/)?kindest/node' "$f" \
+        && grep -qE 'kindest/node:.*K8S_VERSION|--image.*KIND_IMAGE.*K8S_VERSION' "$f" \
+        && ! grep -qE 'dl[.]k8s[.]io.*K8S_VERSION|K8S_VERSION.*dl[.]k8s[.]io' "$f"; then
+        kind_variable_files+=("$f")
+      fi
+    fi
+  done
+  [[ -n "$has_kind" ]] || return 0
+
+  # Prefer the requested patch, then earlier published patches in its minor.
+  # Listing is a fallback, and must parse JSON rather than depend on spacing.
+  local kind_tag="" go_mod_patch _p
   go_mod_patch=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -v "=>" | head -1 | grep -oE 'v0\.[0-9]+\.[0-9]+' | sed 's/v0\.[0-9]*\.//')
   for _p in $(seq "${go_mod_patch:-2}" -1 0 | head -5); do
     local _try="v1.${NEW}.${_p}"
-    if curl -sf -o /dev/null "https://hub.docker.com/v2/repositories/kindest/node/tags/${_try}" 2>/dev/null; then
+    if curl -sf --connect-timeout 5 --max-time 20 -o /dev/null "https://hub.docker.com/v2/repositories/kindest/node/tags/${_try}" 2>/dev/null; then
       kind_tag="$_try"
       break
     fi
   done
-  # Fall back to listing API if per-tag checks all failed
   if [[ -z "$kind_tag" ]]; then
-    kind_tag=$(curl -sf --retry 2 "https://hub.docker.com/v2/repositories/kindest/node/tags?page_size=100&name=v1.${NEW}" 2>/dev/null \
-      | grep -oE "\"name\":\"v1\.${NEW}\.[0-9]+\"" \
-      | sed 's/"name":"//;s/"//' \
+    kind_tag=$(curl -sf --connect-timeout 5 --max-time 20 --retry 2 "https://hub.docker.com/v2/repositories/kindest/node/tags?page_size=100&name=v1.${NEW}" 2>/dev/null \
+      | jq -r --arg minor "$NEW" '.results[]?.name | select(type == "string") | select(test("^v1[.]" + $minor + "[.][0-9]+$"))' \
       | sort -V | tail -1 || true)
   fi
-  # Only override K8S_VERSION in repos where it controls the KIND image.
-  # K8S_VERSION is overloaded: some repos use it for KIND image selection
-  # (kind create cluster --image kindest/node:$K8S_VERSION), others for
-  # kubectl download or envtest. The signal: does any non-vendor file
-  # contain BOTH K8S_VERSION and kindest/node?
-  local uses_k8s_version_for_kind=""
-  if grep -rl "K8S_VERSION" --include="*.sh" --include="*.yml" --include="*.yaml" --include="Makefile*" --include="kind-common" . 2>/dev/null | grep -v vendor | xargs grep -l "kindest/node" 2>/dev/null | grep -q .; then
-    uses_k8s_version_for_kind=1
-  fi
-  local OLD=$((NEW-1))
   if [[ -z "$kind_tag" ]]; then
-    local revert_tag="v1.${OLD}.1"
-    echo ":: kindest/node:v1.${NEW}.* not available — reverting KIND refs to ${revert_tag}"
-    for f in $(grep -rln "kindest/node" \
-      --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
-      | grep -v vendor); do
-      perl -i -pe 'BEGIN{$n='$NEW'; $t="'"$revert_tag"'"} s{kindest/node:v1\.(\d+)\.\d+}{$1 < $n ? "kindest/node:$t" : $&}ge' "$f"
-    done
-    if [[ -n "$uses_k8s_version_for_kind" ]]; then
-      for f in $(grep -rln "K8S_VERSION" \
-        --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
-        | grep -v vendor); do
-        sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${revert_tag}#g" "$f"
-      done
-    fi
-  else
-    local _changed=0
-    for f in $(grep -rln "kindest/node" \
-      --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
-      | grep -v vendor | grep -v go.mod); do
-      perl -i -pe 'BEGIN{$n='$NEW'; $t="'"$kind_tag"'"} s{kindest/node:v1\.(\d+)\.\d+}{$1 < $n ? "kindest/node:$t" : $&}ge' "$f"
-      _changed=1
-    done
-    if [[ -n "$uses_k8s_version_for_kind" ]]; then
-      for f in $(grep -rln "K8S_VERSION" \
-        --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
-        | grep -v vendor | grep -v go.mod); do
-        sed -i -E "/K8S_VERSION/s#v?1\.${OLD}(\.[0-9]+)?#${kind_tag}#g; /K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
-        _changed=1
-      done
-    fi
-    if [[ "$_changed" -eq 1 ]]; then
-      echo ":: Updated kindest/node refs to ${kind_tag}"
-      [[ -n "$uses_k8s_version_for_kind" ]] && echo ":: Updated K8S_VERSION refs to ${kind_tag} (KIND cluster repo)"
-    fi
+    echo ":: KIND target image unverified for v1.${NEW}; preserving references for explicit review"
+    return 0
   fi
+
+  local before changed=0 variable_consumer provider
+  for f in "${ref_files[@]}"; do
+    before=$(sha256sum "$f")
+    # Keep upgrade source roles and custom registries. Docker Hub availability
+    # says nothing about a similarly named image in another registry.
+    if grep -qE "kindest/node:v1\.(${OLD}|${NEW})\.[0-9]+@" "$f"; then
+      echo ":: KIND digest-pinned image needs explicit digest review: $f"
+    fi
+    KIND_TARGET_MINOR="$NEW" KIND_IMAGE_TAG="$kind_tag" perl -i -pe '
+      BEGIN { $n=$ENV{KIND_TARGET_MINOR}; $o=$n-1; $t=$ENV{KIND_IMAGE_TAG}; }
+      next if /\b(?:\w+_)*(?:SOURCE|FROM|INITIAL|OLD)(?:_\w+)*[\x22\x27]?\s*[:=]/i;
+      s{(?<![\w./:-])(?:docker\.io/)?kindest/node:v1\.($o|$n)\.\d+(?![\w.+@-])}
+       {my $image=$&; $image =~ s/v1\.(?:$o|$n)\.\d+$/$t/; $image}gex;
+    ' "$f"
+    variable_consumer=""
+    for provider in "${kind_variable_files[@]}"; do
+      if [[ "$f" == "$provider" ]] || \
+        grep -vE '^[[:space:]]*#' "$f" | grep -Fq "${provider#./}"; then
+        variable_consumer=1
+        break
+      fi
+    done
+    if [[ -n "$variable_consumer" ]] && ! grep -qE 'dl[.]k8s[.]io.*K8S_VERSION|K8S_VERSION.*dl[.]k8s[.]io' "$f"; then
+      KIND_TARGET_MINOR="$NEW" KIND_IMAGE_TAG="$kind_tag" perl -i -pe '
+        BEGIN { $n=$ENV{KIND_TARGET_MINOR}; $o=$n-1; $t=$ENV{KIND_IMAGE_TAG}; }
+        if (/\bK8S_VERSION\b/) {
+          s{(?<![\w.])v?1\.($o|$n)(?:\.\d+)?(?![\w.+@-])}{$t}g;
+        }
+      ' "$f"
+    elif grep -qE '\bK8S_VERSION\b' "$f"; then
+      echo ":: K8S_VERSION role needs review (not rewritten as a KIND image): $f"
+    fi
+    [[ "$before" != "$(sha256sum "$f")" ]] && changed=1
+  done
+  if [[ "$changed" -eq 1 ]]; then
+    echo ":: Updated KIND image references to verified ${kind_tag}"
+  fi
+  return 0
 }
 
 fix_kind_version() {

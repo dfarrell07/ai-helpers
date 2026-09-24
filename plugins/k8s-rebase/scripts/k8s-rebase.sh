@@ -1058,7 +1058,20 @@ CHANGED_FILES=""
 # Two-stage sed: patch form first (v1.35.X → v1.36.0), then bare (v1.35 → v1.36)
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  sed -i -E "s|v${K8S_MAJOR}\.${OLD_MINOR}\.[0-9]+|${NEW_K8S_FULL}|g; s|v${K8S_MAJOR}\.${OLD_MINOR}\b|v${NEW_SHORT}|g" "$file"
+  # Leave image tokens intact until registry-backed reconciliation. Split
+  # KIND defaults also wait when this file actually uses the variable in an image.
+  _kind_variable=0
+  if grep -qE 'kindest/node:.*K8S_VERSION|--image.*KIND_IMAGE.*K8S_VERSION' "$file"; then
+    _kind_variable=1
+  fi
+  K8S_OLD_REF="v${K8S_MAJOR}.${OLD_MINOR}" K8S_NEW_REF="$NEW_K8S_FULL" \
+    K8S_NEW_SHORT="v$NEW_SHORT" KIND_VARIABLE="$_kind_variable" perl -i -pe '
+    BEGIN { $old=quotemeta($ENV{K8S_OLD_REF}); }
+    next if $ENV{KIND_VARIABLE} && /\bK8S_VERSION\b/;
+    s{[^\s\x22\x27]*kindest/node:[^\s\x22\x27]*(*SKIP)(*F)|
+      (?<![\w.])$old(\.\d+)?(?![\w.+@-])}
+     {$1 ? $ENV{K8S_NEW_REF} : $ENV{K8S_NEW_SHORT}}gex;
+  ' "$file"
   CHANGED_FILES+="$file"$'\n'
   info "  Updated: $file"
 done < <(grep -rln -E "v${K8S_MAJOR}\.${OLD_MINOR}(\.[0-9]+)?\b" \
@@ -1076,18 +1089,8 @@ while IFS= read -r file; do
   info "  Updated (short): $file"
 done < <(grep -rln "\b${OLD_SHORT}\b" --include="*.md" docs/ 2>/dev/null | grep -v vendor || true)
 
-# Pass 3: kindest/node image tags — replace only the old minor series so that
-# files with multiple versions (e.g. upgrade tests with a source and target
-# version in the same file) are not silently broken.
-while IFS= read -r file; do
-  [[ -z "$file" ]] && continue
-  sed -i -E "s|kindest/node:v${K8S_MAJOR}\\.${OLD_MINOR}\\.[0-9]+|kindest/node:${NEW_K8S_FULL}|g" "$file"
-  CHANGED_FILES+="$file"$'\n'
-  info "  Updated kindest/node: $file"
-done < <(grep -rln "kindest/node:v[0-9]" \
-  --include="*.yml" --include="*.yaml" --include="*.sh" \
-  --include="Makefile*" . \
-  2>/dev/null | grep -v vendor | grep -v "/\.git/" || true)
+# Direct KIND image references remain untouched here. Step 3 selects a
+# verified patch in the target minor; digest changes require explicit review.
 
 NEW_GO_VERSION=$(grep "^go " "$PRIMARY_GOMOD" | awk '{print $2}' || true)
 if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; then

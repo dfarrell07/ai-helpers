@@ -20,15 +20,22 @@ focus on CI-specific gaps that only matter at ship time:
    report that the patterns document was not found and skip this check.
    Do not FAIL — absence of the patterns doc is an environment issue,
    not a rebase defect.
-4. Would the KIND image tag actually exist? Search the web
+4. Would the effective KIND image tag actually exist? Trace environment
+   overrides and script/Makefile consumers; a kubectl version variable is not
+   automatically a node image pin. Search the web
    for "kindest/node <version>" to verify. Optionally run:
    `skopeo inspect --no-creds docker://docker.io/kindest/node:v<version> 2>/dev/null`
-   If the tag doesn't exist yet, note as a warning (not a FAIL).
+   Verify the actual registry and any digest. If the selected tag is confirmed
+   missing but a target-minor patch is published, flag the broken selection as
+   FAIL and identify the verified alternative. If access fails or no image in
+   the target minor is published, report INCONCLUSIVE instead of inventing a tag.
 
 VERDICT criteria: FAIL if a CI config uses a different k8s MINOR
 version (e.g., v1.35.x when targeting 1.36). PASS if configs use
 the correct minor version, even if the patch differs because the
 KIND image isn't published yet (note as INFO in details, not FAIL).
+This patch allowance requires a published selected image; it does not excuse
+a confirmed missing tag. Unverifiable applicable image selection is INCONCLUSIVE.
 SKIP if the repo has no CI configuration files. Never use WARN.
 
 NEVER run `go mod tidy`, `go get`, `go mod vendor`, `go generate`,
