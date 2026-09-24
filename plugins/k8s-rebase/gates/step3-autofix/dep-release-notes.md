@@ -3,7 +3,7 @@ Identify non-Kubernetes-release dependencies whose major or minor version
 changed. Inspect every non-vendor module, including nested modules:
 
 ```bash
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
 git diff "$BASE"..HEAD -- ':(glob)**/go.mod' ':(exclude,glob)**/vendor/**'
 ```
 
@@ -56,6 +56,10 @@ notes (for example `golang.org/x/*`) are listed the same way and do not
 by themselves make this gate inconclusive. An unattempted check, inaccessible
 published notes, or an unread relevant release range leaves this gate
 INCONCLUSIVE. List completed and missing coverage separately.
+The no-notes exception applies to a dependency that publishes no release
+notes, not to missing portions of an otherwise published history. If a
+crossed major/minor release has no available notes, retain INCONCLUSIVE
+and name that gap; do not infer compatibility from a 404 or nearby patch notes.
 
 VERDICT: FAIL if any dependency release note documents a breaking
 change that affects this repo and is not addressed in the rebase.

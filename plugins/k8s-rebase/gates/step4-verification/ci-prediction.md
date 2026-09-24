@@ -60,7 +60,7 @@ Only CONFIRMED findings should be rated above LOW risk.
 MANDATORY pre-existing check — run for EVERY CONFIRMED finding:
 
 ```bash
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
 git show "$BASE:<file>"
 git show "$BASE:<relevant-go.mod-path>"
 # Compare the finding against the base dependency versions, APIs, and CI

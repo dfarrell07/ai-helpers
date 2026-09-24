@@ -31,7 +31,7 @@ break unmodified test files. Instead, for each failing symbol
 whether that symbol existed in the vendor on the base branch:
 
 ```bash
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
 # For the failing <symbol> in vendor package at <vendor/pkg/file.go>:
 base_in_vendor=$(git show "$BASE:<vendor/pkg/file.go>" 2>/dev/null | grep -c '<symbol>')
 # base_in_vendor > 0 → symbol existed before, rebase removed it → NEW error

@@ -1,6 +1,6 @@
 Identify fix commits (after the rebase, not part of the
 mechanical dependency bump):
-  `git log --oneline $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD`
+  `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git log --oneline "$BASE"..HEAD`
 Skip commits that only touch go.mod/go.sum/vendor (rebase
 infrastructure). Review the remaining commits' diffs.
 

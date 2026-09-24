@@ -62,7 +62,7 @@ Report a count for each check:
        appears at the same version in this go.mod on the
        base branch.
    To check the base-branch version of any go.mod:
-   `git show $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)"):<path>` — substitute the
+   `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git show "$BASE:<path>"` — substitute the
    relative path of the go.mod being checked (e.g. go.mod,
    go-controller/go.mod).
    Direct release-versioned requires without a `replace` are

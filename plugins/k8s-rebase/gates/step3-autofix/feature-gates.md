@@ -51,7 +51,7 @@ files with missing or stale gates.
 MANDATORY pre-existing check — run for EVERY finding:
 
 ```bash
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
 # For each gate <gate_name> referenced in source but missing from current vendor:
 base_in_vendor=$(git grep -l "$gate_name" "$BASE" -- 'vendor/k8s.io/' 2>/dev/null | wc -l)
 # base_in_vendor > 0 → gate WAS in vendor before rebase, now removed → NEW
@@ -67,7 +67,7 @@ verdict MUST be PASS.
 Also check export completeness in scripts modified by the rebase:
 
 ```bash
-_BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+_BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
 # For each .sh or Makefile* that the rebase touched:
 for script in $(git diff --name-only "$_BASE"..HEAD -- '*.sh' 'Makefile*'); do
   # Was a new KUBE_FEATURE_*=false export added to this script?

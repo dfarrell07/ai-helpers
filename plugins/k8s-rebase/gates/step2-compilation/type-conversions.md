@@ -2,7 +2,7 @@ Run this check FIRST to find candidate conversions:
 
 ```bash
 REPO="<the absolute repo path from reviewer context>"
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$REPO")
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$REPO") || exit 1
 TYPE_CONV=$(cd "$REPO" && git diff "$BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep -E '^\+.*(\(\w+\)\(|\.(\w+)\{|type assertion|\.\(\*?[\w.]+\))' | head -20)
 if [ -z "$TYPE_CONV" ]; then
   echo "No regex matches; inspect the Go diff before deciding applicability"

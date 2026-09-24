@@ -2,7 +2,7 @@ Check whether the autofix produced meaningful results by
 examining the commit history after the initial rebase.
 
 1. Determine the base:
-   `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")`
+   `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1`
 
 2. List post-rebase commits:
    `git log --oneline $BASE..HEAD`

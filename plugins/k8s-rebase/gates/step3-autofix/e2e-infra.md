@@ -53,7 +53,7 @@ If no e2e infrastructure files exist, write a SKIP report and stop.
 MANDATORY pre-existing check — run for EVERY finding:
 
 ```bash
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
 # For each finding at <file> with a stale version string:
 modified=$(git diff --name-only "$BASE"..HEAD -- "<file>" | wc -l)
 # If modified==0: outside this gate's modified-file scope

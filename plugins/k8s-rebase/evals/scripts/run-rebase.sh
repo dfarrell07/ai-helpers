@@ -76,6 +76,13 @@ capture_diagnostics() {
       [[ -f "$log" ]] || continue
       cp -f "$log" "$OUTPUT_DIR/script-logs/$key/$(basename "$log")"
     done
+    mkdir -p "$OUTPUT_DIR/script-logs/$key/gates"
+    for log in "$workspace"/.rebase-tmp/gates/*.report \
+               "$workspace"/.rebase-tmp/gates/*.evidence \
+               "$workspace"/.rebase-tmp/gates/*.crash; do
+      [[ -f "$log" ]] || continue
+      cp -f "$log" "$OUTPUT_DIR/script-logs/$key/gates/$(basename "$log")"
+    done
     {
       printf '# Workspace: %s\n' "$workspace"
       git -C "$workspace" diff "$FROM_COMMIT" -- . "${excludes[@]}" 2>/dev/null || true
@@ -254,7 +261,9 @@ done
 mkdir -p "$OUTPUT_DIR/gate-reports"
 declare -A GATE_REPORT_MTIMES=()
 for workspace in "${RUN_ARTIFACT_ROOTS[@]}"; do
-  for report in "$workspace"/.rebase-tmp/gates/*.report; do
+  for report in "$workspace"/.rebase-tmp/gates/*.report \
+                "$workspace"/.rebase-tmp/gates/*.evidence \
+                "$workspace"/.rebase-tmp/gates/*.crash; do
     [[ -f "$report" ]] || continue
     report_name=$(basename "$report")
     report_mtime=$(stat -c '%Y' "$report" 2>/dev/null || echo 0)

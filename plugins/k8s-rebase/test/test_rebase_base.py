@@ -143,9 +143,54 @@ die() { printf 'ERROR: %s\\n' "$*" >&2; exit 1; }
     def test_release_tracking_branch_without_origin_head(self):
         self.git("remote", "add", "origin", str(self.root / "not-contacted"))
         self.git("update-ref", "refs/remotes/origin/release-5.1", self.initial)
+        self.git("switch", "-qc", "bump1.37")
         self.git("branch", "--set-upstream-to", "origin/release-5.1")
         self.commit("local work")
         self.assertEqual(self.resolve().stdout, self.initial + "\n")
+
+    def test_tracking_published_rebase_branch_requires_verified_record(self):
+        self.git("remote", "add", "origin", str(self.root / "not-contacted"))
+        self.remote_default(self.initial)
+        self.git("switch", "-qc", "bump1.37")
+        tip = self.commit("rebase")
+        self.git("update-ref", "refs/remotes/origin/bump1.37", tip)
+        self.git("branch", "--set-upstream-to", "origin/bump1.37")
+        result = self.resolve(check=False)
+        self.assertNotEqual(result.returncode, 0)
+        self.assertEqual(result.stdout, '')
+        self.assertIn('does not identify its starting commit', result.stderr)
+        self.record_base(self.initial)
+        self.assertEqual(self.resolve().stdout, self.initial + '\n')
+
+    def test_release_tracking_branch_precedes_different_remote_default(self):
+        self.git("remote", "add", "origin", str(self.root / "not-contacted"))
+        self.git("update-ref", "refs/remotes/origin/main", self.initial)
+        self.git("symbolic-ref", "refs/remotes/origin/HEAD", "refs/remotes/origin/main")
+        self.write("historical.go", "package fixture\nvar Historical = 1\n")
+        base = self.commit("unrelated release work")
+        self.git("update-ref", "refs/remotes/origin/release-5.1", base)
+        self.git("switch", "-qc", "bump1.37")
+        self.git("branch", "--set-upstream-to", "origin/release-5.1")
+        self.write("active.go", "package fixture\nvar Active = 2\n")
+        self.commit("rebase")
+        self.assertEqual(self.resolve().stdout, base + "\n")
+        self.assertEqual(self.git("diff", "--name-only", base + "..HEAD").stdout, "active.go\n")
+
+    def test_gate_diff_and_history_examples_stop_on_invalid_record(self):
+        self.record.write_text("invalid baseline\n")
+        self.env["PLUGIN_ROOT"] = str(PLUGIN)
+        scope = (PLUGIN / 'gates/step2-compilation/diff-scope.md').read_text()
+        maintainer = (PLUGIN / 'gates/step4-verification/maintainer-review.md').read_text()
+        examples = [scope.split('`')[1]]
+        examples.extend(line.strip() for line in maintainer.splitlines()
+                        if line.startswith('  BASE=') and ('git log ' in line or 'git diff ' in line))
+        self.assertEqual(len(examples), 3)
+        for command in examples:
+            with self.subTest(command=command):
+                result = self.run_cmd('bash', '-c', command, check=False)
+                self.assertNotEqual(result.returncode, 0)
+                self.assertIn('ERROR:', result.stderr)
+                self.assertEqual(result.stdout, '')
 
     def test_default_remote_precedes_legacy_master(self):
         self.git("branch", "master", self.initial)

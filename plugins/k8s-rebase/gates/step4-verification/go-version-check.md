@@ -18,10 +18,10 @@ go.mod do not establish a Go version bump. Verify consistency across
 the repo and check the implications of any actual directive change.
 
 1. go directive: are all go.mod files at the same Go version?
-   git diff $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD -- '*/go.mod' 'go.mod' | grep '^[+-]go '
+   BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git diff "$BASE"..HEAD -- '*/go.mod' 'go.mod' | grep '^[+-]go '
 
 2. toolchain directive: was it added, removed, or changed?
-   git diff $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD -- '*/go.mod' 'go.mod' | grep '^[+-]toolchain'
+   BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git diff "$BASE"..HEAD -- '*/go.mod' 'go.mod' | grep '^[+-]toolchain'
 
 3. Makefiles: do all GO_VERSION / GOLANG_VERSION vars match?
    grep -rn 'GO_VERSION.*=\|GOLANG_VERSION.*=' --include='Makefile*' . | grep -v vendor
@@ -44,7 +44,7 @@ workflow finding, compare the actual directives and reference versions
 on the base branch before counting. Use the reference's nearest enclosing
 module; repository-level references use the primary module. Check every
 literal workflow matrix entry, including entries after the first:
-  BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+  BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
   git show "$BASE:<owning-go.mod-path>"
   git show "$BASE:<file>"
 

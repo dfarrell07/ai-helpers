@@ -41,7 +41,7 @@ Preserve nil semantics: `*int32` nil means "server default",
 Adapt type signatures without altering surrounding logic.
 Verify the issue against base, including its dependencies and configuration;
 unchanged source alone does not establish that a failure is pre-existing:
-`git show $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)"):<file>`
+`BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git show "$BASE:<file>"`
 
 Do not add struct tags (like omitempty), merge functions, rename
 interfaces, or restructure packages.

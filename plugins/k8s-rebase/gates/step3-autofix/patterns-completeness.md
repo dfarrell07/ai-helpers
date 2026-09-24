@@ -22,7 +22,7 @@ If evidence is stale or absent, run the checks below from scratch.
    each error with file:line.
 
 2. Import consistency:
-   `git diff $(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^[+-].*"' | grep -v '^\+\+\+\|^---'`
+   `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git diff "$BASE"..HEAD -- '*.go' ':(exclude,glob)**/vendor/**' | grep '^[+-].*"' | grep -v '^\+\+\+\|^---'`
    Check if any import was added that has a newer version in
    vendor/ (e.g., importing v1 when vendor has v2).
 
@@ -47,7 +47,7 @@ MANDATORY pre-existing check for ALL non-build findings. Run this
 BEFORE reporting ANY finding from checks 2, 3, or 4:
 
 ```bash
-BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
 # For each finding at <file>:<line>, check base branch:
 base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<pattern>')
 curr_count=$(grep -c '<pattern>' "<file>")

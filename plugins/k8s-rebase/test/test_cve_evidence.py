@@ -52,6 +52,22 @@ class InventoryTests(unittest.TestCase):
     def sums(self, path, *entries):
         self.write(path, "".join(f"{module} {version} {CHECKSUM}\n" for module, version in entries))
 
+    def module(self, content, path="go.mod"):
+        self.write(path, "module example.invalid/fixture\ngo 1.20\n" + content)
+
+    def collect_empty(self):
+        head = self.commit()
+        requested = []
+
+        def fetch(path, payload=None):
+            self.assertEqual(path, "querybatch")
+            requested.extend((q["package"]["name"], q["version"]) for q in payload["queries"])
+            return {"results": [{} for _ in payload["queries"]]}
+
+        result = CVE.collect(self.repo, self.base, head, fetch)
+        self.assertEqual(self.run_cmd("git", "status", "--porcelain").stdout, "")
+        return result, set(requested)
+
     def commit(self):
         self.run_cmd("git", "add", ".")
         self.run_cmd("git", "commit", "-qm", "fixture")
@@ -88,7 +104,7 @@ class InventoryTests(unittest.TestCase):
         result = CVE.collect(self.repo, self.base, head, fetch)
         self.assertEqual(result["coverage"], "COMPLETE")
         self.assertEqual(result["files"], ["added/go.sum", "deleted/go.sum", "go.sum", "nested space/go.sum"])
-        self.assertEqual(len(result["inventory"]), 6)
+        self.assertEqual(len(result["inventory"]), 7)
         root = next(item for item in result["inventory"]
                     if item["go_sum"] == "go.sum" and item["module"] == "example.invalid/shared")
         self.assertEqual(root["old_versions"], ["v1.0.0", "v1.1.0"])
@@ -96,10 +112,115 @@ class InventoryTests(unittest.TestCase):
         self.assertEqual(root["added_versions"], ["v1.2.0"])
         self.assertEqual(root["removed_versions"], ["v1.1.0"])
         self.assertEqual(len(requested), len(set(requested)))
-        self.assertEqual(len(requested), 8)
+        self.assertEqual(len(requested), 9)
         self.assertIn(("example.invalid/deleted", "v1.0.0"), requested)
         self.assertNotIn("ignored", json.dumps(result))
-        self.assertNotIn("metadata", json.dumps(result))
+        self.assertIn(("example.invalid/metadata", "v5.0.0"), requested)
+
+    def test_require_bump_with_unchanged_historical_checksums_is_queried(self):
+        self.module("require example.invalid/dep v1.0.0\n")
+        self.sums("go.sum", ("example.invalid/dep", "v1.0.0"), ("example.invalid/dep", "v1.1.0"))
+        self.baseline()
+        self.module("require example.invalid/dep v1.1.0\n")
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "COMPLETE")
+        self.assertEqual(requested, {("example.invalid/dep", "v1.0.0"), ("example.invalid/dep", "v1.1.0")})
+        self.assertEqual(len(result["inventory"]), 1)
+        self.assertEqual(result["inventory"][0]["go_mod"], "go.mod")
+        self.assertEqual(result["inventory"][0]["old_versions"], ["v1.0.0"])
+        self.assertEqual(result["inventory"][0]["new_versions"], ["v1.1.0"])
+
+    def test_require_bump_without_go_sum_still_queries_both_versions(self):
+        self.module("require example.invalid/dep v1.0.0\n")
+        self.baseline()
+        self.module("require example.invalid/dep v1.1.0\n")
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "COMPLETE")
+        self.assertEqual(len(requested), 2)
+        self.assertEqual(result["files"], [])
+        self.assertEqual(result["manifest_files"], ["go.mod"])
+
+    def test_metadata_only_checksum_versions_are_included(self):
+        self.module("require example.invalid/dep v1.0.0\n")
+        self.sums("go.sum", ("example.invalid/dep", "v1.0.0/go.mod"),
+                  ("example.invalid/dep", "v1.1.0/go.mod"))
+        self.baseline()
+        self.module("require example.invalid/dep v1.1.0\n")
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "COMPLETE")
+        self.assertEqual(requested, {("example.invalid/dep", "v1.0.0"), ("example.invalid/dep", "v1.1.0")})
+
+    def test_changed_replacement_target_with_retained_checksums(self):
+        requirement = "require example.invalid/upstream v1.0.0\n"
+        self.module(requirement + "replace example.invalid/upstream => example.invalid/fork v1.0.0\n")
+        self.sums("go.sum", ("example.invalid/fork", "v1.0.0"), ("example.invalid/fork", "v1.1.0"))
+        self.baseline()
+        self.module(requirement + "replace example.invalid/upstream => example.invalid/fork v1.1.0\n")
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "COMPLETE")
+        self.assertEqual(requested, {("example.invalid/fork", "v1.0.0"), ("example.invalid/fork", "v1.1.0")})
+        self.assertEqual(result["declarations"][0]["old"]["replace"],
+                         [["example.invalid/upstream", "", "example.invalid/fork", "v1.0.0"]])
+
+    def test_removed_replacement_queries_original_required_version(self):
+        requirement = "require example.invalid/upstream v1.0.0\n"
+        self.module(requirement + "replace example.invalid/upstream => example.invalid/fork v2.0.0+incompatible\n")
+        self.baseline()
+        self.module(requirement)
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "COMPLETE")
+        self.assertEqual(requested, {("example.invalid/fork", "v2.0.0+incompatible"),
+                                     ("example.invalid/upstream", "v1.0.0")})
+
+    def test_nested_module_require_and_replacement_scopes_do_not_mix(self):
+        self.module("require example.invalid/dep v1.0.0\n")
+        self.module('require "example.invalid/dep" v1.5.0\n', "nested/go.mod")
+        self.write("vendor/go.mod", "invalid ignored vendor manifest\n")
+        self.baseline()
+        self.module("require example.invalid/dep v1.1.0\n")
+        self.module('require (\n "example.invalid/dep" v1.6.0 // indirect\n)\n'
+                    'replace (\n example.invalid/dep => example.invalid/fork v1.9.0\n)\n', "nested/go.mod")
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "COMPLETE")
+        self.assertEqual(requested, {("example.invalid/dep", "v1.0.0"), ("example.invalid/dep", "v1.1.0"),
+                                     ("example.invalid/dep", "v1.5.0"), ("example.invalid/fork", "v1.9.0")})
+        self.assertEqual(result["manifest_files"], ["go.mod", "nested/go.mod"])
+
+    def test_local_replacement_or_ambiguous_selection_stays_incomplete(self):
+        self.module("require example.invalid/dep v1.0.0\n")
+        self.baseline()
+        self.module('require example.invalid/dep v1.0.0\nreplace example.invalid/dep => "../local space"\n')
+        result, _ = self.collect_empty()
+        self.assertEqual(result["coverage"], "INCOMPLETE")
+        self.assertIn("local replacement", " ".join(result["errors"]))
+        self.module("require example.invalid/dep v1.0.0\n"
+                    "replace example.invalid/transitive v1.2.0 => example.invalid/fork v1.3.0\n")
+        result, requested = self.collect_empty()
+        self.assertEqual(result["coverage"], "INCOMPLETE")
+        self.assertIn(("example.invalid/fork", "v1.3.0"), requested)
+        self.assertIn("selected graph unresolved", " ".join(result["errors"]))
+
+    def test_changed_exclusion_cannot_claim_unchanged_dependency_graph(self):
+        self.module("require example.invalid/dep v1.0.0\n")
+        self.baseline()
+        self.module("require example.invalid/dep v1.0.0\nexclude example.invalid/transitive v1.2.0\n")
+        result, _ = self.collect_empty()
+        self.assertEqual(result["coverage"], "INCOMPLETE")
+        self.assertIn("exclude directives changed", " ".join(result["errors"]))
+
+    def test_unavailable_or_rejecting_native_parser_is_incomplete(self):
+        self.module("require example.invalid/dep v1.0.0\n")
+        self.baseline()
+        self.module("require example.invalid/dep v1.1.0\n")
+        head = self.commit()
+        with mock.patch.object(CVE, "manifest", side_effect=OSError("native Go parser unavailable")):
+            result = CVE.collect(self.repo, self.base, head, mock.Mock(side_effect=AssertionError))
+        self.assertEqual(result["coverage"], "INCOMPLETE")
+        self.assertIn("native Go parser unavailable", result["errors"][0])
+        self.module("require this is malformed\n")
+        result, _ = self.collect_empty()
+        self.assertEqual(result["coverage"], "INCOMPLETE")
+        self.assertIn("cannot parse go.mod", result["errors"][0])
 
     def test_checksum_only_change_does_not_invent_version_change(self):
         self.sums("go.sum", ("example.invalid/a", "v1.0.0"))

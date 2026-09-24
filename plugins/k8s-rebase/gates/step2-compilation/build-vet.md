@@ -24,7 +24,7 @@ For each BUILD or VET diagnostic (format: `BUILD <mod_dir>: <error>` or
   not the caller's source:
 
   ```bash
-  BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")
+  BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
   git grep -c '<symbol>' "$BASE" -- '<mod_dir>/vendor/<pkg>/'
   # matches: the symbol existed before the bump, so the error is NEW
   ```

@@ -28,15 +28,22 @@ fi
 
 # Support repositories whose default branch is release-X.Y, and clones whose
 # default remote is not origin. Ref names are hints only; emit a commit SHA.
-refs=(refs/remotes/origin/HEAD)
+refs=()
 upstream=$(git -C "$repo" rev-parse --symbolic-full-name '@{upstream}' 2>/dev/null || true)
-[[ -z "$upstream" ]] || refs+=("$upstream")
 branch=$(git -C "$repo" symbolic-ref --quiet --short HEAD 2>/dev/null || true)
 remote=""
 [[ -z "$branch" ]] || remote=$(git -C "$repo" config --get "branch.$branch.remote" || true)
+if [[ -n "$upstream" ]]; then
+  default_ref=$(git -C "$repo" symbolic-ref --quiet "refs/remotes/${remote:-origin}/HEAD" 2>/dev/null || true)
+  if [[ "$upstream" == "refs/remotes/$remote/$branch" && "$upstream" != "$default_ref" ]]; then
+    fail "tracking this non-default branch does not identify its starting commit; record the verified baseline in $record"
+  fi
+  refs+=("$upstream")
+fi
 if [[ -n "$remote" && "$remote" != . && "$remote" != origin ]]; then
   refs+=("refs/remotes/$remote/HEAD")
 fi
+refs+=(refs/remotes/origin/HEAD)
 refs+=(refs/heads/master refs/heads/main refs/remotes/origin/master refs/remotes/origin/main)
 for ref in "${refs[@]}"; do
   git -C "$repo" rev-parse --verify --end-of-options "$ref^{commit}" >/dev/null 2>&1 || continue

@@ -41,7 +41,7 @@ Report each stale import with file:line AND the correct
 versioned path (e.g., k8s.io/klog -> k8s.io/klog/v2).
 
 For each finding, check the base branch — use count delta:
-  `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)")`
+  `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1`
   `base_count=$(git show "$BASE:<file>" 2>/dev/null | grep -c '<bare-import>')`
   `curr_count=$(grep -c '<bare-import>' "<file>" 2>/dev/null)`
   `net_new=$(( curr_count > base_count ? curr_count - base_count : 0 ))`

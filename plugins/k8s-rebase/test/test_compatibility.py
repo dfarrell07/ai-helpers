@@ -339,6 +339,9 @@ class CompatibilityTests(unittest.TestCase):
             'if [[ "${FAKE_CLAUDE_ERROR:-false}" == true ]]; then\n'
             '  mkdir -p "$repo/.rebase-tmp"\n'
             '  echo "go mod tidy failed" > "$repo/.rebase-tmp/step1.log"\n'
+            '  mkdir -p "$repo/.rebase-tmp/gates"\n'
+            '  echo "partial collector facts" > "$repo/.rebase-tmp/gates/step4-example.evidence"\n'
+            '  echo "collector crash" > "$repo/.rebase-tmp/gates/step4-example.crash"\n'
             '  echo "interrupted target edit" >> "$repo/base.txt"\n'
             '  printf \'%s\\n\' \'{"type":"result","is_error":true,"terminal_reason":"aborted_streaming","usage":{"input_tokens":1,"output_tokens":2},"total_cost_usd":0.1,"num_turns":1}\'\n'
             '  exit 0\n'
@@ -348,6 +351,8 @@ class CompatibilityTests(unittest.TestCase):
             'mkdir -p "$repo/.rebase-tmp/status"\n'
             'echo bump1.36-current > "$CURRENT_WT/.rebase-tmp/branch-name"\n'
             'echo "VERDICT: PASS" > "$CURRENT_WT/.rebase-tmp/gates/step1-example.report"\n'
+            'echo "full raw gate evidence" > "$CURRENT_WT/.rebase-tmp/gates/step1-example.evidence"\n'
+            'echo "collector error" > "$CURRENT_WT/.rebase-tmp/gates/step4-example.crash"\n'
             'echo "incomplete in main" > "$repo/.rebase-tmp/status/INCOMPLETE"\n'
             'echo "from current worktree" > "$CURRENT_WT/from-worktree.txt"\n'
             'git -C "$CURRENT_WT" add from-worktree.txt\n'
@@ -371,6 +376,10 @@ class CompatibilityTests(unittest.TestCase):
         )
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         output = run_dir / "output"
+        self.assertEqual((output / "gate-reports/step1-example.evidence").read_text(),
+                         "full raw gate evidence\n")
+        self.assertEqual((output / "gate-reports/step4-example.crash").read_text(),
+                         "collector error\n")
         inputs = json.loads((output / "run-input.json").read_text())
         self.assertEqual(inputs["from_commit"], baseline)
         self.assertEqual(inputs["result_ref"], result_sha_file.read_text().strip())
@@ -412,6 +421,10 @@ class CompatibilityTests(unittest.TestCase):
                       (error_output / "script-logs/01-eval-repo-error/step1.log").read_text())
         self.assertIn("interrupted target edit",
                       (error_output / "working-tree.patch").read_text())
+        self.assertEqual((error_output / "script-logs/01-eval-repo-error/gates/step4-example.evidence").read_text(),
+                         "partial collector facts\n")
+        self.assertEqual((error_output / "script-logs/01-eval-repo-error/gates/step4-example.crash").read_text(),
+                         "collector crash\n")
         self.assertIn("01-eval-repo-error/base.txt",
                       (error_output / "files-changed-working-tree.txt").read_text())
 
