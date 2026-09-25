@@ -167,6 +167,26 @@ class CourtHarnessTests(unittest.TestCase):
         self.cve_workflow()
         self.assertEqual(self.recorded_verdict()[0], "PASS")
 
+    def test_report_details_do_not_replace_tally_metadata(self):
+        scratch, _ = self.cve_workflow()
+        report = scratch / "gates/step1-court-fixture.report"
+        report.write_text(f"HEAD: {self.result}\nVERDICT: SKIP\nDETAILS:\n"
+                          f"HEAD: {self.common_base}\nVERDICT: FAIL\n")
+        cve = scratch / "gates/step4-dep-cve-check.report"
+        cve.write_text(cve.read_text() + f"HEAD: {self.run_base}\n"
+                       "VERDICT: INCONCLUSIVE\nEVIDENCE_SHA256: earlier-digest\n")
+        originals = {p: p.read_bytes() for p in (report, cve)}
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        for path, contents in originals.items():
+            self.assertEqual(path.read_bytes(), contents)
+
+    def test_duplicate_report_headers_cannot_qualify_completed_run(self):
+        scratch = self.completed_workflow()
+        report = scratch / "gates/step1-court-fixture.report"
+        report.write_text(f"HEAD: {self.result}\n" * 2 +
+                          "VERDICT: PASS\nDETAILS:\nQuoted evidence\n")
+        self.assertEqual(self.recorded_verdict()[0], "FAIL")
+
     def test_missing_cve_evidence_cannot_qualify_completed_run(self):
         _, evidence = self.cve_workflow()
         evidence.unlink()

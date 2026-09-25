@@ -254,18 +254,20 @@ _tally_gates() {
     $_expected || continue
     _gt=$((_gt + 1))
     local _repo_root="${_gf_file%/.rebase-tmp/gates/*}"
-    local _ref="${_TALLY_RESULT_REF:-}" _branch _head _reviewed _verdict
+    local _ref="${_TALLY_RESULT_REF:-}" _branch _header _head _reviewed _verdict
     if [[ -z "$_ref" ]]; then
       _branch=$(cat "$_repo_root/.rebase-tmp/branch-name" 2>/dev/null) || _branch="HEAD"
       _ref=$(git -C "$_repo_root" rev-parse --verify "${_branch}^{commit}" 2>/dev/null) || _ref=""
     fi
-    _head=$(grep '^HEAD:' "$_gf_file") || _head=""
+    # Match the orchestrator: quoted details are evidence, not report metadata.
+    _header=$(awk '/^DETAILS:$/ {exit} {print}' "$_gf_file") || _header=""
+    _head=$(grep '^HEAD:' <<< "$_header") || _head=""
     _reviewed="${_head#HEAD: }"
-    _verdict=$(grep '^VERDICT:' "$_gf_file") || _verdict=""
+    _verdict=$(grep '^VERDICT:' <<< "$_header") || _verdict=""
     local _cve_fresh=true _cve_digest _cve_recorded
     if [[ "$_gn" == step4-dep-cve-check && "$_verdict" =~ ^VERDICT:\ (PASS|SKIP)$ ]]; then
       _cve_digest=$(python3 "$PLUGIN_DIR/scripts/check-cve-evidence.py" "$_repo_root" "$_ref" 2>/dev/null) || _cve_fresh=false
-      _cve_recorded=$(sed -n 's/^EVIDENCE_SHA256: //p' "$_gf_file")
+      _cve_recorded=$(sed -n 's/^EVIDENCE_SHA256: //p' <<< "$_header")
       [[ -n "$_cve_digest" && "$_cve_recorded" == "$_cve_digest" ]] || _cve_fresh=false
     fi
     if [[ "$_verdict" =~ ^VERDICT:\ (PASS|SKIP)$ ]] &&
