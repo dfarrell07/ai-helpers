@@ -13,6 +13,9 @@ explicitly excluded. A `VET_TIMEOUT` detail or companion crash means the run
 was incomplete, even when SUMMARY says 0 errors. Run the incomplete checks
 and any unvisited modules manually below; if they cannot complete, report
 INCONCLUSIVE with the missing coverage. A timeout does not establish a code defect.
+Read each command's `RESULT` exit even when there are no diagnostic lines.
+A nonzero exit without enough evidence to attribute the failure is
+INCONCLUSIVE, never a zero-error PASS; retain the failure and investigate it.
 
 For each BUILD or VET diagnostic (format: `BUILD <mod_dir>: <error>` or
 `VET <mod_dir>: <error>`), decide whether the rebase introduced it:

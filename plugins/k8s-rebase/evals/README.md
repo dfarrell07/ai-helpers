@@ -39,11 +39,30 @@ authorize cancellation. Legacy preliminary records remain unqualified until
 the session finishes and its final state is rechecked, even at unchanged HEAD.
 Harness state and court transcripts live under
 `test/.matrix-state/`.
+Accepted gate/state evidence is retained under `test/.matrix-state/evidence/`.
+A cached PASS requires that archive and any surviving checkout evidence to
+match the recorded run. Missing legacy archives, changed evidence, or a
+changed baseline leave the row UNVERIFIED; removing a completed worktree
+does not discard its archived proof. An explicit court baseline that differs
+from the run baseline produces a diagnostic review and cannot qualify that run.
+When a checkout starts a different target version, that version owns its live
+state only with a newer matching run-start record for the same repository.
+That record also permits the harness's complete main-scratch cleanup before a
+new worktree launch; the earlier row still requires unchanged archived proof.
+Missing/invalid ownership or partial deletion inside surviving scratch does
+not exempt changed evidence.
+
+Court repositories and reviewers run sequentially by default. Set
+`MAX_COURT_CONCURRENT` above 1 only when parallel reviews are intended.
+The workflow model comes from each repository's `model` override, then the
+config's top-level `model`; if both are absent, the CLI default applies.
 
 For evals without a matching matrix run, pass diff_only=1 to make court.
 This reviews the current diff without associating the verdict with an older
 workflow row for the same repository and version. Use the eval's
 run-status.json and final-status.txt for its workflow result.
+Eval exports retain nested validation/review attempts, native review prompt
+and result files, and gate retry archives in each workspace's `script-logs`.
 
 ### Withhold learned fixes
 

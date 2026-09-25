@@ -42,6 +42,7 @@ class CourtHarnessTests(unittest.TestCase):
             GIT_CONFIG_GLOBAL=os.devnull,
             GIT_CONFIG_NOSYSTEM="1",
             COURT_MODEL="claude-sonnet-4-6",
+            MAX_COURT_CONCURRENT="1",
             PROMPT_DIR=str(self.prompts),
         )
 
@@ -90,7 +91,9 @@ class CourtHarnessTests(unittest.TestCase):
             "#!/bin/bash\n"
             'if [[ "${1:-}" == "agents" ]]; then printf "%s\\n" "${AGENT_STATE:-[]}"; exit "${AGENT_EXIT:-0}"; fi\n'
             'if [[ "${1:-}" == "stop" ]]; then echo "$*" >> "$PROMPT_DIR/stops"; exit 0; fi\n'
-            'if [[ "${1:-}" == "--bg" ]]; then echo "Session backgrounded 1234abcd"; exit 0; fi\n'
+            'if [[ "${1:-}" == "--bg" ]]; then printf "%s\\n" "$@" > "$PROMPT_DIR/launch-argv"; echo "Session backgrounded 1234abcd"; exit 0; fi\n'
+            'mkdir "$PROMPT_DIR/reviewer-active" || { touch "$PROMPT_DIR/concurrent-reviewer"; exit 91; }\n'
+            'trap \'rmdir "$PROMPT_DIR/reviewer-active"\' EXIT\n'
             "prompt=$(cat)\n"
             'printf "%s\\n" "$prompt" > "$PROMPT_DIR/prompt-$BASHPID.txt"\n'
             '[[ "${COURT_INCONCLUSIVE:-}" == "1" ]] && exit 0\n'
@@ -166,6 +169,222 @@ class CourtHarnessTests(unittest.TestCase):
     def test_cve_evidence_qualifies_result_branch_without_checkout(self):
         self.cve_workflow()
         self.assertEqual(self.recorded_verdict()[0], "PASS")
+
+    def cache_diff_pass(self, base=None, source="run-input"):
+        self.court_result().write_text(json.dumps({
+            "verdict": "PASS", "base_ref": base or self.run_base,
+            "base_source": source, "result_ref": self.result,
+            "known_good_ref": self.known_good, "rubric_version": "court-review-v2",
+        }))
+
+    def test_cached_pass_requires_unchanged_live_evidence(self):
+        scratch, evidence = self.cve_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass()
+        self.assertEqual(self.harness("results").returncode, 0)
+        original = evidence.read_bytes()
+        for content in (None, original + b"ADVISORY: recollected facts\n"):
+            with self.subTest(content=content):
+                if content is None:
+                    evidence.unlink()
+                else:
+                    evidence.write_bytes(content)
+                result = self.harness("results")
+                self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+                self.assertIn("UNVERIFIED", result.stdout)
+                evidence.write_bytes(original)
+        report = scratch / "gates/step1-court-fixture.report"
+        report.write_text(f"HEAD: {self.result}\nVERDICT: FAIL\n")
+        self.assertEqual(self.harness("results").returncode, 1)
+        self.assertEqual(self.prompt_files(), [])
+
+    def test_retained_evidence_survives_worktree_cleanup_but_not_archive_changes(self):
+        scratch = self.completed_workflow()
+        self.git("switch", "main")
+        worktree = self.repo / ".claude/worktrees/finished"
+        self.git("worktree", "add", str(worktree), "bump1.36")
+        shutil.move(str(scratch), worktree / ".rebase-tmp")
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass()
+        self.assertEqual(self.harness("results").returncode, 0)
+        self.git("worktree", "remove", "--force", str(worktree))
+        self.assertEqual(self.harness("results").returncode, 0)
+        record = json.loads((self.state / "run-inputs/1.36.2_acme_demo.json").read_text())
+        archive = Path(record["evidence_manifest"]).parent
+        report = next(archive.glob("*/.rebase-tmp/gates/*.report"))
+        report.unlink()
+        self.assertEqual(self.harness("results").returncode, 1)
+
+    def test_cached_pass_binds_completion_state_outside_gate_workspace(self):
+        scratch = self.completed_workflow()
+        self.git("switch", "main")
+        worktree = self.repo / ".claude/worktrees/finished"
+        self.git("worktree", "add", str(worktree), "bump1.36")
+        result_scratch = worktree / ".rebase-tmp"
+        result_scratch.mkdir()
+        for name in ("state.json", "branch-name"):
+            shutil.move(str(scratch / name), result_scratch / name)
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass()
+        self.assertEqual(self.harness("results").returncode, 0)
+        state = result_scratch / "state.json"
+        original = state.read_bytes()
+        state.write_text(json.dumps({"current_step": 4, "version": "1.36.2"}))
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("UNVERIFIED", result.stdout)
+        state.write_bytes(original)
+        (result_scratch / ".session-active").touch()
+        self.assertEqual(self.harness("results").returncode, 1)
+
+    def test_new_incomplete_worktree_invalidates_cached_pass_without_gates(self):
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass()
+        worktree = self.root / "other-worktree"
+        self.git("worktree", "add", "--detach", str(worktree), self.result)
+        status = worktree / ".rebase-tmp/status"
+        status.mkdir(parents=True)
+        (status / "INCOMPLETE").write_text("forced advance\n")
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("UNVERIFIED", result.stdout)
+
+    def test_next_matrix_version_preserves_archived_completed_result(self):
+        scratch = self.completed_workflow()
+        self.git("switch", "main")
+        finished = self.repo / ".claude/worktrees/k8s-rebase-1.36.2"
+        self.git("worktree", "add", str(finished), "bump1.36")
+        shutil.move(str(scratch), finished / ".rebase-tmp")
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass()
+        self.git("worktree", "remove", "--force", str(finished))
+        self.assertEqual(self.harness("results").returncode, 0)
+        next_run = self.repo / ".claude/worktrees/k8s-rebase-1.37.1"
+        self.git("worktree", "add", "-b", "bump1.37", str(next_run), self.result)
+        next_scratch = next_run / ".rebase-tmp"
+        (next_scratch / "gates").mkdir(parents=True)
+        (next_scratch / "state.json").write_text(json.dumps({
+            "current_step": 4, "version": "1.37.1", "repo": str(next_run),
+        }))
+        (next_scratch / ".session-active").touch()
+        (next_scratch / "gates/step1-court-fixture.report").write_text(
+            f"HEAD: {self.result}\nVERDICT: FAIL\n")
+        (next_scratch / "status").mkdir()
+        (next_scratch / "status/INCOMPLETE").write_text("next version did not complete\n")
+        self.assertEqual(self.harness("results").returncode, 1)
+        self.next_run_inputs()
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("OVERALL (run + diff review): PASS", result.stdout)
+
+    def next_run_inputs(self):
+        path = self.state / "run-inputs/1.37.1_acme_demo.json"
+        path.write_text(json.dumps({"version": "1.37.1", "repo": "acme/demo",
+                                    "base_ref": self.result, "started_at": 2}))
+        return path
+
+    def test_main_checkout_reused_for_next_version_keeps_prior_archived_proof(self):
+        scratch = self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass()
+        self.git("switch", "-c", "bump1.37")
+        state = scratch / "state.json"
+        state.write_text(json.dumps({"current_step": 4, "version": "1.37.1"}))
+        (scratch / ".session-active").touch()
+        (scratch / "gates/step1-court-fixture.report").write_text("VERDICT: FAIL\n")
+        (scratch / "status").mkdir()
+        (scratch / "status/INCOMPLETE").write_text("different target incomplete\n")
+        self.assertEqual(self.harness("results").returncode, 1)
+        next_input = self.next_run_inputs()
+        self.assertEqual(self.harness("results").returncode, 0)
+        next_record = json.loads(next_input.read_text())
+        for field, value in (("repo", "other/repo"), ("version", "1.38.0"),
+                             ("base_ref", ""), ("started_at", None),
+                             ("started_at", "2"), ("started_at", 1)):
+            with self.subTest(field=field, value=value):
+                next_input.write_text(json.dumps(dict(next_record, **{field: value})))
+                self.assertEqual(self.harness("results").returncode, 1)
+        next_input.write_text(json.dumps(next_record))
+        # Missing/invalid ownership cannot exempt modified live evidence.
+        for version in (None, "", "unknown", "1.36.2"):
+            with self.subTest(version=version):
+                state.write_text(json.dumps({"current_step": 4, "version": version}))
+                self.assertEqual(self.harness("results").returncode, 1)
+        state.write_text(json.dumps({"current_step": 4, "version": "1.37.1"}))
+        record = json.loads((self.state / "run-inputs/1.36.2_acme_demo.json").read_text())
+        archive = Path(record["evidence_manifest"]).parent
+        next(archive.glob("*/.rebase-tmp/gates/*.report")).write_text("changed archive\n")
+        self.assertEqual(self.harness("results").returncode, 1)
+
+    def test_new_run_cleanup_of_main_scratch_preserves_archived_main_result(self):
+        scratch = self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass()
+        # cmd_run removes the entire main scratch before launching a worktree.
+        shutil.rmtree(scratch)
+        next_run = self.repo / ".claude/worktrees/k8s-rebase-1.37.1"
+        self.git("worktree", "add", "-b", "bump1.37", str(next_run), self.result)
+        next_scratch = next_run / ".rebase-tmp"
+        (next_scratch / "gates").mkdir(parents=True)
+        (next_scratch / "state.json").write_text(json.dumps({
+            "current_step": 1, "version": "1.37.1", "repo": str(next_run),
+        }))
+        self.assertEqual(self.harness("results").returncode, 1)
+        self.next_run_inputs()
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        # Partial deletion inside a surviving scratch is not cmd_run cleanup.
+        scratch.mkdir()
+        self.assertEqual(self.harness("results").returncode, 1)
+
+    def test_explicit_diff_scope_must_match_completed_workflow(self):
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass(base=self.common_base, source="explicit")
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("diagnostic", result.stdout)
+        self.cache_diff_pass(source="explicit")
+        self.assertEqual(self.harness("results").returncode, 0)
+        self.assertEqual(self.prompt_files(), [])
+
+    def test_explicit_live_review_only_qualifies_its_matching_workflow_scope(self):
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        for base, flags, expected in ((self.common_base, (), 2),
+                                       (self.common_base, ("--diff-only",), 0),
+                                       (self.run_base, (), 0)):
+            with self.subTest(base=base, flags=flags):
+                result = self.harness("results", "acme/demo", "--court", "--from-commit", base, *flags)
+                self.assertEqual(result.returncode, expected, result.stdout + result.stderr)
+                aggregate = self.harness("results")
+                self.assertEqual(aggregate.returncode, 0 if base == self.run_base else 1)
+        self.assertFalse((self.prompts / "concurrent-reviewer").exists())
+
+    def test_changed_run_base_invalidates_cached_qualification(self):
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        inputs = self.state / "run-inputs/1.36.2_acme_demo.json"
+        record = json.loads(inputs.read_text())
+        record["base_ref"] = self.common_base
+        inputs.write_text(json.dumps(record))
+        self.cache_diff_pass(base=self.common_base)
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("UNVERIFIED", result.stdout)
+
+    def test_cached_pass_without_retained_evidence_is_unverified(self):
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
+        self.cache_diff_pass()
+        inputs = self.state / "run-inputs/1.36.2_acme_demo.json"
+        record = json.loads(inputs.read_text())
+        del record["evidence_manifest"]
+        inputs.write_text(json.dumps(record))
+        result = self.harness("results")
+        self.assertEqual(result.returncode, 1)
+        self.assertIn("UNVERIFIED", result.stdout)
 
     def test_report_details_do_not_replace_tally_metadata(self):
         scratch, _ = self.cve_workflow()
@@ -334,9 +553,8 @@ class CourtHarnessTests(unittest.TestCase):
         self.assertEqual(self.recorded_verdict()[0], "PASS")
 
     def test_court_uses_run_base_and_recourts_changed_inputs(self):
-        (self.state / "results.tsv").write_text(
-            "2026-09-24T00:00:00Z\t1.36.2\tnone\tacme/demo\tPASS\tfixture complete\n"
-        )
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
         result = self.harness("results", "acme/demo", "--court")
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertIn("DIFF REVIEW VERDICT: PASS", result.stderr)
@@ -349,12 +567,9 @@ class CourtHarnessTests(unittest.TestCase):
         self.assertEqual(state["result_ref"], self.result)
         self.assertEqual(state["known_good_ref"], self.known_good)
         self.assertEqual(state["verdict"], "PASS")
+        self.assertFalse((self.prompts / "concurrent-reviewer").exists())
 
         # A matching cached review must not call the model again.
-        results = self.state / "results.tsv"
-        results.write_text(
-            f"2026-09-24T00:00:00Z\t1.36.2\tnone\tacme/demo\tPASS\tfixture complete\n"
-        )
         prompt_count = len(self.prompt_files())
         cached = self.harness("court-all")
         self.assertEqual(cached.returncode, 0, cached.stderr)
@@ -496,9 +711,8 @@ class CourtHarnessTests(unittest.TestCase):
         self.assertIn("force-advance INCOMPLETE marker", rows)
 
     def test_overall_results_wait_for_required_diff_review(self):
-        (self.state / "results.tsv").write_text(
-            f"2026-09-24T00:00:00Z\t1.36.2\tnone\tacme/demo\tPASS\tfixture complete\n"
-        )
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
         result = self.harness("results")
         self.assertEqual(result.returncode, 1)
         self.assertIn("pending", result.stdout)
@@ -507,9 +721,8 @@ class CourtHarnessTests(unittest.TestCase):
     def test_exploration_without_reference_cannot_qualify(self):
         config = Path(self.env["CONFIG_FILE"])
         config.write_text(config.read_text().replace("    known_good: known-good\n", ""))
-        (self.state / "results.tsv").write_text(
-            "2026-09-24T00:00:00Z\t1.36.2\tnone\tacme/demo\tPASS\tfixture complete\n"
-        )
+        self.completed_workflow()
+        self.assertEqual(self.recorded_verdict()[0], "PASS")
         result = self.harness("results")
         self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
         self.assertIn("no reference", result.stdout)
@@ -558,6 +771,28 @@ class CourtHarnessTests(unittest.TestCase):
         self.assertEqual(inputs["base_ref"], self.run_base)
         self.assertEqual(inputs["repo"], "acme/demo")
         self.assertGreater(inputs["started_at"], 0)
+
+    def test_launch_honors_config_model_default_and_repo_override(self):
+        config = self.plugin / "test/config-1.36.yaml"
+        original = config.read_text()
+        for default, override, expected in (("default-model", None, "default-model"),
+                                             ("default-model", "repo-model", "repo-model"),
+                                             (None, None, None)):
+            with self.subTest(default=default, override=override):
+                text = original
+                if default:
+                    text = f"model: {default}\n" + text
+                if override:
+                    text = text.replace("  acme/demo:\n", f"  acme/demo:\n    model: {override}\n")
+                config.write_text(text)
+                result = self.harness("test", "none", "acme/demo", "--version", "1.36.2",
+                                      "--from-commit", self.run_base)
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                argv = (self.prompts / "launch-argv").read_text().splitlines()
+                if expected:
+                    self.assertEqual(argv[argv.index("--model") + 1], expected)
+                else:
+                    self.assertNotIn("--model", argv)
 
 
 if __name__ == "__main__":

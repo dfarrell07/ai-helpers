@@ -19,6 +19,8 @@ PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 # an unavailable model (e.g. Opus 5 on Vertex) and produce no output.
 # Override with COURT_MODEL=<model> if needed.
 COURT_MODEL="${COURT_MODEL:-claude-sonnet-4-6}"
+MAX_COURT_CONCURRENT="${MAX_COURT_CONCURRENT:-1}"
+[[ "$MAX_COURT_CONCURRENT" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: MAX_COURT_CONCURRENT must be positive" >&2; exit 1; }
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"
 _MAX_CONCURRENT_FROM_ENV="${MAX_CONCURRENT:-}"
 MAX_CONCURRENT="${MAX_CONCURRENT:-2}"
@@ -44,13 +46,26 @@ _write_run_inputs() {
 
 _write_run_result() {
   local state_dir="$1" version="$2" key="$3" repo="$4" spec="$5" recorded_at="$6" verdict="$7" result_ref="$8"
-  local path tmp
+  local path tmp evidence_manifest="" evidence_sha256="" resolved_repo
   path=$(_run_inputs_file "$state_dir" "$version" "$key")
   [[ -f "$path" ]] || return 1
+  if [[ "$verdict" == PASS ]]; then
+    resolved_repo=$(resolve_repo "$repo") || return 1
+    _collect_gate_dirs "$resolved_repo"
+    # Completion state can live in the result worktree while gates live in
+    # the main checkout. Retain both qualification roots, including absences.
+    local -a roots=("$resolved_repo" "${9:-$resolved_repo}")
+    local gate_dir
+    for gate_dir in "${_GATE_DIRS[@]}"; do roots+=("${gate_dir%/.rebase-tmp/gates}"); done
+    evidence_manifest=$(python3 "$SCRIPT_DIR/run-evidence.py" capture "$state_dir/evidence" "${roots[@]}") || return 1
+    evidence_sha256=$(sha256sum "$evidence_manifest") || return 1
+    evidence_sha256="${evidence_sha256%% *}"
+  fi
   tmp="${path}.tmp.$$"
   jq --arg version "$version" --arg repo "$repo" --arg spec "$spec" \
     --arg recorded_at "$recorded_at" --arg verdict "$verdict" --arg result_ref "$result_ref" \
-    '. + {version:$version,repo:$repo,spec:$spec,recorded_at:$recorded_at,workflow_verdict:$verdict,result_ref:(if $result_ref == "" then null else $result_ref end)}' \
+    --arg evidence_manifest "$evidence_manifest" --arg evidence_sha256 "$evidence_sha256" \
+    '. + {version:$version,repo:$repo,spec:$spec,recorded_at:$recorded_at,workflow_verdict:$verdict,workflow_base_ref:.base_ref,result_ref:(if $result_ref == "" then null else $result_ref end),evidence_manifest:$evidence_manifest,evidence_sha256:$evidence_sha256}' \
     "$path" > "$tmp" && mv "$tmp" "$path" || { rm -f "$tmp"; return 1; }
 }
 
@@ -58,7 +73,7 @@ _run_inputs_match_result() {
   local path="$1" version="$2" repo="$3" spec="$4" recorded_at="$5" verdict="$6" result_ref="$7"
   jq -e --arg version "$version" --arg repo "$repo" --arg spec "$spec" \
     --arg recorded_at "$recorded_at" --arg verdict "$verdict" --arg result_ref "$result_ref" \
-    '.version == $version and .repo == $repo and .spec == $spec and .recorded_at == $recorded_at and .workflow_verdict == $verdict and (.result_ref // "") == $result_ref' \
+    '.version == $version and .repo == $repo and .spec == $spec and .recorded_at == $recorded_at and .workflow_verdict == $verdict and (.result_ref // "") == $result_ref and ($verdict != "PASS" or (.workflow_base_ref != null and .workflow_base_ref == .base_ref))' \
     "$path" >/dev/null 2>&1
 }
 
@@ -76,7 +91,17 @@ _run_result_is_current() {
     # A successful workflow result must identify a concrete result commit.
     return 1
   fi
-  _run_inputs_match_result "$path" "$version" "$short" "$spec" "$recorded_at" "$verdict" "$result_ref"
+  _run_inputs_match_result "$path" "$version" "$short" "$spec" "$recorded_at" "$verdict" "$result_ref" || return 1
+  if [[ "$verdict" == PASS ]]; then
+    _find_incomplete_marker "$repo" "$path" >/dev/null && return 1
+    _collect_gate_dirs "$repo"
+    local -a roots=("$repo")
+    _worktree_info "$repo" && roots+=("$_WT_PATH")
+    local gate_dir
+    for gate_dir in "${_GATE_DIRS[@]}"; do roots+=("${gate_dir%/.rebase-tmp/gates}"); done
+    python3 "$SCRIPT_DIR/run-evidence.py" check "$path" "${roots[@]}" >/dev/null 2>&1 || return 1
+  fi
+  return 0
 }
 
 _resolve_court_base_ref() {
@@ -207,12 +232,17 @@ _collect_gate_dirs() {
 }
 
 _find_incomplete_marker() {
-  local repo="$1" root
+  local repo="$1" run_inputs="${2:-}" root
   while IFS= read -r root; do
-    [[ -n "$root" && -f "$root/.rebase-tmp/status/INCOMPLETE" ]] && {
-      echo "$root/.rebase-tmp/status/INCOMPLETE"
-      return 0
-    }
+    [[ -n "$root" && -f "$root/.rebase-tmp/status/INCOMPLETE" ]] || continue
+    # Historical matrix rows use their archived evidence. A different target's
+    # marker is separate only with a newer same-repository launch receipt.
+    if [[ -n "$run_inputs" ]] && python3 "$SCRIPT_DIR/run-evidence.py" \
+      other-version "$run_inputs" "$root" >/dev/null 2>&1; then
+      continue
+    fi
+    echo "$root/.rebase-tmp/status/INCOMPLETE"
+    return 0
   done < <(git -C "$repo" worktree list --porcelain 2>/dev/null | sed -n 's/^worktree //p')
   return 1
 }
@@ -739,6 +769,7 @@ cmd_run() {
     fi
     local _model
     _model=$(_config_val "$short" "model")
+    [[ -n "$_model" && "$_model" != "null" ]] || _model=$(yq '.model // ""' "$CONFIG_FILE")
     local _model_args=()
     [[ -n "$_model" && "$_model" != "null" ]] && _model_args=(--model "$_model")
     session_output=$(claude --bg \
@@ -1372,13 +1403,13 @@ _do_record_one() {
     # update mode: session finished with new commits after gate-complete recording.
     # Append corrected row. Don't re-touch done_key or clear court.
     printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
-    _write_run_result "$state_dir" "$_rec_version" "$repo_key" "$short" "$spec" "$ts" "$verdict" "$result_ref" \
+    _write_run_result "$state_dir" "$_rec_version" "$repo_key" "$short" "$spec" "$ts" "$verdict" "$result_ref" "$result_root" \
       || warn "$short: run/result association metadata could not be saved"
     printf '%-20s %-42s %-8s %s (updated)' "$spec" "$short" "$verdict" "$detail"
     return 0
   fi
   printf '%s\t%s\t%s\t%s\t%s\t%s\n' "$ts" "$_rec_version" "$spec" "$short" "$verdict" "$detail" >> "$state_dir/results.tsv"
-  _write_run_result "$state_dir" "$_rec_version" "$repo_key" "$short" "$spec" "$ts" "$verdict" "$result_ref" \
+  _write_run_result "$state_dir" "$_rec_version" "$repo_key" "$short" "$spec" "$ts" "$verdict" "$result_ref" "$result_root" \
     || warn "$short: run/result association metadata could not be saved"
   touch "$state_dir/done/$done_key"
   rm -f "$state_dir/running/${_rec_version}_${repo_key}"
@@ -1627,6 +1658,7 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
   info "$_log_prefix Phase A: Prosecution + Defense..."
   timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text <<<"$_pros_prompt" > "$cdir/pros.txt" 2>"$cdir/pros.err" &
   local pid_pros=$!
+  [[ "$MAX_COURT_CONCURRENT" -gt 1 ]] || wait "$pid_pros" 2>/dev/null || true
   timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text <<<"$_def_prompt" > "$cdir/def.txt" 2>"$cdir/def.err" &
   local pid_def=$!
   wait "$pid_pros" "$pid_def" 2>/dev/null || true
@@ -1736,6 +1768,7 @@ EOF_JUROR_PROMPT
     <<<"$_juror_prompt" timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text \
       --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
       > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
+    [[ "$MAX_COURT_CONCURRENT" -gt 1 ]] || wait "$!" 2>/dev/null || true
   done
   wait 2>/dev/null || true
 
@@ -1837,9 +1870,8 @@ cmd_court_all() {
   for cfg in "${configs[@]}"; do
     CONFIG_FILE="$cfg"; _load_config
     local _court_pids=() _court_files=() _court_shorts=()
-    # Court uses no worktrees, no disk space, no go builds — only API calls.
-    # Natural limit is API rate limits, not system resources. Default: all repos at once.
-    local max_court_concurrent=${MAX_COURT_CONCURRENT:-${#DEFAULT_REPOS[@]}}
+    # Keep repositories and the reviewers within each court serial by default.
+    local max_court_concurrent=$MAX_COURT_CONCURRENT
     for repo in "${DEFAULT_REPOS[@]}"; do
       local short
       short=$(repo_short "$repo")
@@ -2310,6 +2342,12 @@ _results_one() {
             warn "Court review not run: cannot resolve known-good ref $kg"
             return 2
           }
+          local _recorded_base
+          _recorded_base=$(_resolve_court_base_ref "$short" "$_tsv_ver" "$repo") || _recorded_base=""
+          if [[ "$base_ref" != "$_recorded_base" ]]; then
+            workflow_verdict="UNVERIFIED"
+            workflow_exit=2
+          fi
           local _court_verdict=""
           if cmd_court "$branch" "$kg" "$repo" "$base_ref"; then
             _court_verdict="PASS"
@@ -2424,8 +2462,10 @@ _results_for_version() {
           && _court_state_matches_explicit "$_court_file" "$_court_result_ref" "$_kg_ref"; then
           local _explicit_base
           _explicit_base=$(jq -r '.base_ref // empty' "$_court_file")
-          if git -C "$repo" rev-parse --verify "${_explicit_base}^{commit}" >/dev/null 2>&1; then
+          if [[ -n "$_court_base" && "$_explicit_base" == "$_court_base" ]]; then
             court_result=$(_court_state_verdict "$_court_file")
+          elif git -C "$repo" rev-parse --verify "${_explicit_base}^{commit}" >/dev/null 2>&1; then
+            court_result="diagnostic"
           else
             court_result="stale"
           fi

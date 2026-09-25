@@ -158,6 +158,14 @@ if [[ -n "$REQUIRED_GO" || "$NEEDS_PRIVILEGED_CONTAINER" == true ]] && [[ "${K8S
         mkdir -p "$HOST_GOCACHE"
         CACHE_ARGS=(-v "$HOST_GOCACHE:$HOST_GOCACHE" -e "GOCACHE=$HOST_GOCACHE")
       fi
+      RESOURCE_ARGS=()
+      # Preserve caller limits across the host/container boundary. The Go
+      # memory limit is soft; an explicit container bound is independent.
+      for _limit in GOMEMLIMIT VALIDATION_TIMEOUT LINT_TIMEOUT; do
+        [[ -n "${!_limit:-}" ]] && RESOURCE_ARGS+=(-e "${_limit}=${!_limit}")
+      done
+      [[ -n "${K8S_REBASE_CONTAINER_MEMORY:-}" ]] && \
+        RESOURCE_ARGS+=(--memory "$K8S_REBASE_CONTAINER_MEMORY")
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         $PRIV_FLAG \
@@ -166,6 +174,7 @@ if [[ -n "$REQUIRED_GO" || "$NEEDS_PRIVILEGED_CONTAINER" == true ]] && [[ "${K8S
         $WORKTREE_MOUNT \
         $GOMODCACHE_MOUNT \
         "${CACHE_ARGS[@]}" \
+        "${RESOURCE_ARGS[@]}" \
         -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
         -w "$REPO_ROOT" \
         -e K8S_REBASE_IN_CONTAINER=1 \
@@ -268,9 +277,11 @@ categorize_errors() {
     if grep -qE "does not implement.*SharedIndexInformer|vendor.*does not implement" <<< "$build_errors" 2>/dev/null; then
       echo "" >> "$SUMMARY"
       echo "NOTE: Vendored dependency missing a new interface method." >> "$SUMMARY"
-      echo "Patching vendor directly will fail verify-deps CI." >> "$SUMMARY"
-      echo "Options: (1) bump the dep with go get @latest, (2) use a" >> "$SUMMARY"
-      echo "go.mod replace to a fork, (3) patch vendor and accept CI failure." >> "$SUMMARY"
+      echo "Select a compatible dependency version and use the repair helper in the affected module:" >> "$SUMMARY"
+      echo 'bash "$PLUGIN_ROOT/scripts/k8s-rebase-depfix.sh" <module>@<version>' >> "$SUMMARY"
+      echo "If a reviewed fork replace is needed, use the helper's --sync mode after adding it." >> "$SUMMARY"
+      echo "The helper synchronizes module/vendor files; verify Kubernetes pins afterward." >> "$SUMMARY"
+      echo "Do not patch vendor directly; verify-deps CI regenerates it." >> "$SUMMARY"
     fi
     echo "" >> "$SUMMARY"
     ERRORS_FOUND=1

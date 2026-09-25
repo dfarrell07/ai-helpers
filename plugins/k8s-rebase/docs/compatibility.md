@@ -34,7 +34,7 @@ Installation alone is not proof that hooks are active.
 The [offline tests](../test/test_compatibility.py) exercise the shared review,
 hook, state, and cleanup contracts. Full repo/version runs use Claude Code.
 Focused installed-runtime fixtures on both hosts have covered review routing
-and finalization; Codex has not run a full rebase.
+and finalization; those fixtures do not qualify an unattended full rebase.
 
 To qualify both hosts, run the existing `openshift/multus-cni` baseline in
 [config-1.36.yaml](../test/config-1.36.yaml) on each, in disposable clones
@@ -57,7 +57,7 @@ declining an action is not a hook denial. Cover these cases on each host:
 - HEAD stamps cover commits, not uncommitted edits. Hooks are heuristic,
   and Stop observes orchestrator DONE rather than Step 5 completion.
 - Two informational gates always PASS; read their details. Build/vet
-  evidence can contain a timeout alongside a zero error count; review command
+  evidence records producer exits and incomplete collection; review command
   completion and module coverage before judging it. `go mod verify` checks
   the module cache, not vendor contents.
 - Review diffs are filtered and size-limited; selected-commit review's

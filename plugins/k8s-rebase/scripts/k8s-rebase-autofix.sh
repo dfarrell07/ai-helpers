@@ -456,26 +456,48 @@ fix_go_version() {
   [[ -z "$old_go" ]] && old_go=$(grep -roE 'GOVERSION="?[0-9]+\.[0-9]+' --include="Dockerfile*" . 2>/dev/null | grep -v vendor | grep -v '/\.git/' | head -1 | sed 's/.*GOVERSION="*//')
   [[ -z "$old_go" ]] && return 0
   [[ "$old_go" == "$new_go" ]] && return 0
+  local _ocp_go_arg_pattern='registry[.]ci[.]openshift[.]org/[^[:space:]]*[$][{(]?(GO_VERSION|GOLANG_VERSION|GOVERSION)([^[:alnum:]_]|$)'
+  local _ocp_go_args=false
+  if grep -rqE "$_ocp_go_arg_pattern" --include='Dockerfile*' --include='*.Dockerfile' \
+      --exclude-dir=vendor --exclude-dir=.git --exclude-dir=.rebase-tmp --exclude-dir=.claude .; then
+    _ocp_go_args=true
+  fi
+  _go_ref_requires_image_review() {
+    grep -qE "$_ocp_go_arg_pattern" "$1" && return 0
+    # Match Step 1's conservative handling of cross-file build-arg suppliers.
+    "$_ocp_go_args" && grep -qF -- '--build-arg' "$1"
+  }
   echo ":: Fixing Go version refs: $old_go → $new_go"
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
-    sed -i \
-      -e "s|golang:${old_go}|golang:${new_go}|g" \
-      -e "s|golang-${old_go}|golang-${new_go}|g" \
-      -e "s|GO_VERSION ?= ${old_go}|GO_VERSION ?= ${new_go}|g" \
-      -e "s|GOLANG_VERSION ?= ${old_go}|GOLANG_VERSION ?= ${new_go}|g" \
-      -e "s|go-version: \[${old_go}|go-version: [${new_go}|g" \
-      -e "s|go-version: ${old_go}|go-version: ${new_go}|g" \
-      -e "s|GO_VERSION: \"${old_go}\"|GO_VERSION: \"${new_go}\"|g" \
-      -e "s|GOVERSION=\"${old_go}|GOVERSION=\"${new_go}|g" \
-      -e "s|GOVERSION=${old_go}|GOVERSION=${new_go}|g" \
-      "$f"
+    # Step 1 may have retained an unverifiable OCP image. This fallback must
+    # preserve that decision, including CI tags without a registry prefix.
+    if [[ "$f" != "./.ci-operator.yaml" ]]; then
+      OLD_GO_REF="$old_go" NEW_GO_REF="$new_go" perl -pi -e '
+        s{registry\.ci\.openshift\.org/[^\s\x22\x27]+(*SKIP)(*F)|
+          golang([-:])\Q$ENV{OLD_GO_REF}\E(?![0-9])}
+         {"golang" . $1 . $ENV{NEW_GO_REF}}gex;
+      ' "$f"
+    fi
+    # An image's variable/default needs the same complete-coordinate review.
+    if ! _go_ref_requires_image_review "$f"; then
+      sed -i \
+        -e "s|GO_VERSION ?= ${old_go}|GO_VERSION ?= ${new_go}|g" \
+        -e "s|GOLANG_VERSION ?= ${old_go}|GOLANG_VERSION ?= ${new_go}|g" \
+        -e "s|go-version: \[${old_go}|go-version: [${new_go}|g" \
+        -e "s|go-version: ${old_go}|go-version: ${new_go}|g" \
+        -e "s|GO_VERSION: \"${old_go}\"|GO_VERSION: \"${new_go}\"|g" \
+        -e "s|GOVERSION=\"${old_go}|GOVERSION=\"${new_go}|g" \
+        -e "s|GOVERSION=${old_go}|GOVERSION=${new_go}|g" \
+        "$f"
+    fi
   done < <(grep -rlnE "golang[:-]${old_go}|GO_VERSION.{0,5}${old_go}|GOLANG_VERSION.{0,5}${old_go}|GOVERSION.{0,5}${old_go}|go-version:.{0,3}${old_go}" \
     --include="*.yml" --include="*.yaml" --include="Makefile*" --include="Dockerfile*" . \
     | grep -v vendor | grep -v '/\.git/' | grep -v go.mod || true)
 
   # Second pass: catch workflow files with any stale go-version (pre-existing mismatches)
   while IFS= read -r _gvf; do
+    _go_ref_requires_image_review "$_gvf" && continue
     # Skip files with a multi-version go-version matrix (e.g. [1.22, 1.23]).
     # Replacing only the first element would leave a stale secondary version.
     if grep -qE 'go-version: *\[[0-9]+\.[0-9]+,' "$_gvf"; then

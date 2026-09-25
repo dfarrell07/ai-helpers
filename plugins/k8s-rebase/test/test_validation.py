@@ -283,6 +283,8 @@ from pathlib import Path
         self.module()
         self.env["FAKE_GOVERSION"] = "go1.99.0"
         self.env.update(GOMAXPROCS="1", GOFLAGS="-p=1 -mod=readonly",
+                        GOMEMLIMIT="1GiB", K8S_REBASE_CONTAINER_MEMORY="2g",
+                        VALIDATION_TIMEOUT="10m", LINT_TIMEOUT="12m",
                         GOCACHE=str(self.root / "cache with spaces"))
         self.stub("id", 'print("1000")\n')
         self.stub("podman", '''import json, os, sys
@@ -298,6 +300,10 @@ sys.exit(125)
         self.assertEqual(argv[-1], "--full")
         self.assertIn("GOMAXPROCS=1", argv)
         self.assertIn("GOFLAGS=-p=1 -mod=readonly", argv)
+        self.assertIn("GOMEMLIMIT=1GiB", argv)
+        self.assertIn("VALIDATION_TIMEOUT=10m", argv)
+        self.assertIn("LINT_TIMEOUT=12m", argv)
+        self.assertEqual(argv[argv.index("--memory") + 1], "2g")
         self.assertIn(f"GOCACHE={self.env['GOCACHE']}", argv)
         self.assertIn(f"{self.env['GOCACHE']}:{self.env['GOCACHE']}", argv)
         self.assertNotIn("All validation passes", result.stdout)

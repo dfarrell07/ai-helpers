@@ -79,7 +79,7 @@ and resolve recovery before restarting.
 ## Prerequisites
 
 - Bash with associative arrays, GNU command-line tools, Git, Make, Go,
-  curl, Perl with `JSON::PP`, `jq`, and `envsubst`.
+  curl, Perl with `JSON::PP`, Python 3, `jq`, and `envsubst`.
 - `podman` (preferred) or `docker` for toolchain/lint containers. The rebase
   auto-containerizes if local Go is too old. Network access is needed for
   dependencies, release metadata, and images; `gh` is used for GitHub lookups.

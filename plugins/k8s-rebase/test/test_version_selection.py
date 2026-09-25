@@ -229,6 +229,28 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
                     self.assertIn("ERROR:", result.stderr)
                     self.assertNotIn("will use @latest", result.stderr)
 
+    def test_controller_runtime_uses_actual_requirements_in_all_valid_forms(self):
+        for declaration in (
+            'require sigs.k8s.io/controller-runtime v0.22.0\n',
+            'require "sigs.k8s.io/controller-runtime" v0.22.0\n',
+            'require (\n sigs.k8s.io/controller-runtime v0.22.0\n)\n',
+            'require (\n "sigs.k8s.io/controller-runtime" v0.22.0\n)\n',
+        ):
+            with self.subTest(declaration=declaration):
+                self.gomod.write_text('module example.invalid/fixture\nrequire (\n'
+                                     ' k8s.io/api v0.34.1\n)\n' + declaration)
+                result = self.selection()
+                self.assertEqual(result.returncode, 0, result.stderr)
+                self.assertIn('go get sigs.k8s.io/controller-runtime@v0.23.1', result.stdout.splitlines())
+
+    def test_controller_runtime_comments_and_replacements_do_not_add_a_requirement(self):
+        self.gomod.write_text('module example.invalid/fixture\n'
+                             '// sigs.k8s.io/controller-runtime is not required\n'
+                             'replace sigs.k8s.io/controller-runtime => example.invalid/fork v0.22.0\n')
+        result = self.selection()
+        self.assertEqual(result.returncode, 0, result.stderr)
+        self.assertEqual(result.stdout.strip(), "")
+
     def test_controller_tools_selects_target_minor_release(self):
         for minor, candidate in ((34, "v0.19.0"), (35, "v0.20.0"), (36, "v0.21.0"), (37, "v0.22.0")):
             with self.subTest(minor=minor, candidate=candidate):

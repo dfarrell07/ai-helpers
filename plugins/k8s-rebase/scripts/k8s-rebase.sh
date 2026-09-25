@@ -558,11 +558,25 @@ derive_go_gets() {
     cmds+=("go get ${pkg}@v${ver_prefix}.${K8S_MINOR}.${K8S_PATCH}")
   done < <(grep -E "k8s\.io/" "$gomod" | grep -v "sigs\.k8s\.io/" | grep -v "=>" | grep -E "v[0-9]+\.${OLD_MINOR}\." | awk '{print $1, $2}' | LC_ALL=C sort -u)
 
+  # Parse requirement membership once: go.mod also permits single-line and
+  # quoted declarations. Substring matches include comments and replacements.
+  local _requirements=""
+  if grep -qE 'sigs[.]k8s[.]io/controller-runtime|github[.]com/openshift/' "$gomod"; then
+    if ! _requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json /dev/stdin < "$gomod" | \
+      perl -MJSON::PP -0777 -e '
+        my $mod = decode_json(<STDIN>);
+        print "$_->{Path}\n" for @{$mod->{Require} // []};
+      '); then
+      info "ERROR: cannot read requirements from ${gomod}"
+      return 1
+    fi
+  fi
+
   # Rule 2: controller-runtime
   # CR_VERSION is resolved earlier by querying the Go module proxy for a
   # compatible release; it is empty when no compatible version was found,
   # in which case a bare go get lets MVS pick the best available version.
-  if grep -qE '^[[:space:]]*sigs[.]k8s[.]io/controller-runtime([[:space:]"]|$)' "$gomod"; then
+  if grep -qxF 'sigs.k8s.io/controller-runtime' <<< "$_requirements"; then
     if [[ -n "$CR_VERSION" ]]; then
       cmds+=("go get sigs.k8s.io/controller-runtime@${CR_VERSION}")
     else
@@ -576,21 +590,11 @@ derive_go_gets() {
   # All five packages need checked metadata. Neither an unversioned update nor
   # skipping one direct update guarantees that MVS retains compatible versions.
   # Match actual requirements, not comments, replacements, or the module itself.
-  local _os_pkg _os_ver _os_requirements=""
-  if grep -qE 'github[.]com/openshift/(api|client-go|library-go|build-machinery-go|controller-runtime-common)([[:space:]"]|$)' "$gomod"; then
-    if ! _os_requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json /dev/stdin < "$gomod" | \
-      perl -MJSON::PP -0777 -e '
-        my $mod = decode_json(<STDIN>);
-        print "$_->{Path}\n" for @{$mod->{Require} // []};
-      '); then
-      info "ERROR: cannot read requirements from ${gomod}"
-      return 1
-    fi
-  fi
+  local _os_pkg _os_ver
   for _os_pkg in "github.com/openshift/client-go" "github.com/openshift/api" \
                   "github.com/openshift/library-go" "github.com/openshift/build-machinery-go" \
                   "github.com/openshift/controller-runtime-common"; do
-    if grep -qxF "$_os_pkg" <<< "$_os_requirements"; then
+    if grep -qxF "$_os_pkg" <<< "$_requirements"; then
       case "$_os_pkg" in
         *client-go)        _os_ver="$OPENSHIFT_CLIENT_GO_VERSION" ;;
         */api)             _os_ver="$OPENSHIFT_API_VERSION" ;;
@@ -619,7 +623,7 @@ derive_go_gets() {
     local pkg ver
     read -r pkg ver <<< "$line"
     case "$pkg" in
-      module|replace|require|exclude|"$own_module") continue ;;
+      //|module|replace|require|exclude|"$own_module") continue ;;
     esac
     [[ "$pkg" == *controller-runtime* ]] && continue
     [[ "$pkg" == *network-policy-api* ]] && continue
@@ -1109,18 +1113,42 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   info "Go version changed: $OLD_GO_VERSION → $NEW_GO_VERSION"
   OLD_GO_SHORT=$(echo "$OLD_GO_VERSION" | grep -oE '[0-9]+\.[0-9]+')
   NEW_GO_SHORT=$(echo "$NEW_GO_VERSION" | grep -oE '[0-9]+\.[0-9]+')
+  _ocp_go_arg_pattern='registry[.]ci[.]openshift[.]org/[^[:space:]]*[$][{(]?(GO_VERSION|GOLANG_VERSION|GOVERSION)([^[:alnum:]_]|$)'
+  _ocp_go_args=false
+  if grep -rqE "$_ocp_go_arg_pattern" --include='Dockerfile*' --include='*.Dockerfile' \
+      --exclude-dir=vendor --exclude-dir=.git --exclude-dir=.rebase-tmp --exclude-dir=.claude .; then
+    _ocp_go_args=true
+  fi
+  _go_ref_requires_image_review() {
+    grep -qE "$_ocp_go_arg_pattern" "$1" && return 0
+    # A build-arg supplier may override a protected Dockerfile's default.
+    # Defer files supplying args instead of guessing their shell data flow.
+    "$_ocp_go_args" && grep -qF -- '--build-arg' "$1"
+  }
 
   while IFS= read -r file; do
-    sed -i \
-      -e "s|golang:${OLD_GO_SHORT}|golang:${NEW_GO_SHORT}|g" \
-      -e "s|golang-${OLD_GO_SHORT}|golang-${NEW_GO_SHORT}|g" \
-      -e "s|GO_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GO_VERSION ?= ${NEW_GO_SHORT}|g" \
-      -e "s|GOLANG_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GOLANG_VERSION ?= ${NEW_GO_SHORT}|g" \
-      -e "s|GOVERSION=\"${OLD_GO_SHORT}|GOVERSION=\"${NEW_GO_SHORT}|g" \
-      -e "s|go-version: \[${OLD_GO_SHORT}|go-version: [${NEW_GO_SHORT}|g" \
-      -e "s|go-version: ${OLD_GO_SHORT}|go-version: ${NEW_GO_SHORT}|g" \
-      -e "s|GO_VERSION: \"${OLD_GO_SHORT}\"|GO_VERSION: \"${NEW_GO_SHORT}\"|g" \
-      "$file"
+    _go_ref_before=$(sha256sum "$file")
+    # OCP image coordinates must be changed as a whole, after verification.
+    # The CI tag omits its registry prefix, so defer that file's image tags too.
+    if [[ "$file" != "./.ci-operator.yaml" ]]; then
+      OLD_GO_REF="$OLD_GO_SHORT" NEW_GO_REF="$NEW_GO_SHORT" perl -pi -e '
+        s{registry\.ci\.openshift\.org/[^\s\x22\x27]+(*SKIP)(*F)|
+          golang([-:])\Q$ENV{OLD_GO_REF}\E(?![0-9])}
+         {"golang" . $1 . $ENV{NEW_GO_REF}}gex;
+      ' "$file"
+    fi
+    # Changing an ARG/default can change the effective protected image too.
+    if ! _go_ref_requires_image_review "$file"; then
+      sed -i \
+        -e "s|GO_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GO_VERSION ?= ${NEW_GO_SHORT}|g" \
+        -e "s|GOLANG_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GOLANG_VERSION ?= ${NEW_GO_SHORT}|g" \
+        -e "s|GOVERSION=\"${OLD_GO_SHORT}|GOVERSION=\"${NEW_GO_SHORT}|g" \
+        -e "s|go-version: \[${OLD_GO_SHORT}|go-version: [${NEW_GO_SHORT}|g" \
+        -e "s|go-version: ${OLD_GO_SHORT}|go-version: ${NEW_GO_SHORT}|g" \
+        -e "s|GO_VERSION: \"${OLD_GO_SHORT}\"|GO_VERSION: \"${NEW_GO_SHORT}\"|g" \
+        "$file"
+    fi
+    [[ "$_go_ref_before" == "$(sha256sum "$file")" ]] && continue
     CHANGED_FILES+="$file"$'\n'
     info "  Updated Go version: $file"
   done < <(grep -rlnE "golang[:-]${OLD_GO_SHORT}|GO_VERSION.{0,5}${OLD_GO_SHORT}|GOLANG_VERSION.{0,5}${OLD_GO_SHORT}|GOVERSION.{0,5}${OLD_GO_SHORT}|go-version:.{0,3}${OLD_GO_SHORT}" \
@@ -1131,6 +1159,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   # Second pass: catch workflow files with any stale go-version (handles pre-existing mismatches)
   if [[ -n "$NEW_GO_SHORT" ]]; then
     while IFS= read -r _gvf; do
+      _go_ref_requires_image_review "$_gvf" && continue
       sed -i -E \
         -e "s|go-version: \[([0-9.x, ]+)\]|go-version: [${NEW_GO_SHORT}.x]|g" \
         -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${NEW_GO_SHORT}|g" \
@@ -1150,7 +1179,13 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   while IFS= read -r _df; do
     while IFS= read -r cur_ver; do
       if [[ "$cur_ver" != "$NEW_GO_SHORT" ]] && _ver_lt "$cur_ver" "$NEW_GO_SHORT"; then
-        perl -pi -e "s|golang:${cur_ver//./\\.}([^0-9])|golang:${NEW_GO_SHORT}\$1|g; s|golang:${cur_ver//./\\.}\$|golang:${NEW_GO_SHORT}|g" "$_df"
+        _go_ref_before=$(sha256sum "$_df")
+        OLD_GO_REF="$cur_ver" NEW_GO_REF="$NEW_GO_SHORT" perl -pi -e '
+          s{registry\.ci\.openshift\.org/[^\s\x22\x27]+(*SKIP)(*F)|
+            golang:\Q$ENV{OLD_GO_REF}\E(?![0-9])}
+           {"golang:" . $ENV{NEW_GO_REF}}gex;
+        ' "$_df"
+        [[ "$_go_ref_before" == "$(sha256sum "$_df")" ]] && continue
         CHANGED_FILES+="$_df"$'\n'
         info "  Updated golang image (pre-existing divergence): $_df ($cur_ver → $NEW_GO_SHORT)"
       fi
@@ -1242,6 +1277,10 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   # Some Dockerfiles have stale GOLANG_VERSION defaults from prior
   # rebases that the OLD→NEW sed misses.
   while IFS= read -r df; do
+    if _go_ref_requires_image_review "$df"; then
+      info "NOTE: image-related GOLANG_VERSION retained in $df; verify the complete OCP image before changing it"
+      continue
+    fi
     sed -i "s|ARG GOLANG_VERSION=[0-9.]\+|ARG GOLANG_VERSION=${NEW_GO_SHORT}|g" "$df"
     CHANGED_FILES+="$df"$'\n'
     info "  Reconciled Dockerfile Go version: $df"
@@ -1250,11 +1289,20 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
 
 fi
 
-# OCP streams change independently of Go: Kubernetes 1.36 and 1.37 both
-# require Go 1.26. Verify the mapped stream and each image before changing refs.
+# A mapped dependency/cluster stream does not require matching builder/base
+# labels. Only automate a builder change made necessary by a Go floor increase;
+# other image requirements need the role/configuration review in Step 4.
 sync_ocp_image_refs() {
   [[ -f .ci-operator.yaml ]] || return 0
   grep -qE 'golang-[0-9.]+.*openshift-[0-9.]+' .ci-operator.yaml || return 0
+  local old_go_short new_go_short
+  old_go_short=$(cut -d. -f1,2 <<< "$OLD_GO_VERSION")
+  new_go_short=$(cut -d. -f1,2 <<< "$NEW_GO_VERSION")
+  if [[ "$old_go_short" == "$new_go_short" ]] || \
+     [[ "$(printf '%s\n%s\n' "$old_go_short" "$new_go_short" | sort -V | head -1)" != "$old_go_short" ]]; then
+    info "NOTE: no Go floor increase; builder/base stream choices deferred to version-reference review"
+    return 0
+  fi
   local target_ocp="${OPENSHIFT_BRANCH#release-}" remote repo_org repo_name
   local config branch declared_stream="" confirmed=false
   remote=$(git remote get-url origin 2>/dev/null || true)
@@ -1293,6 +1341,14 @@ sync_ocp_image_refs() {
   fi
 
   local -A verified_images=()
+  _ocp_image_target() {
+    local ref="$1" image_go
+    [[ "$ref" =~ golang-([0-9]+\.[0-9]+) ]] || return 1
+    image_go="${BASH_REMATCH[1]}"
+    [[ "$image_go" != "$new_go_short" ]] || return 1
+    [[ "$(printf '%s\n%s\n' "$image_go" "$new_go_short" | sort -V | head -1)" == "$image_go" ]] || return 1
+    sed -E "s/golang-[0-9]+\.[0-9]+/golang-${new_go_short}/g; s/openshift-[0-9]+\.[0-9]+/openshift-${target_ocp}/g" <<< "$ref"
+  }
   _ocp_image_available() {
     local ref="$1" repository tag token
     [[ -n "${verified_images[$ref]:-}" ]] && return 0
@@ -1316,9 +1372,9 @@ sync_ocp_image_refs() {
   ci_tag=$(awk '/^build_root_image:/ {inside=1; next} /^[^[:space:]#]/ {inside=0} inside && /^  tag:/ {print $2}' .ci-operator.yaml)
   # Parse only plain or quoted scalar image coordinates, never arbitrary YAML.
   ci_name="${ci_name//[\"\']/}"; ci_namespace="${ci_namespace//[\"\']/}"; ci_tag="${ci_tag//[\"\']/}"
-  new_tag=$(sed -E "s/openshift-[0-9]+\.[0-9]+/openshift-${target_ocp}/g" <<< "$ci_tag")
-  image="registry.ci.openshift.org/${ci_namespace}/${ci_name}:${new_tag}"
-  if [[ -n "$ci_tag" && "$ci_tag" != "$new_tag" ]]; then
+  image=$(_ocp_image_target "registry.ci.openshift.org/${ci_namespace}/${ci_name}:${ci_tag}") || image=""
+  new_tag="${image##*:}"
+  if [[ -n "$ci_tag" && -n "$image" && "$ci_tag" != "$new_tag" ]]; then
     if _ocp_image_available "$image"; then
       CI_OLD_TAG="$ci_tag" CI_NEW_TAG="$new_tag" perl -pi -e '
         if (/^build_root_image:/) { $in_root=1 }
@@ -1347,7 +1403,7 @@ sync_ocp_image_refs() {
         info "NOTE: digest-pinned image needs explicit digest review in $df: $old_image"
         continue
       fi
-      new_image=$(sed -E "s/openshift-[0-9]+\.[0-9]+/openshift-${target_ocp}/g; s|/ocp/[0-9]+\.[0-9]+:|/ocp/${target_ocp}:|g" <<< "$old_image")
+      new_image=$(_ocp_image_target "$old_image") || continue
       [[ "$new_image" == "$old_image" ]] && continue
       if _ocp_image_available "$new_image"; then
         OCP_OLD_IMAGE="$old_image" OCP_NEW_IMAGE="$new_image" perl -pi -e '

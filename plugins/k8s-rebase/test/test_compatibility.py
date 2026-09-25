@@ -387,6 +387,38 @@ class CompatibilityTests(unittest.TestCase):
                 self.assertEqual(patch.read_text(), expected_patch)
         self.assertFalse(self.claude_called.exists())
 
+    def test_eval_capture_retains_nested_attempts_and_native_review_files(self):
+        scratch = self.repo / ".rebase-tmp"
+        inputs = {
+            "validation-first/command.txt": "HEAD: original\nEXIT_STATUS: 7\n",
+            "validation-first/output.log": "failed build\n",
+            "validation-second/command.txt": "HEAD: result\nEXIT_STATUS: 0\n",
+            "validation-second/output.log": "passed build\n",
+            "pr-review-first/prompt.txt": "prompt\n",
+            "pr-review-first/result.txt": "REJECT: incomplete\n",
+            "pr-review-first/exit-code": "0\n",
+            "pr-review-first/stderr.log": "diagnostic\n",
+            "step4-review-native": "fix review prompt\n",
+            "step5-review-native": "final review prompt\n",
+            "step5-review-native.review.json": "{\"verdict\":\"APPROVE\"}\n",
+            "gate-retries/old/step4-check.crash": "timed out\n",
+        }
+        for name, contents in inputs.items():
+            path = scratch / name
+            path.parent.mkdir(parents=True, exist_ok=True)
+            path.write_text(contents)
+        output = self.root / "output"
+        output.mkdir()
+        source = (PLUGIN / "evals/scripts/run-rebase.sh").read_text()
+        capture = source.split("capture_diagnostics() {", 1)[1].split('\nREPO_DIR="', 1)[0]
+        self.env.update(REPO_DIR=str(self.repo), OUTPUT_DIR=str(output),
+                        FROM_COMMIT=self.base, RUN_STARTED_AT="0")
+        result = self.run_cmd("bash", "-ec", "capture_diagnostics() {" + capture + "\ncapture_diagnostics\n")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        retained = output / "script-logs/01-repo with spaces"
+        for name, contents in inputs.items():
+            self.assertEqual((retained / name).read_text(), contents)
+
     def test_eval_runner_collects_current_linked_worktree_artifacts(self):
         runner = PLUGIN / "evals/scripts/run-rebase.sh"
         source = self.root / "eval-source"
@@ -1184,6 +1216,110 @@ exec "{real_git}" "$@"
             return self.run_cmd("bash", str(orch), action, str(self.repo), *args)
 
         return run
+
+    def test_build_vet_evidence_retains_silent_failure_and_killed_command_output(self):
+        self.isolated_orchestrator()
+        helpers = self.root / "plugin/scripts"
+        shutil.copy(PLUGIN / "scripts/gate-script-lib.sh", helpers)
+        companion = self.root / "plugin/gates/step2-compilation/build-vet.sh"
+        shutil.copy(PLUGIN / "gates/step2-compilation/build-vet.sh", companion)
+        scratch = self.repo / ".rebase-tmp"
+        scratch.mkdir()
+        (scratch / "base-commit").write_text(self.base + "\n")
+        (self.repo / "go.mod").write_text("module example.invalid/fixture\n")
+        for phase, code in (("build", 17), ("build", 124), ("vet", 137)):
+            with self.subTest(phase=phase, code=code):
+                self.env.update(FAIL_PHASE=phase, FAIL_EXIT=str(code))
+                self.stub("go", 'if [[ "$1" == "$FAIL_PHASE" ]]; then\n'
+                          '  [[ "$FAIL_EXIT" -lt 124 ]] || echo "partial output before kill"\n'
+                          '  exit "$FAIL_EXIT"\nfi\n')
+                result = self.run_cmd("bash", str(companion), str(self.repo))
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                evidence = (scratch / "gates/step2-build-vet.evidence").read_text()
+                self.assertIn(f"RESULT .: {phase}={code}", evidence)
+                if code >= 124:
+                    self.assertIn("SUMMARY: INCOMPLETE", evidence)
+                    self.assertIn("partial output before kill", evidence)
+                    self.assertIn("NOT_RUN:", evidence)
+                else:
+                    self.assertIn("1 failed commands", evidence)
+                self.assertFalse((scratch / "gates/step2-build-vet.report").exists())
+
+    def test_retry_gate_retains_failed_attempt_and_restarts_only_current_collector(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=4)
+        gates = self.repo / ".rebase-tmp/gates"
+        gates.mkdir()
+        originals = {"report": "VERDICT: INCONCLUSIVE\n", "crash": "CRASH: timed out\n",
+                     "evidence": "partial evidence\n"}
+        for suffix, contents in originals.items():
+            (gates / f"step4-check.{suffix}").write_text(contents)
+        prior = gates / "step3-check.report"
+        prior.write_text("prior-step review\n")
+        companion = self.root / "plugin/gates/step4-verification/check.sh"
+        companion.write_text('#!/bin/bash\necho collected >> "$1/.rebase-tmp/collector-calls"\n'
+                             'echo replacement > "$1/.rebase-tmp/gates/step4-check.evidence"\n')
+        companion.chmod(0o755)
+        self.assertIn("previously crashed", run("gates").stdout)
+        self.assertFalse((self.repo / ".rebase-tmp/collector-calls").exists())
+        self.assertEqual(run("retry-gate", "../step3-autofix/check").returncode, 2)
+        retry = run("retry-gate", "check")
+        self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+        archive = next((self.repo / ".rebase-tmp/gate-retries").iterdir())
+        for suffix, contents in originals.items():
+            self.assertEqual((archive / f"step4-check.{suffix}").read_text(), contents)
+        self.assertFalse((gates / "step4-check.report").exists())
+        self.assertFalse((gates / "step4-check.crash").exists())
+        self.assertFalse((gates / "step4-check.evidence").exists())
+        self.assertEqual(prior.read_text(), "prior-step review\n")
+        run("gates")
+        self.assertEqual((self.repo / ".rebase-tmp/collector-calls").read_text(), "collected\n")
+        self.assertEqual((gates / "step4-check.evidence").read_text(), "replacement\n")
+        self.assertEqual((archive / "step4-check.evidence").read_text(), originals["evidence"])
+
+    def test_failed_cve_retry_cannot_reuse_old_complete_scan(self):
+        run = self.isolated_orchestrator()
+        self.activate(step=4)
+        gate_dir = self.root / "plugin/gates/step4-verification"
+        (gate_dir / "check.md").rename(gate_dir / "dep-cve-check.md")
+        gates = self.repo / ".rebase-tmp/gates"
+        gates.mkdir()
+        evidence = gates / "step4-dep-cve-check.evidence"
+        complete = (f"HEAD: {self.git_sha()}\nSCAN_HEAD: {self.git_sha()}\nBASE: {self.base}\n"
+                    "COVERAGE: COMPLETE\nEXPECTED_GRAPHS: 2\nCOMPLETED_GRAPHS: 2\n"
+                    "EXPECTED_QUERIES: 0\nCOMPLETED_QUERIES: 0\n"
+                    "EXPECTED_ADVISORIES: 0\nCOMPLETED_ADVISORIES: 0\n")
+        evidence.write_text(complete)
+        writer = PLUGIN / "scripts/write-gate-report.sh"
+        self.run_cmd("bash", str(writer), str(self.repo), "step4-dep-cve-check",
+                     "INCONCLUSIVE", "1", "recollect current advisory facts", check=True)
+        retry = run("retry-gate", "dep-cve-check")
+        self.assertEqual(retry.returncode, 0, retry.stdout + retry.stderr)
+        archive = next((self.repo / ".rebase-tmp/gate-retries").iterdir())
+        self.assertEqual((archive / evidence.name).read_text(), complete)
+        self.assertFalse(evidence.exists())
+        companion = gate_dir / "dep-cve-check.sh"
+        companion.write_text("#!/bin/bash\nexit 124\n")
+        companion.chmod(0o755)
+        failed = run("gates")
+        self.assertEqual(failed.returncode, 1)
+        self.assertIn("companion crashed", failed.stdout)
+        for verdict in ("PASS", "SKIP"):
+            result = self.run_cmd("bash", str(writer), str(self.repo), "step4-dep-cve-check",
+                                  verdict, "0", "cannot accept previous scan")
+            self.assertNotEqual(result.returncode, 0)
+        self.assertFalse((gates / "step4-dep-cve-check.report").exists())
+        self.assertEqual(run("retry-gate", "dep-cve-check").returncode, 0)
+        fresh = complete + "ADVISORY: freshly collected facts\n"
+        (self.repo / "fresh-evidence").write_text(fresh)
+        companion.write_text('#!/bin/bash\ncp "$1/fresh-evidence" '
+                             '"$1/.rebase-tmp/gates/step4-dep-cve-check.evidence"\n')
+        self.assertEqual(run("gates").returncode, 1)
+        self.assertEqual(evidence.read_text(), fresh)
+        self.run_cmd("bash", str(writer), str(self.repo), "step4-dep-cve-check",
+                     "PASS", "0", "reviewed replacement scan", check=True)
+        self.assertEqual(run("gates").returncode, 0)
+        self.assertEqual((archive / evidence.name).read_text(), complete)
 
     def test_cve_cache_requires_review_of_exact_current_evidence(self):
         run = self.isolated_orchestrator()

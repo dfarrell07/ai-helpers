@@ -126,9 +126,13 @@ Include this section in every gate reviewer's context.
    Leave prior-step reports at their actual reviewed SHAs. Later commits do
    not authorize restamping them; changing a prior report's HEAD requires
    recollecting its evidence and performing that review again.
-5. If a cached report needs deliberate invalidation at the **same HEAD**,
-   remove only that current-step report **before** rerunning `gates`.
-   Never delete a newly regenerated companion report or prior-step reports.
+5. For deliberate recollection at the **same HEAD**, or after a companion
+   crash, first resolve the cause and have the parent run
+   `bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" retry-gate "$REPO_ROOT" <gate-name>`.
+   This retains the previous report/evidence/crash under `.rebase-tmp/gate-retries/`
+   and clears that current gate's active report, evidence, and crash marker. Then rerun
+   `gates` and review the new evidence within the existing retry budget.
+   Do not invalidate a newly regenerated report or a prior-step report.
 
 Use each gate's rubric for its verdict and issue count. Preserve out-of-scope
 findings in report details; deciding not to fix them does not itself make a

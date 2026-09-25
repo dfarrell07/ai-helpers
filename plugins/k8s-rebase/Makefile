@@ -99,7 +99,7 @@ test-version-selection: ## Offline Step 1 metadata and command-derivation checks
 	@python3 test/test_version_selection.py
 
 .PHONY: test-version-references
-test-version-references: ## Offline same-Go OpenShift stream and image checks
+test-version-references: ## Offline verified OpenShift builder and generic Go image checks
 	@python3 test/test_version_references.py
 
 .PHONY: test-kind-images

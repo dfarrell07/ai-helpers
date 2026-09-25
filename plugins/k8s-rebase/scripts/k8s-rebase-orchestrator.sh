@@ -7,6 +7,7 @@
 # Usage:
 #   k8s-rebase-orchestrator.sh init   <repo-path> <version>
 #   k8s-rebase-orchestrator.sh gates  <repo-path> [<step>]
+#   k8s-rebase-orchestrator.sh retry-gate <repo-path> <gate-name>
 #   k8s-rebase-orchestrator.sh advance <repo-path>
 #   k8s-rebase-orchestrator.sh status <repo-path>
 #   k8s-rebase-orchestrator.sh reports <repo-path>  # read-only final inventory
@@ -136,6 +137,26 @@ report_is_fresh() {
 }
 
 # --- Subcommands ---
+
+cmd_retry_gate() {
+  local repo="${1:?Usage: $0 retry-gate <repo-path> <gate-name>}" gate="${2:?gate-name required}"
+  repo=$(cd "$repo" && pwd)
+  local step sd rpt archive file
+  step=$(get_step "$repo")
+  [[ "$step" =~ ^[1-4]$ ]] || die "retry-gate requires an active gated step"
+  sd=$(step_dir_name "$step")
+  [[ "$gate" =~ ^[a-z0-9-]+$ && -f "$GATES_ROOT/$sd/$gate.md" ]] \
+    || die "retry-gate only accepts a named gate in the current step"
+  rpt=$(report_path "$repo" "$sd" "$gate")
+  mkdir -p "$repo/.rebase-tmp/gate-retries"
+  archive=$(mktemp -d "$repo/.rebase-tmp/gate-retries/step${step}-${gate}.XXXXXX")
+  for file in "$rpt" "${rpt%.report}.evidence" "${rpt%.report}.crash"; do
+    [[ ! -f "$file" ]] || cp -p "$file" "$archive/" || die "Cannot retain previous gate attempt"
+  done
+  rm -f "$rpt" "${rpt%.report}.evidence" "${rpt%.report}.crash"
+  echo "RETRY_READY: $gate (previous attempt: $archive)"
+  echo "Run gates again within the existing repair/retry budget."
+}
 
 cmd_init() {
   local repo="${1:?Usage: $0 init <repo-path> <version>}"
@@ -549,8 +570,9 @@ shift || true
 case "$cmd" in
   init)    cmd_init "$@" ;;
   gates)   cmd_gates "$@" ;;
+  retry-gate) cmd_retry_gate "$@" ;;
   advance) cmd_advance "$@" ;;
   status)  cmd_status "$@" ;;
   reports) cmd_reports "$@" ;;
-  *)       die "Usage: $0 {init|gates|advance|status|reports} <repo-path> [args...]" ;;
+  *)       die "Usage: $0 {init|gates|retry-gate|advance|status|reports} <repo-path> [args...]" ;;
 esac

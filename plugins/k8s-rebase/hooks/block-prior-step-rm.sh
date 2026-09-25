@@ -47,7 +47,7 @@ fi
 
 if [[ -n "$BLOCKED" ]]; then
   jq -n --arg reason "$(printf \
-    "BLOCKED: Deleting gate reports from a prior completed step.\n\nThe orchestrator is forward-only — once a step advances, its\nreports cannot be regenerated. Blocked pattern(s):\n  ${BLOCKED}\nOnly delete the SPECIFIC report you are re-running:\n  rm .rebase-tmp/gates/step${CURRENT_STEP}-<gate>.report\n\nPrior-step staleness is detected via HEAD stamps on individual\nreports — you do not need to delete them manually.")" \
+    "BLOCKED: Deleting gate reports from a prior completed step.\n\nThe orchestrator is forward-only — once a step advances, its\nreports cannot be regenerated. Blocked pattern(s):\n  ${BLOCKED}\nFor a current-step retry, use the orchestrator retry-gate command:\n  retry-gate <repo-path> <gate-name>\nIt retains the previous report, evidence, and crash marker before resetting that gate.\n\nPrior-step staleness is detected via HEAD stamps on individual\nreports — you do not need to delete them manually.")" \
     '{"decision":"block","reason":$reason}'
   exit 0
 fi

@@ -153,6 +153,11 @@ when a mode cannot run. Pass discovered package names as separate argv values
 (for example a Bash array), never one quoted space-delimited string.
 For large packages (>20k test lines), use native waiting.
 Split by test line count, cap ~30k per agent. Check `free -h` first.
+The validator preserves `GOMEMLIMIT`, `GOMAXPROCS`, `GOFLAGS`, and validation/lint
+timeouts when it auto-containerizes. Set `K8S_REBASE_CONTAINER_MEMORY` to the
+chosen hard container limit (for example `4g`) on constrained hosts; the Go
+memory setting alone is soft. Choose limits from available memory and the
+user's constraints, and keep validation invocations sequential.
 If compilation reports space/quota errors under `/tmp/go-build*`, inspect
 that filesystem separately from the checkout's disk. A tmpfs quota can fail
 while the checkout still has space. Retain the failed attempt, then retry

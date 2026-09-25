@@ -72,9 +72,15 @@ capture_diagnostics() {
       printf '\n'
     } >> "$OUTPUT_DIR/working-tree-status.txt"
     for log in "$workspace"/.rebase-tmp/*.log "$workspace"/.rebase-tmp/*.txt \
-               "$workspace"/.rebase-tmp/test-only-* "$workspace"/.rebase-tmp/base-commit; do
+               "$workspace"/.rebase-tmp/test-only-* "$workspace"/.rebase-tmp/base-commit \
+               "$workspace"/.rebase-tmp/step4-review-* "$workspace"/.rebase-tmp/step5-review-*; do
       [[ -f "$log" ]] || continue
       cp -f "$log" "$OUTPUT_DIR/script-logs/$key/$(basename "$log")"
+    done
+    for log in "$workspace"/.rebase-tmp/validation-* "$workspace"/.rebase-tmp/pr-review-* \
+               "$workspace"/.rebase-tmp/gate-retries; do
+      [[ -d "$log" ]] || continue
+      cp -a "$log" "$OUTPUT_DIR/script-logs/$key/"
     done
     mkdir -p "$OUTPUT_DIR/script-logs/$key/gates"
     for log in "$workspace"/.rebase-tmp/gates/*.report \
@@ -244,7 +250,7 @@ capture_diagnostics
 
 # cmd_status exits 0 in both DONE:true and DONE:false paths; the judge
 # reads the output text, not the exit code.
-bash "$PLUGIN_DIR/scripts/k8s-rebase-orchestrator.sh" status "$RUN_ROOT" \
+bash "$PLUGIN_SNAPSHOT/scripts/k8s-rebase-orchestrator.sh" status "$RUN_ROOT" \
   > "$OUTPUT_DIR/final-status.txt" 2>&1
 
 # .rebase-tmp/status/INCOMPLETE is written unconditionally on force-advance;
