@@ -1211,7 +1211,10 @@ exec "{real_git}" "$@"
             self.assertIn("STALE final-step", run("reports").stdout)
         writer = PLUGIN / "scripts/write-gate-report.sh"
         self.run_cmd("bash", str(writer), str(self.repo), "step4-dep-cve-check",
-                     "PASS", "0", "reviewed current facts", check=True)
+                     "PASS", "0", "reviewed current facts",
+                     "Quoted metadata from an earlier report:",
+                     f"HEAD: {self.base}", "VERDICT: FAIL",
+                     "EVIDENCE_SHA256: earlier-digest", check=True)
         self.assertEqual(run("gates").returncode, 0)
         self.assertIn("FRESHNESS: current HEAD", run("reports").stdout)
         # Valid coverage and HEAD still match, but a new advisory body needs review.
@@ -1256,6 +1259,46 @@ exec "{real_git}" "$@"
         self.assertLess(len(result.stdout), 2000)
         self.assertFalse(evidence.with_suffix(".crash").exists())
         self.assertFalse(evidence.with_suffix(".evidence.tmp").exists())
+
+    def test_report_details_do_not_replace_header_metadata(self):
+        run = self.isolated_orchestrator()
+        writer = PLUGIN / "scripts/write-gate-report.sh"
+        state = self.repo / ".rebase-tmp"
+        cases = (
+            # The cloud-controller trial repeated this line in its details.
+            ("PASS", f"HEAD: {self.git_sha()} (verified)"),
+            ("PASS", f"HEAD: {self.base}\nVERDICT: FAIL"),
+            ("SKIP", "HEAD: unknown\nVERDICT: INCONCLUSIVE"),
+            ("FAIL", f"HEAD: {self.git_sha()}\nVERDICT: PASS"),
+            ("INCONCLUSIVE", "VERDICT: SKIP"),
+        )
+        for verdict, details in cases:
+            with self.subTest(verdict=verdict, details=details):
+                self.activate(step=2)
+                (state / ".advance-attempts-step2").unlink(missing_ok=True)
+                self.run_cmd("bash", str(writer), str(self.repo), "step2-check",
+                             verdict, "0" if verdict in ("PASS", "SKIP") else "1",
+                             "reviewed current source", "Quoted evidence:", details,
+                             check=True)
+                report = state / "gates/step2-check.report"
+                original = report.read_bytes()
+
+                result = run("gates")
+                self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+                self.assertIn(f"EXISTING: check {verdict}", result.stdout)
+                inventory = run("reports")
+                self.assertEqual(inventory.returncode, 0, inventory.stderr)
+                self.assertIn(f"| `step2-check.report` | {verdict} | current | "
+                              f"`{self.git_sha()[:12]}` |", inventory.stdout)
+
+                result = run("advance")
+                passed = verdict in ("PASS", "SKIP")
+                self.assertEqual(result.returncode, 0 if passed else 1,
+                                 result.stdout + result.stderr)
+                current_step = json.loads((state / "state.json").read_text())["current_step"]
+                self.assertEqual(current_step, 3 if passed else 2)
+                self.assertFalse((state / "status/INCOMPLETE").exists())
+                self.assertEqual(report.read_bytes(), original)
 
     def test_fresh_pass_and_skip_advance_without_retries(self):
         run = self.isolated_orchestrator()
@@ -1429,7 +1472,9 @@ exec "{real_git}" "$@"
         head = f"HEAD: {self.git_sha()}\n"
         for body in (head + "VERDICT: PASSING\n", head + "VERDICT: PASS\nVERDICT: FAIL\n",
                      head + "VERDICT: SKIP\nVERDICT: SKIP\n", "VERDICT: PASS\n",
-                     "HEAD: unknown\nVERDICT: PASS\n", head * 2 + "VERDICT: PASS\n"):
+                     "HEAD: unknown\nVERDICT: PASS\n", head * 2 + "VERDICT: PASS\n",
+                     head * 2 + "VERDICT: PASS\nDETAILS:\nquoted evidence\n",
+                     head + "VERDICT: FAIL\nVERDICT: PASS\nDETAILS:\nquoted evidence\n"):
             with self.subTest(body=body):
                 report.write_text(body)
                 result = run("reports")

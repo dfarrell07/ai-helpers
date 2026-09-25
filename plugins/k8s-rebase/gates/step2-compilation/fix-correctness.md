@@ -6,6 +6,9 @@ missing error check, silently swallowed error.
 
 List each fix you reviewed and your assessment. Do not just say
 "all correct" — show your reasoning for each.
+If the complete non-vendor diff contains no application fixes, report
+PASS with zero fixes and identify the diff scope you checked. That empty
+scope is not a SKIP under this gate's criteria.
 
 VERDICT criteria: FAIL if any fix compiles but would behave
 incorrectly at runtime (wrong type conversion, silent data loss,

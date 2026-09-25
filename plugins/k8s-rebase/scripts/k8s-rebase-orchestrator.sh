@@ -95,16 +95,22 @@ report_path() {
   echo "$repo/.rebase-tmp/gates/${prefix}-${gate_name}.report"
 }
 
+report_header() {
+  # Details may quote earlier reports or command output. Only the header owns
+  # metadata; reports without a DETAILS section retain their legacy behavior.
+  awk '/^DETAILS:$/ {exit} {print}' "$1"
+}
+
 report_has_pass() {
   local rpt="$1"
-  report_has_verdict "$rpt" && grep -qE '^VERDICT: (PASS|SKIP)$' "$rpt"
+  report_has_verdict "$rpt" && report_header "$rpt" | grep -E '^VERDICT: (PASS|SKIP)$' >/dev/null
 }
 
 report_has_verdict() {
   local rpt="$1"
   [[ -f "$rpt" ]] || return 1
   local verdict
-  verdict=$(grep '^VERDICT:' "$rpt") || return 1
+  verdict=$(report_header "$rpt" | grep '^VERDICT:') || return 1
   # One exact verdict only; prefixes and duplicate/conflicting lines are invalid.
   [[ "$verdict" =~ ^VERDICT:\ (PASS|FAIL|SKIP|INCONCLUSIVE)$ ]]
 }
@@ -113,7 +119,7 @@ report_is_fresh() {
   local rpt="$1" repo="$2"
   [[ -f "$rpt" ]] || return 1
   local rpt_sha
-  rpt_sha=$(awk '/^HEAD: /{print $2}' "$rpt" 2>/dev/null)
+  rpt_sha=$(report_header "$rpt" | awk '/^HEAD: /{print $2}')
   if [[ -z "$rpt_sha" ]]; then
     return 1
   fi
@@ -123,7 +129,7 @@ report_is_fresh() {
   if [[ "${rpt##*/}" == step4-dep-cve-check.report ]] && report_has_pass "$rpt"; then
     local digest recorded_digest
     digest=$(python3 "$PLUGIN_ROOT/scripts/check-cve-evidence.py" "$repo" 2>/dev/null) || return 1
-    recorded_digest=$(sed -n 's/^EVIDENCE_SHA256: //p' "$rpt")
+    recorded_digest=$(report_header "$rpt" | sed -n 's/^EVIDENCE_SHA256: //p')
     [[ "$recorded_digest" == "$digest" ]] || return 1
   fi
   return 0
@@ -213,7 +219,7 @@ cmd_gates() {
     # 1. Cache hit — fresh verdict already on disk.
     if [[ -f "$rpt" ]] && report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then
       local verdict
-      verdict=$(awk '/^VERDICT:/{print $2}' "$rpt")
+      verdict=$(report_header "$rpt" | awk '/^VERDICT:/{print $2}')
       echo "EXISTING: $gate_name $verdict"
       ((resolved++)) || true
       continue
@@ -246,7 +252,7 @@ cmd_gates() {
     # 3. Companion wrote a fresh verdict? (filter/verdict clean-path only)
     if [[ -f "$rpt" ]] && report_has_verdict "$rpt" && report_is_fresh "$rpt" "$repo"; then
       local verdict
-      verdict=$(awk '/^VERDICT:/{print $2}' "$rpt")
+      verdict=$(report_header "$rpt" | awk '/^VERDICT:/{print $2}')
       echo "RESOLVED: $gate_name $verdict (companion)"
       ((resolved++)) || true
       continue
@@ -399,10 +405,10 @@ cmd_reports() {
       reviewed_head=-
       if [[ -f "$rpt" && -r "$rpt" ]]; then
         cat "$rpt" || die "Cannot read report: $rpt"
-        raw_head=$(grep '^HEAD:' "$rpt") || raw_head=""
+        raw_head=$(report_header "$rpt" | grep '^HEAD:') || raw_head=""
         if report_has_verdict "$rpt" && [[ "$raw_head" =~ ^HEAD:\ [0-9a-f]+$ ]] &&
            [[ ${#raw_head} -eq $((${#head} + 6)) ]]; then
-          verdict=$(awk '/^VERDICT: /{print $2}' "$rpt")
+          verdict=$(report_header "$rpt" | awk '/^VERDICT: /{print $2}')
           reviewed_head="${raw_head#HEAD: }"
           if [[ "$raw_head" == "HEAD: $head" ]] && report_is_fresh "$rpt" "$repo"; then
             freshness=current

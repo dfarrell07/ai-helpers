@@ -6,7 +6,9 @@ go vet miss — the most common cause of gate failures.
 Step 1 — Try staticcheck (most reliable):
   If `staticcheck` is available, run:
   `staticcheck -checks SA1019 ./... 2>&1`
-  (add `-mod=vendor` to go flags if vendor/ exists)
+  With vendor/, set Go's flags while preserving inherited flags:
+  `GOFLAGS="${GOFLAGS:+$GOFLAGS }-mod=vendor" staticcheck -checks SA1019 ./... 2>&1`
+  Do not pass `-mod=vendor` as a Staticcheck argument; it is a Go flag.
   SA1019 detects calls to functions/types marked `// Deprecated:`
   in their source. This catches standard Go deprecated API usage.
   Always run Step 2 regardless of staticcheck results — some projects
@@ -60,7 +62,11 @@ the analyzer's exit status before displaying excerpts; a truncated sample
 does not establish coverage of the remaining findings or modules.
 
 Report each deprecated call with file:line and what to replace
-it with (if the deprecation comment says). FAIL if any NEW
+it with (if the deprecation comment says). A matching identifier is only
+a candidate: resolve its import alias and receiver to the actual dependency
+declaration before reporting a deprecated use. An identically named symbol
+in another package does not establish that this call is deprecated.
+FAIL if any NEW
 deprecated calls exist. PASS if clean or only pre-existing.
 If neither staticcheck nor Go is available, write INCONCLUSIVE with summary
 "staticcheck and Go unavailable — deprecated call check not performed".
