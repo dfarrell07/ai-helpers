@@ -85,6 +85,12 @@ new module. Commit subjects alone do not establish changes. PR body:
 Include the retained log path for each executed command and its actual argv,
 revision, scope, and completed exit. Reopen those logs before drafting: do not
 reconstruct invocation details from memory or assume a linter was absent.
+The validator retains each command in `.rebase-tmp/validation-*/command.txt`
+with its own `HEAD`, command, and producer exit beside `output.log`. Use these
+records for attribution; root-level convenience logs can be replaced by later
+runs. Check its before/after worktree status and `HEAD_AFTER` too: dirty or
+changing source is not verification of a committed SHA alone. A Dockerfile-only
+follow-up does not move earlier tests to its new SHA.
 Expected gates are not executed checks.
 
 ## 5c. Adversarial pre-PR review
@@ -180,14 +186,14 @@ if [[ -f "$HOOK_DIR/pre-push" ]]; then
   fi
 fi
 rm -rf .rebase-tmp/step*.pid .rebase-tmp/*.pid \
-       .rebase-tmp/step[45]-review-* \
        .rebase-tmp/crd-pre-codegen/ || exit 1
 rm -f .rebase-tmp/.session-active || exit 1
 K8S_REBASE_CLEANUP
 ```
 
 Preserve `.rebase-tmp/gates/`, `base-commit`, target-version records,
-validation summaries, full `*.log` files, and `test-only-*` test output. These
+validation summaries, review prompts/results (including `step[45]-review-*`),
+full `*.log` files, and `test-only-*` test output. These
 are verification evidence needed to audit the PR's claims, not disposable
 process scratch. If cleanup cannot be completed with allowed
 tools/access, report incomplete cleanup; do not disable guards or change permissions.

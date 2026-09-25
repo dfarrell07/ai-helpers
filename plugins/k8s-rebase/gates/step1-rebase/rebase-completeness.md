@@ -105,7 +105,10 @@ Fix hints for non-zero counts:
 
 VERDICT:
 
-- If all counts are 0: PASS.
+- If required reference/image verification cannot complete, report
+  INCONCLUSIVE and identify the missing evidence. An existing version-ref
+  commit does not establish that every required reference was verified.
+- If all required checks completed and all counts are 0: PASS.
 - If Check 1 is 1 but Checks 2-5 are ALL 0: PASS. The result
   file is missing but all work was completed. Note it in summary.
 

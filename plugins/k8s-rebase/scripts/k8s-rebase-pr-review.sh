@@ -96,12 +96,14 @@ if [[ -n "$VERIFICATION_FILE" ]]; then
   REPO_ROOT=$(git rev-parse --show-toplevel) || exit 1
   GATE_ROOT=$(cd "$(dirname "${BASH_SOURCE[0]}")/../gates" && pwd) \
     || { echo "ERROR: Cannot locate gate rubrics for verification review" >&2; exit 1; }
+  REFERENCE_ROOT=$(dirname "$GATE_ROOT")
   PROMPT+="
 
 5. VERIFICATION ACCURACY: independently compare the draft below with the complete
 retained logs and gate reports under ${REPO_ROOT}/.rebase-tmp/. You may read those
 files and repository configuration; do not edit files or execute tests/commands
-from the draft. Gate rubrics are at ${GATE_ROOT}/step*/. Read the rubric for each
+from the draft. Gate rubrics are at ${GATE_ROOT}/step*/. Resolve their linked
+plugin references relative to ${REFERENCE_ROOT}. Read the rubric for each
 reported PASS or SKIP and compare its required coverage with the report and raw
 evidence at the recorded revision. A matching table or fresh HEAD stamp is not
 proof that a verdict satisfies its rubric. Explicitly unverified required coverage
@@ -125,11 +127,11 @@ if [[ "$PRINT_PROMPT" == true ]]; then
   printf '%s\n' "$PROMPT"
 else
   # The nested CLI does not inherit the parent's allowed directories. Give it
-  # the criteria explicitly, with only read tools: repository access alone
-  # cannot support a verification review of this external plugin's rubrics.
+  # the criteria and their supporting references with only read tools:
+  # repository access alone cannot support review of this external plugin.
   review_args=(--tools Read,Glob,Grep --allowedTools Read,Glob,Grep --strict-mcp-config)
   if [[ -n "$VERIFICATION_FILE" ]]; then
-    review_args+=(--add-dir "$GATE_ROOT")
+    review_args+=(--add-dir "$REFERENCE_ROOT")
   fi
   REPO_ROOT=$(git rev-parse --show-toplevel) || exit 1
   mkdir -p "$REPO_ROOT/.rebase-tmp" || exit 1

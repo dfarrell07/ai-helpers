@@ -20,6 +20,9 @@ Step 2 — Discover deprecated symbols via web search:
 - "kubernetes `<version>` breaking changes deprecated APIs"
 
   Build a list of deprecated symbols/imports from the results.
+  Cite the target release sources and discovered symbols in the report.
+  Hardcoded pattern checks do not complete this discovery step. If the
+  sources cannot be read, retain INCONCLUSIVE even when build/vet pass.
   For each, grep non-vendor Go files:
   `grep -rn '<pattern>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
 

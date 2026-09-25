@@ -31,6 +31,10 @@ Sources for common dependencies:
 For other dependencies, search their GitHub releases or changelog.
 
 For each dep, extract entries between the old and new versions.
+Use the raw source's release headings and their complete relevant text;
+a generated web summary can misattribute entries to neighboring releases.
+Record the exact headings, including multi-module release mappings, before
+assessing applicability. Retain or cite those raw sections for final review.
 Focus on: breaking changes, deprecations, removed features,
 default behavioral changes. Ignore: patch-level bug fixes,
 documentation changes, features behind alpha gates.
@@ -40,6 +44,10 @@ For each concern found, check whether:
 1. The autofix already addresses it (check the diff)
 2. The repo actually uses the affected feature (grep source
    AND grep CI scripts like kind-common.sh for flags/defaults)
+
+For indirect dependencies, trace production consumers through vendor or the
+resolved source. No direct import does not establish that changed defaults
+are unused; distinguish client-side and server-side paths where relevant.
 
 Account for every in-scope dependency and tool pin in a coverage list:
   [dep] old → new: source URL + reviewed release range + BREAKING / DEPRECATION / none found / UNVERIFIED

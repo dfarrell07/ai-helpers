@@ -121,6 +121,39 @@ func TestReachability(t *testing.T) {
         self.assertIn('link failed', (self.repo / '.rebase-tmp/root-build.log').read_text())
         self.assertNotIn('All validation passes', result.stdout)
 
+    def test_command_evidence_keeps_actual_revision_exit_and_prior_output(self):
+        self.module()
+        (self.repo / 'fixture.go').write_text('package fixture\n')
+        makefile = self.repo / 'Makefile'
+        makefile.write_text('build:\n\t@echo first-attempt\n\t@exit 7\n')
+        first_sha = self.run_cmd('git', 'rev-parse', 'HEAD', check=True).stdout.strip()
+        first = self.run_cmd('bash', str(VALIDATOR), '--quick')
+        self.assertEqual(first.returncode, 1, first.stdout + first.stderr)
+        records = list((self.repo / '.rebase-tmp').glob('validation-*/command.txt'))
+        failed = [p for p in records if 'COMMAND: make -C . build' in p.read_text()]
+        self.assertEqual(len(failed), 1)
+        record = failed[0]
+        original = (record.read_bytes(), record.with_name('output.log').read_bytes())
+        self.assertIn(f'HEAD: {first_sha}\n', record.read_text())
+        self.assertIn(f'HEAD_AFTER: {first_sha}\n', record.read_text())
+        self.assertIn('Makefile', record.with_name('worktree-before.txt').read_text())
+        self.assertIn('Makefile', record.with_name('worktree-after.txt').read_text())
+        self.assertIn('EXIT_STATUS: 2\n', record.read_text())  # make propagates recipe failure as 2
+        self.assertIn(b'first-attempt', original[1])
+        makefile.write_text('build:\n\t@echo second-attempt\n')
+        self.run_cmd('git', '-c', 'user.name=fixture', '-c', 'user.email=fixture@example.invalid',
+                     'commit', '-q', '--allow-empty', '-m', 'Follow-up', check=True)
+        second = self.run_cmd('bash', str(VALIDATOR), '--quick')
+        self.assertEqual(second.returncode, 0, second.stdout + second.stderr)
+        self.assertEqual((record.read_bytes(), record.with_name('output.log').read_bytes()), original)
+        second_sha = self.run_cmd('git', 'rev-parse', 'HEAD', check=True).stdout.strip()
+        latest = [p for p in (self.repo / '.rebase-tmp').glob('validation-*/command.txt')
+                  if 'COMMAND: make -C . build' in p.read_text() and p != record]
+        self.assertEqual(len(latest), 1)
+        self.assertIn(f'HEAD: {second_sha}\n', latest[0].read_text())
+        self.assertIn('EXIT_STATUS: 0\n', latest[0].read_text())
+        self.assertIn('second-attempt', latest[0].with_name('output.log').read_text())
+
     def test_legacy_primary_module_and_prefixed_packages(self):
         primary = self.module("go-controller", vendor=True)
         root = self.module()
@@ -279,7 +312,7 @@ sys.exit(125)
         # No daemon is contacted even when the host has podman/docker installed.
         for tool in ("bash", "git", "mkdir", "grep", "sed", "awk", "find", "sort",
                      "head", "cut", "timeout", "tail", "cat", "wc", "chmod", "tr",
-                     "tee", "python3", "dirname", "basename"):
+                     "tee", "python3", "dirname", "basename", "mktemp", "cp"):
             (self.bin / tool).symlink_to(shutil.which(tool))
         self.env["PATH"] = str(self.bin)
         result = self.run_cmd("bash", str(VALIDATOR), "--full")

@@ -153,6 +153,20 @@ when a mode cannot run. Pass discovered package names as separate argv values
 (for example a Bash array), never one quoted space-delimited string.
 For large packages (>20k test lines), use native waiting.
 Split by test line count, cap ~30k per agent. Check `free -h` first.
+If compilation reports space/quota errors under `/tmp/go-build*`, inspect
+that filesystem separately from the checkout's disk. A tmpfs quota can fail
+while the checkout still has space. Retain the failed attempt, then retry
+with `GOTMPDIR` and `TMPDIR` bound to a task-owned directory on a filesystem
+with sufficient space; do not delete unrelated temporary files or call an
+unexecuted test successful.
+
+Before dispatching `dep-cve-check`, the parent checks whether `govulncheck`
+is available and collects its complete output and producer exit for each
+affected module, sequentially. Follow that gate's resource limits and capture
+block. Pass the log paths, module scope, and scanned SHA to the reviewer.
+The OSV companion does not run govulncheck. If the scanner cannot run, pass
+the actual availability/resource evidence so the gate retains that coverage
+limit; do not describe OSV collection as a completed call-graph scan.
 
 **Gate agents:** Run the orchestrator's gates command first:
 

@@ -113,8 +113,13 @@ Include this section in every gate reviewer's context.
    A fresh stamp only establishes the reviewed SHA. Missing required source
    URLs/ranges, incomplete scans, or unexecuted applicable checks require
    further evidence or INCONCLUSIVE; they cannot support PASS.
-4. Triage findings against base under Scope, fix in-scope issues, and commit
-   before refreshing evidence. Re-validate as the step requires (`--quick` in 2–3,
+4. Triage findings against base under Scope. For INCONCLUSIVE, gather the
+   missing evidence before deciding on an edit. An expected version or stream
+   is not proof that its image exists: if registry access prevents verification,
+   retain the existing reference and report the blocker. Changing it to the
+   unverified candidate does not resolve the finding.
+   Fix established in-scope issues and commit before refreshing evidence.
+   Re-validate as the step requires (`--quick` in 2–3,
    `--no-test` in 4), then run `gates` again. Every current-step report at the
    old HEAD is stale, including PASS reports: complete all newly pending
    reviews, not just the previously failing ones.
@@ -231,15 +236,19 @@ from its SetFromMap.
   revision, scope, completed exit, and log path in the handoff; do not recreate
   a command from memory when drafting the PR.
 
-## OCP Version Mapping
+## OpenShift dependency branches
 
-k8s 1.N maps to OCP as follows:
+Select the OpenShift dependency release branch for k8s 1.N as follows:
 
 - k8s <= 1.35: OCP 4.(N-13) — e.g., 1.34 -> 4.21, 1.35 -> 4.22
 - k8s >= 1.36: OCP 5.(N-36) — e.g., 1.36 -> 5.0, 1.37 -> 5.1
 
-Use `release-5.X` branches and `openshift-5.X` in CI image refs
-for k8s >= 1.36. Do NOT escalate to a newer release branch to fix
+Use `release-5.X` branches for k8s >= 1.36.
+Do NOT escalate to a newer release branch to fix
 dependency conflicts — find newer commits on the CORRECT branch.
-Read the OCP version from `.ci-operator.yaml` or Dockerfiles to
-confirm (`grep -rn 'openshift-[0-9]' .`).
+This mapping selects dependency branches; it does not require every Go builder
+or OS base image to carry the same stream label. Select CI images by their
+actual role, required toolchain, and the repository's target-branch CI evidence.
+Apply the checks in
+`${PLUGIN_ROOT}/gates/step4-verification/version-completeness.md` before
+declaring that reference stale.

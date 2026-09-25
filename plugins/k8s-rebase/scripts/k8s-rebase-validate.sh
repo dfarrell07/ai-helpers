@@ -220,8 +220,23 @@ run_validation() {
   fi
 
   echo ":: Running: $name (timeout: $step_timeout)"
+  local attempt command_head
+  attempt=$(mktemp -d "$REBASE_TMP/validation-XXXXXX") || return 1
+  command_head=$(git rev-parse HEAD) || return 1
+  git status --porcelain=v1 > "$attempt/worktree-before.txt" || return 1
+  {
+    printf 'HEAD: %s\n' "$command_head"
+    printf 'CWD: %s\nCOMMAND: %s\n' "$PWD" "$*"
+    printf 'TIMEOUT: %s\nLOG: %s\n' "$step_timeout" "$logfile"
+  } > "$attempt/command.txt" || return 1
   local rc=0
   timeout --kill-after=60s "$step_timeout" bash -c "$*" > "$logfile" 2>&1 || rc=$?
+  printf 'EXIT_STATUS: %s\n' "$rc" >> "$attempt/command.txt" || return 1
+  command_head=$(git rev-parse HEAD) || return 1
+  printf 'HEAD_AFTER: %s\n' "$command_head" >> "$attempt/command.txt" || return 1
+  git status --porcelain=v1 > "$attempt/worktree-after.txt" || return 1
+  cp -- "$logfile" "$attempt/output.log" || return 1
+  echo "  Retained command evidence: $attempt"
   if [[ "$rc" -eq 0 ]]; then
     echo "  PASS"
     return 0

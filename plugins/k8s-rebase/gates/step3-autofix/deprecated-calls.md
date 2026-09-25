@@ -21,9 +21,29 @@ Step 2 — Non-standard deprecation scan:
   misses these. Find deprecated declarations in vendor:
   `grep -rh -A2 '// Deprecated:\|// DEPRECATED' vendor/ --include='*.go' 2>/dev/null | grep -E '^\s*func |^\s*type |^\s*var |^\s*const ' | grep -oP '(?<!\w)(?:func|type|var|const)\s+\K\w+' | sort -u`
   This looks at the lines AFTER the deprecation comment to find
-  the actual declaration name. For each deprecated symbol, check
-  non-vendor usage:
-  `grep -rn '<symbol>' --include='*.go' . | grep -v vendor/ | grep -v .cache/`
+  the actual declaration name. Read longer comment blocks and grouped or
+  method declarations too; the two-line extraction is only a starting list.
+  Check every collected name in non-vendor source, retaining the full hits.
+  Use explicit Bash and line iteration or arrays. In zsh, `for sym in $NAMES`
+  does not split a multiline list; likewise a quoted multiline file list is
+  one filename. A failed search is incomplete coverage, never zero uses.
+
+  For an already collected newline-separated `NAMES` list, this Bash loop
+  distinguishes no matches (rg exit 1) from an unsuccessful scan:
+
+  ```bash
+  checked=0
+  while IFS= read -r symbol; do
+    [[ -n "$symbol" ]] || continue
+    printf 'SYMBOL: %s\n' "$symbol"
+    rc=0
+    rg -n -w -F --glob '*.go' --glob '!**/vendor/**' \
+      --glob '!**/.cache/**' -- "$symbol" . || rc=$?
+    [[ "$rc" -le 1 ]] || exit "$rc"
+    checked=$((checked + 1))
+  done <<< "$NAMES"
+  printf 'CHECKED_SYMBOLS: %s\n' "$checked"
+  ```
 
 Step 3 — Fallback (if staticcheck unavailable and no vendor):
   Use `go vet ./...` as a minimal check. It won't catch

@@ -33,6 +33,10 @@ is incomplete evidence, even when it summarizes other sections. Retrieve
 the omitted sections using bounded raw-source reads; if that cannot be
 completed, list the missing sections and report INCONCLUSIVE. Never infer
 "no relevant urgent notes" from missing text.
+Build a release-heading/section coverage list from the raw file before
+analysis, including sections absent from an entry. A generated web summary
+does not establish the headings or complete section coverage. Keep raw
+line ranges so the final reviewer can check each coverage claim.
 
 Filter for entries most relevant to this repo's component. For
 network-focused repos, prioritize [SIG Network], [SIG API Machinery],

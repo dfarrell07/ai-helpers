@@ -172,7 +172,9 @@ class CompatibilityTests(unittest.TestCase):
             self.assertEqual(result.returncode, 17)
             self.assertEqual(result.stdout, "partial review; no verdict\n")
         args = argv.read_text().splitlines()
-        self.assertEqual(args[args.index("--add-dir") + 1], str(PLUGIN / "gates"))
+        # Rubrics link to sibling docs (for example the pattern reference),
+        # so allowing only gates/ leaves required review inputs inaccessible.
+        self.assertEqual(args[args.index("--add-dir") + 1], str(PLUGIN))
         for flag in ("--tools", "--allowedTools"):
             self.assertEqual(set(args[args.index(flag) + 1].split(",")),
                              {"Read", "Glob", "Grep"})
@@ -1076,15 +1078,20 @@ exec "{real_git}" "$@"
                     "base-commit": self.git_sha() + "\n",
                     "test-only-fixture": "actual test output\n",
                     "root-build.log": "actual build output\n",
+                    "step4-review-2.log": "APPROVE: reviewed final commit\n",
+                    "step4-review-fixture": "selected-commit review prompt\n",
+                    "step5-review-fixture": "full-rebase review prompt\n",
                     "summary.txt": "actual validation summary\n",
                     "unrelated.fixture": "keep\n"}
         for name, body in retained.items():
             path = state / name
             path.parent.mkdir(exist_ok=True)
             path.write_text(body)
-        scratch = [Path(self.run_cmd("mktemp", str(state / f"{prefix}-XXXXXX"),
-                                     check=True).stdout.strip())
-                   for prefix in ("step4-review", "step5-review")]
+        scratch = [state / "step4.pid", state / "worker.pid", state / "crd-pre-codegen"]
+        for path in scratch[:2]:
+            path.write_text("12345\n")
+        scratch[2].mkdir()
+        (scratch[2] / "generated.yaml").write_text("scratch snapshot\n")
         hook = self.repo / ".git/hooks/pre-push"
         hook.write_text("#!/bin/sh\nexit 1 # k8s-rebase guard\n")
         backup = hook.with_name("pre-push.bak.k8s-rebase")

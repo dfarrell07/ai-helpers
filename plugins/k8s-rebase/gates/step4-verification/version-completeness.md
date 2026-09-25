@@ -33,16 +33,29 @@ match the target release's Go toolchain.
 
 For OpenShift consumers, also inspect `.ci-operator.yaml` and Dockerfiles
 for `openshift-X.Y` and `ocp/X.Y:` streams. Compare with the mapped target
-release and that repository's `openshift/release` configuration; verify the
-replacement images exist. Check this even if Go is unchanged. An unavailable
-image or unresolved release configuration is missing verification: report it
+release and that repository's target-branch CI configuration. First identify
+the image's role: a Go builder or RHEL base image does not select the Kubernetes
+API version linked into the application. Neither the dependency-branch mapping
+nor CI's cluster integration stream requires matching builder/base labels.
+To call a reference stale, identify the actual unmet requirement (for example,
+an insufficient Go version, a Kubernetes test-server version, or an image
+explicitly required by the target build configuration). An older stream can
+remain valid when the target branch explicitly uses those exact references, its retained
+CI image-build evidence confirms them, and their toolchain/base requirements
+still satisfy the rebased project. Cite the configuration, CI revision/job,
+image references, and target Go floor. This establishes the reference choice,
+not a successful image build or cluster test of the rebased candidate.
+
+When a replacement is required, verify that it exists. Check this even if Go
+is unchanged; unchanged source alone does not justify retaining a reference.
+An unavailable image or unresolved release configuration is missing verification: report it
 as INCONCLUSIVE rather than inventing a tag or calling the check passed.
 List every applicable image reference with its base stream, target stream,
-replacement verification, and file:line. For example, a Dockerfile still
-using OCP 5.0 during a 5.1 rebase is unresolved even if unchanged: use FAIL
-when the correct replacement is verified and still missing, or INCONCLUSIVE
-when that replacement cannot be verified. This image-specific rule takes
-precedence over the general stale-reference count below. Neither case is PASS.
+replacement verification or supported retention, and file:line. If an older
+stream lacks the target-branch/toolchain evidence above, it remains unresolved:
+use FAIL when the required replacement is verified and still missing, or
+INCONCLUSIVE when the replacement cannot be verified. This image-specific rule
+takes precedence over the general stale-reference count below. Neither case is PASS.
 
 MANDATORY pre-existing check — run for EVERY finding before
 counting it. Skip this check and your verdict is WRONG.
@@ -60,9 +73,10 @@ target is NEW, including in an unmodified file: omission is a rebase defect.
 Count older unrelated debt as INFO. Neither an unchanged file nor the old
 version string's presence on base proves the finding was pre-existing.
 
-For each stale reference, report the file:line and what the
-correct value should be (the target k8s minor version).
-This enables the gate-fix loop to sed-replace them.
+For each verified stale reference, report the file:line, replacement, and
+supporting evidence so the gate-fix loop can apply it. An image candidate
+whose existence is unverified is missing evidence, not an edit instruction:
+keep it INCONCLUSIVE and retain the existing reference until verified.
 
 Report count of NEW genuinely stale previous-version references
 plus count of un-bumped Makefile version variables.
