@@ -45,6 +45,12 @@ session alive with native waiting, rather than imposing a short timeout.
 If the runtime cannot retain a command session, use a detached `nohup`
 launch with the same quoted argv, log, and PID paths; check the process
 until it actually exits. A "still running" check is not a notification.
+Never end your turn while the script runs, and do not launch it as a
+background task to be notified later: a headless session ends with its turn
+and no notification arrives, abandoning the rebase. If a command call returns
+or times out first, keep waiting in the foreground with repeated
+`timeout 570 tail --pid="$(cat "$REPO_ROOT/.rebase-tmp/step1.pid")" -f /dev/null`
+calls until the process exits.
 On recovery, inspect the recorded process and log before any new launch.
 
 After process completion, check the exit status and the log's last lines.

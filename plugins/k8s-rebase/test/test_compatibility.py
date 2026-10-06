@@ -913,7 +913,7 @@ exec "{real_git}" "$@"
         for command in blocked:
             self.assertFalse(self.hook("block-push.sh", {"command": command}))
 
-    def test_stop_hook_waits_past_early_result_marker(self):
+    def test_stop_hook_blocks_exit_while_step1_runs_and_names_the_pid(self):
         self.activate(step=1)
         state = self.repo / ".rebase-tmp"
         child = subprocess.Popen(["bash", "-c", "read -r completion"],
@@ -921,9 +921,15 @@ exec "{real_git}" "$@"
                                  stdin=subprocess.PIPE, text=True)
         try:
             (state / "step1.pid").write_text(str(child.pid))
-            self.assertFalse(self.hook("stop-hook.sh", {}))
-            (state / "step1-result.txt").write_text("EXIT 2\n")
-            self.assertFalse(self.hook("stop-hook.sh", {}))
+            for _ in range(2):
+                blocked = self.hook("stop-hook.sh", {})
+                self.assertEqual(blocked.get("decision"), "block")
+                self.assertIn(f"tail --pid={child.pid}", blocked["reason"])
+                self.assertIn("Do not end your turn", blocked["reason"])
+                # The early result marker must not end the wait.
+                (state / "step1-result.txt").write_text("EXIT 2\n")
+            # The hook yields once it has already blocked this stop.
+            self.assertFalse(self.hook("stop-hook.sh", {}, stop_hook_active=True))
             # A retained PID must not exempt later steps (including PID reuse).
             self.activate(step=2)
             self.assertEqual(self.hook("stop-hook.sh", {}).get("decision"), "block")

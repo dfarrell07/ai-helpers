@@ -220,6 +220,9 @@ from its SetFromMap.
   mechanism and wait for actual completion before dependent work. Preserve
   logs and recovery information; a single "still running" check or an early
   result file does not establish completion. Do not launch the same work twice.
+  Never end your turn while launched work runs: a headless session ends with
+  its turn and no completion notice arrives. Wait in the foreground, in
+  bounded calls that fit the command timeout, until the process exits.
   Keep the user informed while work runs; stop and report genuine blockers.
   Save complete output and capture the work command's exit status before
   displaying excerpts. In `command | tail`, `$?` is normally the filter's
