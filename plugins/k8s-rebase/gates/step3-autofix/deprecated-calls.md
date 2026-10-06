@@ -39,6 +39,11 @@ Step 2 — Non-standard deprecation scan:
   imported declaration and receiver, reading its complete comment before
   assigning a deprecation. A same-named deprecated declaration in another
   dependency does not deprecate the imported one.
+  Resolve package-level and type deprecations through constructor return
+  types and receiver methods too: consumers can use a deprecated type without
+  spelling its name. A constructor without its own deprecation marker does
+  not exempt its deprecated result type. Record these uses and their baseline
+  delta even when SA1019 is clean; zero net-new uses is not zero consumption.
   If the inventory could not run, collect equivalent complete evidence. This
   grep can help discovery, but cannot establish complete declaration coverage:
   `grep -rh -A2 '// Deprecated:\|// DEPRECATED' vendor/ --include='*.go' 2>/dev/null | grep -E '^\s*func |^\s*type |^\s*var |^\s*const ' | grep -oP '(?<!\w)(?:func|type|var|const)\s+\K\w+' | sort -u`
