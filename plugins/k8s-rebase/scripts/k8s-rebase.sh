@@ -527,6 +527,10 @@ else
     || die "Cannot record rebase baseline without overwriting existing state"
 fi
 info "Rebase baseline: $REBASE_BASE"
+# The PR targets the branch this rebase started from; a detached start
+# falls back to the default branch. A resumed run keeps its original record.
+[[ -s "$REBASE_TMP/start-branch" ]] \
+  || printf '%s\n' "${CURRENT_BRANCH:-$DEFAULT_BRANCH}" > "$REBASE_TMP/start-branch"
 git checkout -b "$BRANCH_NAME"
 echo "$BRANCH_NAME" > "$REBASE_TMP/branch-name"
 info "Created branch: $BRANCH_NAME"

@@ -307,6 +307,21 @@ die() { printf 'ERROR: %s\\n' "$*" >&2; exit 1; }
         self.assertEqual(self.record.read_text(), newer + "\n")
         self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "bump1.37")
         self.assertEqual(self.resolve().stdout, newer + "\n")
+        start = self.repo / ".rebase-tmp/start-branch"
+        self.assertEqual(start.read_text(), "release-5.1\n")
+
+    def test_step1_records_pr_start_branch_for_detached_and_resumed_runs(self):
+        start = self.repo / ".rebase-tmp/start-branch"
+        self.git("checkout", "-q", "--detach")
+        self.branch_creation()
+        # Detached starts fall back to the default branch.
+        self.assertEqual(start.read_text(), "main\n")
+        start.write_text("release-5.1\n")
+        self.git("checkout", "-q", "release-5.1")
+        self.git("branch", "-q", "-D", "bump1.37")
+        self.git("checkout", "-q", "-b", "other-work")
+        self.branch_creation()
+        self.assertEqual(start.read_text(), "release-5.1\n")
 
     def test_step1_preserves_existing_compatible_record(self):
         self.record_base(self.initial)

@@ -15,8 +15,18 @@ K8S_VER=$(grep 'k8s.io/api ' "$PRIMARY_GOMOD" 2>/dev/null | grep -oE 'v[0-9.]+' 
 GO_VER=$(grep '^go ' "$PRIMARY_GOMOD" 2>/dev/null | awk '{print $2}')
 IS_DOWNSTREAM=$(git remote -v 2>/dev/null | grep -q 'openshift/' && echo true || echo false)
 BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1
+PR_BASE=$(cat .rebase-tmp/start-branch 2>/dev/null)
+[[ -n "$PR_BASE" ]] || PR_BASE=$(git symbolic-ref --short refs/remotes/origin/HEAD 2>/dev/null | sed 's|^origin/||')
+UPSTREAM=$(git remote get-url origin | sed -E 's#^(https://github\.com/|git@github\.com:)##; s#\.git$##')
+BRANCH=$(git branch --show-current)
+printf 'PR_BASE=%s UPSTREAM=%s BRANCH=%s\n' "$PR_BASE" "$UPSTREAM" "$BRANCH"
+gh pr list --repo "$UPSTREAM" --state merged --search 'rebase in:title' --limit 5 --json title --jq '.[].title'
 ```
 
+The PR targets `PR_BASE`, the branch the rebase started from. Do not
+substitute a release branch chosen from the OpenShift dependency mapping:
+OpenShift release branches are often fast-forwarded copies of the default
+branch. Model the title on the repository's previous rebase PR titles.
 If `IS_DOWNSTREAM` is true, the PR title needs a Jira ticket key.
 If interactive, ask. If background mode, use `REPLACE-WITH-JIRA-KEY:`.
 
@@ -35,8 +45,8 @@ bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" reports "$REPO_ROOT"
 
 Nonzero exit stops reporting; a successful inventory is not passing
 validation. Copy its verdict totals and freshness warnings rather than
-hand-counting. Copy the generated Markdown gate table into the PR body
-verbatim: keep every exact gate name, verdict, reviewed HEAD, and freshness
+hand-counting. Copy the generated Markdown gate table into the PR body's
+collapsed inventory verbatim: keep every exact gate name, verdict, reviewed HEAD, and freshness
 label. Do not reconstruct names from memory, rename gates as test suites,
 combine rows into "additional gates", or add rows for checks absent from
 the inventory. Read each report's HEAD, exact VERDICT, and findings, and
@@ -72,18 +82,35 @@ Inspect `git diff "$BASE..HEAD"` and `git log --oneline "$BASE..HEAD"`.
 Describe dependency bumps as old → new from removed/added lines, not unchanged
 diff context. Confirm both versions in the base and result go.mod files:
 moving an existing indirect requirement to the direct block is not adding a
-new module. Commit subjects alone do not establish changes. PR body:
+new module. Commit subjects alone do not establish changes.
+
+The PR body is for the repository's maintainers. Write it so a reviewer can
+take it in within a minute, in this order:
 
 - One-line summary: "Rebase to Kubernetes <version> (Go <version>)."
-- What changed: categories supported by the diff
-- Commit table: git log output, note mechanical vs manual
-- Verification: the generated gate table and its totals/freshness warnings,
-  followed by actual command outcomes, reasons for SKIP, unresolved findings,
-  and unverified coverage identified above.
+- Dependency changes: a short old → new table for the Kubernetes modules,
+  controller-runtime, OpenShift modules, and the Go directive, plus one line
+  for other notable module moves.
+- Code changes: each manual or autofix commit and why the bump required it,
+  or "None; mechanical dependency and vendor update."
+- Verification: one bullet per executed command with its outcome and scope
+  at the stated short SHA (build, vet, lint, unit tests executed vs compiled
+  only, vulnerability scan), then one bullet naming what was not run locally
+  (for example cloud e2e, race mode, image build).
+- Unresolved gates: every FAIL, INCONCLUSIVE, or UNVERIFIED gate with its
+  finding, outside any collapsed section. Omit the heading when there are none.
+- A collapsed `<details><summary>Rebase gate inventory (…)</summary>` block
+  holding the generated gate table, its totals and freshness warnings, and
+  each SKIP reason.
 - Footer: "All commits carry `Assisted-by: Claude Code <noreply@anthropic.com>` trailers."
 
-Include the retained log path for each executed command and its actual argv,
-revision, scope, and completed exit. Reopen those logs before drafting: do not
+Keep local filesystem paths, `.rebase-tmp` names, and workflow narrative
+(interruptions, resumes, retries, review attempts, models, cost) out of the
+body. Put them in `.rebase-tmp/pr-evidence.md` instead: for each verification
+bullet, the retained log path, actual argv, revision, scope, and completed
+exit. The pre-PR review receives that file with the draft.
+
+Reopen the retained logs before drafting: do not
 reconstruct invocation details from memory or assume a linter was absent.
 The validator retains each command in `.rebase-tmp/validation-*/command.txt`
 with its own `HEAD`, command, and producer exit beside `output.log`. Use these
@@ -148,8 +175,20 @@ reuse approval after changes; refresh affected gates and review the final tip.
 
 ## 5d. Present the reviewed command
 
-After review, print `gh pr create --title "..." --body "..."` using a heredoc
-containing the reviewed body. **Do not execute it.** Investigate every rejection,
+After review, print the commands for the user. **Do not execute them.**
+Use `<fork-remote>` and `<fork-owner>` placeholders unless a remote other than
+`origin` clearly points to the user's fork. Copy the reviewed body
+byte-for-byte into the heredoc:
+
+```text
+git push -u <fork-remote> <BRANCH>
+gh pr create --repo <UPSTREAM> --base <PR_BASE> --head <fork-owner>:<BRANCH> \
+  --title "<title>" --body-file - <<'K8S_REBASE_PR_BODY'
+<reviewed body>
+K8S_REBASE_PR_BODY
+```
+
+Investigate every rejection,
 correct claims against raw evidence or complete the missing check, and repeat
 review of the revised draft. Honest limitations may remain. Never change a
 verification claim after approval without reviewing the amended draft.

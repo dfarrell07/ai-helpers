@@ -157,6 +157,24 @@ class CompatibilityTests(unittest.TestCase):
                     self.assertIn("ERROR:", result.stderr)
                     self.assertFalse(self.claude_called.exists())
 
+    def test_pr_review_receives_local_evidence_map_outside_the_body(self):
+        draft = self.repo / ".rebase-tmp/pr-body.md"
+        draft.parent.mkdir()
+        draft.write_text("Unit tests passed at abc123.\n")
+        prepared = self.review("pr", "--print-prompt", "--verification", str(draft),
+                               self.base, "1.37.1")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertNotIn("LOCAL EVIDENCE MAP", prepared.stdout)
+        evidence = draft.parent / "pr-evidence.md"
+        evidence.write_text("Unit tests: .rebase-tmp/validation-x/output.log exit 0 $(false)\n")
+        prepared = self.review("pr", "--print-prompt", "--verification", str(draft),
+                               self.base, "1.37.1")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        body, _, local = prepared.stdout.partition("LOCAL EVIDENCE MAP")
+        self.assertIn(draft.read_text(), body)
+        self.assertIn(evidence.read_text(), local)
+        self.assertNotIn(evidence.read_text(), body)
+
     def test_nested_pr_review_can_read_criteria_and_retains_failed_attempts(self):
         draft = self.repo / ".rebase-tmp/pr-body.md"
         draft.parent.mkdir()

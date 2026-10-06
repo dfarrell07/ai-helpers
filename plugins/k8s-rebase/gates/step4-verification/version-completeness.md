@@ -46,6 +46,15 @@ still satisfy the rebased project. Cite the configuration, CI revision/job,
 image references, and target Go floor. This establishes the reference choice,
 not a successful image build or cluster test of the rebased candidate.
 
+OpenShift release automation (ART) owns many repositories' builder and base
+references. Check `git log --format='%h %an %s' -- <file>`: commits by
+`AOS Automation Release Team` or subjects containing `consistent with ART`
+mean ART reconciles that file from ocp-build-data. Retain those references
+unless the rebase raises the Go minor above the image's Go version; cite the
+ART commit and the unchanged Go floor. This is sufficient support for
+retention without image-build evidence, and a rebase must not preempt ART's
+stream update.
+
 When a replacement is required, verify that it exists. Check this even if Go
 is unchanged; unchanged source alone does not justify retaining a reference.
 An unavailable image or unresolved release configuration is missing verification: report it

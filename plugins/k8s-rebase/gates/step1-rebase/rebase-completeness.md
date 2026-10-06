@@ -43,11 +43,13 @@ Report a count for each check:
 
    - Version refs commit, when references need updating. Inspect the actual
      CI/Dockerfile/Makefile references before accepting a no-change result;
-     an empty Phase 3 log alone is not evidence. OpenShift streams can change
-     even when Go does not (Kubernetes 1.36 to 1.37 uses Go 1.26 for both).
-     Compare with the target release's OpenShift CI config and available
-     images. If no relevant reference needs an update, cite the checked
-     files and count 0 instead of requiring an empty commit.
+     an empty Phase 3 log alone is not evidence. A reference needs an update
+     only when the rebase changes what it must supply: a raised Go floor,
+     a Kubernetes version for KIND, kubectl, or envtest. OpenShift builder and
+     base image streams do not follow the dependency branch mapping, and ART
+     reconciles them in many repositories; the Step 4 version-completeness gate
+     reviews their roles. If no relevant reference needs an update, cite the
+     checked files and count 0 instead of requiring an empty commit.
 4. Dependency versions: check all go.mod files (excluding
    vendor/) for Kubernetes release-versioned deps: staging modules use
    v0.Y.Z, and k8s.io/kubernetes uses v1.Y.Z. Count any NOT at the target
