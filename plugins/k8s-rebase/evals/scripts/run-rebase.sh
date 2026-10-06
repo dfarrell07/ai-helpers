@@ -21,7 +21,7 @@ set -euo pipefail
 REPO_URL=${1:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
 FROM_COMMIT=${2:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
 VERSION=${3:?"Usage: $0 <repo_url> <from_commit> <version> [model] [known_good_url] [known_good_ref]"}
-SKILL_MODEL=${4:-claude-sonnet-4-6}
+SKILL_MODEL=${4:-claude-sonnet-5-5}
 KNOWN_GOOD_URL=${5:-}
 KNOWN_GOOD_REF=${6:-}
 AI_HELPERS_DIR=${AI_HELPERS_DIR:-$(cd "$(dirname "$0")/../../../.." && pwd)}

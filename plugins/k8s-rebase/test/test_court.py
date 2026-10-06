@@ -41,7 +41,7 @@ class CourtHarnessTests(unittest.TestCase):
             CONFIG_FILE=str(self.plugin / "test/config-1.36.yaml"),
             GIT_CONFIG_GLOBAL=os.devnull,
             GIT_CONFIG_NOSYSTEM="1",
-            COURT_MODEL="claude-sonnet-4-6",
+            COURT_MODEL="claude-sonnet-5-5",
             MAX_COURT_CONCURRENT="1",
             PROMPT_DIR=str(self.prompts),
         )

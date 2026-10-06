@@ -18,7 +18,7 @@ PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 # Model for court analysis — set explicitly so court doesn't fall back to
 # an unavailable model (e.g. Opus 5 on Vertex) and produce no output.
 # Override with COURT_MODEL=<model> if needed.
-COURT_MODEL="${COURT_MODEL:-claude-sonnet-4-6}"
+COURT_MODEL="${COURT_MODEL:-claude-sonnet-5-5}"
 MAX_COURT_CONCURRENT="${MAX_COURT_CONCURRENT:-1}"
 [[ "$MAX_COURT_CONCURRENT" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: MAX_COURT_CONCURRENT must be positive" >&2; exit 1; }
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"

@@ -30,8 +30,8 @@ runner:
     - "{known_good_ref}"
 
 models:
-  # claude-sonnet-4-6 is the only model this skill has been validated under.
-  skill: claude-sonnet-4-6
+  # Skill default is claude-sonnet-5-5; the 1.34-1.36 baselines used claude-sonnet-4-6.
+  skill: claude-sonnet-5-5
   judge: claude-opus-4-6
 
 mlflow:
