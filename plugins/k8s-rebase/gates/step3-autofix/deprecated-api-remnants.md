@@ -20,6 +20,11 @@ Step 2 — Discover deprecated symbols via web search:
 - "kubernetes `<version>` breaking changes deprecated APIs"
 
   Build a list of deprecated symbols/imports from the results.
+  Fetch and read the target release documents after discovering them;
+  search-result summaries and pre-release previews do not establish the
+  target tag's removals or deprecations. Retain the source URL and reviewed
+  release range. Confirm each claimed deprecation in its actual imported
+  declaration before counting a use; a hardcoded candidate name is not proof.
   Cite the target release sources and discovered symbols in the report.
   Hardcoded pattern checks do not complete this discovery step. If the
   sources cannot be read, retain INCONCLUSIVE even when build/vet pass.

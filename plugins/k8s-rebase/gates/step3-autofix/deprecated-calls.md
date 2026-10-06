@@ -3,6 +3,20 @@ Detect deprecated function and type usage via static analysis.
 This catches deprecated-but-compiling code that go build and
 go vet miss — the most common cause of gate failures.
 
+EVIDENCE (read before judging):
+  `.rebase-tmp/gates/step3-deprecated-calls.evidence`
+  The companion retains a Go AST inventory and its producer exit for each
+  vendored module. Read the linked inventory files: they include full
+  declaration comments, receiver methods, grouped declarations, fields,
+  candidate consumer identifiers, and comments requiring manual resolution.
+  Counts describe candidates, not deprecated uses or a gate verdict.
+  Compare evidence HEAD, SCAN_HEAD and HEAD_AFTER with the actual reviewed
+  revision. Changed revisions or incomplete collection require fresh evidence;
+  do not accept a current end stamp for an inventory collected at another HEAD.
+  A missing/failed inventory or a module without vendor requires collecting
+  its dependency source separately; zero collected candidates is not coverage.
+  SA1019 still needs its own completed execution and retained output.
+
 Step 1 — Try staticcheck (most reliable):
   If `staticcheck` is available, run:
   `staticcheck -checks SA1019 ./... 2>&1`
@@ -20,11 +34,17 @@ Step 1 — Try staticcheck (most reliable):
 Step 2 — Non-standard deprecation scan:
   Some projects (notably OpenShift API) use `// DEPRECATED`
   instead of the Go-standard `// Deprecated:` format. SA1019
-  misses these. Find deprecated declarations in vendor:
+  misses these. Use the companion's AST inventory to check all candidate
+  file/name pairs and relevant unbound comments. Resolve matches to the actual
+  imported declaration and receiver, reading its complete comment before
+  assigning a deprecation. A same-named deprecated declaration in another
+  dependency does not deprecate the imported one.
+  If the inventory could not run, collect equivalent complete evidence. This
+  grep can help discovery, but cannot establish complete declaration coverage:
   `grep -rh -A2 '// Deprecated:\|// DEPRECATED' vendor/ --include='*.go' 2>/dev/null | grep -E '^\s*func |^\s*type |^\s*var |^\s*const ' | grep -oP '(?<!\w)(?:func|type|var|const)\s+\K\w+' | sort -u`
-  This looks at the lines AFTER the deprecation comment to find
-  the actual declaration name. Read longer comment blocks and grouped or
-  method declarations too; the two-line extraction is only a starting list.
+  This looks at two lines AFTER the deprecation comment and misses longer
+  comment blocks, grouped specifications and receiver methods. Never use its
+  count alone as the completed scan.
   Check every collected name in non-vendor source, retaining the full hits.
   Use explicit Bash and line iteration or arrays. In zsh, `for sym in $NAMES`
   does not split a multiline list; likewise a quoted multiline file list is

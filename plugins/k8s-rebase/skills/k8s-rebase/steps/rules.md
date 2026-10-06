@@ -198,8 +198,12 @@ from its SetFromMap.
   actually checked.
 
 - Gate subagents are read-only — they must NOT edit repo files.
-  Their sole permitted write is their gate report file under
-  `.rebase-tmp/gates/`. The main agent applies fixes.
+  They may write their report under `.rebase-tmp/gates/` and retain command
+  evidence in a unique directory under `.rebase-tmp/gate-logs/`. Record argv,
+  reviewed revision, scope and completed producer exit with the full output.
+  This logging allowance also applies to gates whose boilerplate says
+  "sole permitted write"; it does not permit source or other report edits.
+  Never reuse an earlier command's log path. The main agent applies fixes.
 
 - If ANY judgment agent flags a concern, the main agent MUST
   investigate and either fix it or explain why it's not an issue.

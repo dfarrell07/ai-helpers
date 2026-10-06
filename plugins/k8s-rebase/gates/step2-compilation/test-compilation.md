@@ -22,6 +22,11 @@ If Go is unavailable or the wrong version, use the golang container
 reason, write INCONCLUSIVE with the modules not checked.
 
 Report total test compilation errors.
+Derive package counts from the complete retained command output, including
+both successful test-package results and `[no test files]` packages. Label
+the checked build configuration: the default command does not compile
+tests behind additional tags such as `race`. Do not describe compilation
+with `-run='^$'` as runtime test execution.
 
 For pre-existing issues: a test compilation error is NEW if it
 was not present before the rebase. Do NOT use "test file was
