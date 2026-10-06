@@ -169,7 +169,12 @@ tar -C "$PLUGIN_DIR" \
   -cf - . | tar -C "$PLUGIN_SNAPSHOT" -xf -
 
 set +e
-env -u AI_HELPERS_DIR -u PLUGIN_DIR claude -p "/k8s-rebase:k8s-rebase $VERSION" \
+# Workers and nested reviewers inherit these; EFFORT overrides the medium default.
+env -u AI_HELPERS_DIR -u PLUGIN_DIR \
+  ANTHROPIC_MODEL="$SKILL_MODEL" CLAUDE_CODE_SUBAGENT_MODEL="$SKILL_MODEL" \
+  CLAUDE_CODE_EFFORT_LEVEL="${EFFORT:-medium}" \
+  claude -p "/k8s-rebase:k8s-rebase $VERSION" \
+  --effort "${EFFORT:-medium}" \
   --output-format stream-json \
   --verbose \
   --max-turns "$MAX_TURNS" \

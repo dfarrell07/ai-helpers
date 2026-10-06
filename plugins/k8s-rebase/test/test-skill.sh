@@ -19,6 +19,9 @@ PERMISSION_MODE="${PERMISSION_MODE:-bypassPermissions}"
 # an unavailable model (e.g. Opus 5 on Vertex) and produce no output.
 # Override with COURT_MODEL=<model> if needed.
 COURT_MODEL="${COURT_MODEL:-claude-sonnet-5-5}"
+EFFORT="${EFFORT:-medium}"
+# Nested reviewers and court jurors inherit the effort level.
+export CLAUDE_CODE_EFFORT_LEVEL="$EFFORT"
 MAX_COURT_CONCURRENT="${MAX_COURT_CONCURRENT:-1}"
 [[ "$MAX_COURT_CONCURRENT" =~ ^[1-9][0-9]*$ ]] || { echo "ERROR: MAX_COURT_CONCURRENT must be positive" >&2; exit 1; }
 CONFIG_FILE="$(cd "$(dirname "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")" && pwd)/$(basename "${CONFIG_FILE:-$SCRIPT_DIR/config.yaml}")"
@@ -771,9 +774,12 @@ cmd_run() {
     _model=$(_config_val "$short" "model")
     [[ -n "$_model" && "$_model" != "null" ]] || _model=$(yq '.model // ""' "$CONFIG_FILE")
     local _model_args=()
-    [[ -n "$_model" && "$_model" != "null" ]] && _model_args=(--model "$_model")
+    # Workers launched by the session use the same model.
+    [[ -n "$_model" && "$_model" != "null" ]] && _model_args=(--model "$_model") \
+      && export CLAUDE_CODE_SUBAGENT_MODEL="$_model"
     session_output=$(claude --bg \
       "${_model_args[@]}" \
+      --effort "$EFFORT" \
       --plugin-dir "$PLUGIN_DIR" \
       --permission-mode "$PERMISSION_MODE" \
       "$_prompt" \
