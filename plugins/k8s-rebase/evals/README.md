@@ -130,8 +130,9 @@ artifacts; verify harness and schema compatibility before YAML scoring.
 
 Kubernetes 1.37.1 has six additional exploratory baselines in
 [config-1.37.yaml](../test/config-1.37.yaml). They start at pinned 1.36.2
-commits and deliberately omit `known_good`: no independently reviewed 1.37
-reference is established yet. Run one with
+commits and deliberately omit `known_good`. CNCC has independently accepted
+local results on both hosts, but no portable matrix reference is configured;
+the remaining five cases still need qualification. Run one with
 `make test repo=openshift/multus-cni version=1.37 spec=none`; these are not
 new pattern-retention eval cases. See the [1.37 preparation notes](../docs/k8s-1.37.md).
 `make matrix` discovers this config too; its overall qualification cannot

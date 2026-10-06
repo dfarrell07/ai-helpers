@@ -104,7 +104,7 @@ if [[ "$MODE" == "test-only" ]]; then
     for candidate in go-controller .; do
       [[ -f "$candidate/go.mod" ]] && PRIMARY_MOD="$candidate" && break
     done
-    [[ -z "$PRIMARY_MOD" ]] && PRIMARY_MOD=$(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort | head -1)
+    [[ -z "$PRIMARY_MOD" ]] && PRIMARY_MOD=$(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" -not -path "*/.claude/*" -exec dirname {} \; | sort | head -1)
     PRIMARY_MOD="${PRIMARY_MOD#./}"
   fi
   [[ -n "$PRIMARY_MOD" && -f "$PRIMARY_MOD/go.mod" ]] || {
@@ -350,7 +350,7 @@ run_test_only() {
   [[ -f "$PRIMARY_MOD/hack/test-go.sh" ]] && root_test_go_sh="$PRIMARY_MOD/hack/test-go.sh"
   local TEST_GO_SH
   TEST_GO_SH="$root_test_go_sh"
-  [[ -z "$TEST_GO_SH" ]] && TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" 2>/dev/null | head -1)
+  [[ -z "$TEST_GO_SH" ]] && TEST_GO_SH=$(find . -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" 2>/dev/null | head -1)
   if [[ -n "$TEST_GO_SH" ]]; then
     while IFS='=' read -r _key _val; do
       [[ "$_key" =~ ^export\ KUBE_FEATURE_[A-Za-z0-9_]+$ ]] && export "${_key#export }=$_val"
@@ -434,7 +434,7 @@ run_test_only() {
     pkg_dir="${pkg_dir%/...}"
     if [[ -d "$pkg_dir" ]]; then
       local lines
-      lines=$(find "$pkg_dir" -name "*_test.go" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec cat {} + 2>/dev/null | wc -l)
+      lines=$(find "$pkg_dir" -name "*_test.go" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" -not -path "*/.claude/*" -exec cat {} + 2>/dev/null | wc -l)
       TOTAL_LINES=$((TOTAL_LINES + lines))
     fi
   done
@@ -575,7 +575,7 @@ while IFS= read -r gomod; do
         if grep -q "sudo" "$REBASE_TMP/${mod_name}-test.log" 2>/dev/null; then
           echo "  NOTE: make test needs sudo/privileged container for some packages"
           GATE_EXPORTS=""
-          TEST_GO_SH=$(find "$REPO_ROOT" -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
+          TEST_GO_SH=$(find "$REPO_ROOT" -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" | head -1)
           if [[ -n "$TEST_GO_SH" ]]; then
             GATE_EXPORTS=$(grep "^export KUBE_FEATURE_" "$TEST_GO_SH" | tr '\n' '; ')
           fi
@@ -605,7 +605,7 @@ while IFS= read -r gomod; do
                 continue
               fi
               TEST_PKGS+=" ./${pkg}/..."
-            done < <(cd "$REPO_ROOT/$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sed 's|^\./||' | sort -u)
+            done < <(cd "$REPO_ROOT/$mod_dir" && find . -name "*_test.go" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" -not -path "*/.claude/*" -exec dirname {} \; | sed 's|^\./||' | sort -u)
           else
             echo "  Testing changed non-privileged packages only..."
             CHANGED_PKGS=$(git -C "$REPO_ROOT" diff --name-only "$MERGE_BASE"..HEAD -- "${mod_dir}/" 2>/dev/null | grep '\.go$' | grep -v vendor | grep -v "_test.go" | sed "s|${mod_dir}/||;s|/[^/]*$||" | sort -u || true)
@@ -642,7 +642,7 @@ while IFS= read -r gomod; do
   step_failed=0
   run_validation "${mod_name}-vet" "cd $mod_dir && go vet ./..." || step_failed=1
   categorize_errors "$REBASE_TMP/${mod_name}-vet.log" "$mod_name vet" "$step_failed"
-done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort)
+done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" -not -path "*/.claude/*" | sort)
 
 # Stricter vet via go test (compiles test binaries, catches Eventf
 # format/arg mismatches that go vet misses). Skip in --quick mode
@@ -662,7 +662,7 @@ if [[ "$MODE" != "quick" ]]; then
     [[ -d "$mod_dir/vendor" ]] && _tv_vendor="-mod vendor"
     run_validation "${mod_name}-test-vet" "cd $mod_dir && GOMAXPROCS=${GOMAXPROCS:-2} go test $_tv_vendor -run='^$' -count=1 ./..." || step_failed=1
     categorize_errors "$REBASE_TMP/${mod_name}-test-vet.log" "$mod_name test-vet" "$step_failed"
-  done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort)
+  done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" -not -path "*/.claude/*" | sort)
 fi
 
 if [[ "$MODE" != "quick" ]]; then
@@ -675,7 +675,7 @@ echo "━━━━ CI Parity Checks ━━━━"
 echo ""
 
 # Find the primary module (the one with a Makefile and these targets)
-for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort); do
+for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" -not -path "*/.claude/*" | sort); do
   ci_dir=$(dirname "$gomod" | sed 's|^\./||')
   [[ -f "$REPO_ROOT/$ci_dir/Makefile" ]] || continue
 
@@ -787,9 +787,9 @@ if [[ "$MODE" == "full" ]]; then
   echo "━━━━ Privileged Tests ━━━━"
   echo ""
 
-  for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" | sort); do
+  for gomod in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" -not -path "*/.claude/*" | sort); do
     mod_dir=$(dirname "$gomod" | sed 's|^\./||')
-    TEST_GO_SH=$(find "$REPO_ROOT/$mod_dir" -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" | head -1)
+    TEST_GO_SH=$(find "$REPO_ROOT/$mod_dir" -name "test-go.sh" -path "*/hack/*" -not -path "*/vendor/*" -not -path "*/.rebase-tmp/*" -not -path "*/.git/*" | head -1)
     [[ -n "$TEST_GO_SH" ]] || continue
 
     GATE_EXPORTS=$(grep "^export KUBE_FEATURE_" "$TEST_GO_SH" | tr '\n' '; ')

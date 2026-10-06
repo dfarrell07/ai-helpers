@@ -32,9 +32,24 @@ Installation alone is not proof that hooks are active.
 ## Qualification status
 
 The [offline tests](../test/test_compatibility.py) exercise the shared review,
-hook, state, and cleanup contracts. Full repo/version runs use Claude Code.
+hook, state, and cleanup contracts. Historical full repo/version runs used Claude Code.
 Focused installed-runtime fixtures on both hosts have covered review routing
 and finalization; those fixtures do not qualify an unattended full rebase.
+
+On October 6, 2026, Codex CLI 0.160.1 completed a default-configuration
+Kubernetes 1.37.1 rebase of `openshift/cloud-network-config-controller`,
+from `d3b5de705d133ad568e37b8ccf027d5ccd5e7d38` to
+`ff6c288b00fc42c7cb323355ceeb87c7ed157eec`. An independent acceptance audit
+verified all 32 current reports (28 PASS, four justified SKIP), completed
+producers, fresh-context independent reviews, accurate PR commands, and
+cleanup. Build, vet, lint, and 50 default tests passed. Race compilation
+failed on an unchanged baseline constructor mismatch; a completed vulnerability
+scan found an unchanged reachable gRPC advisory. Docker registry checks were
+partly blocked by authentication; external CI and live cloud tests were not run.
+This qualifies that one default case with mandatory parent completion checks;
+it does not qualify every repository, race execution, or unrestricted security
+clearance. Its retained source and raw evidence remain separate from later
+discovery fixes.
 
 To qualify both hosts, run the existing `openshift/multus-cni` baseline in
 [config-1.36.yaml](../test/config-1.36.yaml) on each, in disposable clones

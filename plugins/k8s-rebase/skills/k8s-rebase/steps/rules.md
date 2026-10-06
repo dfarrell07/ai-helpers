@@ -196,6 +196,12 @@ from its SetFromMap.
 
 ## Execution and reviewer roles
 
+- Shell guards can reject harmless quoted documentation containing module or
+  publish commands. Retain such text with the host's file-edit tool or pass it
+  as native worker input; use the verified report helper for gate reports.
+  Keep executable module operations in the authorized helpers, and present
+  publish commands for the user without executing them.
+
 - Report specific counts, not just "looks good."
 - Judgment agents must cite the specific file:line or diff hunk
   for each concern — "no issues found" requires listing what was

@@ -119,8 +119,8 @@ while IFS= read -r mod_dir; do
   while IFS= read -r pkg; do
     [ -n "$ROOT_PKGS" ] && grep -Fxq -- "${pkg#./}" <<< "$ROOT_PKGS" && continue
     echo "$pkg"
-  done < <(cd "$mod_dir" && find . -type d \( -name vendor -o -name .claude -o -name .git -o \( ! -path . -exec test -f '{}/go.mod' \; \) \) -prune -o -name "*_test.go" -exec dirname {} \; | sort -u)
-done < <(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec dirname {} \; | sort)
+  done < <(cd "$mod_dir" && find . -type d \( -name vendor -o -name .claude -o -name .git -o -name .rebase-tmp -o \( ! -path . -exec test -f '{}/go.mod' \; \) \) -prune -o -name "*_test.go" -exec dirname {} \; | sort -u)
+done < <(find . -type d \( -name vendor -o -name .claude -o -name .git -o -name .rebase-tmp \) -prune -o -name "go.mod" -exec dirname {} \; | sort)
 ```
 
 **Test agents:** Use ONLY packages from discovery above (filters

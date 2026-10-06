@@ -234,17 +234,32 @@ func TestReachability(t *testing.T) {
 
     def test_discovery_retains_modules_and_prunes_nested_module_packages(self):
         root = self.module()
-        nested = self.module("test/e2e")
+        nested = self.module("test/unit tests")
         self.package(root, "pkg/node", "root excluded")
         self.package(root, "pkg/node/util", "root child")
         self.package(nested, "pkg/node", "nested allowed")
         self.write_test_script(root, roots=("pkg/node",))
+        for excluded in (".rebase-tmp", "vendor", ".claude", ".git"):
+            self.package(root, f"{excluded}/retained", "not repository tests")
+            artifact = self.module(f"{excluded}/synthetic-module")
+            self.package(artifact, "pkg/fixture", "not a repository module")
         instructions = (PLUGIN / "skills/k8s-rebase/steps/step4-verification.md").read_text()
         discovery = instructions.split("First, discover test packages:\n\n```bash\n", 1)[1].split("\n```", 1)[0]
         result = self.run_cmd("bash", "-ec", discovery)
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         self.assertEqual(result.stdout.splitlines(), ["=== . ===", "./pkg/node/util",
-                                                     "=== ./test/e2e ===", "./pkg/node"])
+                                                     "=== ./test/unit tests ===", "./pkg/node"])
+
+    def test_quick_ignores_retained_evidence_modules(self):
+        self.module()
+        (self.repo / "fixture.go").write_text("package fixture\n")
+        for excluded in (".rebase-tmp", "vendor", ".claude", ".git"):
+            artifact = self.module(f"{excluded}/synthetic-module")
+            (artifact / "broken.go").write_text("this retained fixture must not compile\n")
+        result = self.run_cmd("bash", str(VALIDATOR), "--quick")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertTrue(self.go_calls())
+        self.assertTrue(all(call["cwd"] == str(self.repo) for call in self.go_calls()))
 
     def test_invalid_module_fails_before_running_tests(self):
         self.module()
