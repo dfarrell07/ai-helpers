@@ -746,6 +746,31 @@ exec "{real_git}" "$@"
         self.assertEqual(pr.returncode, 0, pr.stderr)
         self.assertFalse(self.claude_called.exists())
 
+    def test_fix_review_excludes_root_and_nested_vendor(self):
+        for path, text in {
+            "vendor/root.go": "// root vendor noise\n" * 2400,
+            "nested module/vendor/nested.go": "// nested vendor noise\n" * 2400,
+            "nested module/owned.go": "package owned\n// owned nested review marker\n",
+            "go.mod": "module fixture\nrequire k8s.io/api v0.37.1\n",
+            "nested module/go.mod": "module nested\nrequire k8s.io/apimachinery v0.37.1\n",
+        }.items():
+            target = self.repo / path
+            target.parent.mkdir(parents=True, exist_ok=True)
+            target.write_text(text)
+        self.commit("dependency and owned source review fixture")
+        prepared = self.review("fix", "--print-prompt", "HEAD", "review scope regression")
+        self.assertEqual(prepared.returncode, 0, prepared.stderr)
+        self.assertNotIn("diff --git a/vendor/", prepared.stdout)
+        self.assertNotIn("diff --git a/nested module/vendor/", prepared.stdout)
+        self.assertNotIn("diff was truncated", prepared.stdout)
+        self.assertIn("owned nested review marker", prepared.stdout)
+        self.assertIn("+require k8s.io/api v0.37.1", prepared.stdout)
+        self.assertIn("+require k8s.io/apimachinery v0.37.1", prepared.stdout)
+        nested = self.review("fix", "HEAD", "review scope regression")
+        self.assertEqual(nested.returncode, 0, nested.stderr)
+        self.assertIn("APPROVE:", nested.stdout)
+        self.assertEqual(self.claude_called.read_text(), prepared.stdout.split("\n\n", 1)[1])
+
     def test_truncation_disclosed(self):
         (self.repo / "large.go").write_text("// large\n" * 2400)
         (self.repo / "large.md").write_text("documentation\n" * 20000)

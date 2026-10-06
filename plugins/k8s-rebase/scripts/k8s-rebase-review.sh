@@ -63,8 +63,8 @@ if [[ "$PRINT_PROMPT" == true && "$_ANCESTOR_RC" -ne 1 ]]; then
   exit 1
 fi
 _DIFF_RC=0
-_DIFF_FULL=$(git -C "$REPO_ROOT" show "$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" "go.mod" \
-  ':!*/vendor/*' ':!*generated*' ':!*clientset*' ':!*informer*' ':!*lister*' \
+_DIFF_FULL=$(git -C "$REPO_ROOT" show "$COMMIT" -- "*.go" "*.yml" "*.yaml" "*.sh" ':(glob)**/go.mod' \
+  ':(exclude,glob)**/vendor/**' ':!*generated*' ':!*clientset*' ':!*informer*' ':!*lister*' \
   ':!*applyconfiguration*' ':!*mocks/*' ':!*deepcopy*') || _DIFF_RC=$?
 if [[ "$PRINT_PROMPT" == true && "$_DIFF_RC" -ne 0 ]]; then
   echo "ERROR: Cannot collect review diff" >&2
