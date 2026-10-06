@@ -847,6 +847,65 @@ exec "{real_git}" "$@"
         for name, command in cases:
             self.assertFalse(self.hook(name, {"command": command}))
 
+    def test_module_hook_allows_verified_report_literals(self):
+        self.activate()
+        helper = PLUGIN / "scripts/write-gate-report.sh"
+        commands = (
+            f'bash "{helper}" "{self.repo}" step4-maintainer-review PASS 0 '
+            '"Scope correct" "INFO: produced by go mod tidy; go get was not run"',
+            f'PLUGIN_ROOT="{PLUGIN}"; [ "$(git rev-parse HEAD)" = fixture ] && '
+            'bash "$PLUGIN_ROOT/scripts/write-gate-report.sh" "$PWD" '
+            'step4-maintainer-review PASS 0 "Scope correct" \\\n'
+            '"Body describes go get/tidy; produced by go mod tidy" && ls .rebase-tmp/gates/',
+            f'P="{PLUGIN}" && bash "${{P}}/scripts/write-gate-report.sh" "$PWD" '
+            "step4-maintainer-review PASS 0 'go generate was not run' 'go run was not run'",
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertFalse(self.hook("block-module-ops.sh", {"command": command}))
+
+    def test_module_hook_report_exemption_keeps_operations_blocked(self):
+        self.activate()
+        helper = PLUGIN / "scripts/write-gate-report.sh"
+        report = f'bash "{helper}" "$PWD" step4-maintainer-review PASS 0 '
+        commands = (
+            report + '"produced by go mod tidy"; go mod tidy',
+            'go get example.invalid/module; ' + report + '"produced by go mod tidy"',
+            report + '"$(go mod tidy)"',
+            report + '"`go get example.invalid/module`"',
+            report + '"Scope correct" "$(go generate ./...)"',
+            'bash -c "go mod tidy"',
+            'go "mod" tidy',
+            'bash /other/plugin/scripts/write-gate-report.sh "$PWD" '
+            'step4-maintainer-review PASS 0 "produced by go mod tidy"',
+            'bash "$UNKNOWN/scripts/write-gate-report.sh" "$PWD" '
+            'step4-maintainer-review PASS 0 "produced by go mod tidy"',
+            report + '"unterminated go mod tidy',
+            'echo $#; go mod tidy',
+            'echo ${value#prefix}; go mod tidy',
+            'echo foo#bar; go mod tidy',
+            f'P="{PLUGIN}"; bash \'$P/scripts/write-gate-report.sh\' "$PWD" '
+            'step4-maintainer-review PASS 0 "go mod tidy"',
+            f'P="{PLUGIN}"; P="$UNKNOWN"; '
+            'bash "$P/scripts/write-gate-report.sh" "$PWD" '
+            'step4-maintainer-review PASS 0 "go mod tidy"',
+            f'P="{PLUGIN}"; unset P; '
+            'bash "$P/scripts/write-gate-report.sh" "$PWD" '
+            'step4-maintainer-review PASS 0 "go mod tidy"',
+            f'P="{PLUGIN}" | bash "$P/scripts/write-gate-report.sh" "$PWD" '
+            'step4-maintainer-review PASS 0 "go mod tidy"',
+            f'P="{PLUGIN}" & bash "$P/scripts/write-gate-report.sh" "$PWD" '
+            'step4-maintainer-review PASS 0 "go mod tidy"',
+            f'(P="{PLUGIN}"); bash "$P/scripts/write-gate-report.sh" "$PWD" '
+            'step4-maintainer-review PASS 0 "go mod tidy"',
+            f'false && P="{PLUGIN}"; '
+            'bash "$P/scripts/write-gate-report.sh" "$PWD" '
+            'step4-maintainer-review PASS 0 "go mod tidy"',
+        )
+        for command in commands:
+            with self.subTest(command=command):
+                self.assertEqual(self.hook("block-module-ops.sh", {"command": command}).get("decision"), "block")
+
     def test_depfix_sync_runs_only_module_synchronization(self):
         calls = self.root / "go-calls"
         self.env["GO_CALLS"] = str(calls)
