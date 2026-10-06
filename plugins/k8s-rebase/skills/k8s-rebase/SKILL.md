@@ -100,7 +100,12 @@ the completed state's empty step filename is not a file to load.
    **only the parent calls `advance`**. Independent reviews in Steps 4–5
    follow that host's branch; ordinary worker delegation does not change it.
 
-4. When step work completes, run the following unless it reports a stop
+4. Verify completion at handoff: require completed exits for the worker's
+   launched producers, not just a completed worker response. For Step 1,
+   check the retained PID and completed shell status; its early result marker
+   does not prove completion. If a producer is still running, resume the worker
+   to await it or retain the wait in the parent; do not collect gates or advance.
+   When step work completes, run the following unless it reports a stop
    condition (Step 1 structural failure/no-op, a failed Codex independent-review
    path, or another genuine blocker). Those conditions must not be advanced;
    Claude's documented review infrastructure fallback is not such a blocker:

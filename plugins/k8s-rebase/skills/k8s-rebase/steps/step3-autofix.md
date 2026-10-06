@@ -10,6 +10,9 @@ The autofix applies known fix patterns for the target version and commits
 each group. It can auto-containerize and runs go vet internally; allow at
 least 10 minutes and wait for actual completion as in rules.md.
 
+Bind and export the host's `AI_TRAILER` as specified in rules.md in the same
+shell call before running the script.
+
 ```bash
 bash "${PLUGIN_ROOT}/scripts/k8s-rebase-autofix.sh"
 ```

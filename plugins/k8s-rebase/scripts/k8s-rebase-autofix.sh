@@ -21,7 +21,7 @@
 # shellcheck disable=SC2044  # for-loop over find: Go repos never have spaces in filenames
 set -uo pipefail
 
-AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
+AI_TRAILER="${AI_TRAILER:-Assisted-by: Claude Code <noreply@anthropic.com>}"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 cd "$REPO_ROOT" || exit 1
 
@@ -127,6 +127,7 @@ if [[ -n "$REQUIRED_GO" ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
         -e GIT_AUTHOR_EMAIL="$(git config user.email)" \
         -e GIT_COMMITTER_NAME="$(git config user.name)" \
         -e GIT_COMMITTER_EMAIL="$(git config user.email)" \
+        -e AI_TRAILER="$AI_TRAILER" \
         -e K8S_REBASE_IN_CONTAINER=1 \
         -e GOMODCACHE="$HOST_GOMODCACHE" \
         "$GO_IMAGE" \

@@ -165,7 +165,7 @@ fi
 K8S_FULL="v${K8S_MAJOR}.${K8S_MINOR}.${K8S_PATCH}"
 K8S_MAJOR_MINOR="${K8S_MAJOR}.${K8S_MINOR}"
 API_VERSION="v0.${K8S_MINOR}.${K8S_PATCH}"
-AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
+AI_TRAILER="${AI_TRAILER:-Assisted-by: Claude Code <noreply@anthropic.com>}"
 
 # ── Phase 0: Prerequisites ──────────────────────────────────────────
 
@@ -301,6 +301,7 @@ if [[ "$GO_OK" -eq 0 ]] && [[ "${K8S_REBASE_IN_CONTAINER:-}" != "1" ]]; then
     -e GIT_AUTHOR_EMAIL="$(git config user.email)" \
     -e GIT_COMMITTER_NAME="$(git config user.name)" \
     -e GIT_COMMITTER_EMAIL="$(git config user.email)" \
+    -e AI_TRAILER="$AI_TRAILER" \
     -e K8S_REBASE_IN_CONTAINER=1 \
     -e GOMODCACHE="$HOST_GOMODCACHE" \
     "$GO_IMAGE" \

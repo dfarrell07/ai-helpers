@@ -23,6 +23,9 @@ auto-containerizes). Use the runtime's supported long-running command
 session and wait for its completion. Bind PLUGIN_ROOT, REPO_ROOT,
 VERSION, and BUMP_TOOLS from the verified invocation in this call:
 
+Also bind and export the host's `AI_TRAILER` as specified in rules.md before
+launching the script so its generated commits identify the actual assistant.
+
 ```bash
 REPO_ROOT=$(git rev-parse --show-toplevel 2>/dev/null)
 [ -z "$REPO_ROOT" ] && echo "ERROR: Not in a git repo" && exit 1

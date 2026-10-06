@@ -160,9 +160,13 @@ do not skip it.
 ## Commits and Git
 
 - Body lines <= 72 chars.
-- Each commit gets exactly one `Signed-off-by` and one
-  `Assisted-by: Claude Code <noreply@anthropic.com>` trailer. Scripts add
-  both; for your commits use `git commit -s --trailer "<that trailer>"`.
+- Each commit gets exactly one `Signed-off-by` and one `Assisted-by` trailer
+  identifying the session's host: `Codex <noreply@openai.com>` or
+  `Claude Code <noreply@anthropic.com>`. Bind and export `AI_TRAILER` to the
+  complete matching trailer in each shell call that runs the rebase/autofix
+  scripts; they preserve that value and default to Claude for existing callers.
+  For your commits use `git commit -s --trailer "$AI_TRAILER"` after binding it.
+  Attribution does not select the independent-review path; use host context.
 - Do not amend — create new commits on top.
 - No `org/repo#N` in commit messages.
 - If adding a `replace` directive, add a TODO comment.
@@ -224,6 +228,10 @@ from its SetFromMap.
   mechanism and wait for actual completion before dependent work. Preserve
   logs and recovery information; a single "still running" check or an early
   result file does not establish completion. Do not launch the same work twice.
+  The parent must verify completed producer exits at worker handoff; Codex
+  native subagent finalization may not invoke the root session's Stop hook.
+  Resume a worker that returned with a running producer, or retain a foreground
+  wait in the parent, before collecting gates or advancing.
   Never end your turn while launched work runs: a headless session ends with
   its turn and no completion notice arrives. Wait in the foreground, in
   bounded calls that fit the command timeout, until the process exits.

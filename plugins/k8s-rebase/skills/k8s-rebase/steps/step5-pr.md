@@ -102,7 +102,9 @@ take it in within a minute, in this order:
 - A collapsed `<details><summary>Rebase gate inventory (…)</summary>` block
   holding the generated gate table, its totals and freshness warnings, and
   each SKIP reason.
-- Footer: "All commits carry `Assisted-by: Claude Code <noreply@anthropic.com>` trailers."
+- Footer: summarize the actual `Assisted-by` trailers from the branch's commit
+  messages. Verify the whole range before claiming all commits share one value;
+  a resumed branch may contain assistance from both hosts.
 
 Keep local filesystem paths, `.rebase-tmp` names, and workflow narrative
 (interruptions, resumes, retries, review attempts, models, cost) out of the

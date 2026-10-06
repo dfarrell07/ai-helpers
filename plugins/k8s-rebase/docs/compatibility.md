@@ -54,16 +54,21 @@ declining an action is not a hook denial. Cover these cases on each host:
 
 ## Known limits
 
+- On Codex CLI 0.160.1, native subagent finalization did not show the Stop
+  continuation observed in root sessions. Workers must await every producer;
+  the parent must verify completed producer exits at handoff. A completed
+  subagent response alone does not establish that its child process finished.
 - HEAD stamps cover commits, not uncommitted edits. Hooks are heuristic,
   and Stop observes orchestrator DONE rather than Step 5 completion.
 - Two informational gates always PASS; read their details. Build/vet
   evidence records producer exits and incomplete collection; review command
   completion and module coverage before judging it. `go mod verify` checks
   the module cache, not vendor contents.
-- Review diffs are filtered and size-limited; selected-commit review's
-  root-vendor exclusion is imperfect. Preserve scope and truncation warnings.
-- Commits carry a Claude Code `Assisted-by` trailer on both hosts; review
-  attribution before publishing Codex-assisted work.
+- Review diffs are filtered and size-limited. Preserve scope and truncation
+  warnings.
+- The rebase/autofix scripts preserve the caller's `AI_TRAILER`, defaulting to
+  Claude for existing callers. The skill binds the actual host's attribution;
+  inspect the entire commit range before describing it, especially on resume.
 
 Run the [offline checks](../evals/README.md#choose-the-check) for shared
 interfaces and follow the repository's [contribution rules](../../../CONTRIBUTING.md)
