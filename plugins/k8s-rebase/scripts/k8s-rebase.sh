@@ -26,7 +26,11 @@ cleanup_hook() {
     [[ -f "$hdir/pre-push.bak.k8s-rebase" ]] && mv "$hdir/pre-push.bak.k8s-rebase" "$hdir/pre-push" || true
   fi
 }
-trap 'echo "ERROR: k8s-rebase.sh crashed at line $LINENO" >&2; cleanup_hook' ERR INT TERM
+trap 'echo "ERROR: k8s-rebase.sh crashed at line $LINENO" >&2; cleanup_hook' ERR
+# A signal handler that returns resumes the script: stop it instead, so a
+# terminated run does not continue without the push guard that cleanup removed.
+trap 'echo "ERROR: k8s-rebase.sh interrupted (SIGINT)" >&2; cleanup_hook; exit 130' INT
+trap 'echo "ERROR: k8s-rebase.sh terminated (SIGTERM)" >&2; cleanup_hook; exit 143' TERM
 
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 SCRIPT_NAME="$(basename "${BASH_SOURCE[0]}")"

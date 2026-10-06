@@ -5,7 +5,9 @@ import json
 import os
 from pathlib import Path
 import shutil
+import signal
 import subprocess
+import time
 import tempfile
 import unittest
 
@@ -337,6 +339,32 @@ die() { printf 'ERROR: %s\\n' "$*" >&2; exit 1; }
         self.assertIn("Existing rebase baseline is invalid", result.stderr)
         self.assertEqual(self.record.read_text(), original)
         self.assertEqual(self.git("branch", "--show-current").stdout.strip(), "release-5.1")
+
+    def test_signalled_script_exits_instead_of_resuming_without_push_guard(self):
+        lines = REBASE.splitlines()
+        start = next(i for i, line in enumerate(lines) if line.startswith("cleanup_hook() {"))
+        end = max(i for i, line in enumerate(lines[:60]) if line.startswith("trap "))
+        setup = "\n".join(lines[start:end + 1])
+        hook = self.repo / ".git/hooks/pre-push"
+        for name, sig, code in (("TERM", signal.SIGTERM, 143), ("INT", signal.SIGINT, 130)):
+            with self.subTest(signal=name):
+                hook.parent.mkdir(exist_ok=True)
+                hook.write_text("#!/bin/sh\n# k8s-rebase push guard\n")
+                marker = self.repo / "continued"
+                marker.unlink(missing_ok=True)
+                script = ("set -euo pipefail\n" + setup +
+                          '\nsleep 1\ntouch continued\n')
+                proc = subprocess.Popen(["bash", "-c", script], cwd=self.repo, env=self.env,
+                                        text=True, stderr=subprocess.PIPE,
+                                        start_new_session=True)
+                time.sleep(0.3)
+                os.kill(proc.pid, sig)
+                _, stderr = proc.communicate(timeout=10)
+                self.assertEqual(proc.returncode, code, stderr)
+                self.assertFalse(marker.exists(), "script resumed after the signal")
+                self.assertFalse(hook.exists())
+                self.assertIn("ERROR:", stderr)
+                self.assertNotIn("crashed", stderr)
 
 
 if __name__ == "__main__":
