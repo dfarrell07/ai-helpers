@@ -1182,7 +1182,15 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
     target_ocp=""
     # Detect OCP target from openshift/release ci-operator config
     for branch in master main; do
-      target_ocp=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null | grep -oE 'openshift-[0-9]+\.[0-9]+' | tail -1 | sed 's/openshift-//' || true)
+      _ci_config=$(curl -sf --retry 2 --connect-timeout 10 --max-time 30 "https://raw.githubusercontent.com/openshift/release/master/ci-operator/config/${repo_org}/${repo_name}/${repo_org}-${repo_name}-${branch}.yaml" 2>/dev/null || true)
+      if [[ -n "$_ci_config" ]]; then
+        # Try method 1: look for openshift-X.Y patterns in build/image definitions
+        target_ocp=$(echo "$_ci_config" | grep -oE 'openshift-[0-9]+\.[0-9]+' | tail -1 | sed 's/openshift-//' || true)
+        # Try method 2: check promotion.to.name field (e.g., "5.1")
+        if [[ -z "$target_ocp" ]]; then
+          target_ocp=$(echo "$_ci_config" | grep -A 2 '^promotion:' | grep 'name:' | grep -oE '[0-9]+\.[0-9]+' | head -1 || true)
+        fi
+      fi
       [[ -n "$target_ocp" ]] && break
     done
     if [[ -n "$target_ocp" ]]; then
