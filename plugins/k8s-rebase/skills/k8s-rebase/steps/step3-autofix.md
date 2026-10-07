@@ -23,6 +23,15 @@ complex test refactors). Both results require the gates below. If the output
 is empty or has no RESULT, investigate the execution failure before
 proceeding. PASS with no commits is normal when no pattern applied.
 
+Before accepting scripted changes, apply rules.md's Scope test to the
+actual diagnostic and selected dependency APIs. A correct transformation
+does not establish that the bump needs it. For example, simultaneous klog
+v1 and v2 requirements do not by themselves make an existing v1 callback
+incompatible. Bind a migration to a compile, lint, test, or behavior need;
+restore optional introduced hunks in a new commit when no such need exists,
+using the authorized module helper for requirement/checksum repairs. Keep
+existing migrations and the known pattern when their necessity is established.
+
 If any autofix groups were committed, do not rerun it: that duplicates them
 as new commits. Fix the remaining items manually, using the patterns doc
 for unfamiliar ones:

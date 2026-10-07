@@ -121,6 +121,38 @@ die() { printf 'ERROR: %s\\n' "$*" >&2; exit 1; }
 ''' + BRANCH)
         return self.run_cmd("bash", str(wrapper), str(self.repo), check=check)
 
+    def crd_evidence(self):
+        result = self.run_cmd("bash", str(PLUGIN / "gates/step3-autofix/crd-validation.sh"),
+                              str(self.repo))
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        return (self.repo / ".rebase-tmp/gates/step3-crd-validation.evidence").read_text()
+
+    def test_crd_yaml_and_yml_with_spaces_are_compared_and_vendor_excluded(self):
+        crd = "kind: CustomResourceDefinition\nspec:\n  minimum: 0\n"
+        for name in ("deployments/schema with spaces.yml", "deployments/other.yaml",
+                     "vendor/ignored.yml", "nested/vendor/ignored.yaml"):
+            self.write(name, crd)
+        base = self.commit("CRD baseline")
+        self.record_base(base)
+        self.write("deployments/schema with spaces.yml", crd.replace("minimum: 0", "minimum: -1"))
+        self.write("deployments/new schema.yml", crd)
+        candidate = self.commit("CRD candidate")
+        evidence = self.crd_evidence()
+        self.assertIn(f"HEAD: {candidate}", evidence)
+        self.assertIn("deployments/schema with spaces.yml CHANGED-VALIDATION: 1", evidence)
+        self.assertIn("deployments/other.yaml IDENTICAL", evidence)
+        self.assertIn("deployments/new schema.yml ALL-NEW", evidence)
+        self.assertIn("NEW_ISSUES=2", evidence)
+        self.assertNotIn("vendor/ignored", evidence)
+        self.assertNotIn("SKIP", evidence)
+
+    def test_no_crds_skips_despite_vendor_crd_and_regular_yml(self):
+        self.write("vendor/ignored.yml", "kind: CustomResourceDefinition\n")
+        self.write("deployments/ordinary manifest.yml", "kind: Deployment\n")
+        self.commit("No owned CRDs")
+        self.record_base(self.initial)
+        self.assertIn("SKIP: no CRD files found", self.crd_evidence())
+
     def test_recorded_commit_wins_when_remote_default_moves(self):
         self.record_base(self.initial)
         self.remote_default(self.initial)

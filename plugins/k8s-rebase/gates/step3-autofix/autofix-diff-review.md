@@ -1,6 +1,10 @@
 Read the autofix commit's diff. For each code change, verify it
 is a correct transformation.
 
+This gate checks transformation correctness. Its PASS does not establish
+necessity under rules.md's Scope or replace the later maintainer review.
+Record an unproven necessity separately without inventing a wrong replacement.
+
 The autofix applies deterministic fix patterns. Any change from
 the autofix script is expected — only flag changes that are
 demonstrably WRONG (incorrect logic, wrong replacement, data

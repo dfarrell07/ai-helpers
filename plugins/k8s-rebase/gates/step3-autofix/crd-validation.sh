@@ -9,9 +9,14 @@ init_gate "$@"
 details=()
 new=0
 
-crds=$(git ls-files -- '*.yaml' ':(exclude,glob)**/vendor/**' ':!.claude/' 2>/dev/null \
-  | xargs grep -l 'kind: CustomResourceDefinition' 2>/dev/null || true)
-if [[ -z "$crds" ]]; then
+crds=()
+while IFS= read -r -d '' candidate; do
+  if grep -q 'kind: CustomResourceDefinition' -- "$candidate"; then
+    crds+=("$candidate")
+  fi
+done < <(git ls-files -z -- '*.yaml' '*.yml' \
+  ':(exclude,glob)**/vendor/**' ':!.claude/')
+if [[ ${#crds[@]} -eq 0 ]]; then
   finish_evidence "SKIP: no CRDs in repository" "SKIP: no CRD files found"
 fi
 
@@ -21,7 +26,7 @@ if [[ -z "$BASE" ]]; then
     "NEW_ISSUES=0"
 fi
 
-for crd in $crds; do
+for crd in "${crds[@]}"; do
   base_crd=$(git show "$BASE:$crd" 2>/dev/null) || true
   if [[ -z "$base_crd" ]]; then
     details+=("$crd ALL-NEW (file not on base branch)")

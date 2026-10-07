@@ -625,7 +625,8 @@ derive_go_gets() {
   # Filter out go.mod keywords (module, replace, require, exclude) and
   # the module's own name to avoid self-referencing go gets.
   # k8s.io staging modules (v0.X.Y where X>0) get pinned to API_VERSION;
-  # everything else gets bare go get (lets MVS resolve).
+  # other ecosystem updates request their latest version, except the
+  # floor-only leaf modules handled below.
   local own_module
   own_module=$(grep "^module " "$gomod" | awk '{print $2}')
   while IFS= read -r line; do
@@ -641,6 +642,10 @@ derive_go_gets() {
     [[ "$pkg" == "github.com/openshift/library-go" ]] && continue
     [[ "$pkg" == "github.com/openshift/build-machinery-go" ]] && continue
     [[ "$pkg" == "github.com/openshift/controller-runtime-common" ]] && continue
+    # Bare go get requests the latest version, not just MVS resolution.
+    # Core updates already raise these leaf modules to required versions;
+    # keep existing higher floors instead of independently advancing pins.
+    [[ "$pkg" == "k8s.io/utils" || "$pkg" == "sigs.k8s.io/json" ]] && continue
     if [[ "$pkg" == "sigs.k8s.io/controller-tools" ]]; then
       # controller-tools v0.N targets Kubernetes 1.(N+15). Bare go get
       # selects the newest release (currently one Kubernetes minor ahead),

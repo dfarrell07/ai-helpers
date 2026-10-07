@@ -166,6 +166,20 @@ if [[ -n "$REQUIRED_GO" || "$NEEDS_PRIVILEGED_CONTAINER" == true ]] && [[ "${K8S
       done
       [[ -n "${K8S_REBASE_CONTAINER_MEMORY:-}" ]] && \
         RESOURCE_ARGS+=(--memory "$K8S_REBASE_CONTAINER_MEMORY")
+      [[ -n "${K8S_REBASE_CONTAINER_MEMORY_SWAP:-}" ]] && \
+        RESOURCE_ARGS+=(--memory-swap "$K8S_REBASE_CONTAINER_MEMORY_SWAP")
+      [[ -n "${K8S_REBASE_CONTAINER_CPUS:-}" ]] && \
+        RESOURCE_ARGS+=(--cpus "$K8S_REBASE_CONTAINER_CPUS")
+      TEMP_ARGS=()
+      if [[ -n "${TMPDIR:-}" ]]; then
+        HOST_TMPDIR=$(cd "$TMPDIR" && pwd -P) || {
+          echo "ERROR: TMPDIR must be an existing directory: $TMPDIR" >&2
+          exit 1
+        }
+        # Keep scratch on the caller's filesystem while leaving room for
+        # Unix socket names within the platform's short sun_path limit.
+        TEMP_ARGS=(-v "$HOST_TMPDIR:/task-tmp" -e TMPDIR=/task-tmp)
+      fi
       exec $CONTAINER_RT run --rm \
         --security-opt label=disable \
         $PRIV_FLAG \
@@ -175,6 +189,7 @@ if [[ -n "$REQUIRED_GO" || "$NEEDS_PRIVILEGED_CONTAINER" == true ]] && [[ "${K8S
         $GOMODCACHE_MOUNT \
         "${CACHE_ARGS[@]}" \
         "${RESOURCE_ARGS[@]}" \
+        "${TEMP_ARGS[@]}" \
         -v "$(dirname "$SCRIPT_PATH"):$(dirname "$SCRIPT_PATH"):ro" \
         -w "$REPO_ROOT" \
         -e K8S_REBASE_IN_CONTAINER=1 \

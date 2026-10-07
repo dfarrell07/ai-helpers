@@ -230,7 +230,7 @@ class CompatibilityTests(unittest.TestCase):
         (self.repo / ".rebase-tmp").mkdir()
         self.env.update(REPO_ROOT=str(self.repo), GOMEMLIMIT="2GiB", GOMAXPROCS="1")
         self.stub("govulncheck", '[[ "$GOMEMLIMIT" == 2GiB && "$GOMAXPROCS" == 1 ]] || exit 99\n'
-                  '[[ "$*" == "./..." ]] || exit 98\n'
+                  '[[ "$#" == 3 && "$1" == -show && "$2" == verbose && "$3" == ./... ]] || exit 98\n'
                   'for ((i=0; i<5000; i++)); do printf "finding %s\\n" "$i"; done\n'
                   'echo "last diagnostic" >&2\nexit 7\n')
         result = self.run_cmd("bash", "-ec", example)

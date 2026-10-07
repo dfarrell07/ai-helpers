@@ -251,6 +251,25 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
         self.assertEqual(result.returncode, 0, result.stderr)
         self.assertEqual(result.stdout.strip(), "")
 
+    def test_leaf_utils_and_json_keep_existing_floors_for_mvs(self):
+        floors = (
+            ("v0.0.0-20260210185600-b8788abfbbc2", "v0.0.0-20250730193827-2d320260d730"),
+            ("v0.0.0-20260707023825-cf1189d6abe3", "v0.0.0-20260909141634-11ed52e25bc5"),
+        )
+        for utils, json_version in floors:
+            self.gomod.write_text("module example.invalid/fixture\ngo 1.23.0\nrequire (\n"
+                                 " k8s.io/api v0.33.1\n k8s.io/apimachinery v0.33.1\n"
+                                 f" k8s.io/utils {utils}\n sigs.k8s.io/json {json_version}\n)\n")
+            for minor in (34, 35, 36, 37):
+                with self.subTest(minor=minor, utils=utils, json=json_version):
+                    result = self.run_shell(function("derive_go_gets") +
+                                            'derive_go_gets "go.mod"\n', minor)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(),
+                                     [f"go get k8s.io/api@v0.{minor}.3",
+                                      f"go get k8s.io/apimachinery@v0.{minor}.3"])
+                    self.assertFalse((self.root / "requests").exists())
+
     def test_controller_tools_selects_target_minor_release(self):
         for minor, candidate in ((34, "v0.19.0"), (35, "v0.20.0"), (36, "v0.21.0"), (37, "v0.22.0")):
             with self.subTest(minor=minor, candidate=candidate):

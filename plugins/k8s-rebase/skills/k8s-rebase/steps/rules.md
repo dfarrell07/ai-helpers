@@ -102,6 +102,13 @@ Include this section in every gate reviewer's context.
    before starting the next worker. Pass the exact gate-file path, these rules,
    and raw evidence. Require reading the complete gate; a shortened task prompt
    must not replace its scope or criteria. Do not propose a verdict.
+   A separate bounded ordinary gate task need not create a new agent thread.
+   When native capacity is limited, reuse an idle ordinary worker through a
+   bounded follow-up with the complete current gate, rules, revision, and raw
+   evidence. Verify its earlier producers are finished first. Reserve fresh
+   contexts for Steps 4–5 independent reviews; a reused ordinary worker cannot
+   replace those reviewers. If fresh review capacity is unavailable, preserve
+   state and stop at that boundary for a same-checkout continuation.
    Resource limits require sequential delegation, not
    replacing available workers with parent self-review.
 3. Write reports through `scripts/write-gate-report.sh` at the known plugin
@@ -166,6 +173,9 @@ do not skip it.
   complete matching trailer in each shell call that runs the rebase/autofix
   scripts; they preserve that value and default to Claude for existing callers.
   For your commits use `git commit -s --trailer "$AI_TRAILER"` after binding it.
+  For multiline messages, write real newlines to a message file under
+  `.rebase-tmp/`, then use `git commit -s --trailer "$AI_TRAILER" -F "$MESSAGE_FILE"`.
+  Quoted literal `\n` sequences do not create message paragraphs.
   Attribution does not select the independent-review path; use host context.
 - Do not amend — create new commits on top.
 - No `org/repo#N` in commit messages.
@@ -186,6 +196,14 @@ host `GOMAXPROCS`/`GOFLAGS` are not inherited automatically. When a repository
 launcher does not forward them, use its supported runtime/options override
 or reproduce its container invocation with explicit `-e` arguments. Retain
 the actual invocation and report any limit that could not be enforced.
+The validation helper accepts optional `K8S_REBASE_CONTAINER_MEMORY`,
+`K8S_REBASE_CONTAINER_MEMORY_SWAP`, and `K8S_REBASE_CONTAINER_CPUS` bounds.
+Memory-swap is the combined memory-plus-swap budget; setting it equal to
+memory disables additional swap. Rootless Podman may use a separate scope:
+verify that container's actual cgroup limits rather than inferring them from
+its parent. A configured host `TMPDIR` must exist; the helper mounts that
+same disk-backed directory at `/task-tmp` to leave room for Unix socket names.
+This mapping changes the container path, not the scratch storage medium.
 
 ## Feature Gates
 

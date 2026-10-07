@@ -21,7 +21,16 @@ to ensure nothing was missed.
 
 If evidence is stale or absent, run the manual checks below for
 each CRD schema file in the repository.
-Find CRD files: `find . -name '*.yaml' -not -path '*/vendor/*' | xargs grep -l 'kind: CustomResourceDefinition' 2>/dev/null`
+Find tracked CRD files, including `.yaml` and `.yml`, with quoted paths:
+
+```bash
+while IFS= read -r -d '' candidate; do
+  if grep -q 'kind: CustomResourceDefinition' -- "$candidate"; then
+    printf '%s\n' "$candidate"
+  fi
+done < <(git ls-files -z -- '*.yaml' '*.yml' \
+  ':(exclude,glob)**/vendor/**' ':!.claude/')
+```
 For each CRD, compare `git show $BASE:<path>` against the working copy and
 flag any newly removed or weakened validation constraint (deleted pattern,
 format, minimum/maximum, enum, or required entries, or relaxed values).

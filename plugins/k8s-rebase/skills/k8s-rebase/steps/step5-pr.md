@@ -35,6 +35,11 @@ If interactive, ask. If background mode, use `REPLACE-WITH-JIRA-KEY:`.
 Write `.rebase-tmp/pr-body.md` for the independent review below. Do not
 present the command until review completes.
 
+Use a file-edit tool to retain a proposed publish command for review. The
+publish guard conservatively rejects literal publish syntax in shell calls,
+including quoted text and heredoc data. Keep the guard enabled; writing a
+print-only proposal does not authorize executing it.
+
 Before drafting verification claims, run this inventory from the expected
 gate prompts, not just the reports that happen to exist:
 

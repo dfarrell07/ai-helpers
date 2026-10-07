@@ -278,6 +278,9 @@ func TestReachability(t *testing.T) {
         self.assertFalse(any(c["argv"][0] == "test" for c in self.go_calls()))
 
     def test_container_uses_selected_module_version_and_preserves_argv(self):
+        for key in ("K8S_REBASE_CONTAINER_MEMORY", "K8S_REBASE_CONTAINER_MEMORY_SWAP",
+                    "K8S_REBASE_CONTAINER_CPUS", "TMPDIR"):
+            self.env.pop(key, None)
         self.module("go-controller", version="1.23.0")
         self.module("test/unit tests", version="1.25.0")
         self.env["FAKE_GOVERSION"] = "go1.23.0"
@@ -290,6 +293,8 @@ from pathlib import Path
         self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
         argv = json.loads((self.root / "container.json").read_text())
         self.assertIn("docker.io/library/golang:1.25.0", argv)
+        for flag in ("--memory", "--memory-swap", "--cpus", "TMPDIR=/task-tmp"):
+            self.assertNotIn(flag, argv)
         self.assertIn("--userns=keep-id", argv)
         self.assertNotIn("--privileged", argv)
         self.assertEqual(argv[argv.index("--test-only") + 1:], list(args))
@@ -299,8 +304,11 @@ from pathlib import Path
         self.env["FAKE_GOVERSION"] = "go1.99.0"
         self.env.update(GOMAXPROCS="1", GOFLAGS="-p=1 -mod=readonly",
                         GOMEMLIMIT="1GiB", K8S_REBASE_CONTAINER_MEMORY="2g",
+                        K8S_REBASE_CONTAINER_MEMORY_SWAP="2g",
+                        K8S_REBASE_CONTAINER_CPUS="1.5", TMPDIR=str(self.root / "temporary path with spaces"),
                         VALIDATION_TIMEOUT="10m", LINT_TIMEOUT="12m",
                         GOCACHE=str(self.root / "cache with spaces"))
+        Path(self.env["TMPDIR"]).mkdir()
         self.stub("id", 'print("1000")\n')
         self.stub("podman", '''import json, os, sys
 from pathlib import Path
@@ -319,10 +327,26 @@ sys.exit(125)
         self.assertIn("VALIDATION_TIMEOUT=10m", argv)
         self.assertIn("LINT_TIMEOUT=12m", argv)
         self.assertEqual(argv[argv.index("--memory") + 1], "2g")
+        self.assertIn("--memory-swap", argv)
+        self.assertEqual(argv[argv.index("--memory-swap") + 1], "2g")
+        self.assertIn("--cpus", argv)
+        self.assertEqual(argv[argv.index("--cpus") + 1], "1.5")
+        self.assertIn(f"{self.env['TMPDIR']}:/task-tmp", argv)
+        self.assertIn("TMPDIR=/task-tmp", argv)
         self.assertIn(f"GOCACHE={self.env['GOCACHE']}", argv)
         self.assertIn(f"{self.env['GOCACHE']}:{self.env['GOCACHE']}", argv)
         self.assertNotIn("All validation passes", result.stdout)
         self.assertFalse(any(c["argv"][0] == "test" for c in self.go_calls()))
+
+    def test_container_rejects_missing_configured_tmpdir_before_launch(self):
+        self.module()
+        self.env.update(FAKE_GOVERSION="go1.99.0", TMPDIR=str(self.root / "missing scratch"))
+        self.stub("id", 'print("1000")\n')
+        self.stub("podman", 'raise SystemExit("container must not be launched")\n')
+        result = self.run_cmd("bash", str(VALIDATOR), "--full")
+        self.assertEqual(result.returncode, 1, result.stdout + result.stderr)
+        self.assertIn("TMPDIR must be an existing directory", result.stderr)
+        self.assertNotIn("container must not be launched", result.stderr)
 
     def test_full_without_root_or_runtime_records_unresolved_coverage(self):
         module = self.module()

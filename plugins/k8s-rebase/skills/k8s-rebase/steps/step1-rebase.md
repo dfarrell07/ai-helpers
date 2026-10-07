@@ -23,6 +23,12 @@ auto-containerizes). Use the runtime's supported long-running command
 session and wait for its completion. Bind PLUGIN_ROOT, REPO_ROOT,
 VERSION, and BUMP_TOOLS from the verified invocation in this call:
 
+After bootstrap and before launching Step 1, retain the original pre-push
+hook state under `.rebase-tmp/`: observed absence, or its bytes and mode.
+This makes the final restoration check verifiable. On resume, preserve an
+existing snapshot and report a missing original observation as a limit; do
+not infer the preimage from the helper's backup convention.
+
 Also bind and export the host's `AI_TRAILER` as specified in rules.md before
 launching the script so its generated commits identify the actual assistant.
 
@@ -56,7 +62,10 @@ or times out first, keep waiting in the foreground with repeated
 calls until the process exits.
 On recovery, inspect the recorded process and log before any new launch.
 
-After process completion, check the exit status and the log's last lines.
+After process completion, retain the actual producer PID, completed native
+wait result and exit status in the handoff, and verify the producer is absent.
+A later metadata writer's PID cannot establish which original producer ran.
+Check the log's last lines as well.
 **Exit 0** = already at the target minor, nothing to do — stop without
 advancement or a PR command. The script deletes `.rebase-tmp/`, including
 state, the session marker, and this log, and restores the pre-push hook.

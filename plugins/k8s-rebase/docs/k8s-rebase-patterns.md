@@ -47,7 +47,7 @@ codegen output changes.
 | go vet format string | `non-constant format string` | `"%v", err` (prefer `%v` over `"%s", err.Error()`) |
 | go vet format type | `%q has arg of wrong type` | Use `%v` for non-string types |
 | Deprecated API | `SA1019: X is deprecated` | Check vendored `// Deprecated:` comment |
-| FieldsV1.Raw removed | `FieldsV1.Raw undefined` (k8s 1.36+) | Read access: `.GetRawBytes()`; construction: `metav1.NewFieldsV1(...)` |
+| FieldsV1.Raw access | Default v0.37.1 retains deprecated Raw; the opt-in `fieldsv1string` build tag omits it | Read access: `.GetRawBytes()`; construction: `metav1.NewFieldsV1(...)`; verify the selected source and build tags |
 | NewSimpleClientset | `SA1019` on generated fakes | Replace with `NewClientset` — check vendored source for `// Deprecated:` first (not all fakes deprecate it) |
 | x/exp migration | `cannot find package "golang.org/x/exp/..."` | Migrate to stdlib `maps`/`slices`/`cmp` |
 | govet inline analyzer | `inline: cannot inline <call>` | Only repos whose govet config sets `enable-all: true`; fix actionable call sites before considering a narrow configuration change |
@@ -63,7 +63,7 @@ codegen output changes.
 | golangci-lint v1 + Go 1.26 | v1 binaries, built with older Go, can't parse Go 1.26 code | Move to v2 and build it with the local Go: `go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@<version>` |
 | CI builder image | `not found` for `golang-X.Y-openshift-Z.W` | New Go builders may exist only for newer streams (golang-1.26 for openshift-5.0, not 4.22); verify the OCP mapping rather than switching streams to find an image |
 | KIND binary version | e2e cluster creation fails | Select a release supporting the target Kubernetes version and update each binary pin |
-| KIND kubeadm config | k8s 1.36: controller-manager flags silently not applied | Migrate `kind.yaml.j2` extraArgs from v1beta3 map format to v1beta4 list format |
+| KIND kubeadm config | Unsupported kubeadm API or controller-manager flags not applied | Trace the selected KIND patch handling; where required, migrate `kind.yaml.j2` extraArgs from v1beta3 maps to v1beta4 lists |
 | KubeVirt version | VM readiness timeouts in kv-live-migration CI | Confirm version skew, then select a compatible stable patch within the same minor |
 | MetalLB CRD validation | `Maximum boundary value must be of type integer` | Bump MetalLB version in e2e setup script; update FRR image variable separately |
 | library-go interface | `does not implement SharedIndexInformer` | Use a compatible commit on the correct OCP release branch, or a tracked fork replacement (see Cross-repo dependency ordering below) |
@@ -76,6 +76,13 @@ codegen output changes.
 | Webhook builder API | `NewWebhookManagedBy` / `.For()` compile errors | Move object from .For() to constructor arg (now generic) |
 | Vendor verify in container | `vendor not in sync` (container-only) | Rerun the repo's vendor check on the host with the required Go; keep failures the host reproduces |
 | e2e framework API | `undefined` in test/e2e | Rename functions, add params to match new signatures |
+
+KIND can convert legacy `extraArgs` maps during patch application. For example,
+[v0.33.0's patch merger](https://github.com/kubernetes-sigs/kind/blob/v0.33.0/pkg/internal/patch/kubeadm_merge.go)
+converts them when the patch omits `apiVersion`; explicitly versioned patches
+follow a different path. Inspect the actual binary version, patch API, and
+conversion before diagnosing incompatibility from the template's shape alone.
+Preserve the migration pattern when the selected path requires it.
 
 ## Feature Gates (recurring)
 
