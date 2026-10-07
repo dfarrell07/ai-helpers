@@ -18,6 +18,44 @@
 # -e: fail fast on unexpected errors (autofix/validate omit -e
 # because they must continue past failures to collect all results)
 set -euo pipefail
+
+# ── macOS Compatibility ──────────────────────────────────────────────
+# Detect OS and set portable command variants
+OS_TYPE="$(uname -s)"
+case "$OS_TYPE" in
+  Darwin*)
+    IS_MACOS=true
+    IS_LINUX=false
+    ;;
+  Linux*)
+    IS_MACOS=false
+    IS_LINUX=true
+    ;;
+  *)
+    IS_MACOS=false
+    IS_LINUX=true
+    ;;
+esac
+
+# Portable sed in-place edit function
+# BSD sed (macOS) requires explicit backup extension, use '' for no backup
+portable_sed() {
+  if $IS_MACOS; then
+    portable_sed '' "$@"
+  else
+    portable_sed "$@"
+  fi
+}
+
+# Portable sed with -E flag (extended regex)
+portable_sed_E() {
+  if $IS_MACOS; then
+    portable_sed '' -E "$@"
+  else
+    portable_sed_E "$@"
+  fi
+}
+
 cleanup_hook() {
   local hdir
   hdir="$(git rev-parse --git-common-dir 2>/dev/null)/hooks" 2>/dev/null || return 0
@@ -392,7 +430,12 @@ _validate_openshift_k8s_minor() {
   fi
   # -json only reads the supplied file; it neither edits the target go.mod nor
   # resolves dependencies. Disable automatic toolchain downloads for parsing.
-  if ! _requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json /dev/stdin <<< "$_mod" | \
+  # Use temp file instead of /dev/stdin for macOS compatibility
+  local _tmpmod
+  _tmpmod=$(mktemp)
+  trap "rm -f $_tmpmod" RETURN
+  echo "$_mod" > "$_tmpmod"
+  if ! _requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json "$_tmpmod" | \
     perl -MJSON::PP -0777 -e '
       my $pkg = shift;
       my $mod = decode_json(<STDIN>);
@@ -524,7 +567,8 @@ derive_go_gets() {
   # Match actual requirements, not comments, replacements, or the module itself.
   local _os_pkg _os_ver _os_requirements=""
   if grep -qE 'github[.]com/openshift/(api|client-go|library-go|build-machinery-go)([[:space:]"]|$)' "$gomod"; then
-    if ! _os_requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json /dev/stdin < "$gomod" | \
+    # macOS compatibility: go mod edit -json cannot read from /dev/stdin on macOS
+    if ! _os_requirements=$(GOTOOLCHAIN=local GOWORK=off go mod edit -json "$gomod" | \
       perl -MJSON::PP -0777 -e '
         my $mod = decode_json(<STDIN>);
         print "$_->{Path}\n" for @{$mod->{Require} // []};
@@ -840,10 +884,29 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
   banner "Phase 2: Code Generation"
 
   # Update code-generator version pin (handles both printf %s and explicit tool names)
-  sed -i -E "s|(code-generator/cmd/[^@]+)@v0\.[0-9]+\.[0-9]+|\1@${API_VERSION}|g" "$CODEGEN_SCRIPT"
+  portable_sed_E "s|(code-generator/cmd/[^@]+)@v0\.[0-9]+\.[0-9]+|\1@${API_VERSION}|g" "$CODEGEN_SCRIPT"
   info "Updated code-generator version to ${API_VERSION}"
 
   # Run codegen — try common make targets, auto-retry on dropped flags
+  # Extract toolchain version from go.mod if present (may differ from REQUIRED_GO)
+  GOMOD_FILE="$(dirname "$CODEGEN_SCRIPT")/../go.mod"
+  TOOLCHAIN_GO=""
+  if [[ -f "$GOMOD_FILE" ]]; then
+    TOOLCHAIN_GO=$(grep "^toolchain " "$GOMOD_FILE" | awk '{print $2}' | sed 's/go//' || true)
+  fi
+  
+  # Prefer toolchain version over base go directive for codegen
+  CODEGEN_GO_VERSION="${TOOLCHAIN_GO:-$REQUIRED_GO}"
+  
+  if [[ -n "$CODEGEN_GO_VERSION" ]]; then
+    CURRENT_GO=$(go env GOVERSION 2>/dev/null | sed 's/go//' || echo "0.0")
+    if [[ "$CURRENT_GO" != "$CODEGEN_GO_VERSION"* ]]; then
+      info "WARNING: Current Go version ($CURRENT_GO) differs from toolchain ($CODEGEN_GO_VERSION)"
+      info "Codegen output may differ from CI. Re-run codegen with Go $CODEGEN_GO_VERSION if verification fails."
+    else
+      info "Using Go $CURRENT_GO for codegen (matches toolchain $CODEGEN_GO_VERSION)"
+    fi
+  fi
   CODEGEN_DIR=$(dirname "$(dirname "$CODEGEN_SCRIPT")")
   CODEGEN_RAN=0
   CODEGEN_FAILED=0
@@ -880,7 +943,7 @@ if [[ -n "$CODEGEN_SCRIPT" ]]; then
       bad_flag=$(grep -oE '(unknown flag|flag provided but not defined): -+[a-zA-Z0-9_-]+' "$CODEGEN_LOG" | head -1 | sed 's/.*: -*//' || true)
       if [[ -n "$bad_flag" ]] && grep -q "\-\-${bad_flag}" "$CODEGEN_SCRIPT"; then
         info "Removing dropped flag --${bad_flag} from codegen script and retrying"
-        sed -i "/^[[:space:]]*--${bad_flag}/d" "$CODEGEN_SCRIPT"
+        portable_sed "/^[[:space:]]*--${bad_flag}/d" "$CODEGEN_SCRIPT"
         if run_codegen; then
           CODEGEN_RAN=1
           CODEGEN_MSG="$(format_msg "codegen" "Fix codegen for k8s ${K8S_MAJOR_MINOR}: remove dropped --${bad_flag} flag")"
@@ -992,7 +1055,7 @@ CHANGED_FILES=""
 # Two-stage sed: patch form first (v1.35.X → v1.36.0), then bare (v1.35 → v1.36)
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  sed -i -E "s|v${K8S_MAJOR}\.${OLD_MINOR}\.[0-9]+|${NEW_K8S_FULL}|g; s|v${K8S_MAJOR}\.${OLD_MINOR}\b|v${NEW_SHORT}|g" "$file"
+  portable_sed_E "s|v${K8S_MAJOR}\.${OLD_MINOR}\.[0-9]+|${NEW_K8S_FULL}|g; s|v${K8S_MAJOR}\.${OLD_MINOR}\b|v${NEW_SHORT}|g" "$file"
   CHANGED_FILES+="$file"$'\n'
   info "  Updated: $file"
 done < <(grep -rln -E "v${K8S_MAJOR}\.${OLD_MINOR}(\.[0-9]+)?\b" \
@@ -1015,7 +1078,7 @@ done < <(grep -rln "\b${OLD_SHORT}\b" --include="*.md" docs/ 2>/dev/null | grep 
 # version in the same file) are not silently broken.
 while IFS= read -r file; do
   [[ -z "$file" ]] && continue
-  sed -i -E "s|kindest/node:v${K8S_MAJOR}\\.${OLD_MINOR}\\.[0-9]+|kindest/node:${NEW_K8S_FULL}|g" "$file"
+  portable_sed_E "s|kindest/node:v${K8S_MAJOR}\\.${OLD_MINOR}\\.[0-9]+|kindest/node:${NEW_K8S_FULL}|g" "$file"
   CHANGED_FILES+="$file"$'\n'
   info "  Updated kindest/node: $file"
 done < <(grep -rln "kindest/node:v[0-9]" \
@@ -1030,7 +1093,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   NEW_GO_SHORT=$(echo "$NEW_GO_VERSION" | grep -oE '[0-9]+\.[0-9]+')
 
   while IFS= read -r file; do
-    sed -i \
+    portable_sed \
       -e "s|golang:${OLD_GO_SHORT}|golang:${NEW_GO_SHORT}|g" \
       -e "s|golang-${OLD_GO_SHORT}|golang-${NEW_GO_SHORT}|g" \
       -e "s|GO_VERSION[[:space:]]*?=[[:space:]]*${OLD_GO_SHORT}|GO_VERSION ?= ${NEW_GO_SHORT}|g" \
@@ -1050,7 +1113,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   # Second pass: catch workflow files with any stale go-version (handles pre-existing mismatches)
   if [[ -n "$NEW_GO_SHORT" ]]; then
     while IFS= read -r _gvf; do
-      sed -i -E \
+      portable_sed_E \
         -e "s|go-version: \[([0-9.x, ]+)\]|go-version: [${NEW_GO_SHORT}.x]|g" \
         -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${NEW_GO_SHORT}|g" \
         -e "s|go-version: [0-9]+\.[0-9]+|go-version: ${NEW_GO_SHORT}|g" \
@@ -1115,7 +1178,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
           new_lint_bare="${lint_target#v}"
           _old_escaped="${OLD_LINT//./\\.}"
           _bare_escaped="${old_lint_bare//./\\.}"
-          sed -i "s|${_old_escaped}|${lint_target}|g; s|\b${_bare_escaped}\b|${new_lint_bare}|g" "$lintscript"
+          portable_sed "s|${_old_escaped}|${lint_target}|g; s|\b${_bare_escaped}\b|${new_lint_bare}|g" "$lintscript"
           CHANGED_FILES+="$lintscript"$'\n'
           info "  Updated golangci-lint: $OLD_LINT → $lint_target in $lintscript"
         fi
@@ -1129,7 +1192,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         target_lint="${LATEST_LINT_V1:-$OLD_MK_LINT}"
       fi
       if [[ "$OLD_MK_LINT" != "$target_lint" ]]; then
-        sed -i "s|${OLD_MK_LINT}|${target_lint}|g" "$mkfile"
+        portable_sed "s|${OLD_MK_LINT}|${target_lint}|g" "$mkfile"
         CHANGED_FILES+="$mkfile"$'\n'
         info "  Updated golangci-lint: $OLD_MK_LINT → $target_lint in $mkfile"
       fi
@@ -1151,7 +1214,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       [[ -z "$_old_fw_ver" ]] && continue
       [[ "$_old_fw_ver" == "$_new_fw_ver" ]] && continue
       _old_fw_ver_escaped=$(echo "$_old_fw_ver" | sed 's/\./\\./g')
-      sed -i -E "s|${_mk_var}[[:space:]]*[:?]?=[[:space:]]*${_old_fw_ver_escaped}|${_mk_var} := ${_new_fw_ver}|g" "$mkfile"
+      portable_sed_E "s|${_mk_var}[[:space:]]*[:?]?=[[:space:]]*${_old_fw_ver_escaped}|${_mk_var} := ${_new_fw_ver}|g" "$mkfile"
       CHANGED_FILES+="$mkfile"$'\n'
       info "  Updated ${_mk_var}: ${_old_fw_ver} → ${_new_fw_ver} in $mkfile"
     done < <(grep -rln "${_mk_var}" --include="Makefile*" . | grep -v vendor | grep -v "/\.git/" || true)
@@ -1161,7 +1224,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
   # Some Dockerfiles have stale GOLANG_VERSION defaults from prior
   # rebases that the OLD→NEW sed misses.
   while IFS= read -r df; do
-    sed -i "s|ARG GOLANG_VERSION=[0-9.]\+|ARG GOLANG_VERSION=${NEW_GO_SHORT}|g" "$df"
+    portable_sed "s|ARG GOLANG_VERSION=[0-9.]\+|ARG GOLANG_VERSION=${NEW_GO_SHORT}|g" "$df"
     CHANGED_FILES+="$df"$'\n'
     info "  Reconciled Dockerfile Go version: $df"
   done < <(grep -rln "ARG GOLANG_VERSION=" --include="Dockerfile*" . | grep -v vendor | grep -v "/\.git/" || true)
@@ -1189,7 +1252,7 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
       # Update .ci-operator.yaml if needed
       if [[ "$old_ocp" != "$target_ocp" ]]; then
         info "  Updating OCP version in CI tags: openshift-${old_ocp} → openshift-${target_ocp}"
-        sed -i "s|openshift-${old_ocp}|openshift-${target_ocp}|g" .ci-operator.yaml && CHANGED_FILES+=".ci-operator.yaml"$'\n'
+        portable_sed "s|openshift-${old_ocp}|openshift-${target_ocp}|g" .ci-operator.yaml && CHANGED_FILES+=".ci-operator.yaml"$'\n'
       fi
       # Also update ANY Dockerfile still referencing a stale OCP stream.
       # Handles both patterns: openshift-X.Y (builder tag) and ocp/X.Y: (base image)
@@ -1209,14 +1272,14 @@ if [[ -n "$NEW_GO_VERSION" ]] && [[ "$OLD_GO_VERSION" != "$NEW_GO_VERSION" ]]; t
         # Pattern 1: openshift-X.Y (builder image tag suffix)
         if grep -qE "openshift-[0-9.]+" "$ci_file" && ! grep -q "openshift-${target_ocp}" "$ci_file"; then
           for stale_ocp in $(grep -oE 'openshift-[0-9.]+' "$ci_file" | sed 's/openshift-//' | sort -u); do
-            sed -i "s|openshift-${stale_ocp}|openshift-${target_ocp}|g" "$ci_file"
+            portable_sed "s|openshift-${stale_ocp}|openshift-${target_ocp}|g" "$ci_file"
           done
           _fixed=1
         fi
         # Pattern 2: ocp/X.Y: (base image reference)
         if grep -qE "ocp/[0-9.]+:" "$ci_file" && ! grep -q "ocp/${target_ocp}:" "$ci_file"; then
           for stale_base in $(grep -oE 'ocp/[0-9.]+:' "$ci_file" | sed 's|ocp/||;s|:||' | sort -u); do
-            sed -i "s|ocp/${stale_base}:|ocp/${target_ocp}:|g" "$ci_file"
+            portable_sed "s|ocp/${stale_base}:|ocp/${target_ocp}:|g" "$ci_file"
           done
           _fixed=1
         fi
@@ -1232,14 +1295,14 @@ fi
 # Reconcile ENVTEST_K8S_VERSION (kubebuilder test binary version).
 # Runs regardless of Go version change — it tracks k8s version.
 while IFS= read -r _envtest_mk; do
-  sed -i -E "s|(ENVTEST_K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)[0-9]+\.[0-9]+[.x0-9]*|\1${K8S_MAJOR}.${K8S_MINOR}|" "$_envtest_mk"
+  portable_sed_E "s|(ENVTEST_K8S_VERSION[[:space:]]*[:?]?=[[:space:]]*)[0-9]+\.[0-9]+[.x0-9]*|\1${K8S_MAJOR}.${K8S_MINOR}|" "$_envtest_mk"
   CHANGED_FILES+="$_envtest_mk"$'\n'
   info "  Reconciled ENVTEST_K8S_VERSION to ${K8S_MAJOR}.${K8S_MINOR} in $_envtest_mk"
 done < <(grep -rln "ENVTEST_K8S_VERSION" --include="Makefile*" . 2>/dev/null | grep -v vendor | grep -v "/\.git/" || true)
 
 # Reconcile setup-envtest release branch (tracks controller-runtime).
 if grep -q "setup-envtest@release-" "$REPO_ROOT/Makefile" 2>/dev/null; then
-  sed -i "s|setup-envtest@release-[0-9.]*|setup-envtest@release-0.${CR_MINOR}|g" "$REPO_ROOT/Makefile"
+  portable_sed "s|setup-envtest@release-[0-9.]*|setup-envtest@release-0.${CR_MINOR}|g" "$REPO_ROOT/Makefile"
   CHANGED_FILES+="Makefile"$'\n'
   info "  Reconciled setup-envtest to release-0.${CR_MINOR}"
 fi
@@ -1286,7 +1349,7 @@ if grep -qE 'GINKGO_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
   _gomod_ginkgo=$(grep 'onsi/ginkgo/v2' "$PRIMARY_GOMOD" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
   _mk_ginkgo=$(grep -oE 'GINKGO_VERSION\s*[:?]?=\s*v[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE 'v[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
   if [[ -n "$_gomod_ginkgo" ]] && [[ -n "$_mk_ginkgo" ]] && [[ "$_gomod_ginkgo" != "$_mk_ginkgo" ]]; then
-    sed -i -E "s|(GINKGO_VERSION\s*[:?]?=\s*)v[0-9]+\.[0-9]+\.[0-9]+|\1${_gomod_ginkgo}|" "$REPO_ROOT/Makefile"
+    portable_sed_E "s|(GINKGO_VERSION\s*[:?]?=\s*)v[0-9]+\.[0-9]+\.[0-9]+|\1${_gomod_ginkgo}|" "$REPO_ROOT/Makefile"
     TOOL_CHANGED_FILES+="Makefile"$'\n'
     info "  Synced GINKGO_VERSION: $_mk_ginkgo → $_gomod_ginkgo (from go.mod)"
   fi
@@ -1302,7 +1365,7 @@ if grep -qE 'NODE_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
   _latest_node=$(grep -oE '"version":"v[^"]+"' <<< "$_node_info" | sed 's/"version":"v//;s/"//' || true)
   _mk_node=$(grep -oE 'NODE_VERSION\s*[:?]?=\s*[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
   if [[ -n "$_latest_node" ]] && [[ -n "$_mk_node" ]] && [[ "$_latest_node" != "$_mk_node" ]]; then
-    sed -i -E "s|(NODE_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_node}|" "$REPO_ROOT/Makefile"
+    portable_sed_E "s|(NODE_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_node}|" "$REPO_ROOT/Makefile"
     TOOL_CHANGED_FILES+="Makefile"$'\n'
     info "  Bumped NODE_VERSION: $_mk_node → $_latest_node"
   fi
@@ -1312,7 +1375,7 @@ if grep -qE 'NODE_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
   if [[ -n "$_latest_npm" ]]; then
     _mk_npm=$(grep -oE 'NPM_VERSION\s*[:?]?=\s*[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
     if [[ -n "$_mk_npm" ]] && [[ "$_latest_npm" != "$_mk_npm" ]]; then
-      sed -i -E "s|(NPM_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_npm}|" "$REPO_ROOT/Makefile"
+      portable_sed_E "s|(NPM_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_npm}|" "$REPO_ROOT/Makefile"
       TOOL_CHANGED_FILES+="Makefile"$'\n'
       info "  Bumped NPM_VERSION: $_mk_npm → $_latest_npm"
     fi
@@ -1324,7 +1387,7 @@ if grep -qE 'NVM_VERSION\s*[:?]?=' "$REPO_ROOT/Makefile" 2>/dev/null; then
   _latest_nvm=$(gh api repos/nvm-sh/nvm/releases/latest --jq '.tag_name' 2>/dev/null | sed 's/^v//' || true)
   _mk_nvm=$(grep -oE 'NVM_VERSION\s*[:?]?=\s*[0-9]+\.[0-9]+\.[0-9]+' "$REPO_ROOT/Makefile" | grep -oE '[0-9]+\.[0-9]+\.[0-9]+' | head -1 || true)
   if [[ -n "$_latest_nvm" ]] && [[ -n "$_mk_nvm" ]] && [[ "$_latest_nvm" != "$_mk_nvm" ]]; then
-    sed -i -E "s|(NVM_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_nvm}|" "$REPO_ROOT/Makefile"
+    portable_sed_E "s|(NVM_VERSION\s*[:?]?=\s*)[0-9]+\.[0-9]+\.[0-9]+|\1${_latest_nvm}|" "$REPO_ROOT/Makefile"
     TOOL_CHANGED_FILES+="Makefile"$'\n'
     info "  Bumped NVM_VERSION: $_mk_nvm → $_latest_nvm"
   fi

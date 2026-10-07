@@ -21,6 +21,43 @@
 # shellcheck disable=SC2044  # for-loop over find: Go repos never have spaces in filenames
 set -uo pipefail
 
+# ── macOS Compatibility ──────────────────────────────────────────────
+# Detect OS and set portable command variants
+OS_TYPE="$(uname -s)"
+case "$OS_TYPE" in
+  Darwin*)
+    IS_MACOS=true
+    IS_LINUX=false
+    ;;
+  Linux*)
+    IS_MACOS=false
+    IS_LINUX=true
+    ;;
+  *)
+    IS_MACOS=false
+    IS_LINUX=true
+    ;;
+esac
+
+# Portable sed in-place edit function
+# BSD sed (macOS) requires explicit backup extension, use '' for no backup
+portable_sed() {
+  if $IS_MACOS; then
+    portable_sed '' "$@"
+  else
+    portable_sed "$@"
+  fi
+}
+
+# Portable sed with -E flag (extended regex)
+portable_sed_E() {
+  if $IS_MACOS; then
+    portable_sed '' -E "$@"
+  else
+    portable_sed_E "$@"
+  fi
+}
+
 AI_TRAILER="Assisted-by: Claude Code <noreply@anthropic.com>"
 REPO_ROOT="$(git rev-parse --show-toplevel 2>/dev/null)" || { echo "ERROR: Not in a git repository" >&2; exit 1; }
 cd "$REPO_ROOT" || exit 1
@@ -315,25 +352,25 @@ fix_xexp() {
     # In-place replacement — always produces compilable code even if
     # goimports fails to install. Import ends up in the wrong group
     # (third-party instead of stdlib) but goimports/gci fix that.
-    sed -i 's|"golang.org/x/exp/maps"|"maps"|g' "$f"
-    sed -i 's|"golang.org/x/exp/slices"|"slices"|g' "$f"
+    portable_sed 's|"golang.org/x/exp/maps"|"maps"|g' "$f"
+    portable_sed 's|"golang.org/x/exp/slices"|"slices"|g' "$f"
     if grep -q 'constraints\.\(Integer\|Float\|Signed\|Unsigned\|Complex\)' "$f"; then
       echo ":: WARNING: $f uses non-Ordered constraints types — skipping constraints rewrite (manual fix required)"
     else
-      sed -i 's|"golang.org/x/exp/constraints"|"cmp"|g' "$f"
-      sed -i 's/constraints\.Ordered/cmp.Ordered/g' "$f"
+      portable_sed 's|"golang.org/x/exp/constraints"|"cmp"|g' "$f"
+      portable_sed 's/constraints\.Ordered/cmp.Ordered/g' "$f"
     fi
     # maps.Keys/Values now return iterators — wrap with slices.Collect
     # Protect already-wrapped instances with placeholders so both Keys
     # and Values on the same line are handled independently.
-    sed -i 's/slices\.Collect(maps\.Keys(/\x00SCMK(/g' "$f"
-    sed -i 's/slices\.Collect(maps\.Values(/\x00SCMV(/g' "$f"
-    sed -i 's/\bmaps\.Keys(\([^)]*\))/slices.Collect(maps.Keys(\1))/g' "$f"
-    sed -i 's/\bmaps\.Values(\([^)]*\))/slices.Collect(maps.Values(\1))/g' "$f"
-    sed -i 's/\x00SCMK(/slices.Collect(maps.Keys(/g' "$f"
-    sed -i 's/\x00SCMV(/slices.Collect(maps.Values(/g' "$f"
+    portable_sed 's/slices\.Collect(maps\.Keys(/\x00SCMK(/g' "$f"
+    portable_sed 's/slices\.Collect(maps\.Values(/\x00SCMV(/g' "$f"
+    portable_sed 's/\bmaps\.Keys(\([^)]*\))/slices.Collect(maps.Keys(\1))/g' "$f"
+    portable_sed 's/\bmaps\.Values(\([^)]*\))/slices.Collect(maps.Values(\1))/g' "$f"
+    portable_sed 's/\x00SCMK(/slices.Collect(maps.Keys(/g' "$f"
+    portable_sed 's/\x00SCMV(/slices.Collect(maps.Values(/g' "$f"
     # maps.Clear → builtin clear
-    sed -i 's/\bmaps\.Clear(\([^)]*\))/clear(\1)/g' "$f"
+    portable_sed 's/\bmaps\.Clear(\([^)]*\))/clear(\1)/g' "$f"
     # Import grouping (maps/slices/cmp in stdlib section) handled by goimports below
   done
   # Remove x/exp from go.mod/vendor — needs Go toolchain
@@ -349,7 +386,7 @@ fix_klog_v2() {
   [[ -z "$files" ]] && return 0
   echo ":: Fixing klog v1 → v2 imports in $(wc -l <<< "$files") files"
   for f in $files; do
-    sed -i 's|"k8s.io/klog"|"k8s.io/klog/v2"|g' "$f"
+    portable_sed 's|"k8s.io/klog"|"k8s.io/klog/v2"|g' "$f"
   done
   for _gm in $(find . -name "go.mod" -not -path "*/vendor/*" -not -path "*/.claude/*" -exec grep -l 'k8s.io/klog ' {} \;); do
     echo ":: Running go mod tidy+vendor in $(dirname "$_gm") to remove stale klog v1"
@@ -363,7 +400,7 @@ fix_reflect_ptr() {
   [[ -z "$files" ]] && return 0
   echo ":: Fixing reflect.Ptr → reflect.Pointer in $(wc -l <<< "$files") files"
   for f in $files; do
-    sed -i 's/reflect\.Ptr\b/reflect.Pointer/g' "$f"
+    portable_sed 's/reflect\.Ptr\b/reflect.Pointer/g' "$f"
   done
 }
 
@@ -377,9 +414,9 @@ fix_fieldsv1() {
   for f in $files; do
     # Read access: .FieldsV1.Raw → .FieldsV1.GetRawBytes()
     # Skip lines where .Raw is on the left side of an assignment
-    sed -i '/\.FieldsV1\.Raw\s*=/!s/\.FieldsV1\.Raw\b/.FieldsV1.GetRawBytes()/g' "$f"
+    portable_sed '/\.FieldsV1\.Raw\s*=/!s/\.FieldsV1\.Raw\b/.FieldsV1.GetRawBytes()/g' "$f"
     # Construction: &metav1.FieldsV1{Raw: []byte(`...`)} → metav1.NewFieldsV1(`...`)
-    sed -i 's/&metav1\.FieldsV1{Raw: \[\]byte(\(`[^`]*`\))}/metav1.NewFieldsV1(\1)/g' "$f"
+    portable_sed 's/&metav1\.FieldsV1{Raw: \[\]byte(\(`[^`]*`\))}/metav1.NewFieldsV1(\1)/g' "$f"
   done
 }
 
@@ -399,7 +436,7 @@ fix_eventf() {
       content="${match#*:}"
       commas=$(sed 's/\.Error().*//' <<< "$content" | tr -cd ',' | wc -c)
       if [[ "$commas" -le 3 ]]; then
-        sed -i "${lineno}s/,\( *\)\([a-zA-Z_][a-zA-Z_0-9.]*\)\.Error())/,\1\"%v\", \2)/" "$f"
+        portable_sed "${lineno}s/,\( *\)\([a-zA-Z_][a-zA-Z_0-9.]*\)\.Error())/,\1\"%v\", \2)/" "$f"
       else
         echo ":: WARNING: Complex Eventf at $f:$lineno (needs manual fix — extra args before .Error())"
       fi
@@ -416,7 +453,7 @@ fix_docs_version() {
   [[ -f "$file" ]] || return 0
   if grep -q "| *1\.${OLD} *|" "$file"; then
     echo ":: Fixing stale docs version 1.${OLD} → 1.${NEW}"
-    sed -i "s/| *1\.${OLD} *|/| 1.${NEW} |/g" "$file"
+    portable_sed "s/| *1\.${OLD} *|/| 1.${NEW} |/g" "$file"
   fi
 }
 
@@ -432,7 +469,7 @@ fix_version_refs() {
     [[ -z "$f" ]] && continue
     # Skip K8S_VERSION and kindest/node lines — fix_kind_image owns
     # those and sets them based on actual KIND image availability.
-    sed -i -E "/K8S_VERSION|kindest\/node/!{s|v1\.${OLD}\.[0-9]+|v1.${NEW}.0|g; s|v1\.${OLD}\b|v1.${NEW}|g}" "$f"
+    portable_sed_E "/K8S_VERSION|kindest\/node/!{s|v1\.${OLD}\.[0-9]+|v1.${NEW}.0|g; s|v1\.${OLD}\b|v1.${NEW}|g}" "$f"
     changed=1
   done < <(grep -rln -E "v1\.${OLD}(\.[0-9]+)?\b" \
     --include="*.yml" --include="*.yaml" --include="*.sh" \
@@ -459,7 +496,7 @@ fix_go_version() {
   echo ":: Fixing Go version refs: $old_go → $new_go"
   while IFS= read -r f; do
     [[ -z "$f" ]] && continue
-    sed -i \
+    portable_sed \
       -e "s|golang:${old_go}|golang:${new_go}|g" \
       -e "s|golang-${old_go}|golang-${new_go}|g" \
       -e "s|GO_VERSION ?= ${old_go}|GO_VERSION ?= ${new_go}|g" \
@@ -482,7 +519,7 @@ fix_go_version() {
       echo "WARN: skipping second-pass go-version rewrite in $_gvf (multi-version matrix — update manually)"
       continue
     fi
-    sed -i -E \
+    portable_sed_E \
       -e "s|go-version: \[[0-9]+\.[0-9]+|go-version: [${new_go}|g" \
       -e "s|go-version: [0-9]+\.[0-9]+|go-version: ${new_go}|g" \
       "$_gvf"
@@ -513,7 +550,7 @@ fix_lint_version() {
     if [[ "$lint_ver" == v2.* ]] && (( lint_minor < 12 )) 2>/dev/null; then
       if [[ -n "$LATEST_LINT" ]]; then
         echo ":: Bumping golangci-lint: $lint_ver → $LATEST_LINT (Go 1.${required_go} requires newer build)"
-        sed -i "s/^VERSION=${lint_ver}/VERSION=${LATEST_LINT}/" "$lint_sh"
+        portable_sed "s/^VERSION=${lint_ver}/VERSION=${LATEST_LINT}/" "$lint_sh"
         lint_ver="$LATEST_LINT"
       else
         echo ":: WARNING: golangci-lint $lint_ver may not support Go 1.${required_go} — could not fetch latest version"
@@ -527,7 +564,7 @@ fix_lint_version() {
     test_ver=$(grep -oE 'version: v[0-9.]+' "$test_yml" | head -1 | sed 's/version: //')
     if [[ -n "$lint_ver" ]] && [[ -n "$test_ver" ]] && [[ "$lint_ver" != "$test_ver" ]]; then
       echo ":: Syncing lint version: test.yml $test_ver → $lint_ver"
-      sed -i "s/version: ${test_ver}/version: ${lint_ver}/g" "$test_yml"
+      portable_sed "s/version: ${test_ver}/version: ${lint_ver}/g" "$test_yml"
     fi
   fi
   # Fix golangci-lint v1 + newer Go incompatibility.
@@ -542,9 +579,9 @@ fix_lint_version() {
         echo ":: Fixing Makefile lint fallback for Go 1.${required_go} compatibility"
         # Use v2 import path since we're bumping to v2
         if grep -q "GOLANGCI_LINT_VERSION" "$REPO_ROOT/Makefile" 2>/dev/null; then
-          sed -i 's|echo "linter can only be run within a container.*|GOFLAGS="" GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) 2>/dev/null \&\& GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache golangci-lint run --verbose --timeout=15m0s|g' "$REPO_ROOT/Makefile"
+          portable_sed 's|echo "linter can only be run within a container.*|GOFLAGS="" GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@$(GOLANGCI_LINT_VERSION) 2>/dev/null \&\& GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache golangci-lint run --verbose --timeout=15m0s|g' "$REPO_ROOT/Makefile"
         else
-          sed -i "s|echo \"linter can only be run within a container.*|GOFLAGS=\"\" GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION:-latest} 2>/dev/null \&\& GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache golangci-lint run --verbose --timeout=15m0s|g" "$REPO_ROOT/Makefile"
+          portable_sed "s|echo \"linter can only be run within a container.*|GOFLAGS=\"\" GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache go install github.com/golangci/golangci-lint/v2/cmd/golangci-lint@${GOLANGCI_LINT_VERSION:-latest} 2>/dev/null \&\& GOLANGCI_LINT_CACHE=/tmp/golangci-lint-cache golangci-lint run --verbose --timeout=15m0s|g" "$REPO_ROOT/Makefile"
         fi
       else
         echo ":: WARNING: lint.sh uses golangci-lint $lint_ver (built with Go <1.26)."
@@ -554,16 +591,16 @@ fix_lint_version() {
       local latest_v2="${LATEST_LINT:-v2.12.0}"
       if grep -qE "GOLANGCI_LINT_VERSION.*= *v1\." "$REPO_ROOT/Makefile" 2>/dev/null; then
         echo ":: Bumping Makefile GOLANGCI_LINT_VERSION from v1 to ${latest_v2}"
-        sed -i -E "s|(GOLANGCI_LINT_VERSION.*= *)v1\.[0-9.]+|\1${latest_v2}|" "$REPO_ROOT/Makefile"
+        portable_sed_E "s|(GOLANGCI_LINT_VERSION.*= *)v1\.[0-9.]+|\1${latest_v2}|" "$REPO_ROOT/Makefile"
         # Update any existing go install references to use v2 import path
-        sed -i 's|golangci/golangci-lint/cmd/golangci-lint|golangci/golangci-lint/v2/cmd/golangci-lint|g' "$REPO_ROOT/Makefile"
+        portable_sed 's|golangci/golangci-lint/cmd/golangci-lint|golangci/golangci-lint/v2/cmd/golangci-lint|g' "$REPO_ROOT/Makefile"
       fi
       # Also bump hack/lint.sh if it's still on v1
       if [[ -n "$lint_sh" ]] && grep -qE "^VERSION=v1\." "$lint_sh" 2>/dev/null; then
         echo ":: Bumping hack/lint.sh from v1 to ${latest_v2}"
-        sed -i -E "s|^VERSION=v1\.[0-9.]+|VERSION=${latest_v2}|" "$lint_sh"
+        portable_sed_E "s|^VERSION=v1\.[0-9.]+|VERSION=${latest_v2}|" "$lint_sh"
         # Update container image tag if present (golangci/golangci-lint:vX)
-        sed -i -E "s|golangci/golangci-lint:v1\.[0-9.]+|golangci/golangci-lint:${latest_v2}|" "$lint_sh"
+        portable_sed_E "s|golangci/golangci-lint:v1\.[0-9.]+|golangci/golangci-lint:${latest_v2}|" "$lint_sh"
       fi
     fi
   fi
@@ -572,7 +609,7 @@ fix_lint_version() {
   # of current version — the flag could linger after a manual bump)
   if [[ -n "$lint_sh" ]] && grep -q '\-\-print-resources-usage' "$lint_sh" 2>/dev/null; then
     echo ":: Removing --print-resources-usage (v1-only flag)"
-    sed -i 's/ *--print-resources-usage//g' "$lint_sh"
+    portable_sed 's/ *--print-resources-usage//g' "$lint_sh"
   fi
 }
 
@@ -621,7 +658,7 @@ fix_kind_image() {
       for f in $(grep -rln "K8S_VERSION" \
         --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
         | grep -v vendor); do
-        sed -i -E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${revert_tag}#g" "$f"
+        portable_sed_E "/K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${revert_tag}#g" "$f"
       done
     fi
   else
@@ -636,7 +673,7 @@ fix_kind_image() {
       for f in $(grep -rln "K8S_VERSION" \
         --include="*.yml" --include="*.yaml" --include="*.sh" --include="*.md" --include="Makefile*" --include="kind-common" . \
         | grep -v vendor | grep -v go.mod); do
-        sed -i -E "/K8S_VERSION/s#v?1\.${OLD}(\.[0-9]+)?#${kind_tag}#g; /K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
+        portable_sed_E "/K8S_VERSION/s#v?1\.${OLD}(\.[0-9]+)?#${kind_tag}#g; /K8S_VERSION/s#v1\.${NEW}\.[0-9]+#${kind_tag}#g" "$f"
         _changed=1
       done
     fi
@@ -661,7 +698,7 @@ fix_kind_version() {
   [[ -z "$latest_ver" ]] && return 0
   if [[ "$current_ver" != "$latest_ver" ]]; then
     echo ":: Bumping KIND binary: $current_ver → $latest_ver"
-    sed -i "s|kind.sigs.k8s.io/dl/${current_ver}|kind.sigs.k8s.io/dl/${latest_ver}|g" "$install_script"
+    portable_sed "s|kind.sigs.k8s.io/dl/${current_ver}|kind.sigs.k8s.io/dl/${latest_ver}|g" "$install_script"
     current_ver="$latest_ver"
   fi
   # Update stale KIND_VERSION= in workflow files to match install-kind.sh
@@ -670,7 +707,7 @@ fix_kind_version() {
     local wf_ver
     wf_ver=$(grep -oE 'KIND_VERSION=v[0-9.]+' "$wf" | head -1 | sed 's/KIND_VERSION=//')
     if [[ -n "$wf_ver" ]] && [[ "$wf_ver" != "$current_ver" ]]; then
-      sed -i "s|KIND_VERSION=${wf_ver}|KIND_VERSION=${current_ver}|g" "$wf"
+      portable_sed "s|KIND_VERSION=${wf_ver}|KIND_VERSION=${current_ver}|g" "$wf"
       echo ":: Updated KIND_VERSION in $wf: $wf_ver → $current_ver"
     fi
   done
@@ -761,7 +798,7 @@ fix_crd_go_markers() {
   for f in $files; do
     if grep -q "Maximum.*4294967295" "$f" && ! grep -q "Format.*int64\|Format=int64" "$f"; then
       echo ":: Adding Format=int64 kubebuilder marker in $f"
-      sed -i '/Maximum.*4294967295/a\\t// +kubebuilder:validation:Format=int64' "$f"
+      portable_sed '/Maximum.*4294967295/a\\t// +kubebuilder:validation:Format=int64' "$f"
     fi
   done
 }
@@ -844,7 +881,7 @@ fix_addtoscheme() {
       fi
       if grep -rq 'func Install\b' "$vendor_dir" 2>/dev/null; then
         echo ":: Fixing ${pkg_alias}.AddToScheme → Install in $f"
-        sed -i "s/${pkg_alias}\.AddToScheme/${pkg_alias}.Install/g" "$f"
+        portable_sed "s/${pkg_alias}\.AddToScheme/${pkg_alias}.Install/g" "$f"
       fi
     done < <(grep '\.AddToScheme\b' "$f")
   done
@@ -880,9 +917,9 @@ fix_feature_gates() {
         local insert_after
         insert_after=$(grep -n "KUBE_FEATURE_" "$test_go_sh" | tail -1 | cut -d: -f1 || true)
         if [[ -n "$insert_after" ]]; then
-          sed -i "${insert_after}a export KUBE_FEATURE_${gate}=false" "$test_go_sh"
+          portable_sed "${insert_after}a export KUBE_FEATURE_${gate}=false" "$test_go_sh"
         else
-          sed -i "1a export KUBE_FEATURE_${gate}=false" "$test_go_sh"
+          portable_sed "1a export KUBE_FEATURE_${gate}=false" "$test_go_sh"
         fi
       fi
     done
@@ -901,7 +938,7 @@ fix_feature_gates() {
           echo "  WARNING: could not locate os.Setenv line in $tf — skipping gate $gate"
           continue
         fi
-        sed -i "${setenv_line}i\\
+        portable_sed "${setenv_line}i\\
 \\tos.Setenv(\"KUBE_FEATURE_${gate}\", \"false\")" "$tf"
       fi
       if grep -q 't\.Setenv.*KUBE_FEATURE' "$tf" && ! grep -q "t\.Setenv.*${gate}" "$tf"; then
@@ -911,7 +948,7 @@ fix_feature_gates() {
           echo "  WARNING: could not locate t.Setenv line in $tf — skipping gate $gate"
           continue
         fi
-        sed -i "${tsetenv_line}i\\
+        portable_sed "${tsetenv_line}i\\
 \\tt.Setenv(\"KUBE_FEATURE_${gate}\", \"false\")" "$tf"
       fi
     done
@@ -938,7 +975,7 @@ fix_feature_gates() {
     echo ":: Adding gates to SetFromMap in $tf"
     for g in "${sfm_gates[@]}"; do
       if ! grep -q "\"$g\"" "$tf"; then
-        sed -i "/SetFromMap/s/\(true\|false\)}/\1, \"${g}\": false}/" "$tf" 2>/dev/null || true
+        portable_sed "/SetFromMap/s/\(true\|false\)}/\1, \"${g}\": false}/" "$tf" 2>/dev/null || true
         if ! grep -q "\"$g\"" "$tf"; then
           echo "  WARNING: gate $g not inserted into $tf (SetFromMap may be multi-line — manual fix needed)"
         fi
@@ -947,12 +984,12 @@ fix_feature_gates() {
 
     # Broaden the unrecognized-gate filter if present (safety net).
     if grep -qE 'unrecognized feature gate: [A-Za-z0-9]+' "$tf"; then
-      sed -i 's/unrecognized feature gate: [A-Za-z0-9]\+/unrecognized feature gate/' "$tf"
+      portable_sed 's/unrecognized feature gate: [A-Za-z0-9]\+/unrecognized feature gate/' "$tf"
     fi
 
     # Update stale error messages that name a single gate.
     if grep -q 'Failed to disable .* feature gate' "$tf"; then
-      sed -i 's/Failed to disable .* feature gate/Failed to disable feature gates/' "$tf"
+      portable_sed 's/Failed to disable .* feature gate/Failed to disable feature gates/' "$tf"
     fi
   done
 
@@ -1049,7 +1086,7 @@ fix_bounding_dirs() {
   [[ -z "$codegen_script" ]] && return 0
   if grep -q "bounding-dirs" "$codegen_script"; then
     echo ":: Removing deprecated --bounding-dirs from $(basename "$codegen_script")"
-    sed -i '/--bounding-dirs/d' "$codegen_script"
+    portable_sed '/--bounding-dirs/d' "$codegen_script"
   fi
 }
 
