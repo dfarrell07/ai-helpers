@@ -15,6 +15,13 @@ examining the commit history after the initial rebase.
 
 4. If zero fix commits exist, verify the repo doesn't need any. In each
    module directory (`find . -name go.mod -not -path '*/vendor/*'`):
+   - Inventory that module's maintained `vendor/` directory from the actual
+     filesystem and Git tracking/ignore rules; do not infer its absence from
+     an earlier summary. `-mod=readonly` uses the module graph and bypasses
+     vendor, so it cannot verify maintained vendor coverage. Use
+     `-mod=vendor` for both commands when maintained vendor exists; otherwise
+     use the module's normal read-only mode. Retain earlier mis-scoped attempts
+     and run the correctly scoped checks before claiming PASS.
    - `go build ./... (add -mod=vendor if vendor/ exists)` — does it compile?
    - `go vet ./... (add -mod=vendor if vendor/ exists)` — any warnings?
    If both pass, the repo may genuinely need no fixes beyond

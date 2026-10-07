@@ -645,7 +645,9 @@ derive_go_gets() {
     # Bare go get requests the latest version, not just MVS resolution.
     # Core updates already raise these leaf modules to required versions;
     # keep existing higher floors instead of independently advancing pins.
-    [[ "$pkg" == "k8s.io/utils" || "$pkg" == "sigs.k8s.io/json" ]] && continue
+    case "$pkg" in
+      k8s.io/utils|sigs.k8s.io/json|sigs.k8s.io/kustomize/api|sigs.k8s.io/kustomize/kyaml) continue ;;
+    esac
     if [[ "$pkg" == "sigs.k8s.io/controller-tools" ]]; then
       # controller-tools v0.N targets Kubernetes 1.(N+15). Bare go get
       # selects the newest release (currently one Kubernetes minor ahead),

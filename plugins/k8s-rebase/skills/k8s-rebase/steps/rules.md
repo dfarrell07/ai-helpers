@@ -120,6 +120,8 @@ Include this section in every gate reviewer's context.
    A fresh stamp only establishes the reviewed SHA. Missing required source
    URLs/ranges, incomplete scans, or unexecuted applicable checks require
    further evidence or INCONCLUSIVE; they cannot support PASS.
+   Verify file:line citations against the numbered retained source bytes,
+   including external files. Do not reuse line numbers from another revision.
 4. Triage findings against base under Scope. For INCONCLUSIVE, gather the
    missing evidence before deciding on an edit. An expected version or stream
    is not proof that its image exists: if registry access prevents verification,
@@ -136,6 +138,8 @@ Include this section in every gate reviewer's context.
 5. For deliberate recollection at the **same HEAD**, or after a companion
    crash, first resolve the cause and have the parent run
    `bash "$PLUGIN_ROOT/scripts/k8s-rebase-orchestrator.sh" retry-gate "$REPO_ROOT" <gate-name>`.
+   Use the short gate name in the current step, for example `autofix-result`
+   in Step 3, not `step3-autofix-result` or a `.report`/`.md` filename.
    This retains the previous report/evidence/crash under `.rebase-tmp/gate-retries/`
    and clears that current gate's active report, evidence, and crash marker. Then rerun
    `gates` and review the new evidence within the existing retry budget.

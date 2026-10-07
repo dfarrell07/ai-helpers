@@ -270,6 +270,27 @@ os.execv(os.environ["TEST_REAL_GO"], [os.environ["TEST_REAL_GO"], *sys.argv[1:]]
                                       f"go get k8s.io/apimachinery@v0.{minor}.3"])
                     self.assertFalse((self.root / "requests").exists())
 
+    def test_kustomize_leaves_follow_mvs_without_independent_latest(self):
+        for minor in (34, 35, 36, 37):
+            for api, kyaml, indirect in (("v0.21.1", "v0.21.1", " // indirect"),
+                                         ("v0.22.4", "v0.23.1", "")):
+                with self.subTest(minor=minor, api=api, kyaml=kyaml, indirect=indirect):
+                    self.gomod.write_text(
+                        "module example.invalid/fixture\nrequire (\n"
+                        " k8s.io/kubectl v0.33.1\n"
+                        f" sigs.k8s.io/kustomize/api {api}{indirect}\n"
+                        f" sigs.k8s.io/kustomize/kyaml {kyaml}{indirect}\n"
+                        " sigs.k8s.io/controller-runtime v0.22.0\n"
+                        " sigs.k8s.io/yaml v1.5.0\n)\n")
+                    result = self.run_shell(function("derive_go_gets") +
+                                            'derive_go_gets "go.mod"\n', minor)
+                    self.assertEqual(result.returncode, 0, result.stderr)
+                    self.assertEqual(result.stdout.splitlines(),
+                                     ["go get sigs.k8s.io/controller-runtime@v0.23.1",
+                                      f"go get k8s.io/kubectl@v0.{minor}.3",
+                                      "go get sigs.k8s.io/yaml"])
+                    self.assertFalse((self.root / "requests").exists())
+
     def test_controller_tools_selects_target_minor_release(self):
         for minor, candidate in ((34, "v0.19.0"), (35, "v0.20.0"), (36, "v0.21.0"), (37, "v0.22.0")):
             with self.subTest(minor=minor, candidate=candidate):

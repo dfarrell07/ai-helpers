@@ -75,6 +75,11 @@ Key lint guidance:
   report that blocker. If lint completes with findings, triage them under
   the scope rule above; a nonzero exit alone is not an infrastructure failure.
   Do not retry indefinitely or interpret incomplete output as successful lint.
+  If mounting a host Go toolchain to reuse its cache, select its executable
+  through `PATH` as well as its matching `GOROOT`. Read back `command -v go`,
+  `go version`, and `go env GOROOT` inside the actual container before lint;
+  setting `GOROOT` alone can leave the image's incompatible Go executable
+  selected. Preserve failed attempts and use the existing shared retry budget.
 
 - For errcheck: fix the code, not the linter.
   `defer f.Close()` → `defer func() { _ = f.Close() }()`

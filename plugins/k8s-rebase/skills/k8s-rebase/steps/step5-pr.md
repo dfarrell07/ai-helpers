@@ -183,6 +183,10 @@ reuse approval after changes; refresh affected gates and review the final tip.
 ## 5d. Present the reviewed command
 
 After review, print the commands for the user. **Do not execute them.**
+Name each review's actual scope: Step 4's selected-commit approval does not
+approve the full branch. Step 5 may approve an accurately disclosed draft
+with unresolved checks; that does not establish clean candidate readiness.
+Report remaining FAIL/INCONCLUSIVE findings separately from review approval.
 Use `<fork-remote>` and `<fork-owner>` placeholders unless a remote other than
 `origin` clearly points to the user's fork. Copy the reviewed body
 byte-for-byte into the heredoc:

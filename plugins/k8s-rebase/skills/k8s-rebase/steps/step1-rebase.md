@@ -95,6 +95,21 @@ autofix adjusts K8S_VERSION to match the latest available
 kindest/node tag (e.g., v1.36.1). On other repos, K8S_VERSION
 stays at the go.mod version for kubectl/envtest downloads.
 
+Before the first gate, trace delegated CI launchers through their actual
+external checkout, assignments and node-image consumer. In MCP, the local
+Makefile pin selects kubectl; the delegated OVN installer can unconditionally
+overwrite `K8S_VERSION` before launching KIND. A caller export alone cannot
+override that assignment. Inspect immutable primary source and verify a
+published target-minor node image separately from client/test-binary assets.
+After the helper completes, a confirmed mismatch may require a scoped
+repo-owned launcher compatibility repair before review. Prefer an override
+supported by the actual external consumer; otherwise validate a bounded,
+maintainable adapter against that consumer and reject unknown layouts.
+Preserve upstream tracked files and document unpinned external-source limits.
+This exception does not authorize manual dependency edits or another helper
+run. Verify effective selection before spending Step 4's validation budget;
+selection checks and offline tests do not establish live-cluster coverage.
+
 If the output reports an unconfirmed OCP stream or an unavailable/unverifiable
 image, check the repo's target-release CI config in `openshift/release` and
 the candidate registry image. Keep unresolved verification visible in the

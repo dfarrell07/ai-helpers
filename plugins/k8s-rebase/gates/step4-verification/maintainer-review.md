@@ -36,14 +36,25 @@ may require an available earlier patch of the target minor. DO flag minor-versio
 mismatches (versions from a different minor release than the
 target).
 
-Lint-suppression check — any `//nolint:` annotation that duplicates
+Apply the following suppression checks to authored repository-owned changes,
+excluding root and nested vendor directories. For added vendor suppressions,
+first compare the file bytes with the exact selected upstream module source.
+Byte-identical upstream compatibility suppressions are INFO, with provenance
+and behavioral implications retained. They are not branch-authored fixes.
+Locally modified or unverifiable vendor files still require scope, provenance
+and correctness review; do not grant them an automatic PASS. Continue inspecting
+upstream declarations when assessing deprecated calls in owned code. Never
+repair canonical vendor by mechanically replacing an API: replacements can
+change behavior.
+
+Lint-suppression check — any authored `//nolint:` annotation that duplicates
 coverage already in `.golangci.yml` is unnecessary noise in the diff.
 FAIL if the diff adds `//nolint:` comments for linters that are also
 suppressed via `.golangci.yml` (exclude-functions, exclude-rules, or
 linter settings). The config is the right place; inline annotations are
 for rare, targeted, one-off exceptions that can't be expressed in config.
 Check:
-  `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git diff "$BASE"..HEAD | grep '^\+.*//nolint:'`
+  `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git diff "$BASE"..HEAD -- . ':!vendor/**' ':!**/vendor/**' | grep '^\+.*//nolint:'`
 For each hit, verify the suppressed linter is NOT already covered by
 `.golangci.yml`. If it is — FAIL. If the annotation is genuinely
 site-specific with no config equivalent — INFO only.
@@ -56,7 +67,7 @@ confirms a replacement exists — FAIL; if go doc is inconclusive or the
 package is unavailable, note the check as unverifiable in DETAILS and do
 not FAIL. If vendor/ exists, use these steps:
 
-  1. Find the new nolint lines: `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git diff "$BASE"..HEAD | grep '^\+.*//nolint:staticcheck'`
+  1. Find the new owned nolint lines: `BASE=$(bash "$PLUGIN_ROOT/scripts/resolve-rebase-base.sh" "$(git rev-parse --show-toplevel)") || exit 1; git diff "$BASE"..HEAD -- . ':!vendor/**' ':!**/vendor/**' | grep '^\+.*//nolint:staticcheck'`
   2. For each, look at the suppressed call on the same or adjacent line.
   3. Identify the package: find the import path in the file's import block.
   4. Locate the deprecation notice: `grep -rn 'Deprecated' vendor/<import-path>/`
