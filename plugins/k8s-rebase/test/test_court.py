@@ -96,6 +96,14 @@ class CourtHarnessTests(unittest.TestCase):
             'trap \'rmdir "$PROMPT_DIR/reviewer-active"\' EXIT\n'
             "prompt=$(cat)\n"
             'printf "%s\\n" "$prompt" > "$PROMPT_DIR/prompt-$BASHPID.txt"\n'
+            'printf "%s\\n" "$@" > "$PROMPT_DIR/argv-$BASHPID.txt"\n'
+            'if [[ "$prompt" == *"You are the PROSECUTION."* ]]; then role=prosecution; '
+            'elif [[ "$prompt" == *"You are the DEFENSE."* ]]; then role=defense; '
+            'elif [[ "$prompt" == *"Fact-check only."* ]]; then role=judge; else role=juror; fi\n'
+            'if [[ "${COURT_RETRY_ALL:-}" == "1" ]]; then '
+            'count=$(cat "$PROMPT_DIR/count-$role" 2>/dev/null || echo 0); count=$((count + 1)); '
+            'echo "$count" > "$PROMPT_DIR/count-$role"; '
+            'limit=1; [[ "$role" == juror ]] && limit=3; [[ "$count" -le "$limit" ]] && exit 0; fi\n'
             '[[ "${COURT_INCONCLUSIVE:-}" == "1" ]] && exit 0\n'
             'padding=$(printf \'%0256d\' 0)\n'
             'if [[ "$prompt" == *"You are the PROSECUTION."* ]]; then printf "PROSECUTION %s\\n" "$padding"; '
@@ -586,6 +594,63 @@ class CourtHarnessTests(unittest.TestCase):
         self.assertEqual(len(self.prompt_files()), prompt_count)
         state = json.loads(self.court_result().read_text())
         self.assertEqual(state["result_ref"], self.result)
+
+    def assert_reviewer_tool_contract(self, expected_counts):
+        counts = {role: 0 for role in expected_counts}
+        for prompt_file in self.prompt_files():
+            prompt = prompt_file.read_text()
+            argv = (self.prompts / prompt_file.name.replace("prompt-", "argv-")).read_text().splitlines()
+            if "You are the PROSECUTION." in prompt:
+                role = "prosecution"
+            elif "You are the DEFENSE." in prompt:
+                role = "defense"
+            elif "Fact-check only." in prompt:
+                role = "judge"
+            else:
+                role = "juror"
+            counts[role] += 1
+            self.assertEqual(argv[argv.index("--permission-mode") + 1], "dontAsk")
+            self.assertEqual(argv[argv.index("--setting-sources") + 1], "")
+            self.assertNotIn("bypassPermissions", argv)
+            tools = argv[argv.index("--tools") + 1]
+            if role == "judge":
+                self.assertEqual(tools, "")
+                self.assertNotIn("--allowedTools", argv)
+            else:
+                self.assertEqual(set(tools.split(",")), {"Bash", "Read", "Glob", "Grep"})
+                allowed = argv[argv.index("--allowedTools") + 1]
+                for command in ("show", "diff", "log"):
+                    self.assertIn(f"Bash(git --no-pager {command} --no-ext-diff --no-textconv *)", allowed)
+                self.assertNotIn("Bash(*)", allowed)
+                denied = argv[argv.index("--disallowedTools") + 1]
+                for restriction in ("go mod", "go build", "go vet", "go test", "make ",
+                                    "rm ", "mv ", "cp ", "touch ", "tee ", "git add", "git switch", "git rebase",
+                                    "git push", "git checkout", "git reset", "git commit",
+                                    "--output", "--ext-diff", "--textconv", " >", " >>"):
+                    self.assertIn(restriction, denied)
+                self.assertIn("Do not run module operations, builds, tests", prompt)
+            self.assertIn(f"BASE_REF: {self.run_base}", prompt)
+            self.assertIn("RESULT_REF: bump1.36", prompt)
+        self.assertEqual(counts, expected_counts)
+
+    def test_all_court_roles_have_restricted_tools_even_with_workflow_bypass(self):
+        self.completed_workflow()
+        self.env["PERMISSION_MODE"] = "bypassPermissions"
+        result = self.harness("results", "acme/demo", "--court")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DIFF REVIEW VERDICT: PASS", result.stderr)
+        self.assert_reviewer_tool_contract({"prosecution": 1, "defense": 1, "judge": 1, "juror": 3})
+
+    def test_all_court_retries_keep_the_same_role_tool_constraints(self):
+        self.completed_workflow()
+        self.env.update(PERMISSION_MODE="bypassPermissions", COURT_RETRY_ALL="1")
+        result = self.harness("results", "acme/demo", "--court")
+        self.assertEqual(result.returncode, 0, result.stdout + result.stderr)
+        self.assertIn("DIFF REVIEW VERDICT: PASS", result.stderr)
+        for role in ("prosecution", "defense", "judge", "juror-1", "juror-2", "juror-3"):
+            self.assertIn(f"Retrying {role}", result.stderr)
+        self.assert_reviewer_tool_contract({"prosecution": 2, "defense": 2, "judge": 2, "juror": 6})
+
 
     def test_explicit_from_commit_overrides_saved_metadata(self):
         (self.plugin / "test/.matrix-state/run-inputs/1.36.2_acme_demo.json").unlink()

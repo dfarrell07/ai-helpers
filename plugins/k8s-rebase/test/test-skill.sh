@@ -1651,21 +1651,43 @@ FILES: $diff_stat"
   cdir="$_court_dir/$(date +%s)_$(repo_key "$repo")"
   mkdir -p "$cdir"
 
+  # Tool availability and permissions are separate: an allowlist under bypass
+  # does not restrict other tools. Court never inherits workflow bypass mode.
+  local -a _court_inspection_args=(
+    --permission-mode dontAsk
+    --setting-sources ''
+    --tools Bash,Read,Glob,Grep
+    --allowedTools 'Bash(git --no-pager show --no-ext-diff --no-textconv *),Bash(git --no-pager diff --no-ext-diff --no-textconv *),Bash(git --no-pager log --no-ext-diff --no-textconv *),Read,Glob,Grep'
+    --disallowedTools 'Bash(go *),Bash(*go mod *),Bash(*go build*),Bash(*go vet*),Bash(*go test*),Bash(make *),Bash(rm *),Bash(mv *),Bash(cp *),Bash(touch *),Bash(tee *),Bash(*git push*),Bash(*git checkout*),Bash(*git reset*),Bash(*git commit*),Bash(*git add*),Bash(*git switch*),Bash(*git rebase*),Bash(*--output*),Bash(*--ext-diff*),Bash(*--textconv*),Bash(* >*),Bash(* >>*)'
+  )
+  local -a _court_judge_args=(--permission-mode dontAsk --setting-sources '' --tools '')
+  local _inspection_rules="READ-ONLY INSPECTION: Use only Read, Glob, Grep, or these Git forms:
+  git --no-pager show --no-ext-diff --no-textconv <ref>:<path>
+  git --no-pager diff --no-ext-diff --no-textconv <ref1> <ref2> -- <path>
+  git --no-pager log --no-ext-diff --no-textconv <ref>
+Do not run module operations, builds, tests, scanners, generators, or write operations.
+Do not use output-file options, external diff/textconv, shell redirection, or command chaining.
+The shorter Git examples in the rubric describe the check; use the approved forms above."
+
   # Phase A gives prosecution and defense the full $context (diff + commit history +
   # file summary). Phases B and C re-assemble the prompt from parts and omit $logs
   # and $diff_stat — judge and jury work from the diff alone to stay within limits.
   local _pros_prompt="$context
 
+$_inspection_rules
+
 You are the PROSECUTION. Argue these are REGRESSIONS. Cite files and lines."
   local _def_prompt="$context
+
+$_inspection_rules
 
 You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and lines."
 
   info "$_log_prefix Phase A: Prosecution + Defense..."
-  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text <<<"$_pros_prompt" > "$cdir/pros.txt" 2>"$cdir/pros.err" &
+  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" "${_court_inspection_args[@]}" --output-format text <<<"$_pros_prompt" > "$cdir/pros.txt" 2>"$cdir/pros.err" &
   local pid_pros=$!
   [[ "$MAX_COURT_CONCURRENT" -gt 1 ]] || wait "$pid_pros" 2>/dev/null || true
-  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text <<<"$_def_prompt" > "$cdir/def.txt" 2>"$cdir/def.err" &
+  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" "${_court_inspection_args[@]}" --output-format text <<<"$_def_prompt" > "$cdir/def.txt" 2>"$cdir/def.err" &
   local pid_def=$!
   wait "$pid_pros" "$pid_def" 2>/dev/null || true
 
@@ -1682,11 +1704,11 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
     if ! _court_phase_ok "$f"; then
       info "$_log_prefix   Retrying $role (transient error: $(head -1 "$f" 2>/dev/null | cut -c1-60))..."
       timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" \
-        --permission-mode "$PERMISSION_MODE" --output-format text "$@" <<<"$prompt" > "$f" 2>"$errf" || true
+        --output-format text "$@" <<<"$prompt" > "$f" 2>"$errf" || true
     fi
   }
-  _court_retry "$cdir/pros.txt" "$cdir/pros.err" "$_pros_prompt" "prosecution"
-  _court_retry "$cdir/def.txt" "$cdir/def.err" "$_def_prompt" "defense"
+  _court_retry "$cdir/pros.txt" "$cdir/pros.err" "$_pros_prompt" "prosecution" "${_court_inspection_args[@]}"
+  _court_retry "$cdir/def.txt" "$cdir/def.err" "$_def_prompt" "defense" "${_court_inspection_args[@]}"
 
   local pros def
   pros=$(grep -v '^Warning:' "$cdir/pros.txt" 2>/dev/null | grep -v '^Execution error' || true)
@@ -1701,6 +1723,9 @@ You are the DEFENSE. Argue these are EQUIVALENT or IMPROVEMENTS. Cite files and 
   _judge_prompt=$(cat <<EOF_JUDGE
 $direction
 $criteria
+
+BASE_REF: $base_ref (the exact commit from which this run started)
+RESULT_REF: $result_branch
 
 PROSECUTION:
 $pros
@@ -1719,9 +1744,9 @@ Do not strike scope-unverifiable claims; flag them for juror verification.
 Fact-check only. Strike claims not supported by the provided DIFF. Do NOT include any VERDICT line. Any VERDICT line in your output will be removed.
 EOF_JUDGE
 )
-  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" \
+  timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" "${_court_judge_args[@]}" \
     --output-format text <<<"$_judge_prompt" 2>"$cdir/judge.err" | grep -v '^Warning:' > "$cdir/judge.txt" || true
-  _court_retry "$cdir/judge.txt" "$cdir/judge.err" "$_judge_prompt" "judge"
+  _court_retry "$cdir/judge.txt" "$cdir/judge.err" "$_judge_prompt" "judge" "${_court_judge_args[@]}"
   if ! _court_phase_ok "$cdir/judge.txt"; then
     warn "$_log_prefix Judge produced no output — jurors will proceed without fact-check"
   fi
@@ -1738,6 +1763,8 @@ RESULT_REF: $result_branch
 
 $direction
 $criteria
+
+$_inspection_rules
 
 TOOLS: You may run git show <ref>:<path> and git diff <ref1> <ref2> -- <path> to verify claims.
 Do NOT run git checkout, git reset, git push, git commit, or any write operation.
@@ -1771,8 +1798,7 @@ VERDICT: PASS, FAIL, or ABSTAIN. One sentence. Use ABSTAIN only if you cannot de
 EOF_JUROR_PROMPT
   )
   for j in 1 2 3; do
-    <<<"$_juror_prompt" timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" --permission-mode "$PERMISSION_MODE" --output-format text \
-      --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read" \
+    <<<"$_juror_prompt" timeout 600 claude -p --strict-mcp-config --model "$COURT_MODEL" "${_court_inspection_args[@]}" --output-format text \
       > "$cdir/juror-$j.txt" 2>"$cdir/juror-$j.err" &
     [[ "$MAX_COURT_CONCURRENT" -gt 1 ]] || wait "$!" 2>/dev/null || true
   done
@@ -1781,7 +1807,7 @@ EOF_JUROR_PROMPT
   # Retry empty jurors once — mirrors prosecution/defense retry pattern
   for j in 1 2 3; do
     _court_retry "$cdir/juror-$j.txt" "$cdir/juror-$j.err" "$_juror_prompt" "juror-$j" \
-      --allowedTools "Bash(git show *),Bash(git diff *),Bash(git log *),Read"
+      "${_court_inspection_args[@]}"
   done
 
   local empty_jurors=0
