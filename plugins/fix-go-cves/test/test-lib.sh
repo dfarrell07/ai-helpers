@@ -9349,7 +9349,7 @@ from pathlib import Path
 import sys
 source = Path(sys.argv[1]).read_text()
 start = source.index('    # Generate PR command')
-end = source.index('\n  fi\nfi\n\nif $FETCH_FAILED', start)
+end = source.index('\n  fi\nelse\n  # Nothing to keep', start)
 print(source[start:end])
 PY
 _pr_remotes() {
