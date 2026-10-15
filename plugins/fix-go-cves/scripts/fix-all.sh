@@ -57,7 +57,7 @@ cleanup() {
     git -C "$REPO" branch -D "$FIX_BRANCH" 2>/dev/null || true
   fi
   if [[ -n "${STATE_FILE:-}" ]]; then
-    rm -f "$STATE_FILE" "${STATE_FILE}.build-failed" "${STATE_FILE}.network-broken" "${STATE_FILE}.scanner-degraded" "${STATE_FILE}.scan-transient" "${STATE_FILE}.coverage-unknown" "${STATE_FILE}.review-unresolved" "${STATE_FILE}.review-resolved" "${STATE_FILE}.generated-artifacts" "${STATE_FILE}.baseline-artifacts" 2>/dev/null || true
+    rm -f "$STATE_FILE" "${STATE_FILE}.build-failed" "${STATE_FILE}.network-broken" "${STATE_FILE}.scanner-degraded" "${STATE_FILE}.scan-transient" "${STATE_FILE}.coverage-unknown" "${STATE_FILE}.review-unresolved" "${STATE_FILE}.review-resolved" "${STATE_FILE}.generated-artifacts" "${STATE_FILE}.baseline-artifacts" "${STATE_FILE}.generated-drift" 2>/dev/null || true
     rmdir "$(dirname "$STATE_FILE")/reviewer" "$(dirname "$STATE_FILE")" 2>/dev/null || true
   fi
   # Preserve subagent reports on verification failure so they can be debugged;
@@ -122,6 +122,12 @@ _read_sentinel build-failed     BUILD_FAILED
 # must not be reported clean. Only meaningful on the zero-dependency-CVE early
 # exit below; when CVEs are fixed, the final rescan gate re-evaluates coverage.
 _read_sentinel coverage-unknown COVERAGE_UNKNOWN
+
+record_generated_drift
+if [[ -s "${STATE_FILE}.generated-drift" ]]; then
+  echo "NOTE: generated files already out of date on origin/$BRANCH are left out of fix commits:"
+  sed 's/^/  /' "${STATE_FILE}.generated-drift"
+fi
 
 # The initial scan may have run in a broken environment: a network/DNS build
 # failure (.network-broken) or a grype DB that couldn't be updated

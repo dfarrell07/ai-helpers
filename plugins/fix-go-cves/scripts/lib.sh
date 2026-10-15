@@ -2129,6 +2129,20 @@ _is_tolerated_generated_file() {
   [[ "$file" == *.pb.go ]] || grep -qF 'controller-gen.kubebuilder.io/version' -- "$file" 2>/dev/null
 }
 
+# Generated files that the first, pre-fix build already changes are out of date
+# on the base branch. Record and restore them so fix commits never absorb drift
+# the repository had before this run.
+record_generated_drift() {
+  local drift="${STATE_FILE}.generated-drift" file
+  : > "$drift"
+  [[ -n "${DIFF_IGNORE_ARGS:-}" ]] || return 0
+  while IFS= read -r file; do
+    _is_tolerated_generated_file "$file" || continue
+    printf '%s\n' "$file" >> "$drift"
+    git checkout -- "$file"
+  done < <(git diff --name-only)
+}
+
 # Reconcile generated files the scan build left dirty. A file whose diff is
 # empty once DIFF_IGNORE_ARGS (the `git diff -I` regexes detect.sh enabled) is
 # applied differs only by tool-version noise and is restored. A file with a
@@ -2141,6 +2155,10 @@ reconcile_generated_files() {
   read -ra ignore_args <<< "$DIFF_IGNORE_ARGS"
   while IFS= read -r file; do
     _is_tolerated_generated_file "$file" || continue
+    if grep -qxF -- "$file" "${STATE_FILE:-/dev/null}.generated-drift" 2>/dev/null; then
+      git checkout -- "$file"
+      continue
+    fi
     # grep -q can close a large diff early. Under pipefail Git's SIGPIPE then
     # makes a substantive update look empty and discards it. Use Git's status
     # directly, and propagate errors rather than treating them as version noise.

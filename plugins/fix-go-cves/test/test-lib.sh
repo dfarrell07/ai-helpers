@@ -7373,6 +7373,20 @@ sed -i 's/go:build linux/go:build windows/; s/Copyright 2025/Copyright 2026/; s/
 sed -i 's/version: keep/version: changed/' "$GF_SEMANTIC/crd.yaml"
 sed -i 's/preserve exported API/change exported API/' "$GF_SEMANTIC/directive.pb.go"
 GF_SEMANTIC_RULES=$(gf_detect "$GF_SEMANTIC")
+# Drift the base branch already had stays out of fix commits.
+GF_DRIFT=$(gf_repo drift)
+printf '# controller-gen.kubebuilder.io/version: v0.19.0\nfield: old\n' > "$GF_DRIFT/crd.yaml"
+gf_commit "$GF_DRIFT"
+GF_DRIFT_RULES=$(gf_detect "$GF_DRIFT")
+sed -i 's/field: old/field: regenerated/' "$GF_DRIFT/crd.yaml"
+( cd "$GF_DRIFT"; STATE_FILE="$GF_DRIFT/.state"; DIFF_IGNORE_ARGS="$GF_DRIFT_RULES"
+  record_generated_drift
+  sed -i 's/field: old/field: regenerated/' crd.yaml
+  reconcile_generated_files )
+check "pre-fix generated drift is recorded" grep -qx crd.yaml "$GF_DRIFT/.state.generated-drift"
+check "pre-fix generated drift is restored" grep -q 'field: old' "$GF_DRIFT/crd.yaml"
+check "pre-fix generated drift is never staged" git -C "$GF_DRIFT" diff --cached --quiet
+
 ( cd "$GF_SEMANTIC"; DIFF_IGNORE_ARGS="$GF_SEMANTIC_RULES" reconcile_generated_files )
 check "generated reconciliation preserves changed Go build constraint" grep -q '^//go:build windows$' "$GF_SEMANTIC/build.pb.go"
 check "generated reconciliation preserves changed copyright" grep -q 'Copyright 2026' "$GF_SEMANTIC/build.pb.go"
