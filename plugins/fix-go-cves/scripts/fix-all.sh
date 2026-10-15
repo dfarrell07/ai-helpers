@@ -225,7 +225,6 @@ CVE_LINES=$(jq -r '
       pkg: (.artifact.name // ""),
       fixedIn: ((.vulnerability.fix.versions // []) | map(select(validfix)) | if length == 0 then "" else sort_by(ltrimstr("v") | split("+")[0] | split("-")[0] | split(".") | map(tonumber? // 0)) | last | cleanfix end),
       allFixVersions: ((.vulnerability.fix.versions // []) | map(select(validfix)) | join(",")),
-      minFixVer: ((.vulnerability.fix.versions // []) | map(select(validfix)) | if length == 0 then "" else sort_by(ltrimstr("v") | split("+")[0] | split("-")[0] | split(".") | map(tonumber? // 0)) | first | cleanfix end),
       cve: (.vulnerability.id // ""),
       severity: (.vulnerability.severity // "Unknown"),
       locs: ([.artifact.locations[]?.path // empty] |
@@ -259,8 +258,7 @@ CVE_LINES=$(jq -r '
     . + {location: $location} |
     if .type == "no-fix" then . else . + {
       allFixVersions: ($versions | join(",")),
-      fixedIn: ($versions | last | cleanfix),
-      minFixVer: ($versions | first | cleanfix)
+      fixedIn: ($versions | last | cleanfix)
     } end
   ) |
   group_by(.pkg + ":" + .type + ":" + (if .type == "no-fix" then .fixState else "" end) + ":" + .location) |
@@ -270,8 +268,6 @@ CVE_LINES=$(jq -r '
     fixedIn: (if .[0].type == "no-fix" then ""
               else (map(.fixedIn) | map(select(type == "string" and . != "")) | sort_by(ltrimstr("v") | split("+")[0] | split("-")[0] | split(".") | map(tonumber? // 0)) | (last // "") | cleanfix) end),
     allFixVersions: (if .[0].type == "no-fix" then "" else ([.[].allFixVersions] | unique | join(",")) end),
-    versionFloor: (if .[0].type == "no-fix" then ""
-                   else (map(.minFixVer) | map(select(type == "string" and . != "")) | sort_by(ltrimstr("v") | split("+")[0] | split("-")[0] | split(".") | map(tonumber? // 0)) | (last // "")) end),
     cves: (map(.cve) | unique),
     severity: .[0].severity,
     fixState: .[0].fixState,
@@ -280,7 +276,7 @@ CVE_LINES=$(jq -r '
       unique_by(.cve) | tojson | @base64)
   }) |
   .[] |
-  "\(.type)|\(.pkg)|\(.fixedIn)|\(.cves | join(","))|\(.severity)|\(.allFixVersions)|\(.fixState)|\(.location)|\(.versionFloor)|\(.requirements)"
+  "\(.type)|\(.pkg)|\(.fixedIn)|\(.cves | join(","))|\(.severity)|\(.allFixVersions)|\(.fixState)|\(.location)|\(.requirements)"
 ' <<< "$DISPATCH_JSON" 2>/dev/null || echo "")
 
 # Track results
@@ -317,7 +313,7 @@ if [[ "$MATCH_COUNT" -gt 0 && -z "$CVE_LINES" ]]; then
 fi
 
 # Mutators take arguments. Interactive builds must not consume remaining CVE rows.
-while IFS='|' read -r TYPE PKG FIX_VER CVE_CSV _SEVERITY ALL_FIX_VERS FIX_STATE_VAL LOCATION VERSION_FLOOR REQUIREMENTS_B64; do
+while IFS='|' read -r TYPE PKG FIX_VER CVE_CSV _SEVERITY ALL_FIX_VERS FIX_STATE_VAL LOCATION REQUIREMENTS_B64; do
   [[ -z "$PKG" ]] && continue
 
   # Split CVE_CSV into array
@@ -383,13 +379,6 @@ while IFS='|' read -r TYPE PKG FIX_VER CVE_CSV _SEVERITY ALL_FIX_VERS FIX_STATE_
     # line reflects that choice — not the FIX_VER we passed in.
     USED_VER=$(grep "^FIXED: $PKG v" "$FIX_LOG" 2>/dev/null | head -1 | sed "s|^FIXED: $PKG v||" | awk '{print $1}') || true
     [[ -z "$USED_VER" ]] && USED_VER="$FIX_VER"
-# When the first candidate reaches a deterministic policy boundary (exit 2),
-    # try progressively lower versions from the fix.versions list.
-    # Per-CVE selection already chose the greatest earliest fix threshold across
-    # all advisories. Retrying arbitrary lower union members can reintroduce the
-    # multi-CVE false-fix bug, so retain the legacy retry only for old callers.
-    [[ $EXIT_CODE -eq 2 ]] && [[ -n "$ALL_FIX_VERS" ]] && \
-      [[ -z "${REQUIREMENTS_B64:-}" ]] && _retry_lower_versions
     [[ -n "$USED_VER" ]] && FIX_VER="$USED_VER"
     case $EXIT_CODE in
       0)
@@ -629,12 +618,9 @@ if ! $TESTS_FAILED && ! git diff --quiet "$TESTED_HEAD" HEAD -- . ':(exclude).gr
   run_tests
 fi
 
-# Agent review runs only after deterministic verification has had a chance to
-# rescan and remediate findings exposed by earlier dependency upgrades. A
-# package can move to a newer release stream as a side effect of another fix
-# (for example, CoreDNS exposed grpc v1.83.2 after the initial scan only knew
-# about the v1.82 stream). Reviewing before that bounded retry creates a false
-# team-review requirement for a fix the skill can complete itself.
+# Agent review runs after deterministic verification, which can repair findings
+# that earlier dependency updates exposed; reviewing first would ask the team to
+# decide fixes the skill can still complete.
 _REVIEW_SUMMARY=$(printf '%s\n' "${FIX_LINES[@]+"${FIX_LINES[@]}"}" | package_review_summary)
 _REVIEW_UNRESOLVED_PKGS=()
 if [[ -n "$_REVIEW_SUMMARY" ]]; then
@@ -656,12 +642,8 @@ fi
 # Propagate UNRESOLVED verdicts from review.sh to UNSEEN_NEEDS_REVIEW. Without
 # this, review.sh UNRESOLVED lines are printed but never feed back to fix-all.sh
 # — the run can exit 0 while the agent found items needing team review.
-# Trust the agent's verdict unconditionally: if it wrote UNRESOLVED: (not
-# IGNORED:), those specific CVEs are unresolved regardless of what other entries
-# for the same package exist in .grype.yaml. A package-name check here would
-# falsely exempt packages that have a partial .grype.yaml entry covering a
-# different CVE (e.g. x/crypto ignored for GO-2026-5932 but UNRESOLVED for
-# GO-2026-6354).
+# An UNRESOLVED verdict stands even when .grype.yaml ignores another CVE for the
+# same package.
 if [[ -f "${STATE_FILE}.review-unresolved" ]]; then
   while IFS= read -r _line; do
     [[ -z "$_line" ]] && continue
@@ -770,28 +752,20 @@ elif [[ "$GATE_REMAINING" -gt 0 ]]; then
   # `.matches` is authoritative: a finding present here was not ignored by
   # Grype. Do not subtract it merely because a loosely matching YAML block
   # exists; that block may be expired, scoped to another module, or malformed.
+  # Keep reviewed findings in GATE_REMAINING so the exit status and PR title
+  # stay partial; only skip a generic line for packages the reviewer reported.
   REVIEW_AGENT_UNRESOLVED=0
-  if [[ "$GATE_REMAINING" -gt 0 ]]; then
-    while IFS="|" read -r cve_id pkg_name location; do
-      [[ -z "$cve_id" || -z "$pkg_name" ]] && continue
-      # Check if the review agent already filed NEEDS_REVIEW for this package —
-      # avoids a duplicate generic "N CVE(s) still present" gate entry alongside
-      # the specific per-package NEEDS_REVIEW the review agent already added.
-      if printf '%s\n' "${_REVIEW_UNRESOLVED_PKGS[@]+"${_REVIEW_UNRESOLVED_PKGS[@]}"}" | grep -qxF "$pkg_name" 2>/dev/null; then
-        REVIEW_AGENT_UNRESOLVED=$((REVIEW_AGENT_UNRESOLVED + 1))
-      fi
-    done < <(jq -r 'def normloc: sub("^/src/"; "/") | if . == "" or startswith("/") then . else "/" + . end;
-      [.matches[] | select(.artifact.type == "go-module") as $m |
-       (($m.artifact.locations // []) | if length == 0 then [{"path":""}] else . end)[] |
-       "\($m.vulnerability.id)|\($m.artifact.name)|\(.path | normloc)"] | unique | .[]' <<< "$GATE_JSON" 2>/dev/null || echo "")
-  fi
-  # Keep review-accounted findings in GATE_REMAINING so the exit status and PR
-  # title remain partial. Only suppress a redundant generic detail line.
-  _GATE_TRULY_NEW=$((GATE_REMAINING - REVIEW_AGENT_UNRESOLVED))
-  if [[ "$_GATE_TRULY_NEW" -gt 0 ]]; then
-    FIX_LINES+=("NEEDS_REVIEW: $_GATE_TRULY_NEW CVE(s) still present after fixes")
-  elif [[ "$GATE_REMAINING" -eq 0 ]]; then
-    echo "All CVEs addressed (some documented as unfixable)."
+  while IFS="|" read -r cve_id pkg_name location; do
+    [[ -n "$cve_id" && -n "$pkg_name" ]] || continue
+    if printf '%s\n' "${_REVIEW_UNRESOLVED_PKGS[@]+"${_REVIEW_UNRESOLVED_PKGS[@]}"}" | grep -qxF "$pkg_name"; then
+      REVIEW_AGENT_UNRESOLVED=$((REVIEW_AGENT_UNRESOLVED + 1))
+    fi
+  done < <(jq -r 'def normloc: sub("^/src/"; "/") | if . == "" or startswith("/") then . else "/" + . end;
+    [.matches[] | select(.artifact.type == "go-module") as $m |
+     (($m.artifact.locations // []) | if length == 0 then [{"path":""}] else . end)[] |
+     "\($m.vulnerability.id)|\($m.artifact.name)|\(.path | normloc)"] | unique | .[]' <<< "$GATE_JSON" 2>/dev/null || true)
+  if [[ $((GATE_REMAINING - REVIEW_AGENT_UNRESOLVED)) -gt 0 ]]; then
+    FIX_LINES+=("NEEDS_REVIEW: $((GATE_REMAINING - REVIEW_AGENT_UNRESOLVED)) CVE(s) still present after fixes")
   fi
 elif [[ $(jq '.matches | length' <<< "$GATE_JSON" 2>/dev/null || echo 0) -gt 0 ]]; then
   # Schema mismatch in gate scan: go-module filter gave 0 but total matches > 0.

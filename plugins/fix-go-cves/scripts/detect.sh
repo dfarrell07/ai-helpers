@@ -36,6 +36,7 @@ fi
 BRANCH_ARGS=()
 for arg in "$@"; do
   case "$arg" in
+    "") ;;  # an omitted optional argument passed as an empty string
     --setup-branch) SETUP_BRANCH=true ;;
     *)
       arg="${arg/#\~/$HOME}"
@@ -183,12 +184,6 @@ fi
 # Runs AFTER branch setup so probes see the checked-out target tree, not the
 # branch that happened to be checked out on entry.
 
-HAS_TOOLS_GOMOD=false
-[[ -f tools/go.mod ]] && HAS_TOOLS_GOMOD=true
-
-HAS_VENDOR=false
-[[ -d vendor ]] && HAS_VENDOR=true
-
 # Generated files whose diffs may contain only tool-version noise. CI tolerates
 # that with `git diff -I<regex>`, so enable every rule that applies. controller-gen
 # stamps its version into the CRD YAML it generates (and, on older branches, into
@@ -297,32 +292,13 @@ if [[ -z "$TEST_CMD" ]]; then
   fi
 fi
 
-# Auto-detect build image from Dockerfile.dapper when not set by .cve-fix.yaml.
-# Dapper repos (like all submariner-io repos) use:
-#   ARG SHIPYARD_REPO=quay.io/submariner
-#   ARG SHIPYARD_TAG=devel
-#   FROM ${SHIPYARD_REPO}/shipyard-dapper-base:${SHIPYARD_TAG}
-# On a release branch, SHIPYARD_TAG resolves to the branch name (release-0.22),
-# so the build image is quay.io/submariner/shipyard-dapper-base:release-0.22.
-if [[ -z "$BUILD_IMAGE" ]] && [[ -f "$REPO/Dockerfile.dapper" ]]; then
-  _dapper="$REPO/Dockerfile.dapper"
-  _repo_arg=$(grep -E '^ARG SHIPYARD_REPO=' "$_dapper" | head -1 | cut -d= -f2- | tr -d '"' || true)
-  _tag_arg=$(grep -E '^ARG SHIPYARD_TAG=' "$_dapper" | head -1 | cut -d= -f2- | tr -d '"' || true)
-  # Substitute the actual branch name for the tag (overrides the default "devel")
-  _tag_arg="$BRANCH"
-  if [[ -n "$_repo_arg" ]] && [[ -n "$_tag_arg" ]]; then
-    _dapper_image="${_repo_arg}/shipyard-dapper-base:${_tag_arg}"
-    BUILD_IMAGE="$_dapper_image"
-    echo "Auto-detected build image from Dockerfile.dapper: $BUILD_IMAGE"
-  fi
-fi
-
-# Pristine Shipyard consumers download Dockerfile.dapper only when Make runs.
-# Their wrapper URL and release branch establish the same image deterministically
-# without mutating the checkout or relying on a warm Make/Dapper cache.
+# Shipyard builds in shipyard-dapper-base tagged by branch (release-0.22 on a
+# release branch). Dockerfile.dapper may name another registry with
+# SHIPYARD_REPO; pristine checkouts download it only when Make runs.
 if [[ -z "$BUILD_IMAGE" && "$USES_SHIPYARD_DAPPER" == "true" ]]; then
-  BUILD_IMAGE="quay.io/submariner/shipyard-dapper-base:${BRANCH}"
-  echo "Auto-detected build image from Shipyard Dapper wrapper: $BUILD_IMAGE"
+  _repo_arg=$(grep -E '^ARG SHIPYARD_REPO=' Dockerfile.dapper 2>/dev/null | head -1 | cut -d= -f2- | tr -d '"' || true)
+  BUILD_IMAGE="${_repo_arg:-quay.io/submariner}/shipyard-dapper-base:${BRANCH}"
+  echo "Auto-detected Shipyard build image: $BUILD_IMAGE"
 fi
 
 if [[ "$BUILD_IMAGE" == -* || "$BUILD_IMAGE" =~ [[:space:]] ]]; then
@@ -352,10 +328,7 @@ write_state_var() { printf '%s=%q\n' "$1" "$2"; }
   write_state_var BRANCH "$BRANCH"
   write_state_var FIX_BRANCH "$FIX_BRANCH"
   write_state_var ORIGINAL_REF "$ORIGINAL_REF"
-  write_state_var HAS_TOOLS_GOMOD "$HAS_TOOLS_GOMOD"
-  write_state_var HAS_VENDOR "$HAS_VENDOR"
   write_state_var DIFF_IGNORE_ARGS "$DIFF_IGNORE_ARGS"
-  write_state_var NEEDS_BUILD_FOR_SCAN "$NEEDS_BUILD_FOR_SCAN"
   write_state_var CONTAINER_CMD "$CONTAINER_CMD"
   write_state_var HAS_LOCAL_GRYPE "$HAS_LOCAL_GRYPE"
   write_state_var BUILD_IMAGE "$BUILD_IMAGE"

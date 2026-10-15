@@ -970,31 +970,6 @@ grype_ignore_scoped_entry_exists() {
   ' "$file"
 }
 
-# Return the sole repository module location whose effective graph contains
-# PACKAGE, or fail. This helper remains useful for callers that need graph
-# evidence; scanner-derived scope decisions must not use it to invent scan
-# locations for sibling modules.
-grype_single_package_location() {
-  local package="$1" gomod moddir location rc
-  local -a locations=()
-  while IFS= read -r gomod; do
-    [[ -n "$gomod" ]] || continue
-    moddir=$(dirname "$gomod")
-    if resolve_module_dependency "$moddir" "$package" >/dev/null 2>&1; then
-      rc=0
-    else
-      rc=$?
-    fi
-    [[ $rc -eq 0 ]] || continue
-    location=$(normalize_scan_location "$gomod")
-    if ! printf '%s\n' "${locations[@]}" | grep -qxF "$location" 2>/dev/null; then
-      locations+=("$location")
-    fi
-  done < <(find_gomods)
-  [[ ${#locations[@]} -eq 1 ]] || return 1
-  printf '%s\n' "${locations[0]}"
-}
-
 # Narrow an existing auto-expiring unscoped entry to an exact scanner-reported
 # module. The caller must have established that this is the sole matching scan
 # location; dependency-graph presence elsewhere is not a scanner finding and
@@ -1155,8 +1130,11 @@ insert_grype_ignore() {
   fi
   # Replace only the same scope. Root, tools, and other module-specific entries
   # for the same CVE/package are independent security decisions.
-  local was_valid=true
-  [[ ! -f "$file" ]] || _grype_yaml_valid "$file" || was_valid=false
+  local was_valid=true backup=""
+  if [[ -f "$file" ]]; then
+    _grype_yaml_valid "$file" || was_valid=false
+    backup=$(mktemp "${TMPDIR:-/tmp}/cve-fix.XXXXXX") && cp -- "$file" "$backup" || return 1
+  fi
   remove_grype_ignore "$file" "$cve_id" "$package" "$location"
   local entry padding width=2 ignore_line insert_line
   if [[ ! -f "$file" ]]; then
@@ -1203,8 +1181,10 @@ ${padding}    name: $package"
     echo "WARNING: python3-yaml unavailable — skipping YAML validation of $file"
   elif $was_valid && ! _grype_yaml_valid "$file"; then
     echo "ERROR: inserting the ignore made $file invalid YAML" >&2
+    if [[ -n "$backup" ]]; then mv -- "$backup" "$file"; else rm -f -- "$file"; fi
     return 1
   fi
+  [[ -z "$backup" ]] || rm -f -- "$backup"
 }
 
 # Remove an ignore entry from a .grype.yaml file by CVE ID and package name.
@@ -1559,9 +1539,6 @@ ensure_grype() {
   command -v grype >/dev/null 2>&1
 }
 
-# Resolve and validate the optional LLM reviewer selected by the caller.
-# Claude remains the default for backward compatibility. This function prints
-# the provider name so callers can use it as the executable name.
 # Package outcomes have an exact delimiter; workflow failures such as
 # "tests failed" and "subagent verification failed" are separate hard gates.
 # Never ask a package reviewer to resolve those statuses as module names.
@@ -1685,6 +1662,7 @@ package_ignore_can_clear_review() {
   return 0
 }
 
+# Print the reviewer CLI selected by CVE_FIX_AGENT (claude by default).
 cve_fix_agent_provider() {
   local provider="${CVE_FIX_AGENT:-claude}"
   case "$provider" in
@@ -1724,11 +1702,11 @@ build_cve_fix_agent_command() {
       # the target repository's settings and hooks must not configure the reviewer.
       CVE_FIX_AGENT_CMD=(env -C "$cwd" claude -p "$prompt" --print \
         "${model_args[@]+"${model_args[@]}"}" --tools "" --strict-mcp-config \
-        --setting-sources user)
+        --setting-sources user --no-session-persistence)
       ;;
     codex)
       CVE_FIX_AGENT_CMD=(codex exec --ephemeral --sandbox read-only \
-        --cd "$cwd" --color never)
+        --cd "$cwd" --skip-git-repo-check --color never)
       CVE_FIX_AGENT_CMD+=("${model_args[@]+"${model_args[@]}"}" "$prompt")
       ;;
   esac
@@ -1843,7 +1821,7 @@ is_infra_error() { _grep_pattern "$INFRA_ERROR_RE" "${1:-}"; }
 # your session limit · resets ...") last hours, so they belong here too.
 # Anchored to real signatures so a "403" inside e.g. a CVE id can't misroute a
 # rate-limit (429) as auth.
-AUTH_ERROR_RE='API Error: 40[13]|HTTP( error)?:[[:space:]]*40[13]|unexpected status 40[13]|40[13] Unauthorized|Missing bearer|not logged in|login required|PERMISSION_DENIED|Failed to authenticate|invalid model|model[^.]*not[^.]*found|(^|: )[[:space:]]*You.{1,3}ve hit your (session|usage|weekly)( [a-z]+)? limit|^[[:space:]]*Claude( AI)? usage limit reached'
+AUTH_ERROR_RE='API Error: 40[13]|HTTP( error)?:[[:space:]]*40[13]|unexpected status 40[13]|40[13] Unauthorized|Missing bearer|not logged in|login required|PERMISSION_DENIED|Failed to authenticate|invalid model|model[^.]*not[^.]*found|(^|: )[[:space:]]*You.{1,3}ve hit your ([^ ]+ )*(limit|budget)|^[[:space:]]*Claude( AI)? usage limit reached'
 
 # Return 0 if output looks like a deterministic auth/permission/model error.
 # Check this BEFORE is_infra_error (403 matches both; auth must win to avoid retry storm).
@@ -2158,17 +2136,8 @@ _is_tolerated_generated_file() {
 reconcile_generated_files() {
   [[ -n "${DIFF_IGNORE_ARGS:-}" ]] || return 0
   local -a ignore_args=()
-  local file index diff_rc
+  local file diff_rc
   read -ra ignore_args <<< "$DIFF_IGNORE_ARGS"
-  # Older state files used a substring rule. Preserve substantive content even
-  # when a direct script caller reuses such a state after the skill was updated.
-  for index in "${!ignore_args[@]}"; do
-    case "${ignore_args[$index]}" in
-      '-Icontroller-gen.kubebuilder.io/version'|'-Icontroller-gen[.]kubebuilder[.]io/version')
-        ignore_args[index]="-I$(controller_gen_version_pattern)" ;;
-      '-I^//') ignore_args[index]="-I$(protoc_version_pattern)" ;;
-    esac
-  done
   while IFS= read -r file; do
     _is_tolerated_generated_file "$file" || continue
     # grep -q can close a large diff early. Under pipefail Git's SIGPIPE then
@@ -2184,6 +2153,7 @@ reconcile_generated_files() {
   done < <(git diff --name-only)
 }
 
+# Reject a fix branch that touches files other than dependency metadata
 # (go.mod, go.sum, .grype.yaml, and their submodule variants like tools/go.mod).
 # Prints a warning and returns nonzero when unexpected files are found; silent
 # and successful otherwise.
@@ -2292,12 +2262,6 @@ print_provider_env() {
   echo "        'unset-env' in the repo config so subagents don't inherit it." >&2
 }
 
-# Populate the global ENV_SCRUB array with an 'env -u VAR …' prefix that scrubs
-# the vars named in ENV_UNSET from a child's environment. Used to keep provider
-# vars from a mis-pointed shell rc out of the agent subprocess calls. Expand at
-# call sites as "${ENV_SCRUB[@]+"${ENV_SCRUB[@]}"}" (set -u safe, empty = no-op).
-# NOTE: uses env(1), never eval — the prompts are untrusted (multi-line,
-# may contain backticks/$()), so an eval-based scrub would be unsafe here.
 # Distribution toolchains can set GOEXPERIMENT in GOROOT/go.env (Fedora sets
 # nodwarf5). Their binaries report versions such as go1.26.8-X:nodwarf5, which
 # Grype records verbatim and cannot match, so stdlib coverage stays unknown.
@@ -2333,18 +2297,15 @@ go_directive_supported() {
   fi
 }
 
-join_cves() {
-  local _j
-  _j=$(printf '%s, ' "$@")
-  printf '%s' "${_j%, }"
-}
-
 # Commit linters commonly enforce 80-column bodies. One trailer per advisory
 # stays readable and bounded regardless of group size.
 format_cve_fixes() {
   printf 'Fixes: %s\n' "$@"
 }
 
+# Populate ENV_SCRUB with an 'env -u VAR …' prefix removing the ENV_UNSET names
+# from a child's environment. Expand as "${ENV_SCRUB[@]+"${ENV_SCRUB[@]}"}".
+# It uses env(1), never eval: prompts are untrusted text.
 ENV_SCRUB=()
 build_env_scrub() {
   ENV_SCRUB=()
@@ -2406,33 +2367,6 @@ subagent_retry_decision() {
   fi
   echo fail
 }
-
-# Try progressively lower versions when the first fix candidate reaches a
-# deterministic policy boundary (fix-package.sh exit 2). Reads and writes EXIT_CODE
-# and USED_VER from the enclosing fix-all.sh scope.
-# shellcheck disable=SC2317,SC2329,SC2153 # reads the enclosing fix-all.sh globals
-_retry_lower_versions() {
-  local _in_stream_tried _lver
-  _in_stream_tried=$(grep "^NOTE: Selecting in-stream fix v" "$FIX_LOG" 2>/dev/null | \
-    head -1 | sed 's/^NOTE: Selecting in-stream fix v//' | awk '{print $1}') || true
-  while IFS= read -r _lver; do
-    [[ -z "$_lver" ]] && continue
-    _lver="${_lver#v}"
-    version_gte "$_lver" "$FIX_VER" && continue
-    [[ -n "${VERSION_FLOOR:-}" ]] && ! version_gte "$_lver" "$VERSION_FLOOR" && continue
-    [[ -n "$_in_stream_tried" ]] && [[ "$_lver" == "$_in_stream_tried" ]] && continue
-    echo "Retrying $PKG with lower fix version v$_lver (v$FIX_VER reached a policy boundary)..."
-    EXIT_CODE=0
-    _retry_loc_flag=()
-    [[ -n "${LOCATION:-}" ]] && _retry_loc_flag=(--location "$LOCATION")
-    CVE_FIX_ALL_VERSIONS="$ALL_FIX_VERS" \
-    "$SCRIPT_DIR/fix-package.sh" "$STATE_FILE" "$PKG" "$_lver" ${_retry_loc_flag[@]+"${_retry_loc_flag[@]}"} "${CVES[@]}" </dev/null 2>&1 | tee "$FIX_LOG" || EXIT_CODE=$?
-    # shellcheck disable=SC2034 # output variable in the fix-all.sh caller
-    USED_VER="$_lver"
-    [[ $EXIT_CODE -eq 2 ]] || break
-  done < <(echo "$ALL_FIX_VERS" | tr ',' '\n' | sed 's/^v//' | grep -Ev -- '-[a-zA-Z]' | sort -V -r)
-}
-
 
 # Phase-1 helper: run companion .sh scripts sequentially, writing evidence files.
 _run_companions() {

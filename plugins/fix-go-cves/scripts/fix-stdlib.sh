@@ -23,7 +23,7 @@ trap 'git reset --quiet HEAD -- . 2>/dev/null || true; git checkout -- . 2>/dev/
 echo "--- Fixing stdlib: go $GO_VERSION for ${CVE_IDS[*]} ---"
 
 # Workspace builds take their toolchain from go.work, ignoring each module's.
-if [[ -f go.work ]]; then
+if git ls-files --error-unmatch go.work >/dev/null 2>&1; then
   echo "NEEDS_REVIEW: stdlib — go.work selects the toolchain for workspace builds; update its toolchain directive or the build image"
   exit 2
 fi
@@ -199,7 +199,7 @@ mapfile -t _CHANGED_GOMODS < <(git diff --name-only -- go.mod '*/go.mod')
 FIXES=$(format_cve_fixes "${CVE_IDS[@]}")
 PARTIAL=""
 [[ ${#SKIPPED_MODULES[@]} -eq 0 ]] ||
-  PARTIAL=$'\n'"Not updated, needs review: $(printf '%s; ' "${SKIPPED_MODULES[@]}")"$'\n'
+  PARTIAL=$'\n'"Not updated, needs review:"$'\n'"$(printf -- '- %s\n' "${SKIPPED_MODULES[@]}")"$'\n'
 if ! git diff --staged --quiet 2>/dev/null; then
   git commit -s -m "$(cat <<EOF
 Bump Go to $GO_VERSION for stdlib CVEs

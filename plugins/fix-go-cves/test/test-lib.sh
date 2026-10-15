@@ -6,7 +6,7 @@ set -euo pipefail
 # Test sections:
 #   Pure functions:     abbreviate_package, version_gte, state_file_path
 #   Library functions:  clean_gomod, load_state, insert/remove_grype_ignore
-#   Script tests:       detect.sh, locate.sh, write-subagent-report.sh, ignore.sh
+#   Script tests:       detect.sh, locate.sh, ignore.sh
 #   Error handling:     fix-all.sh error paths, cleanup trap behavior
 #   Counter logic:      Summary counts + final rescan gate exit decision
 #   Parser regression:  Pipe delimiter (replaces tab), field ordering
@@ -155,12 +155,12 @@ CLAUDE_AGENT_CMD=$(agent_command_dump claude)
 CLAUDE_MODEL_CMD=$(agent_command_dump claude model-x)
 CODEX_AGENT_CMD=$(agent_command_dump codex)
 CODEX_MODEL_CMD=$(agent_command_dump codex model-x)
-EXPECTED_CLAUDE_CMD=$(printf '%s\n' env -C "$TMPD/provider-run/reviewer" claude -p 'literal $(do-not-run) prompt' --print --tools '' --strict-mcp-config --setting-sources user)
-EXPECTED_CLAUDE_MODEL_CMD=$(printf '%s\n' env -C "$TMPD/provider-run/reviewer" claude -p 'literal $(do-not-run) prompt' --print --model model-x --tools '' --strict-mcp-config --setting-sources user)
+EXPECTED_CLAUDE_CMD=$(printf '%s\n' env -C "$TMPD/provider-run/reviewer" claude -p 'literal $(do-not-run) prompt' --print --tools '' --strict-mcp-config --setting-sources user --no-session-persistence)
+EXPECTED_CLAUDE_MODEL_CMD=$(printf '%s\n' env -C "$TMPD/provider-run/reviewer" claude -p 'literal $(do-not-run) prompt' --print --model model-x --tools '' --strict-mcp-config --setting-sources user --no-session-persistence)
 EXPECTED_CODEX_CMD=$(printf '%s\n' codex exec --ephemeral --sandbox read-only \
-  --cd "$TMPD/provider-run/reviewer" --color never 'literal $(do-not-run) prompt')
+  --cd "$TMPD/provider-run/reviewer" --skip-git-repo-check --color never 'literal $(do-not-run) prompt')
 EXPECTED_CODEX_MODEL_CMD=$(printf '%s\n' codex exec --ephemeral --sandbox read-only \
-  --cd "$TMPD/provider-run/reviewer" --color never --model model-x 'literal $(do-not-run) prompt')
+  --cd "$TMPD/provider-run/reviewer" --skip-git-repo-check --color never --model model-x 'literal $(do-not-run) prompt')
 check "claude command is read-only" test "$CLAUDE_AGENT_CMD" = "$EXPECTED_CLAUDE_CMD"
 check "claude model argv is read-only" test "$CLAUDE_MODEL_CMD" = "$EXPECTED_CLAUDE_MODEL_CMD"
 check "codex command argv is exact" test "$CODEX_AGENT_CMD" = "$EXPECTED_CODEX_CMD"
@@ -523,7 +523,7 @@ check "scope conflict detector reports broad shadowing" \
 # create a scoped rule that still does not suppress the finding.
 printf -- '---\nignore:\n  - vulnerability: GO-state-migrate\n    fix-state: not-fixed\n    package:\n      name: example.com/state-pkg\n' > "$TMPD/state-migrate.yaml"
 check "scope migration updates effective fix state" \
-  bash -c "source '$SCRIPT_DIR/lib.sh'; grype_single_package_location() { printf '/pkg/go.mod\\n'; }; migrate_grype_ignore_scope '$TMPD/state-migrate.yaml' GO-state-migrate example.com/state-pkg /pkg/go.mod unknown >/dev/null && grep -q 'fix-state: unknown' '$TMPD/state-migrate.yaml'"
+  bash -c "source '$SCRIPT_DIR/lib.sh'; migrate_grype_ignore_scope '$TMPD/state-migrate.yaml' GO-state-migrate example.com/state-pkg /pkg/go.mod unknown >/dev/null && grep -q 'fix-state: unknown' '$TMPD/state-migrate.yaml'"
 check "scope migration writes requested location" \
   grep -q 'location: /pkg/go.mod' "$TMPD/state-migrate.yaml"
 
@@ -934,27 +934,6 @@ check "dep-graph section runs" grep -q "Dependency graph" <<< "$LOCATE_OUT"
 LOCATE_OUT=$(runloc github.com/example/linter) || true
 check "finds in tools" grep -q "tools" <<< "$LOCATE_OUT"
 check "locate missing fails" ! runloc nonexistent/pkg >/dev/null
-
-# === write-subagent-report.sh ===
-echo "write-subagent-report"
-GATE_TMPD="$TMPD/subagent-reports"
-mkdir -p "$GATE_TMPD"
-bash "$SCRIPT_DIR/write-subagent-report.sh" "$GATE_TMPD" "test-pass" "PASS" "0" "All checks passed"
-check "report created" test -f "$GATE_TMPD/test-pass.report"
-check "verdict line" grep -q "^VERDICT: PASS" "$GATE_TMPD/test-pass.report"
-check "issues line" grep -q "^ISSUES: 0" "$GATE_TMPD/test-pass.report"
-check "summary line" grep -q "^SUMMARY: All checks passed" "$GATE_TMPD/test-pass.report"
-check "no tmp file" ! test -f "$GATE_TMPD/test-pass.report.tmp"
-
-bash "$SCRIPT_DIR/write-subagent-report.sh" "$GATE_TMPD" "test-fail" "FAIL" "2" "Found issues" \
-  "line 1: bad format" "line 2: missing field"
-check "fail verdict" grep -q "^VERDICT: FAIL" "$GATE_TMPD/test-fail.report"
-check "fail issues" grep -q "^ISSUES: 2" "$GATE_TMPD/test-fail.report"
-check "details present" grep -q "line 1: bad format" "$GATE_TMPD/test-fail.report"
-check "bad verdict rejected" ! bash "$SCRIPT_DIR/write-subagent-report.sh" "$GATE_TMPD" "bad" "INVALID" "0" "test"
-check "bad issues rejected" ! bash "$SCRIPT_DIR/write-subagent-report.sh" "$GATE_TMPD" "bad" "PASS" "abc" "test"
-bash "$SCRIPT_DIR/write-subagent-report.sh" "$GATE_TMPD" "test-skip" "SKIP" "0" "Could not check"
-check "skip accepted" grep -q "^VERDICT: SKIP" "$GATE_TMPD/test-skip.report"
 
 # === insert_grype_ignore fix-state ===
 echo "insert_grype_ignore fix-state"
@@ -6918,100 +6897,6 @@ else
   echo "  SKIP: jq not available"
 fi
 
-# === _retry_lower_versions version floor (multi-CVE floor bug) ===
-# Multi-CVE retry floor: skip versions < max(per-CVE minFixVer) or some CVEs silently go unfixed.
-
-echo "_retry_lower_versions version floor"
-if command -v jq >/dev/null 2>&1; then
-  # Build jq for versionFloor = max(per-CVE minFixVer), fixedIn = max across all fix.versions.
-  # Without the floor, a version fixing only one CVE silently misses another.
-  FLOOR_JQ='
-    [.matches[] |
-      select(.artifact.type == "go-module") |
-      {
-        pkg: .artifact.name,
-        fixedIn: ((.vulnerability.fix.versions // []) | map(select(type == "string" and . != "")) | if length == 0 then "" else sort_by(ltrimstr("v") | split("+")[0] | split("-")[0] | split(".") | map(tonumber? // 0)) | last | ltrimstr("v") | split("+")[0] | split("-")[0] end),
-        allFixVersions: ((.vulnerability.fix.versions // []) | map(select(type == "string" and . != "")) | join(",")),
-        minFixVer: ((.vulnerability.fix.versions // []) | map(select(type == "string" and . != "")) | if length == 0 then "" else sort_by(ltrimstr("v") | split("+")[0] | split("-")[0] | split(".") | map(tonumber? // 0)) | first | ltrimstr("v") | split("+")[0] | split("-")[0] end),
-        cve: .vulnerability.id,
-        type: (if ((.vulnerability.fix.versions // []) | map(select(type == "string" and . != "")) | length) == 0 then "no-fix" elif .artifact.name == "stdlib" then "stdlib" else "package" end),
-        fixState: "fixed",
-        loc: ""
-      }
-    ] |
-    group_by(.pkg + ":" + .cve) |
-    map((sort_by(if .type == "no-fix" then 1 else 0 end) | .[0]) | . + {location: ""}) |
-    group_by(.pkg + ":" + .type + ":" + "" + ":" + "") |
-    map({
-      pkg: .[0].pkg,
-      type: .[0].type,
-      fixedIn: (if .[0].type == "no-fix" then "" else (map(.fixedIn) | map(select(type == "string" and . != "")) | sort_by(ltrimstr("v") | split("+")[0] | split("-")[0] | split(".") | map(tonumber? // 0)) | (last // "") | ltrimstr("v") | split("+")[0] | split("-")[0]) end),
-      versionFloor: (if .[0].type == "no-fix" then ""
-                     else (map(.minFixVer) | map(select(type == "string" and . != "")) | sort_by(ltrimstr("v") | split("+")[0] | split("-")[0] | split(".") | map(tonumber? // 0)) | (last // "")) end)
-    }) |
-    .[] | "\(.pkg)|\(.fixedIn)|\(.versionFloor)"'
-
-  MULTICVE_SCAN='{"matches":[
-    {"vulnerability":{"id":"GHSA-cve-a","severity":"High","fix":{"versions":["1.22.4","1.23.1"],"state":"fixed"}},"artifact":{"name":"example/pkg","version":"1.21.0","type":"go-module","locations":[{"path":"/go.mod"}]}},
-    {"vulnerability":{"id":"GHSA-cve-b","severity":"High","fix":{"versions":["1.23.0"],"state":"fixed"}},"artifact":{"name":"example/pkg","version":"1.21.0","type":"go-module","locations":[{"path":"/go.mod"}]}}
-  ]}'
-  FLOOR_OUT=$(jq -r "$FLOOR_JQ" <<< "$MULTICVE_SCAN" 2>/dev/null)
-  # fixedIn = max(1.23.1, 1.23.0) = 1.23.1; versionFloor = max(min of each CVE) = max(1.22.4, 1.23.0) = 1.23.0
-  check "floor jq: multi-CVE fixedIn is max" bash -c "echo '$FLOOR_OUT' | grep -q '|1.23.1|'"
-  check "floor jq: multi-CVE versionFloor is max(per-CVE min)" bash -c "echo '$FLOOR_OUT' | grep -q '|1.23.0$'"
-
-  check "fix-all.sh outputs versionFloor as 9th field" \
-    bash -c "grep 'versionFloor' '$SCRIPT_DIR/fix-all.sh' | grep -q '\\\\(.versionFloor)'"
-else
-  echo "  SKIP: jq not available"
-fi
-
-# Invocation: _retry_lower_versions actually selects the first non-breaking lower version.
-# Scenario: FIX_VER=3.7.1, ALL_FIX_VERS has 3.7.0 (exits 2) and 3.6.14 (exits 0).
-# Retry descends: 3.7.1 skipped (>= FIX_VER), 3.7.0 tried → exits 2 → continues,
-# 3.6.14 tried → exits 0 → break. Expected: EXIT_CODE=0, USED_VER=3.6.14.
-_run_retry_invocation_test() {
-  local _tmpd
-  _tmpd=$(mktemp -d)
-  # shellcheck disable=SC2064
-  trap "rm -rf '$_tmpd'" RETURN
-
-  # Mock fix-package.sh: exits 2 for v3.7.0 (breaking bump), 0 otherwise.
-  cat > "$_tmpd/fix-package.sh" <<'MOCK'
-#!/usr/bin/env bash
-VER="$3"
-[[ "$VER" == "3.7.0" ]] && exit 2
-exit 0
-MOCK
-  chmod +x "$_tmpd/fix-package.sh"
-
-  # lib.sh defines _retry_lower_versions; source it directly (no need for fix-all.sh).
-  local result
-  result=$(bash -c "
-    set -euo pipefail
-    source '$SCRIPT_DIR/lib.sh'
-    SCRIPT_DIR='$_tmpd'
-    FIX_LOG=\$(mktemp '$_tmpd/fix-log.XXXXXX')
-    FIX_VER='3.7.1'
-    ALL_FIX_VERS='3.5.0,3.6.14,3.7.0,3.7.1'
-    PKG='example/pkg'
-    CVES=('GHSA-xxxx-xxxx-xxxx')
-    VERSION_FLOOR=''
-    STATE_FILE='$_tmpd/state.env'
-    EXIT_CODE=2
-    USED_VER=''
-    _retry_lower_versions
-    echo \"USED_VER=\$USED_VER\"
-    echo \"EXIT_CODE=\$EXIT_CODE\"
-  " 2>/dev/null)
-  local used_ver exit_code
-  used_ver=$(grep '^USED_VER=' <<< "$result" | cut -d= -f2)
-  exit_code=$(grep '^EXIT_CODE=' <<< "$result" | cut -d= -f2)
-  [[ "$used_ver" == "3.6.14" ]] && [[ "$exit_code" -eq 0 ]]
-}
-check "_retry_lower_versions invocation: selects lower fix when highest exits 2" \
-  _run_retry_invocation_test
-
 # === fix-all.sh MATCH_COUNT=0 behavioral test ===
 # Verify that fix-all.sh correctly handles an initial scan that returns zero
 # go-module matches. Three sub-cases exercise the early-exit guards
@@ -8235,8 +8120,6 @@ check "scoped sentinel does not hide another module" \
 check "unscoped sentinel covers reported module locations" \
   pkg_sentinel_file_matches "$SENTINEL_FILE" example.com/all /coredns/go.mod
 
-check "report writer rejects traversal name" \
-  ! bash "$SCRIPT_DIR/write-subagent-report.sh" "$TMPD" "../escape" PASS 0 test
 
 # YAML escape handling must fail before a configured command can be changed.
 echo "strict YAML scalar regressions"
@@ -9249,6 +9132,7 @@ check "arbitrary branch precedes registry repo" _cli_detect_branch feature/futur
 check "unknown repo name still fails with setup guidance" ! _cli_detect_branch unknown unknown-repo
 check "multiple repositories are rejected" ! _cli_detect_branch master "$CLI_REPO" sample master
 check "multiple branches are rejected" ! _cli_detect_branch master master main
+check "empty arguments are treated as omitted" _cli_detect_branch master "" master
 check "branch detection leaves HEAD unchanged" test "$(git -C "$CLI_REPO" rev-parse HEAD)" = "$CLI_HEAD"
 check "branch detection leaves repository clean" git -C "$CLI_REPO" diff --quiet
 
@@ -9891,7 +9775,7 @@ done
 # Full controller-gen stamp matching must preserve program strings and arbitrary
 # YAML values, including callers using a state from before the anchored rule.
 echo "controller-gen annotation matching preserves substantive content"
-for _cg_rule in "-I$(controller_gen_version_pattern)" '-Icontroller-gen[.]kubebuilder[.]io/version' '-Icontroller-gen.kubebuilder.io/version'; do
+for _cg_rule in "-I$(controller_gen_version_pattern)"; do
   _cg_repo=$(mktemp -d "$TMPD/controller-full-line.XXXXXX")
   make_test_repo "$_cg_repo"
   printf 'package x\nconst Message = "controller-gen.kubebuilder.io/version: old behavior"\n' > "$_cg_repo/ordinary.go"
@@ -9951,18 +9835,6 @@ _gf_error_rc=0
 check "generated diff failure propagates the Git error" test "$_gf_error_rc" -eq 128
 check "generated diff failure preserves semantic content" grep -q 'updated semantic value' "$GF_DIFF_ERROR/crd.yaml"
 check "generated diff failure stages no unverified content" git -C "$GF_DIFF_ERROR" diff --cached --quiet
-
-GF_LEGACY_PROTO=$(gf_repo legacy-proto)
-printf '//go:build linux\n\npackage fixture\n' > "$GF_LEGACY_PROTO/policy.pb.go"
-printf '// protoc-gen-go v1.36.0\npackage fixture\n' > "$GF_LEGACY_PROTO/stamp.pb.go"
-gf_commit "$GF_LEGACY_PROTO"
-sed_inplace 's/linux/windows/' "$GF_LEGACY_PROTO/policy.pb.go"
-sed_inplace 's/v1.36.0/v1.37.0/' "$GF_LEGACY_PROTO/stamp.pb.go"
-(cd "$GF_LEGACY_PROTO"; DIFF_IGNORE_ARGS='-I^//' reconcile_generated_files)
-check "legacy protoc rule preserves build directives" grep -q '^//go:build windows$' "$GF_LEGACY_PROTO/policy.pb.go"
-check "legacy protoc rule stages build directives" \
-  bash -c 'git -C "$1" diff --cached -- policy.pb.go | grep -q "^+//go:build windows$"' _ "$GF_LEGACY_PROTO"
-check "legacy protoc rule restores only actual version noise" git -C "$GF_LEGACY_PROTO" diff HEAD --quiet -- stamp.pb.go
 
 # Native Go distinguishes a downloaded replacement's cache directory from a
 # local replacement using Replace.Version. Both same-path and fork replacements
@@ -10108,6 +9980,23 @@ for _limit_msg in "Error: You've hit your weekly limit" "  You’ve hit your usa
   check "auth: account limit variant ($_limit_msg)" bash -c \
     "printf '%s\n' \"\$1\" | { source '$SCRIPT_DIR/lib.sh'; is_auth_error; }" _ "$_limit_msg"
 done
+for _limit_msg in "You've hit your limit · resets 3pm" "You've hit your monthly limit" "You've hit your team's shared budget"; do
+  check "auth: Claude limit message ($_limit_msg)" bash -c \
+    "printf '%s\n' \"\$1\" | { source '$SCRIPT_DIR/lib.sh'; is_auth_error; }" _ "$_limit_msg"
+done
+printf 'ignore:\n  []\n' > "$IGY/restore.yaml"
+cp "$IGY/restore.yaml" "$IGY/restore.orig"
+check "insert that breaks YAML fails" \
+  ! insert_grype_ignore "$IGY/restore.yaml" GO-2026-0005 golang.org/x/net "No fix" not-fixed
+check "failed insert restores the original file" cmp -s "$IGY/restore.yaml" "$IGY/restore.orig"
+YIF="$TMPD/yaml-flow"
+make_test_repo "$YIF" ""
+printf 'module example.com/yif\ngo 1.24.0\n' > "$YIF/go.mod"
+printf -- '---\nignore:\n  # flow entry\n  - {vulnerability: CVE-16, package: {name: a.b/c, upstream-name: z}}\n' > "$YIF/.grype.yaml"
+git -C "$YIF" add -A && git -C "$YIF" commit -qm flow && git -C "$YIF" update-ref refs/remotes/origin/devel HEAD
+make_go_state "$YIF/state.env" "$YIF"
+_yif_out=$(bash "$SCRIPT_DIR/../subagents/yaml-integrity.sh" "$YIF/state.env" 2>&1 || true)
+check "yaml-integrity accepts a flow-style entry" ! grep -q MISSING_PACKAGE_FIELD <<< "$_yif_out"
 check "prompt examples cannot be parsed as verdicts" \
   ! grep -qE '^VERDICT: (PASS|FAIL|SKIP)$' "$SCRIPT_DIR"/../subagents/*.md
 

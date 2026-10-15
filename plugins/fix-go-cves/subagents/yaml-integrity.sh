@@ -78,14 +78,12 @@ if [[ -n "$FULL_GRYPE" ]]; then
     /^[^[:space:]#]/ && !/^-([[:space:]]|$)/ { if (in_ignore) flush(); in_ignore=0 }
     in_ignore && /^[[:space:]]*-([[:space:]]|$)/ {
       flush(); entry=1
-      if ($0 ~ /vulnerability:/) { x=$0; sub(/.*vulnerability:[[:space:]]*/, "", x); vuln=trim(x) }
-      next
     }
     in_ignore && entry && /vulnerability:/ { x=$0; sub(/.*vulnerability:[[:space:]]*/, "", x); vuln=trim(x) }
     in_ignore && entry {
       t = $0; sub(/(^|[[:space:]])#.*/, "", t)
       if (t ~ /^[[:space:]]*name:/ || t ~ /package:[[:space:]]*\{[^}]*name:/) {
-        x = t; sub(/.*name:[[:space:]]*/, "", x); sub(/[,}].*/, "", x); pkg = trim(x)
+        x = t; sub(/.*(^|[{,[:space:]])name:[[:space:]]*/, "", x); sub(/[,}].*/, "", x); pkg = trim(x)
       }
     }
     END { if (in_ignore) flush() }

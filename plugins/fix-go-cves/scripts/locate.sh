@@ -36,7 +36,7 @@ while IFS= read -r GOMOD; do
   fi
   if MOD_JSON=$(GOTOOLCHAIN=local go -C "$(dirname "$GOMOD")" mod edit -json 2>/dev/null) &&
      jq -e 'type == "object"' >/dev/null 2>&1 <<< "$MOD_JSON"; then
-    HITS=$(jq -r --arg pkg "$PACKAGE" '.Replace[]? | select(.Old.Path == $pkg) |
+    HITS=$(jq -r --arg pkg "$PACKAGE" '.Replace[]? | select(.Old.Path == $pkg or .New.Path == $pkg) |
       "replace \(.Old.Path) => \(.New.Path) \(.New.Version // "")"' <<< "$MOD_JSON")
   else
     HITS=$(grep -F "$PACKAGE" "$GOMOD" | grep -E '^[[:space:]]*(replace[[:space:]]+)?[^[:space:]]+([[:space:]]+[^[:space:]]+)?[[:space:]]+=>' || true)

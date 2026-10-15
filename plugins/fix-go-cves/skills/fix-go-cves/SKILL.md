@@ -26,7 +26,7 @@ Scan the checked-out branch without creating a branch or commit (the build
 still runs, and may leave build output):
 
 ```bash
-bash "$PLUGIN_ROOT/scripts/report.sh" [REPO] </dev/null
+bash "$PLUGIN_ROOT/scripts/report.sh" </dev/null          # or: report.sh /path/to/repo
 ```
 
 ## Fix one repository
@@ -38,7 +38,8 @@ are used.
 
 ```bash
 LOG=$(mktemp "${TMPDIR:-/tmp}/fix-go-cves.XXXXXX.log")
-CVE_FIX_AGENT=claude bash "$PLUGIN_ROOT/scripts/fix-all.sh" [REPO] [BRANCH] </dev/null >"$LOG" 2>&1
+# Pass only the arguments the request gave, e.g. "0.24" or "/path/to/repo main".
+CVE_FIX_AGENT=claude bash "$PLUGIN_ROOT/scripts/fix-all.sh" 0.24 </dev/null >"$LOG" 2>&1
 ```
 
 - Set `CVE_FIX_AGENT` to the host runtime: `claude` in Claude Code, `codex`
