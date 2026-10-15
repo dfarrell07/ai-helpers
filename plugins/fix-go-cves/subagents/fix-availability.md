@@ -11,8 +11,7 @@ ${COMPANION_EVIDENCE}
 Evaluate the companion script output above. The script cross-referenced .grype.yaml
 entries marked with `fix-state: not-fixed` or `fix-state: unknown` against
 the current Grype scan's ignoredMatches to check whether a published fix is
-available. Direct companion callers may use the initial scan when no rescan has
-been attempted.
+available.
 
 For each `FIX-AVAILABLE` entry:
 

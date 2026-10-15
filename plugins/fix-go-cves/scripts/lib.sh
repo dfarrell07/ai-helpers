@@ -184,9 +184,11 @@ run_grype() {
   fi
   if [[ "$use_local" == "true" ]]; then
     local grype_ok=false
-    local -a _grype_env=()
+    # Environment overrides .grype.yaml: a repository may keep its ignores and
+    # excludes, but must not hide fixable findings from the gate.
+    local -a _grype_env=(env GRYPE_ONLY_NOTFIXED=false)
     [[ "$no_update" == "true" ]] && \
-      _grype_env=(env GRYPE_DB_AUTO_UPDATE=false GRYPE_DB_VALIDATE_AGE=false)
+      _grype_env+=(GRYPE_DB_AUTO_UPDATE=false GRYPE_DB_VALIDATE_AGE=false)
     "${_grype_env[@]+"${_grype_env[@]}"}" grype . "${config_args[@]}" \
       -v -o "$output_format" >"$outfile" 2>"$errfile" && grype_ok=true
     cat "$errfile" >&2
@@ -230,7 +232,7 @@ run_grype() {
         GRYPE_DB_DEGRADED=1
       fi
     fi
-    local -a env_args=(-e GRYPE_DB_CACHE_DIR=/root/.cache/grype/db)
+    local -a env_args=(-e GRYPE_DB_CACHE_DIR=/root/.cache/grype/db -e GRYPE_ONLY_NOTFIXED=false)
     if [[ "$no_update" == "true" ]]; then
       env_args+=(-e GRYPE_DB_AUTO_UPDATE=false -e GRYPE_DB_VALIDATE_AGE=false)
     fi
@@ -1157,6 +1159,9 @@ insert_grype_ignore() {
   local entry padding width=2 ignore_line insert_line
   if [[ ! -f "$file" ]]; then
     printf -- '---\nignore:\n' > "$file"
+  elif grep -qE '^ignore:[[:space:]]*\[[[:space:]]*\][[:space:]]*$' "$file"; then
+    # An empty flow sequence cannot take block items; make it an empty block.
+    sed_inplace 's/^ignore:[[:space:]]*\[[[:space:]]*\][[:space:]]*$/ignore:/' "$file"
   elif ! grep -q '^ignore:' "$file"; then
     # Add the parent before existing keys, preserving document headers/directives.
     insert_line=$(awk '
@@ -1189,8 +1194,12 @@ ${padding}    name: $package"
   tmp=$(mktemp "${TMPDIR:-/tmp}/cve-fix.XXXXXX")
   { head -n "$((insert_line - 1))" "$file"; printf '%s\n' "$entry"; tail -n +"$insert_line" "$file"; } > "$tmp"
   mv "$tmp" "$file"
-  python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$file" 2>/dev/null \
-    || { echo "WARNING: python3-yaml unavailable or YAML parse error on $file — skipping YAML validation"; true; }
+  if ! python3 -c "import yaml" 2>/dev/null; then
+    echo "WARNING: python3-yaml unavailable — skipping YAML validation of $file"
+  elif ! python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$file" 2>/dev/null; then
+    echo "ERROR: inserting the ignore made $file invalid YAML" >&2
+    return 1
+  fi
 }
 
 # Remove an ignore entry from a .grype.yaml file by CVE ID and package name.
@@ -1207,9 +1216,8 @@ remove_grype_ignore() {
 
   # Escape '.' — the only ERE metacharacter that appears in Go module paths and
   # CVE/GHSA/GO ids — so it matches literally (and identically on GNU/BSD grep).
-  local cve_re pkg_re
+  local cve_re
   cve_re=${cve_id//./\\.}
-  pkg_re=${package//./\\.}
 
   # Collect the vulnerability line of every entry for this EXACT CVE. Anchor the
   # id as a whole token (trailing whitespace or end-of-line) so CVE-2024-123
@@ -1223,30 +1231,29 @@ remove_grype_ignore() {
   # (including the initial no-match case) or when all matching entries have been
   # processed by the inner for-loop without finding a package match.
   local -a vuln_lines=()
-  local vuln_line end_offset end_line start_line _found_and_deleted actual_location
+  local vuln_line end_line start_line _found_and_deleted actual_location item_name
   while true; do
     mapfile -t vuln_lines < <(grep -nE "vulnerability:[[:space:]]*${cve_re}[[:space:]]*\$" "$file" 2>/dev/null | cut -d: -f1)
     [[ ${#vuln_lines[@]} -gt 0 ]] || return 0
 
     _found_and_deleted=false
     for vuln_line in "${vuln_lines[@]}"; do
-      # The block's name: is within a few lines of vulnerability: (optional
-      # fix-state, then package:, then name:).
-      end_offset=$(sed -n "${vuln_line},$((vuln_line + 4))p" "$file" | grep -n "name:" | head -1 | cut -d: -f1 || true)
-      [[ -z "$end_offset" ]] && continue
-      end_line=$((vuln_line + end_offset - 1))
-
+      # The item spans every following line indented deeper than its dash, so
+      # fields after name: (type:, version:, location:) leave nothing behind.
+      end_line=$(awk -v start="$vuln_line" '
+        NR == start { match($0, /^[[:space:]]*/); dash = RLENGTH; last = NR; next }
+        NR > start && /^[[:space:]]*$/ { next }
+        NR > start { match($0, /^[[:space:]]*/); if (RLENGTH <= dash) exit; last = NR }
+        END { print last }' "$file")
+      item_name=$(sed -n "${vuln_line},${end_line}p" "$file" | \
+        sed -n 's/^[[:space:]]*name:[[:space:]]*//p' | head -1 | xargs)
       # Only delete when THIS block's package matches (whole value). Otherwise skip
       # to the next entry sharing the CVE — deleting the wrong block would silently
       # un-ignore a still-valid entry.
-      sed -n "${end_line}p" "$file" | grep -qE "name:[[:space:]]*${pkg_re}[[:space:]]*\$" || continue
-
-      actual_location=""
-      if sed -n "$((end_line + 1))p" "$file" | grep -q '^[[:space:]]*location:'; then
-        actual_location=$(sed -n "$((end_line + 1))p" "$file" | \
-          sed 's/.*location:[[:space:]]*//' | xargs)
-        actual_location=$(normalize_scan_location "$actual_location")
-      fi
+      [[ "$item_name" == "$package" ]] || continue
+      actual_location=$(sed -n "${vuln_line},${end_line}p" "$file" | \
+        sed -n 's/^[[:space:]]*location:[[:space:]]*//p' | head -1 | xargs)
+      actual_location=$(normalize_scan_location "$actual_location")
       [[ "$actual_location" == "$requested_location" ]] || continue
 
       # Block start: walk backwards over this entry's comment lines.
@@ -1258,15 +1265,6 @@ remove_grype_ignore() {
           break
         fi
       done
-
-      # A scoped block writes its location: on the single line right after name:
-      # (insert_grype_ignore's field order). Extend the deletion by exactly that one
-      # line so no orphaned location: is left behind. The probe is deliberately a
-      # single-line lookahead: an unscoped block never over-deletes the following
-      # entry/exclude/EOF line.
-      if sed -n "$((end_line + 1))p" "$file" | grep -q '^[[:space:]]*location:'; then
-        end_line=$((end_line + 1))
-      fi
 
       sed_inplace "${start_line},${end_line}d" "$file"
       squeeze_blank_lines "$file"
@@ -1310,7 +1308,8 @@ remove_invalid_grype_ignores() {
       /^[^[:space:]#]/ && !/^-([[:space:]]|$)/ { if (in_ignore) finish(NR-1); in_ignore=0 }
       in_ignore && /^[[:space:]]*-([[:space:]]|$)/ { finish(NR-1); entry=1; start=NR }
       in_ignore && entry && /vulnerability:[[:space:]]*[^[:space:]]/ { vuln=1 }
-      in_ignore && entry && /^[[:space:]]*name:[[:space:]]*[^[:space:]]/ { pkg=1 }
+      # Block or flow style: "name: x" or "package: {name: x}".
+      in_ignore && entry && /(^|[{,[:space:]])name:[[:space:]]*[^[:space:],}]/ { pkg=1 }
       END { if (!emitted && in_ignore) finish(NR) }
     ' "$file")
     [[ -n "$range" ]] || break
@@ -1702,8 +1701,11 @@ build_cve_fix_agent_command() {
   CVE_FIX_AGENT_CMD=()
   case "$provider" in
     claude)
+      # No tools, MCP servers or project settings: evidence is prefetched, and
+      # the target repository's settings and hooks must not configure the reviewer.
       CVE_FIX_AGENT_CMD=(claude -p "$prompt" --print \
-        "${model_args[@]+"${model_args[@]}"}" --allowedTools "")
+        "${model_args[@]+"${model_args[@]}"}" --tools "" --strict-mcp-config \
+        --setting-sources user)
       ;;
     codex)
       CVE_FIX_AGENT_CMD=(codex exec --ephemeral --sandbox read-only \

@@ -151,8 +151,8 @@ CLAUDE_AGENT_CMD=$(agent_command_dump claude)
 CLAUDE_MODEL_CMD=$(agent_command_dump claude model-x)
 CODEX_AGENT_CMD=$(agent_command_dump codex)
 CODEX_MODEL_CMD=$(agent_command_dump codex model-x)
-EXPECTED_CLAUDE_CMD=$(printf '%s\n' claude -p 'literal $(do-not-run) prompt' --print --allowedTools '')
-EXPECTED_CLAUDE_MODEL_CMD=$(printf '%s\n' claude -p 'literal $(do-not-run) prompt' --print --model model-x --allowedTools '')
+EXPECTED_CLAUDE_CMD=$(printf '%s\n' claude -p 'literal $(do-not-run) prompt' --print --tools '' --strict-mcp-config --setting-sources user)
+EXPECTED_CLAUDE_MODEL_CMD=$(printf '%s\n' claude -p 'literal $(do-not-run) prompt' --print --model model-x --tools '' --strict-mcp-config --setting-sources user)
 EXPECTED_CODEX_CMD=$(printf '%s\n' codex exec --ephemeral --sandbox read-only \
   --cd "$TMPD/provider-repo" --color never 'literal $(do-not-run) prompt')
 EXPECTED_CODEX_MODEL_CMD=$(printf '%s\n' codex exec --ephemeral --sandbox read-only \
@@ -10036,6 +10036,78 @@ for _verify_timeout_mode in then-success exhausted auth-after-timeout; do
     check "verification timeout $_verify_timeout_mode: clean evidence is required for fallback" grep -q '^VERIFIED_BY=evidence$' <<< "$_verify_timeout_out"
   fi
 done
+
+echo "ignore edits keep foreign and flow-style entries valid"
+IGY="$TMPD/ignore-yaml"; mkdir -p "$IGY"
+cat > "$IGY/foreign.yaml" <<'YAML'
+ignore:
+  # Image scan: approved
+  - vulnerability: CVE-2024-5535
+    package:
+      name: openssl-libs
+      type: rpm
+  # x/net
+  - vulnerability: CVE-2023-0001
+    package:
+      name: golang.org/x/net
+      type: go-module
+      location: /go.mod
+YAML
+remove_grype_ignore "$IGY/foreign.yaml" CVE-2024-5535 openssl-libs >/dev/null
+check "removal leaves no orphaned fields" ! grep -q 'type: rpm' "$IGY/foreign.yaml"
+check "removal keeps YAML valid" python3 -c 'import yaml,sys; yaml.safe_load(open(sys.argv[1]))' "$IGY/foreign.yaml"
+remove_grype_ignore "$IGY/foreign.yaml" CVE-2023-0001 golang.org/x/net /go.mod >/dev/null
+check "removal finds a location after other fields" ! grep -q CVE-2023-0001 "$IGY/foreign.yaml"
+printf 'ignore: []\nexclude:\n  - ./testdata/**\n' > "$IGY/empty-flow.yaml"
+check "insert into an empty flow list succeeds" \
+  insert_grype_ignore "$IGY/empty-flow.yaml" GO-2026-0001 golang.org/x/net "No fix" not-fixed /go.mod
+check "insert into an empty flow list stays valid" \
+  python3 -c 'import yaml,sys; d=yaml.safe_load(open(sys.argv[1])); assert len(d["ignore"]) == 1' "$IGY/empty-flow.yaml"
+printf 'ignore:\n  - vulnerability: CVE-1\n    package:\n      name: a.b/c\nbroken: [\n' > "$IGY/broken.yaml"
+check "insert reports invalid YAML as failure" \
+  ! insert_grype_ignore "$IGY/broken.yaml" GO-2026-0002 golang.org/x/net "No fix" not-fixed
+printf -- '---\nignore:\n  - {vulnerability: CVE-2023-1111, package: {name: golang.org/x/net}}\n  - vulnerability: CVE-2023-2222\n    package: {name: golang.org/x/crypto, location: /go.mod}\n  - vulnerability: CVE-2023-3333\n' > "$IGY/flow.yaml"
+remove_invalid_grype_ignores "$IGY/flow.yaml" >/dev/null
+check "flow-style package names are not broad" grep -q CVE-2023-1111 "$IGY/flow.yaml"
+check "inline package maps are not broad" grep -q CVE-2023-2222 "$IGY/flow.yaml"
+check "entries without a package are still removed" ! grep -q CVE-2023-3333 "$IGY/flow.yaml"
+
+echo "existing-entries audits only Go ignores"
+EEF="$TMPD/ee-foreign"; mkdir -p "$EEF/rep"
+make_test_repo "$EEF/repo" ""
+printf 'module example.com/eef\ngo 1.24.0\n' > "$EEF/repo/go.mod"
+printf 'ignore:\n  - vulnerability: CVE-2024-5535\n    package:\n      name: openssl-libs\n      type: rpm\n  - vulnerability: CVE-2024-7777\n    package:\n      name: libxml2\n' > "$EEF/repo/.grype.yaml"
+git -C "$EEF/repo" add -A && git -C "$EEF/repo" commit -qm base
+git -C "$EEF/repo" update-ref refs/remotes/origin/devel HEAD
+make_go_state "$EEF/state.env" "$EEF/repo"
+printf '{"matches":[],"ignoredMatches":[]}\n' > "$EEF/rep/final-scan.json"
+EEF_OUT=$(bash "$SCRIPT_DIR/../subagents/existing-entries.sh" "$EEF/state.env" "$EEF/rep" 2>&1 || true)
+check "foreign ecosystem ignores are never stale" grep -qx 'NEW_ISSUES=0' <<< "$EEF_OUT"
+check "untyped non-module names are never stale" ! grep -q 'libxml2' <<< "$EEF_OUT"
+
+echo "verification updates are tested"
+check "fix-all reruns tests when verification moves HEAD" \
+  grep -q 'git rev-parse HEAD)" != "$TESTED_HEAD"' "$SCRIPT_DIR/fix-all.sh"
+
+echo "repository config cannot inject names or options"
+CFGV="$TMPD/config-validation"
+make_test_repo "$CFGV" ""
+printf 'module example.com/cfgv\ngo 1.24.0\n' > "$CFGV/go.mod"
+printf 'unset-env: "GOOD_VAR x[$(touch %s/pwned)]"\n' "$CFGV" > "$CFGV/.cve-fix.yaml"
+check "unset-env rejects a non-identifier name" ! "$SCRIPT_DIR/detect.sh" "$CFGV" devel
+check "unset-env rejection runs no subscript" test ! -e "$CFGV/pwned"
+printf 'build-image: "--privileged"\n' > "$CFGV/.cve-fix.yaml"
+check "build-image rejects option-like values" ! "$SCRIPT_DIR/detect.sh" "$CFGV" devel
+
+echo "repository grype config cannot hide fixable findings"
+GPIN="$TMPD/grype-pin"
+mkdir -p "$GPIN/bin"
+make_test_repo "$GPIN/repo"
+printf '#!/bin/sh\nprintf "%%s\\n" "${GRYPE_ONLY_NOTFIXED-unset}" > "%s/seen"\nprintf %%s "{\\"matches\\":[],\\"ignoredMatches\\":[]}"\n' "$GPIN" > "$GPIN/bin/grype"
+chmod +x "$GPIN/bin/grype"
+printf 'only-notfixed: true\n' > "$GPIN/repo/.grype.yaml"
+(cd "$GPIN/repo" && HAS_LOCAL_GRYPE=true CONTAINER_CMD="" PATH="$GPIN/bin:$PATH" run_grype --json >/dev/null 2>&1) || true
+check "local scans pin only-notfixed off" test "$(cat "$GPIN/seen" 2>/dev/null)" = false
 
 # Distribution go.env experiments make Grype record an unmatchable stdlib
 # version, so a run builds with upstream defaults unless the caller chose one.

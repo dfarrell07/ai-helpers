@@ -260,6 +260,9 @@ if [[ -f "$_cve_config" ]]; then
   ENV_UNSET=$(jq -r '.["unset-env"] // empty' <<< "$_config_json")
   K8S_VERSION_GUARD=$(jq -r '.["k8s-version-guard"] // false' <<< "$_config_json")
   UPSTREAM_ORG=$(jq -r '.["upstream-org"] // empty' <<< "$_config_json")
+  for _var in $ENV_UNSET; do
+    [[ "$_var" =~ ^[A-Za-z_][A-Za-z0-9_]*$ ]] || die "Invalid unset-env name in .cve-fix.yaml: $_var"
+  done
 fi
 
 # Auto-detect build/clean/test commands if not set by config
@@ -318,6 +321,10 @@ fi
 if [[ -z "$BUILD_IMAGE" && "$USES_SHIPYARD_DAPPER" == "true" ]]; then
   BUILD_IMAGE="quay.io/submariner/shipyard-dapper-base:${BRANCH}"
   echo "Auto-detected build image from Shipyard Dapper wrapper: $BUILD_IMAGE"
+fi
+
+if [[ "$BUILD_IMAGE" == -* || "$BUILD_IMAGE" =~ [[:space:]] ]]; then
+  die "Invalid build image: $BUILD_IMAGE"
 fi
 
 # Detect Go version from the build image (if configured); otherwise "unknown".

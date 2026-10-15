@@ -2,12 +2,15 @@
 
 Scan a Go repository with [Grype](https://github.com/anchore/grype) and fix
 every reported CVE on a new branch. Shell scripts own every mutation and gate:
-they update dependencies or Go toolchains, add auto-expiring ignores only when
-no fix exists, roll back any update that breaks the build or introduces a new
+they update dependencies or Go toolchains, add ignores only when no fix is
+published, roll back any update that breaks the build or introduces a new
 finding, run the repository's tests, rescan rebuilt binaries, and print a
-`gh pr create` command. An optional read-only Claude or Codex reviewer explains
-outcomes the scripts cannot decide; the invoking agent then turns those into
+`gh pr create` command. A tool-less Claude or Codex reviewer explains outcomes
+the scripts cannot decide; the invoking agent turns those into
 recommendations.
+
+The run executes the repository's build and test commands, so run it only on
+code you would build yourself.
 
 [`golang:fix-cve`](../golang/skills/fix-cve/SKILL.md) patches one known CVE
 from a user-supplied fix version or fork. This plugin starts from a scan and
@@ -42,32 +45,23 @@ From a clean checkout, or naming a repository:
 ```
 
 Codex uses `$fix-go-cves:fix-go-cves` with the same arguments. Arguments are
-order-independent; `X.Y` expands to `release-X.Y`. The scripts also run
-without an agent:
-
-```bash
-plugins/fix-go-cves/scripts/fix-all.sh [REPO] [BRANCH] </dev/null
-```
+order-independent; `X.Y` expands to `release-X.Y`. Asking only for a scan or
+report produces no branch or commit.
 
 The run creates `fix-<version>-cves-<date>` from `origin/<branch>`, commits
-one change per fix, and never pushes. A PR command is printed only when a
-writable GitHub fork remote exists and every readiness gate passes.
-
-| Exit | Meaning |
-| --- | --- |
-| 0 | All findings fixed or ignored; tests, rescan and PR checks passed |
-| 2 | Partial fix, unconfirmed result, or PR readiness failure (see the summary) |
-| 1 | Setup or invocation error |
+one change per fix, leaves the checkout on that branch, and never pushes. A PR
+command is printed only when a GitHub remote owned by someone other than
+upstream exists and every readiness gate passes.
 
 ## Prerequisites
 
-- `git`, `go`, `jq`, `python3`, `make`, `curl`, `base64`, GNU `timeout` and
+- `git`, `go`, `jq`, `python3`, `make`, `base64`, GNU `timeout` and
   `sort -V`, and Bash 4+. On macOS, install `bash` and `coreutils` with
   Homebrew and put coreutils' `libexec/gnubin` on `PATH`.
-- Grype: the latest release is installed into this plugin's `bin/` after
-  SHA256 verification. Set `CVE_FIX_GRYPE_VERSION=vX.Y.Z` to pin it. Without
-  network access to GitHub releases, Docker or Podman runs a digest-pinned
-  `anchore/grype` image (`CVE_FIX_GRYPE_IMAGE` overrides it).
+- Grype: with `curl`, the latest release is installed into this plugin's
+  `bin/`, checked against the release's `checksums.txt`. Set
+  `CVE_FIX_GRYPE_VERSION=vX.Y.Z` to pin it. Otherwise Docker or Podman runs
+  `anchore/grype` (v0.112.0 pinned by digest; `CVE_FIX_GRYPE_IMAGE` overrides).
 - Optional reviewer: the `claude` or `codex` CLI, chosen by `CVE_FIX_AGENT`
   (default `claude`; `CVE_FIX_MODEL` selects a model). Without it the
   deterministic evidence still gates the result.
@@ -79,7 +73,8 @@ match wins:
 
 1. `$CVE_FIX_REPOS`
 2. `${XDG_CONFIG_HOME:-~/.config}/cve-fix/repos.yaml`
-3. `repos.yaml` in this plugin directory (git-ignored)
+3. `repos.yaml` in this plugin directory (development checkouts; plugin
+   updates replace installed copies)
 
 Copy [`repos.yaml.example`](repos.yaml.example) to one of these locations.
 Absolute paths work without a registry.
@@ -115,13 +110,36 @@ Absolute paths work without a registry.
 - **Host toolchain:** a distribution default `GOEXPERIMENT` (Fedora sets
   `nodwarf5`) produces binaries Grype cannot match, so runs build with
   upstream defaults unless `GOEXPERIMENT` is set explicitly.
-- **No fix available:** an exact, scoped `.grype.yaml` ignore with an
-  auto-expiring `fix-state`, so it lapses when a fix is published. A
-  repository-wide and a module-scoped ignore for the same package and CVE is a
-  policy conflict that blocks the PR command.
-- **Reviewer:** reads prefetched evidence only; it cannot edit files, Git
-  state, or ignores. Only its `UNRESOLVED` verdicts for packages already under
-  review affect the result.
+- **No fix available:** an exact `.grype.yaml` ignore, scoped to the reporting
+  module when known, that keeps Grype's `fix-state` so it stops matching once
+  a fix is published. A repository-wide and a module-scoped ignore for the
+  same package and CVE is a policy conflict that blocks the PR command.
+- **Repository Grype config:** `.grype.yaml` ignores and excludes apply, but
+  `only-notfixed` is forced off so fixable findings always reach the gate.
+- **Reviewer:** reads prefetched evidence with no tools (Claude: `--tools ""`,
+  no MCP servers or project settings; Codex: read-only sandbox). Only its
+  `UNRESOLVED` verdicts for packages already under review affect the result.
+
+## Configuration
+
+A `.cve-fix.yaml` in the repository root overrides detection; every field is
+optional. `CVE_FIX_BUILD_CMD`, `CVE_FIX_CLEAN_CMD`, `CVE_FIX_TEST_CMD`, and
+`CVE_FIX_BUILD_IMAGE` override the file for one run.
+
+| Field | Default |
+| --- | --- |
+| `build-command` | `make build` when a build target exists |
+| `clean-command` | `make clean` when a clean target exists |
+| `test-command` | First of `make unit`, `make test`, `make test-unit`, `go test ./...` |
+| `build-image` | None; its `go version` bounds Go directive and toolchain bumps |
+| `k8s-version-guard` | `false`; `true` treats Kubernetes minor bumps as breaking |
+| `upstream-org` | Owner of `origin`, used for the PR command |
+| `unset-env` | None; variable names removed from build, test, and reviewer environments |
+
+Repositories using Shipyard's Dapper wrapper build with `BUILD_UPX=false make
+build`, test with `make unit`, take their build image from the branch
+(`quay.io/submariner/shipyard-dapper-base:<branch>`), and run no automatic
+clean.
 
 ## PR readiness
 
@@ -137,7 +155,9 @@ repositories need a working SSH key or agent; public ones work best with an
 HTTPS fetch URL and an SSH `pushurl`.
 
 Timeouts: `CVE_FIX_BUILD_TIMEOUT` and `CVE_FIX_TEST_TIMEOUT` (1800 s each),
-`CVE_FIX_LICENSE_TIMEOUT` (300 s). A timeout is an unverified result.
+`CVE_FIX_SCAN_TIMEOUT` and `CVE_FIX_AGENT_TIMEOUT` (600 s),
+`CVE_FIX_LICENSE_TIMEOUT` (300 s), `CVE_FIX_IMAGE_TIMEOUT` (180 s). A timeout
+is an unverified result.
 
 ## Troubleshooting
 
@@ -146,7 +166,7 @@ Timeouts: `CVE_FIX_BUILD_TIMEOUT` and `CVE_FIX_TEST_TIMEOUT` (1800 s each),
 | Zero packages cataloged | Grype skips virtual filesystems such as `/dev/shm`; move the checkout |
 | CVE persists after update | Check `replace` directives and the reported fix version |
 | New CVE after an update | The update was rolled back; review the reported finding |
-| Stdlib CVEs hidden by UPX | Build with `BUILD_UPX=false` via `build-command` |
+| Stdlib CVEs hidden by a packer | Set a `build-command` that builds unpacked binaries |
 | `git fetch` fails | Run it manually; see the remote notes above |
 | Tests need `sudo` or other prompts | Set `test-command` (or `CVE_FIX_TEST_CMD`) to a non-interactive command |
 | Temp directory full | `export TMPDIR=/path/with/space` |
@@ -155,6 +175,7 @@ Timeouts: `CVE_FIX_BUILD_TIMEOUT` and `CVE_FIX_TEST_TIMEOUT` (1800 s each),
 
 ```bash
 bash plugins/fix-go-cves/test/test-lib.sh </dev/null
+plugins/fix-go-cves/scripts/fix-all.sh [REPO] [BRANCH] </dev/null   # without an agent
 ```
 
 The suite is hermetic (no network, scanner, or container runtime) and runs

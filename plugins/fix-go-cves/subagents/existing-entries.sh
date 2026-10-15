@@ -23,12 +23,21 @@ if [[ -z "$ORIGINAL" ]]; then
 fi
 
 # Parse entries from pre-existing content
-# Track: vulnerability ID, package name, fix-state, location
+# Track: vulnerability ID, package name, fix-state, location. Entries for other
+# ecosystems (rpm, apk, ...) govern image scans this source scan never sees, so
+# only Go entries are audited.
 ENTRIES=()
 CURRENT_VULN=""
 CURRENT_PKG=""
 CURRENT_FIX_STATE=""
 CURRENT_LOCATION=""
+CURRENT_TYPE=""
+_save_entry() {
+  [[ -n "$CURRENT_VULN" && -n "$CURRENT_PKG" ]] || return 0
+  [[ -z "$CURRENT_TYPE" || "$CURRENT_TYPE" == go-module ]] || return 0
+  [[ "$CURRENT_PKG" == stdlib || "${CURRENT_PKG%%/*}" == *.* ]] || return 0
+  ENTRIES+=("$CURRENT_VULN|$CURRENT_PKG|$CURRENT_FIX_STATE|$CURRENT_LOCATION")
+}
 
 while IFS= read -r line; do
   # Skip comment lines
@@ -37,14 +46,16 @@ while IFS= read -r line; do
   fi
 
   if [[ "$line" =~ ^[[:space:]]*-[[:space:]]*vulnerability: ]]; then
-    # Save previous entry if complete
-    if [[ -n "$CURRENT_VULN" ]] && [[ -n "$CURRENT_PKG" ]]; then
-      ENTRIES+=("$CURRENT_VULN|$CURRENT_PKG|$CURRENT_FIX_STATE|$CURRENT_LOCATION")
-    fi
+    _save_entry
     CURRENT_VULN=$(echo "$line" | sed 's/.*vulnerability:[[:space:]]*//' | xargs)
     CURRENT_PKG=""
     CURRENT_FIX_STATE=""
     CURRENT_LOCATION=""
+    CURRENT_TYPE=""
+  fi
+
+  if [[ "$line" =~ ^[[:space:]]*type: ]]; then
+    CURRENT_TYPE=$(echo "$line" | sed 's/.*type:[[:space:]]*//' | xargs)
   fi
 
   if [[ "$line" =~ ^[[:space:]]*fix-state: ]]; then
@@ -60,10 +71,7 @@ while IFS= read -r line; do
   fi
 done <<< "$ORIGINAL"
 
-# Save last entry
-if [[ -n "$CURRENT_VULN" ]] && [[ -n "$CURRENT_PKG" ]]; then
-  ENTRIES+=("$CURRENT_VULN|$CURRENT_PKG|$CURRENT_FIX_STATE|$CURRENT_LOCATION")
-fi
+_save_entry
 
 SCAN_FILE=""
 if (( ${#ENTRIES[@]} > 0 )); then

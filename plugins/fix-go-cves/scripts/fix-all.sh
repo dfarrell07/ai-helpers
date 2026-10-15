@@ -394,6 +394,12 @@ while IFS='|' read -r TYPE PKG FIX_VER CVE_CSV _SEVERITY ALL_FIX_VERS FIX_STATE_
       0)
         FIX_LINES+=("FIXED: $PKG v$USED_VER for ${CVES[*]}$_outcome_scope")
         FIXED_COUNT=$((FIXED_COUNT + 1))
+        # A committed fix can still carry a caveat (e.g. an indirect re-pin failed).
+        if grep -q '^NEEDS_REVIEW:' "$FIX_LOG"; then
+          FIX_LINES+=("$(grep -m1 '^NEEDS_REVIEW:' "$FIX_LOG")$_outcome_scope")
+          REVIEW_COUNT=$((REVIEW_COUNT + 1))
+          UNSEEN_NEEDS_REVIEW=true
+        fi
         ;;
       2|3)
         if [[ $EXIT_CODE -eq 3 ]] && is_scan_transient "$FIX_LOG" 2>/dev/null; then
@@ -455,8 +461,13 @@ done <<< "$CVE_LINES"
 # ── Phase 4: Verify ───────────────────────────────────────────────────────────
 
 echo ""
-echo "Running tests..."
-if [[ -n "${TEST_CMD:-}" ]]; then
+# Test the current HEAD. Verification may commit further updates, so the
+# orchestrator reruns this whenever HEAD moves after the first pass.
+run_tests() {
+  echo ""
+  echo "Running tests..."
+  TESTED_HEAD=$(git rev-parse HEAD)
+  [[ -n "${TEST_CMD:-}" ]] || return 0
   build_env_scrub
   TEST_LOG=$(mktemp "${TMPDIR:-/tmp}/cve-fix-test.XXXXXX")
   TEST_RC=0
@@ -478,7 +489,8 @@ if [[ -n "${TEST_CMD:-}" ]]; then
     TESTS_FAILED=true
   fi
   rm -f "$TEST_LOG"
-fi
+}
+run_tests
 # Clean stale build artifacts so the final scan doesn't find CVEs
 # from pre-fix binaries (the initial scan may have built with old deps)
 if [[ -n "${CLEAN_CMD:-}" ]]; then
@@ -611,6 +623,9 @@ fi
 # or FIXED_COUNT directly; _fix_fv_package writes to fixed-pkgs so the parent
 # can record the outcome and remove any stale ERROR: line from the main loop.
 fold_fixed_package_outcomes "$SUBAGENT_REPORT_DIR"
+if ! $TESTS_FAILED && [[ "$(git rev-parse HEAD)" != "$TESTED_HEAD" ]]; then
+  run_tests
+fi
 
 # Agent review runs only after deterministic verification has had a chance to
 # rescan and remediate findings exposed by earlier dependency upgrades. A
@@ -991,6 +1006,8 @@ if [[ "$COMMIT_COUNT" -gt 0 ]]; then
 fi
 
 if $FETCH_FAILED; then
+  # A scan of cached remote state cannot confirm the current branch either way.
+  PR_NOT_READY=true
   echo ""
   echo "WARNING: git fetch failed earlier. Branch was created from cached remote state."
   echo "Run 'git fetch' and re-run if it fetches new commits."

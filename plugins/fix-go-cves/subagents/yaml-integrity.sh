@@ -82,7 +82,7 @@ if [[ -n "$FULL_GRYPE" ]]; then
       next
     }
     in_ignore && entry && /vulnerability:/ { x=$0; sub(/.*vulnerability:[[:space:]]*/, "", x); vuln=trim(x) }
-    in_ignore && entry && /^[[:space:]]*name:/ { x=$0; sub(/.*name:[[:space:]]*/, "", x); pkg=trim(x) }
+    in_ignore && entry && /(^|[{,[:space:]])name:/ { x=$0; sub(/.*name:[[:space:]]*/, "", x); sub(/[,}].*/, "", x); pkg=trim(x) }
     END { if (in_ignore) flush() }
   ' <<< "$FULL_GRYPE")
 
