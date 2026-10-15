@@ -5031,6 +5031,66 @@ check "indirect-downgrade: x/tools restored" grep -q 'golang.org/x/tools v0.49.0
 # cve-pkg must be at the fix version
 check "indirect-downgrade: cve-pkg fixed"    grep -q 'example.com/cve-pkg v1.1.0' "$FP_DD/go.mod"
 
+# === fix-package.sh: module layouts that must not abort or corrupt a fix ===
+echo "fix-package module layout regressions"
+_fpx_stub() {
+  cat > "$1/go" <<'STUB'
+#!/bin/sh
+dir="."
+while [ "$1" = "-C" ]; do dir="$2"; shift 2; done
+case "$1" in
+  get)
+    pkg=$(echo "$2" | cut -d@ -f1); ver=$(echo "$2" | cut -d@ -f2)
+    if [ "$FPX_MODE" = post-v ]; then
+      echo "go: $2: invalid version: go.mod has post-v7 module path \"$pkg/v7\" at revision $ver" >&2
+      exit 1
+    fi
+    awk -v p="$pkg" -v v="$ver" '$1 == p { $2 = v } $1 == "require" && $2 == p { $3 = v } { print }' \
+      "$dir/go.mod" > "$dir/go.mod.tmp" && mv "$dir/go.mod.tmp" "$dir/go.mod"
+    exit 0 ;;
+  mod)
+    [ "$2" = vendor ] && mkdir -p "$dir/vendor" && echo "# regenerated" > "$dir/vendor/modules.txt"
+    exit 0 ;;
+  list)
+    pkg=""; for a in "$@"; do pkg="$a"; done
+    awk -v p="$pkg" '($1 == p) { print $2; exit } ($1 == "require" && $2 == p) { print $3; exit }' "$dir/go.mod"
+    exit 0 ;;
+esac
+exit 0
+STUB
+  chmod +x "$1/go"
+}
+_fpx_run() {  # name gomod-content [mode]
+  local d="$TMPD/fpx-$1"
+  mkdir -p "$d/bin"
+  git -C "$d" init -q; git -C "$d" config user.email t@t; git -C "$d" config user.name t
+  printf '%s\n' "$2" > "$d/go.mod"
+  _fpx_stub "$d/bin"
+  printf 'REPO="%s"\nBRANCH="devel"\nBUILD_GO_VERSION="unknown"\nCVE_SCRIPTS="%s"\nDIFF_IGNORE_ARGS=""\n' "$d" "$SCRIPT_DIR" > "$d/st.env"
+  [[ -z "${FPX_SETUP:-}" ]] || (cd "$d" && eval "$FPX_SETUP")
+  git -C "$d" add -A && git -C "$d" commit -qm init
+  FPX_OUT=$(cd "$d" && FPX_MODE="${3:-}" PATH="$d/bin:$PATH" \
+    bash "$SCRIPT_DIR/fix-package.sh" "$d/st.env" example.com/cve-pkg 1.1.0 GHSA-fpx-0001 2>&1) && FPX_RC=0 || FPX_RC=$?
+  FPX_DIR="$d"
+}
+_fpx_run nogo $'module x\n\nrequire example.com/cve-pkg v1.0.0'
+check "module without a go directive can be fixed" test "$FPX_RC" -eq 0
+check "module without a go directive reaches the fix" grep -q 'example.com/cve-pkg v1.1.0' "$FPX_DIR/go.mod"
+FPX_SETUP='mkdir -p vendor && echo "# local" > vendor/modules.txt && echo "/vendor/" > .gitignore' \
+  _fpx_run ignored-vendor $'module x\n\ngo 1.24.0\n\nrequire example.com/cve-pkg v1.0.0'
+check "ignored local vendor tree does not fail the fix" test "$FPX_RC" -eq 0
+check "ignored local vendor tree is not committed" test -z "$(git -C "$FPX_DIR" ls-files vendor)"
+FPX_SETUP='mkdir -p vendor && printf "## workspace\n" > vendor/modules.txt' \
+  _fpx_run workspace-vendor $'module x\n\ngo 1.24.0\n\nrequire example.com/cve-pkg v1.0.0'
+check "workspace vendoring needs review" test "$FPX_RC" -eq 2
+check "workspace vendoring is left unchanged" git -C "$FPX_DIR" diff --quiet
+_fpx_run post-v $'module x\n\ngo 1.24.0\n\nrequire example.com/cve-pkg v1.0.0' post-v
+check "moved /vN module path is a major migration" test "$FPX_RC" -eq 4
+check "moved /vN module path is reported" grep -q '^INCOMPATIBLE_MAJOR_BUMP:' <<< "$FPX_OUT"
+check "k8s guard reads apimachinery minors" bash -c "
+  source '$SCRIPT_DIR/lib.sh'; f=\$(mktemp); printf 'require k8s.io/apimachinery v0.31.1\n' > \"\$f\"
+  grep -E 'k8s\\.io/(api|apimachinery|client-go) v0\\.' \"\$f\" >/dev/null && rm -f \"\$f\"" 
+
 # === fix-package.sh: pseudo-version indirect dep no false re-pin ===
 # Pseudo-version indirect deps (v0.0.0-YYYYMMDD-HASH) must not trigger false
 # re-pin detection. The snapshot previously stripped pseudo-versions to "0.0.0",

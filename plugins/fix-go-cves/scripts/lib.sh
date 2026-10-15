@@ -2098,11 +2098,12 @@ stage_gomod_files() {
   while IFS= read -r vendor_dir; do
     gomod="${vendor_dir%/vendor}/go.mod"
     [[ "$vendor_dir" != vendor ]] || gomod=go.mod
-    if ! git diff --quiet HEAD -- "$gomod" "${gomod%go.mod}go.sum" "$vendor_dir"; then
+    if ! git check-ignore -q -- "$vendor_dir" &&
+       ! git diff --quiet HEAD -- "$gomod" "${gomod%go.mod}go.sum" "$vendor_dir"; then
       git add -A -- "$vendor_dir"
     fi
   done < <(find_vendor_dirs)
-  mapfile -t _mod_files < <(git diff --name-only | grep -E 'go\.(mod|sum|work(\.sum)?)$')
+  mapfile -t _mod_files < <(git diff --name-only | grep -E '(^|/)go\.(mod|sum|work(\.sum)?)$')
   [[ ${#_mod_files[@]} -gt 0 ]] && git add -- "${_mod_files[@]}"
   return 0
 }

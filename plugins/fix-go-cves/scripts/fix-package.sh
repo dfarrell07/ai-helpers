@@ -259,6 +259,12 @@ fi
 
 echo "--- Fixing: $PACKAGE -> v$VERSION for ${CVE_IDS[*]} ---"
 
+# Module vendoring would replace a workspace vendor tree and drop its siblings.
+if [[ "$(head -1 vendor/modules.txt 2>/dev/null)" == "## workspace" ]]; then
+  echo "NEEDS_REVIEW: $PACKAGE — workspace vendoring (go work vendor) is not automated"
+  exit 2
+fi
+
 # Compare current source evidence before and after the transaction. A version
 # that fixes one advisory can introduce another (OpenTelemetry 1.39 -> 1.41).
 # Graph version ordering alone cannot detect these non-monotonic affected ranges.
@@ -318,14 +324,14 @@ while IFS= read -r GOMOD; do
   while read -r _ipkg _iver _; do
     [[ -n "$_ipkg" && -n "$_iver" ]] && \
       _INDIRECT_BEFORE["$MODDIR:$_ipkg"]="${_iver#v}"
-  done < <(grep '// indirect' "$GOMOD" 2>/dev/null)
+  done < <(grep '// indirect' "$GOMOD" 2>/dev/null | sed -E 's/^[[:space:]]*require[[:space:]]+//')
 done < <(find_gomods)
 
 # Snapshot Go directives before update (for builder-policy validation)
 declare -A _GO_BEFORE=()
 declare -A _TOOLCHAIN_BEFORE=()
 while IFS= read -r GOMOD; do
-  GO_VER=$(grep '^go ' "$GOMOD" 2>/dev/null | awk '{print $2}')
+  GO_VER=$(awk '$1 == "go" { print $2; exit }' "$GOMOD" 2>/dev/null)
   [[ -n "$GO_VER" ]] && _GO_BEFORE["$GOMOD"]="$GO_VER"
   _TOOLCHAIN_BEFORE["$GOMOD"]=$(gomod_toolchain "$(dirname "$GOMOD")")
 done < <(find_gomods)
@@ -342,7 +348,7 @@ _restore_toolchain_directives() {
 
 _k8s_minor_versions() {
   while IFS= read -r _GM; do
-    grep 'k8s.io/client-go' "$_GM" 2>/dev/null || true
+    grep -E 'k8s\.io/(api|apimachinery|client-go) v0\.' "$_GM" 2>/dev/null || true
   done < <(find_gomods) | { grep -oE 'v0\.[0-9]+' || true; } | sed 's/^v0\.//' | sort -un | tr '\n' ' '
 }
 K8S_BEFORE=""
@@ -355,6 +361,7 @@ fi
 # before deciding how to exit. Sets MODULE_NOT_IN_PROXY=true when the error message
 # contains "unknown revision" — the canonical Go proxy error for a missing tag.
 MODULE_NOT_IN_PROXY=false
+MAJOR_PATH_CHANGE=false
 _GO_GET_LOG=$(mktemp)
 _go_get_version() {
   local moddir="$1" pkg="$2" ver="$3"
@@ -364,6 +371,8 @@ _go_get_version() {
     if grep -qE "unknown revision v?${ver}|invalid version: unknown revision v?${ver}" \
          "$_GO_GET_LOG" 2>/dev/null; then
       MODULE_NOT_IN_PROXY=true
+    elif grep -qE "post-v[0-9]+ module path|should be v0 or v1" "$_GO_GET_LOG" 2>/dev/null; then
+      MODULE_NOT_IN_PROXY=true MAJOR_PATH_CHANGE=true
     fi
     return "$_rc"
   fi
@@ -508,7 +517,8 @@ done < <(_iter_gomods)
 # migration. Emit INCOMPATIBLE_MAJOR_BUMP so the caller leaves it actionable as
 # NEEDS_REVIEW rather than creating any vulnerability ignore.
 if [[ "$MODULE_NOT_IN_PROXY" == true ]]; then
-  while IFS= read -r GOMOD; do
+  $MAJOR_PATH_CHANGE && echo "INCOMPATIBLE_MAJOR_BUMP: $PACKAGE v$VERSION moved to a /v${VERSION%%.*} module path"
+  while ! $MAJOR_PATH_CHANGE && IFS= read -r GOMOD; do
     if gomod_has_module_reference "$GOMOD" "$PACKAGE" +incompatible; then
       _cur=$(get_installed_version "$(dirname "$GOMOD")" "$PACKAGE" 2>/dev/null || true)
       if [[ -n "$_cur" ]]; then
@@ -533,7 +543,7 @@ clean_gomod
 # trees and build only after it completes. Policy is rechecked before staging.
 # Go work sync ignores -mod in GOFLAGS; graph queries retain module-mode flags,
 # while the native build below restores the caller's flags.
-if [[ -f go.work ]]; then
+if git ls-files --error-unmatch go.work >/dev/null 2>&1; then
   declare -A _SYNC_GOMOD_BEFORE=()
   while IFS= read -r _sync_gomod; do
     _SYNC_GOMOD_BEFORE["$_sync_gomod"]=$(git hash-object -- "$_sync_gomod")
