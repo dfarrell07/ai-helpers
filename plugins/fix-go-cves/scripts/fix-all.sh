@@ -893,9 +893,12 @@ echo "Fixed: ${FIXED_COUNT} pkgs / ${FIXED_CVES} CVEs · Ignored: ${IGNORED_COUN
 # Full CVE IDs remain in the commit messages listed below.
 format_fix_detail "$(printf '%s\n' "${FIX_LINES[@]+"${FIX_LINES[@]}"}")"
 
-COMMIT_COUNT=$(git rev-list --count "origin/$BRANCH"..HEAD 2>/dev/null || echo 0)
+COMMIT_COUNT=$(git rev-list --count "refs/remotes/origin/$BRANCH"..HEAD 2>/dev/null) || COMMIT_COUNT=""
 PR_NOT_READY=false
-if [[ "$COMMIT_COUNT" -gt 0 ]]; then
+if [[ -z "$COMMIT_COUNT" ]]; then
+  PR_NOT_READY=true
+  echo "WARNING: could not compare with origin/$BRANCH; keeping the fix branch $CURRENT_BRANCH."
+elif [[ "$COMMIT_COUNT" -gt 0 ]]; then
   _CS=$([[ "$COMMIT_COUNT" -eq 1 ]] && echo commit || echo commits)
   echo ""
   echo "(${COMMIT_COUNT} ${_CS} — see Commits: below)"
@@ -982,7 +985,8 @@ if [[ "$COMMIT_COUNT" -gt 0 ]]; then
 else
   # Nothing to keep: return the checkout to where the run started.
   remove_fix_branch >/dev/null
-  echo "No commits; removed the empty fix branch."
+  git show-ref --verify --quiet "refs/heads/$CURRENT_BRANCH" ||
+    echo "No commits; removed the empty fix branch."
 fi
 
 if $FETCH_FAILED; then

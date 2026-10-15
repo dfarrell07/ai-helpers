@@ -371,7 +371,7 @@ _go_get_version() {
     if grep -qE "unknown revision v?${ver}|invalid version: unknown revision v?${ver}" \
          "$_GO_GET_LOG" 2>/dev/null; then
       MODULE_NOT_IN_PROXY=true
-    elif grep -qE "post-v[0-9]+ module path|should be v0 or v1" "$_GO_GET_LOG" 2>/dev/null; then
+    elif grep -qE "post-v[0-9]+ module path|should be v0 or v1|module path must match major version" "$_GO_GET_LOG" 2>/dev/null; then
       MODULE_NOT_IN_PROXY=true MAJOR_PATH_CHANGE=true
     fi
     return "$_rc"
@@ -532,7 +532,7 @@ if [[ "$MODULE_NOT_IN_PROXY" == true ]]; then
       fi
     fi
   done < <(_iter_gomods)
-  echo "NOTE: fix version v$VERSION for $PACKAGE not available in Go module registry"
+  $MAJOR_PATH_CHANGE || echo "NOTE: fix version v$VERSION for $PACKAGE not available in Go module registry"
   rm -f "$_GO_GET_LOG"
   git checkout -- . 2>/dev/null || true
   exit 4

@@ -58,7 +58,7 @@ why); say so rather than reporting a clean result.
 
 - `origin` must be the upstream repository: the fix branch starts from
   `origin/<branch>`, and the PR targets `origin`'s owner unless `upstream-org`
-  is set. If the current branch is not on `origin`, ask for the base branch.
+  is set. If the run cannot find `origin/<branch>`, ask for the base branch.
 - The checkout must have no uncommitted or untracked files. If it does, ask;
   never stash, commit, or clean for the user.
 - The script creates `fix-<version>-cves-<date>`, commits there, and leaves

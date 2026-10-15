@@ -5038,6 +5038,7 @@ _fpx_stub() {
 #!/bin/sh
 dir="."
 while [ "$1" = "-C" ]; do dir="$2"; shift 2; done
+[ -z "$FPX_CALLS" ] || echo "$*" >> "$FPX_CALLS"
 case "$1" in
   get)
     pkg=$(echo "$2" | cut -d@ -f1); ver=$(echo "$2" | cut -d@ -f2)
@@ -5069,8 +5070,9 @@ _fpx_run() {  # name gomod-content [mode]
   printf 'REPO="%s"\nBRANCH="devel"\nBUILD_GO_VERSION="unknown"\nCVE_SCRIPTS="%s"\nDIFF_IGNORE_ARGS=""\n' "$d" "$SCRIPT_DIR" > "$d/st.env"
   [[ -z "${FPX_SETUP:-}" ]] || (cd "$d" && eval "$FPX_SETUP")
   git -C "$d" add -A && git -C "$d" commit -qm init
-  FPX_OUT=$(cd "$d" && FPX_MODE="${3:-}" PATH="$d/bin:$PATH" \
-    bash "$SCRIPT_DIR/fix-package.sh" "$d/st.env" example.com/cve-pkg 1.1.0 GHSA-fpx-0001 2>&1) && FPX_RC=0 || FPX_RC=$?
+  [[ -z "${FPX_STATE:-}" ]] || printf '%s\n' "$FPX_STATE" >> "$d/st.env"
+  FPX_OUT=$(cd "$d" && FPX_MODE="${3:-}" FPX_CALLS="$d/go-calls" PATH="$d/bin:$PATH" \
+    bash "$SCRIPT_DIR/fix-package.sh" "$d/st.env" "${FPX_PKG:-example.com/cve-pkg}" "${FPX_VER:-1.1.0}" GHSA-fpx-0001 2>&1) && FPX_RC=0 || FPX_RC=$?
   FPX_DIR="$d"
 }
 _fpx_run nogo $'module x\n\nrequire example.com/cve-pkg v1.0.0'
@@ -5087,9 +5089,17 @@ check "workspace vendoring is left unchanged" git -C "$FPX_DIR" diff --quiet
 _fpx_run post-v $'module x\n\ngo 1.24.0\n\nrequire example.com/cve-pkg v1.0.0' post-v
 check "moved /vN module path is a major migration" test "$FPX_RC" -eq 4
 check "moved /vN module path is reported" grep -q '^INCOMPATIBLE_MAJOR_BUMP:' <<< "$FPX_OUT"
-check "k8s guard reads apimachinery minors" bash -c "
-  source '$SCRIPT_DIR/lib.sh'; f=\$(mktemp); printf 'require k8s.io/apimachinery v0.31.1\n' > \"\$f\"
-  grep -E 'k8s\\.io/(api|apimachinery|client-go) v0\\.' \"\$f\" >/dev/null && rm -f \"\$f\"" 
+check "moved /vN module path prints no registry note" ! grep -q 'not available in Go module registry' <<< "$FPX_OUT"
+FPX_PKG=k8s.io/apimachinery FPX_VER=0.32.1 FPX_STATE='K8S_VERSION_GUARD=true' \
+  _fpx_run k8s-guard $'module x\n\ngo 1.24.0\n\nrequire k8s.io/apimachinery v0.31.1'
+check "k8s guard covers apimachinery minors" test "$FPX_RC" -eq 2
+check "k8s guard reports the minor change" grep -q 'K8s minor versions changed' <<< "$FPX_OUT"
+FPX_SETUP='printf "go 1.24.0\n\nuse .\n" > go.work && echo go.work > .gitignore' \
+  _fpx_run untracked-work $'module x\n\ngo 1.24.0\n\nrequire example.com/cve-pkg v1.0.0'
+check "untracked go.work is never synced" ! grep -q 'work sync' "$FPX_DIR/go-calls"
+printf 'mango.mod\n' > "$TMPD/stage-regex-list"
+check "staging matches only go.mod/go.sum/go.work files" \
+  test -z "$(grep -E '(^|/)go\.(mod|sum|work(\.sum)?)$' "$TMPD/stage-regex-list")"
 
 # === fix-package.sh: pseudo-version indirect dep no false re-pin ===
 # Pseudo-version indirect deps (v0.0.0-YYYYMMDD-HASH) must not trigger false
