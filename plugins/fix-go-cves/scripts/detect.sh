@@ -86,6 +86,8 @@ git -C "$REPO" rev-parse --git-dir &>/dev/null || die "Not a git repository: $RE
 if [[ -z "$BRANCH" ]]; then
   BRANCH=$(git -C "$REPO" branch --show-current 2>/dev/null)
   [[ -n "$BRANCH" ]] || die "Not on a branch (detached HEAD). Specify branch explicitly."
+  [[ ! "$BRANCH" =~ ^fix-.+-cves-[0-9-]+(-v[0-9]+)?$ ]] ||
+    die "On fix branch $BRANCH from an earlier run; specify the base branch"
   echo "Using current branch: $BRANCH"
 fi
 

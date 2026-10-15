@@ -9193,6 +9193,10 @@ check "unknown repo name still fails with setup guidance" ! _cli_detect_branch u
 check "multiple repositories are rejected" ! _cli_detect_branch master "$CLI_REPO" sample master
 check "multiple branches are rejected" ! _cli_detect_branch master master main
 check "empty arguments are treated as omitted" _cli_detect_branch master "" master
+git -C "$CLI_REPO" checkout -qb fix-devel-cves-2026-10-15
+check "an earlier fix branch is not used as the base" ! _cli_detect_branch fix-devel-cves-2026-10-15
+check "an explicit base branch still works from a fix branch" _cli_detect_branch master master
+git -C "$CLI_REPO" checkout -q - && git -C "$CLI_REPO" branch -qD fix-devel-cves-2026-10-15
 check "branch detection leaves HEAD unchanged" test "$(git -C "$CLI_REPO" rev-parse HEAD)" = "$CLI_HEAD"
 check "branch detection leaves repository clean" git -C "$CLI_REPO" diff --quiet
 

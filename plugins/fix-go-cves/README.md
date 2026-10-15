@@ -46,9 +46,11 @@ From a clean checkout, or naming a repository:
 
 Codex uses `$fix-go-cves:fix-go-cves` with the same arguments. Arguments are
 order-independent; `X.Y` expands to `release-X.Y`. Asking only for a scan or
-report produces no branch or commit.
+report runs `scripts/report.sh`, which creates no branch or commit and exits 2
+when coverage is incomplete.
 
-The run creates `fix-<version>-cves-<date>` from `origin/<branch>`, commits
+`origin` must be the upstream repository. The run creates
+`fix-<version>-cves-<date>` from `origin/<branch>`, commits
 one change per fix, leaves the checkout on that branch, and never pushes. A PR
 command is printed only when a GitHub remote owned by someone other than
 upstream exists and every readiness gate passes.
@@ -89,8 +91,11 @@ Absolute paths work without a registry.
 - **Parallel release streams:** an installed version reveals only the
   affected range it falls in. When an update is rejected because an advisory
   still matches, the thresholds the rescan reports above it drive one retry.
-- **Major versions:** a fix that needs a new major version or a
-  `+incompatible` jump is left as `NEEDS_REVIEW`, never ignored.
+- **Major versions:** a fix that needs a new major version, a `/vN` module
+  path, or a `+incompatible` jump is left as `NEEDS_REVIEW`, never ignored.
+- **Workspaces:** a tracked `go.work` is synced after updates. Workspace
+  vendoring (`go work vendor`) and stdlib fixes in workspace repositories,
+  whose toolchain comes from `go.work`, are left for review.
 - **Kubernetes:** set `k8s-version-guard: true` to treat `k8s.io` minor bumps
   as breaking.
 - **Go directive:** a dependency may raise `go` only up to the detected build
@@ -124,8 +129,8 @@ Absolute paths work without a registry.
 
 ## Configuration
 
-A `.cve-fix.yaml` in the repository root overrides detection; every field is
-optional. `CVE_FIX_BUILD_CMD`, `CVE_FIX_CLEAN_CMD`, `CVE_FIX_TEST_CMD`, and
+A `.cve-fix.yaml` committed in the target branch's root overrides detection;
+every field is optional. `CVE_FIX_BUILD_CMD`, `CVE_FIX_CLEAN_CMD`, `CVE_FIX_TEST_CMD`, and
 `CVE_FIX_BUILD_IMAGE` override the file for one run.
 
 | Field | Default |
@@ -178,7 +183,7 @@ is an unverified result.
 
 ```bash
 bash plugins/fix-go-cves/test/test-lib.sh </dev/null
-plugins/fix-go-cves/scripts/fix-all.sh [REPO] [BRANCH] </dev/null   # without an agent
+plugins/fix-go-cves/scripts/fix-all.sh [REPO] [BRANCH] </dev/null   # outside an agent session
 ```
 
 The suite is hermetic (no network, scanner, or container runtime) and runs
