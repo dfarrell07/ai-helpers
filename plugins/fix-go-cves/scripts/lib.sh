@@ -182,7 +182,7 @@ run_grype() {
     local grype_ok=false
     # Environment overrides .grype.yaml: a repository may keep its ignores and
     # excludes, but must not hide fixable findings from the gate.
-    local -a _grype_env=(env GRYPE_ONLY_NOTFIXED=false)
+    local -a _grype_env=(env GRYPE_ONLY_NOTFIXED=false GRYPE_IGNORE_WONTFIX=)
     [[ "$no_update" == "true" ]] && \
       _grype_env+=(GRYPE_DB_AUTO_UPDATE=false GRYPE_DB_VALIDATE_AGE=false)
     "${_grype_env[@]+"${_grype_env[@]}"}" grype . "${config_args[@]}" \
@@ -228,7 +228,7 @@ run_grype() {
         GRYPE_DB_DEGRADED=1
       fi
     fi
-    local -a env_args=(-e GRYPE_DB_CACHE_DIR=/root/.cache/grype/db -e GRYPE_ONLY_NOTFIXED=false)
+    local -a env_args=(-e GRYPE_DB_CACHE_DIR=/root/.cache/grype/db -e GRYPE_ONLY_NOTFIXED=false -e GRYPE_IGNORE_WONTFIX=)
     if [[ "$no_update" == "true" ]]; then
       env_args+=(-e GRYPE_DB_AUTO_UPDATE=false -e GRYPE_DB_VALIDATE_AGE=false)
     fi
@@ -1161,9 +1161,12 @@ insert_grype_ignore() {
   local entry padding width=2 ignore_line insert_line
   if [[ ! -f "$file" ]]; then
     printf -- '---\nignore:\n' > "$file"
-  elif grep -qE '^ignore:[[:space:]]*\[[[:space:]]*\][[:space:]]*$' "$file"; then
+  elif grep -qE '^ignore:[[:space:]]*\[[[:space:]]*\][[:space:]]*(#.*)?$' "$file"; then
     # An empty flow sequence cannot take block items; make it an empty block.
-    sed_inplace 's/^ignore:[[:space:]]*\[[[:space:]]*\][[:space:]]*$/ignore:/' "$file"
+    sed_inplace 's/^ignore:[[:space:]]*\[[[:space:]]*\][[:space:]]*\(#.*\)\{0,1\}$/ignore:/' "$file"
+  elif grep -qE '^ignore:[[:space:]]*[^[:space:]#]' "$file"; then
+    echo "ERROR: $file has an inline ignore: value; convert it to a block list first" >&2
+    return 1
   elif ! grep -q '^ignore:' "$file"; then
     # Add the parent before existing keys, preserving document headers/directives.
     insert_line=$(awk '
@@ -1310,8 +1313,12 @@ remove_invalid_grype_ignores() {
       /^[^[:space:]#]/ && !/^-([[:space:]]|$)/ { if (in_ignore) finish(NR-1); in_ignore=0 }
       in_ignore && /^[[:space:]]*-([[:space:]]|$)/ { finish(NR-1); entry=1; start=NR }
       in_ignore && entry && /vulnerability:[[:space:]]*[^[:space:]]/ { vuln=1 }
-      # Block or flow style: "name: x" or "package: {name: x}".
-      in_ignore && entry && !/^[[:space:]]*#/ && /(^|[{,[:space:]])name:[[:space:]]*[^[:space:],}]/ { pkg=1 }
+      # Block or flow style: "name: x" or "package: {name: x}", outside comments.
+      in_ignore && entry {
+        t = $0; sub(/(^|[[:space:]])#.*/, "", t)
+        if (t ~ /^[[:space:]]*name:[[:space:]]*[^[:space:]]/ ||
+            t ~ /package:[[:space:]]*\{[^}]*name:[[:space:]]*[^[:space:],}]/) pkg=1
+      }
       END { if (!emitted && in_ignore) finish(NR) }
     ' "$file")
     [[ -n "$range" ]] || break
@@ -1700,18 +1707,28 @@ build_cve_fix_agent_command() {
   local -a model_args=()
   [[ -n "${CVE_FIX_MODEL:-}" ]] && model_args=(--model "$CVE_FIX_MODEL")
 
+  # An empty working directory keeps the target repository's instruction and
+  # settings files out of the reviewer; all evidence is in the prompt.
+  local cwd
+  if [[ -n "${STATE_FILE:-}" ]]; then
+    cwd="${STATE_FILE%/*}/reviewer"
+    mkdir -p "$cwd" || return 1
+  else
+    cwd=$(mktemp -d "${TMPDIR:-/tmp}/cve-fix-reviewer.XXXXXX") || return 1
+  fi
+
   CVE_FIX_AGENT_CMD=()
   case "$provider" in
     claude)
       # No tools, MCP servers or project settings: evidence is prefetched, and
       # the target repository's settings and hooks must not configure the reviewer.
-      CVE_FIX_AGENT_CMD=(claude -p "$prompt" --print \
+      CVE_FIX_AGENT_CMD=(env -C "$cwd" claude -p "$prompt" --print \
         "${model_args[@]+"${model_args[@]}"}" --tools "" --strict-mcp-config \
         --setting-sources user)
       ;;
     codex)
       CVE_FIX_AGENT_CMD=(codex exec --ephemeral --sandbox read-only \
-        --cd "$REPO" --color never)
+        --cd "$cwd" --color never)
       CVE_FIX_AGENT_CMD+=("${model_args[@]+"${model_args[@]}"}" "$prompt")
       ;;
   esac
@@ -1826,7 +1843,7 @@ is_infra_error() { _grep_pattern "$INFRA_ERROR_RE" "${1:-}"; }
 # your session limit · resets ...") last hours, so they belong here too.
 # Anchored to real signatures so a "403" inside e.g. a CVE id can't misroute a
 # rate-limit (429) as auth.
-AUTH_ERROR_RE='API Error: 40[13]|HTTP( error)?:[[:space:]]*40[13]|unexpected status 40[13]|40[13] Unauthorized|Missing bearer|not logged in|login required|PERMISSION_DENIED|Failed to authenticate|invalid model|model[^.]*not[^.]*found|^You.ve hit your (session|usage|weekly)( [a-z]+)? limit|^Claude AI usage limit reached'
+AUTH_ERROR_RE='API Error: 40[13]|HTTP( error)?:[[:space:]]*40[13]|unexpected status 40[13]|40[13] Unauthorized|Missing bearer|not logged in|login required|PERMISSION_DENIED|Failed to authenticate|invalid model|model[^.]*not[^.]*found|(^|: )[[:space:]]*You.{1,3}ve hit your (session|usage|weekly)( [a-z]+)? limit|^[[:space:]]*Claude( AI)? usage limit reached'
 
 # Return 0 if output looks like a deterministic auth/permission/model error.
 # Check this BEFORE is_infra_error (403 matches both; auth must win to avoid retry storm).

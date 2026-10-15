@@ -34,7 +34,13 @@ while IFS= read -r GOMOD; do
      gomod_has_module_reference "$GOMOD" "$PACKAGE"; then
     FOUND_IN+=("$GOMOD")
   fi
-  HITS=$(grep "replace.*${PACKAGE}" "$GOMOD" 2>/dev/null || true)
+  if MOD_JSON=$(GOTOOLCHAIN=local go -C "$(dirname "$GOMOD")" mod edit -json 2>/dev/null) &&
+     jq -e 'type == "object"' >/dev/null 2>&1 <<< "$MOD_JSON"; then
+    HITS=$(jq -r --arg pkg "$PACKAGE" '.Replace[]? | select(.Old.Path == $pkg) |
+      "replace \(.Old.Path) => \(.New.Path) \(.New.Version // "")"' <<< "$MOD_JSON")
+  else
+    HITS=$(grep -F "$PACKAGE" "$GOMOD" | grep -E '^[[:space:]]*(replace[[:space:]]+)?[^[:space:]]+([[:space:]]+[^[:space:]]+)?[[:space:]]+=>' || true)
+  fi
   [[ -n "$HITS" ]] && REPLACE_HITS+="$GOMOD: $HITS"$'\n'
 done < <(find_gomods)
 

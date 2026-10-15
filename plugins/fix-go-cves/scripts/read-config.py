@@ -119,6 +119,8 @@ def scalar(raw: str):
         return double_quoted(raw)
     if raw in ("true", "false"):
         return raw == "true"
+    if raw in ("~", "null", "Null", "NULL"):
+        fail(f"null is not a valid value: {raw}")
     if raw[0] in "[{&*!>|":
         fail(f"unsupported YAML construct: {raw}")
     if re.search(r":(?:[ \t]|$)", raw):
@@ -142,7 +144,7 @@ def parse_config(path: Path):
         "unset-env", "k8s-version-guard", "upstream-org",
     }
     result = {}
-    for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for lineno, raw in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
         if not raw.strip() or raw.lstrip().startswith("#"):
             continue
         if raw.strip() in ("---", "..."):
@@ -166,7 +168,7 @@ def parse_repos(path: Path):
     repos = []
     current = None
     in_repos = False
-    for lineno, raw in enumerate(path.read_text(encoding="utf-8").splitlines(), 1):
+    for lineno, raw in enumerate(path.read_text(encoding="utf-8-sig").splitlines(), 1):
         text = raw.rstrip()
         if not text.strip() or text.lstrip().startswith("#"):
             continue

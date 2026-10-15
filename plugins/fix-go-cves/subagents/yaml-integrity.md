@@ -48,8 +48,8 @@ Where:
 Example:
 
 ```text
-VERDICT: PASS
-ISSUES: 0
-SUMMARY: All .grype.yaml entries are well-formed
-DETAILS:
+  VERDICT: PASS
+  ISSUES: 0
+  SUMMARY: All .grype.yaml entries are well-formed
+  DETAILS:
 ```

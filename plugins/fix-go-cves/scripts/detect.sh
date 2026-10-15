@@ -207,7 +207,7 @@ fi
 # first real target. Detect the wrapper itself so builder policy and scan-build
 # flags are correct even on a pristine clone where Dockerfile.dapper is absent.
 USES_SHIPYARD_DAPPER=false
-if [[ -f Dockerfile.dapper ]] || \
+if { [[ -f Dockerfile.dapper ]] && grep -qE 'SHIPYARD_REPO|shipyard-dapper-base' Dockerfile.dapper; } || \
    { [[ -f Makefile ]] && grep -q 'include Makefile[.]dapper' Makefile && \
      grep -q 'raw[.]githubusercontent[.]com/submariner-io/shipyard' Makefile; }; then
   USES_SHIPYARD_DAPPER=true

@@ -48,7 +48,7 @@ while IFS= read -r line; do
     CURRENT_FIX_STATE=$(grype_fix_states <<< "$line")
   fi
   if [[ "$line" =~ ^[[:space:]]*name: ]]; then
-    CURRENT_PKG=$(echo "$line" | sed 's/.*name:[[:space:]]*//' | xargs)
+    CURRENT_PKG=$(echo "$line" | sed 's/.*name:[[:space:]]*//; s/[[:space:]]#.*//' | xargs)
   fi
   if [[ "$line" =~ ^[[:space:]]*location: ]]; then
     CURRENT_LOCATION=$(echo "$line" | sed 's/.*location:[[:space:]]*//' | xargs)

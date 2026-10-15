@@ -35,7 +35,7 @@ CURRENT_TYPE=""
 _save_entry() {
   [[ -n "$CURRENT_VULN" && -n "$CURRENT_PKG" ]] || return 0
   [[ -z "$CURRENT_TYPE" || "$CURRENT_TYPE" == go-module ]] || return 0
-  [[ "$CURRENT_PKG" == stdlib || "${CURRENT_PKG%%/*}" == *.* ]] || return 0
+  [[ "$CURRENT_PKG" == stdlib || ( "$CURRENT_PKG" == */* && "${CURRENT_PKG%%/*}" == *.* ) ]] || return 0
   ENTRIES+=("$CURRENT_VULN|$CURRENT_PKG|$CURRENT_FIX_STATE|$CURRENT_LOCATION")
 }
 
@@ -63,7 +63,7 @@ while IFS= read -r line; do
   fi
 
   if [[ "$line" =~ ^[[:space:]]*name: ]]; then
-    CURRENT_PKG=$(echo "$line" | sed 's/.*name:[[:space:]]*//' | xargs)
+    CURRENT_PKG=$(echo "$line" | sed 's/.*name:[[:space:]]*//; s/[[:space:]]#.*//' | xargs)
   fi
 
   if [[ "$line" =~ ^[[:space:]]*location: ]]; then

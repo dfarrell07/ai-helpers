@@ -76,9 +76,9 @@ Where:
 Example:
 
 ```text
-VERDICT: FAIL
-ISSUES: 1
-SUMMARY: 1 permanent ignore has a real fix available
-DETAILS:
+  VERDICT: FAIL
+  ISSUES: 1
+  SUMMARY: 1 permanent ignore has a real fix available
+  DETAILS:
 FIX-AVAILABLE: github.com/klauspost/compress 1.17.11 -> 1.18.7 CVEs:GO-2026-5841
 ```

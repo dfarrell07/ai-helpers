@@ -115,9 +115,11 @@ Absolute paths work without a registry.
   a fix is published. A repository-wide and a module-scoped ignore for the
   same package and CVE is a policy conflict that blocks the PR command.
 - **Repository Grype config:** `.grype.yaml` ignores and excludes apply, but
-  `only-notfixed` is forced off so fixable findings always reach the gate.
-- **Reviewer:** reads prefetched evidence with no tools (Claude: `--tools ""`,
-  no MCP servers or project settings; Codex: read-only sandbox). Only its
+  `only-notfixed` and `ignore-wontfix` are overridden so fixable findings
+  always reach the gate.
+- **Reviewer:** reads prefetched evidence from an empty working directory with
+  no tools (Claude: `--tools ""`, no MCP servers or project settings; Codex:
+  read-only sandbox). Only its
   `UNRESOLVED` verdicts for packages already under review affect the result.
 
 ## Configuration
@@ -136,8 +138,9 @@ optional. `CVE_FIX_BUILD_CMD`, `CVE_FIX_CLEAN_CMD`, `CVE_FIX_TEST_CMD`, and
 | `upstream-org` | Owner of `origin`, used for the PR command |
 | `unset-env` | None; variable names removed from build, test, and reviewer environments |
 
-Repositories using Shipyard's Dapper wrapper build with `BUILD_UPX=false make
-build`, test with `make unit`, take their build image from the branch
+Repositories using Shipyard's Dapper wrapper build with `make build` inside
+the container (forwarding `BUILD_UPX=false` and the run's `GOEXPERIMENT`),
+test with `make unit`, take their build image from the branch
 (`quay.io/submariner/shipyard-dapper-base:<branch>`), and run no automatic
 clean.
 

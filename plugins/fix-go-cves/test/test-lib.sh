@@ -143,6 +143,7 @@ check "agent provider rejects unknown value" ! bash -c "CVE_FIX_AGENT=other; sou
 agent_command_dump() {
   (
     REPO="$TMPD/provider-repo"
+    STATE_FILE="$TMPD/provider-run/state.env"
     CVE_FIX_AGENT="$1"
     CVE_FIX_MODEL="${2:-}"
     build_cve_fix_agent_command "literal \$(do-not-run) prompt" "$TMPD/provider-reports"
@@ -154,12 +155,12 @@ CLAUDE_AGENT_CMD=$(agent_command_dump claude)
 CLAUDE_MODEL_CMD=$(agent_command_dump claude model-x)
 CODEX_AGENT_CMD=$(agent_command_dump codex)
 CODEX_MODEL_CMD=$(agent_command_dump codex model-x)
-EXPECTED_CLAUDE_CMD=$(printf '%s\n' claude -p 'literal $(do-not-run) prompt' --print --tools '' --strict-mcp-config --setting-sources user)
-EXPECTED_CLAUDE_MODEL_CMD=$(printf '%s\n' claude -p 'literal $(do-not-run) prompt' --print --model model-x --tools '' --strict-mcp-config --setting-sources user)
+EXPECTED_CLAUDE_CMD=$(printf '%s\n' env -C "$TMPD/provider-run/reviewer" claude -p 'literal $(do-not-run) prompt' --print --tools '' --strict-mcp-config --setting-sources user)
+EXPECTED_CLAUDE_MODEL_CMD=$(printf '%s\n' env -C "$TMPD/provider-run/reviewer" claude -p 'literal $(do-not-run) prompt' --print --model model-x --tools '' --strict-mcp-config --setting-sources user)
 EXPECTED_CODEX_CMD=$(printf '%s\n' codex exec --ephemeral --sandbox read-only \
-  --cd "$TMPD/provider-repo" --color never 'literal $(do-not-run) prompt')
+  --cd "$TMPD/provider-run/reviewer" --color never 'literal $(do-not-run) prompt')
 EXPECTED_CODEX_MODEL_CMD=$(printf '%s\n' codex exec --ephemeral --sandbox read-only \
-  --cd "$TMPD/provider-repo" --color never --model model-x 'literal $(do-not-run) prompt')
+  --cd "$TMPD/provider-run/reviewer" --color never --model model-x 'literal $(do-not-run) prompt')
 check "claude command is read-only" test "$CLAUDE_AGENT_CMD" = "$EXPECTED_CLAUDE_CMD"
 check "claude model argv is read-only" test "$CLAUDE_MODEL_CMD" = "$EXPECTED_CLAUDE_MODEL_CMD"
 check "codex command argv is exact" test "$CODEX_AGENT_CMD" = "$EXPECTED_CODEX_CMD"
@@ -6513,7 +6514,8 @@ rm -f "$LLA_DIR/codex-agent.agent-output"
 )
 check "lla Codex: invokes exec" grep -qF 'mock-codex arg=<exec>' "$LLA_DIR/codex-agent.agent-output"
 check "lla Codex: ephemeral" grep -qF 'mock-codex arg=<--ephemeral>' "$LLA_DIR/codex-agent.agent-output"
-check "lla Codex: report dir granted" grep -qF "mock-codex arg=<$LLA_DIR>" "$LLA_DIR/codex-agent.agent-output"
+check "lla Codex: target repository is not the working directory" ! grep -qF "mock-codex arg=<$LLA_DIR>" "$LLA_DIR/codex-agent.agent-output"
+check "lla Codex: runs in a reviewer directory" grep -qE 'mock-codex arg=<.*/cve-fix-reviewer\.[^/]*>' "$LLA_DIR/codex-agent.agent-output"
 check "lla Codex: prompt stays literal" grep -qF 'mock-codex arg=<literal $(do-not-run) prompt>' "$LLA_DIR/codex-agent.agent-output"
 
 # (i) Main review path with Codex: exercise review.sh itself, including provider
@@ -10091,6 +10093,86 @@ check "a commented-out name does not make an entry scoped" ! grep -q CVE-11 "$IG
 check "reviewer prose quoting a limit stays a verdict" ! bash -c \
   "printf 'VERDICT: FAIL\nThe log says usage limit reached earlier.\n' | { source '$SCRIPT_DIR/lib.sh'; is_auth_error; }"
 
+printf 'ignore:\n  - vulnerability: CVE-12\n    reason: upstream name: unknown\n  - vulnerability: CVE-13 # package name: none\n' > "$IGY/prose.yaml"
+remove_invalid_grype_ignores "$IGY/prose.yaml" >/dev/null
+check "prose mentioning name: is still a broad ignore" ! grep -q 'CVE-1[23]' "$IGY/prose.yaml"
+printf 'ignore: [] # none yet\n' > "$IGY/empty-comment.yaml"
+check "insert into an empty flow list with a comment" \
+  insert_grype_ignore "$IGY/empty-comment.yaml" GO-2026-0003 golang.org/x/net "No fix" not-fixed
+printf 'ignore: [{vulnerability: CVE-14, package: {name: a.b/c}}]\n' > "$IGY/flow-list.yaml"
+cp "$IGY/flow-list.yaml" "$IGY/flow-list.orig"
+check "insert refuses a non-empty flow list" \
+  ! insert_grype_ignore "$IGY/flow-list.yaml" GO-2026-0004 golang.org/x/net "No fix" not-fixed
+check "refused insert leaves the file unchanged" cmp -s "$IGY/flow-list.yaml" "$IGY/flow-list.orig"
+for _limit_msg in "Error: You've hit your weekly limit" "  You’ve hit your usage limit" "Claude usage limit reached. Try later."; do
+  check "auth: account limit variant ($_limit_msg)" bash -c \
+    "printf '%s\n' \"\$1\" | { source '$SCRIPT_DIR/lib.sh'; is_auth_error; }" _ "$_limit_msg"
+done
+check "prompt examples cannot be parsed as verdicts" \
+  ! grep -qE '^VERDICT: (PASS|FAIL|SKIP)$' "$SCRIPT_DIR"/../subagents/*.md
+
+echo "stdlib fixes respect workspaces and pre-1.21 modules"
+SWK="$TMPD/stdlib-guards"
+make_test_repo "$SWK/work" ""
+printf 'module example.com/w\n\ngo 1.24.0\n' > "$SWK/work/go.mod"
+printf 'go 1.24.0\n\nuse .\n' > "$SWK/work/go.work"
+git -C "$SWK/work" add -A && git -C "$SWK/work" commit -qm work
+make_go_state "$SWK/work.env" "$SWK/work"
+_swk_rc=0; _swk_out=$(bash "$SCRIPT_DIR/fix-stdlib.sh" "$SWK/work.env" 1.24.9 1.24.9 CVE-2026-1 2>&1) || _swk_rc=$?
+check "go.work stdlib fix needs review" test "$_swk_rc" -eq 2
+check "go.work stdlib fix explains the workspace toolchain" grep -q 'go.work selects the toolchain' <<< "$_swk_out"
+check "go.work stdlib fix commits nothing" test "$(git -C "$SWK/work" rev-list --count HEAD)" -eq 2
+make_test_repo "$SWK/old" ""
+printf 'module example.com/o\n\ngo 1.20\n' > "$SWK/old/go.mod"
+git -C "$SWK/old" add -A && git -C "$SWK/old" commit -qm old
+make_go_state "$SWK/old.env" "$SWK/old"
+_swk_rc=0; _swk_out=$(bash "$SCRIPT_DIR/fix-stdlib.sh" "$SWK/old.env" 1.20.14 1.20.14 CVE-2026-2 2>&1) || _swk_rc=$?
+check "pre-1.21 module stdlib fix needs review" test "$_swk_rc" -eq 2
+check "pre-1.21 module gets no toolchain line" ! grep -q '^toolchain' "$SWK/old/go.mod"
+
+echo "only Shipyard Dapper files select the Shipyard build"
+DPX="$TMPD/foreign-dapper"
+make_test_repo "$DPX" ""
+printf 'module example.com/dpx\ngo 1.24.0\n' > "$DPX/go.mod"
+printf 'FROM golang:1.22\n' > "$DPX/Dockerfile.dapper"
+printf 'build:\n\t@true\ntest:\n\t@true\n' > "$DPX/Makefile"
+git -C "$DPX" add -A && git -C "$DPX" commit -qm dapper
+_dpx_state=$("$SCRIPT_DIR/detect.sh" "$DPX" devel 2>/dev/null | tail -1)
+check "foreign Dapper file gets no Shipyard image" test -z "$(state_value "$_dpx_state" BUILD_IMAGE)"
+check "foreign Dapper file keeps its test target" test "$(state_value "$_dpx_state" TEST_CMD)" = "make test"
+
+echo "locate reports block replace directives"
+LRB="$TMPD/locate-replace"
+make_test_repo "$LRB" ""
+printf 'module example.com/lrb\n\ngo 1.24.0\n\nrequire golang.org/x/net v0.1.0\n\nreplace (\n\tgolang.org/x/net => golang.org/x/net v0.2.0\n)\n' > "$LRB/go.mod"
+printf 'REPO="%s"\nBRANCH="devel"\nCVE_SCRIPTS="%s"\n' "$LRB" "$SCRIPT_DIR" > "$TMPD/lrb.env"
+check "block replace is reported" grep -q 'replace golang.org/x/net => golang.org/x/net v0.2.0' \
+  <<< "$(cd "$LRB" && bash "$SCRIPT_DIR/locate.sh" "$TMPD/lrb.env" golang.org/x/net 2>&1)"
+
+echo "configuration rejects nulls and tolerates a BOM"
+printf 'clean-command: null\n' > "$TMPD/null.yaml"
+check "null command is rejected" ! python3 "$SCRIPT_DIR/read-config.py" config-json "$TMPD/null.yaml"
+printf '\xef\xbb\xbftest-command: make unit\n' > "$TMPD/bom.yaml"
+check "BOM is accepted" python3 "$SCRIPT_DIR/read-config.py" config-json "$TMPD/bom.yaml"
+
+echo "report-only scans leave no branch, commit or state"
+RPT="$TMPD/report-only"
+mkdir -p "$RPT/bin" "$RPT/scripts"
+cp "$SCRIPT_DIR"/{lib.sh,report.sh,detect.sh,scan.sh,read-config.py} "$RPT/scripts/"
+printf '\npreflight_check() { return 0; }\n' >> "$RPT/scripts/lib.sh"
+make_test_repo "$RPT/repo" ""
+printf 'module example.com/rpt\ngo 1.24.0\n' > "$RPT/repo/go.mod"
+git -C "$RPT/repo" add -A && git -C "$RPT/repo" commit -qm rpt
+printf '#!/bin/sh\necho "NAME INSTALLED VULNERABILITY"\n' > "$RPT/bin/grype"
+chmod +x "$RPT/bin/grype"
+_rpt_head=$(git -C "$RPT/repo" rev-parse HEAD)
+_rpt_branches=$(git -C "$RPT/repo" branch)
+_rpt_out=$(cd "$RPT/repo" && PATH="$RPT/bin:$PATH" bash "$RPT/scripts/report.sh" 2>&1 </dev/null || true)
+check "report-only prints the scan" grep -q 'NAME INSTALLED VULNERABILITY' <<< "$_rpt_out"
+check "report-only leaves HEAD unchanged" test "$(git -C "$RPT/repo" rev-parse HEAD)" = "$_rpt_head"
+check "report-only creates no branch" test "$(git -C "$RPT/repo" branch)" = "$_rpt_branches"
+check "report-only removes its state" test -z "$(find "$TMPD" -maxdepth 1 -name 'cve-fix-repo-*')"
+
 echo "existing-entries audits only Go ignores"
 EEF="$TMPD/ee-foreign"; mkdir -p "$EEF/rep"
 make_test_repo "$EEF/repo" ""
@@ -10100,9 +10182,14 @@ git -C "$EEF/repo" add -A && git -C "$EEF/repo" commit -qm base
 git -C "$EEF/repo" update-ref refs/remotes/origin/devel HEAD
 make_go_state "$EEF/state.env" "$EEF/repo"
 printf '{"matches":[],"ignoredMatches":[]}\n' > "$EEF/rep/final-scan.json"
+printf '  - vulnerability: CVE-2024-8888
+    package:
+      name: libssl1.1
+' >> "$EEF/repo/.grype.yaml"
+git -C "$EEF/repo" commit -qam dotted && git -C "$EEF/repo" update-ref refs/remotes/origin/devel HEAD
 EEF_OUT=$(bash "$SCRIPT_DIR/../subagents/existing-entries.sh" "$EEF/state.env" "$EEF/rep" 2>&1 || true)
 check "foreign ecosystem ignores are never stale" grep -qx 'NEW_ISSUES=0' <<< "$EEF_OUT"
-check "untyped non-module names are never stale" ! grep -q 'libxml2' <<< "$EEF_OUT"
+check "untyped non-module names are never stale" ! grep -q 'libxml2\|libssl1.1' <<< "$EEF_OUT"
 
 echo "verification updates are tested"
 check "fix-all reruns tests when verification moves HEAD" \
@@ -10122,11 +10209,11 @@ echo "repository grype config cannot hide fixable findings"
 GPIN="$TMPD/grype-pin"
 mkdir -p "$GPIN/bin"
 make_test_repo "$GPIN/repo"
-printf '#!/bin/sh\nprintf "%%s\\n" "${GRYPE_ONLY_NOTFIXED-unset}" > "%s/seen"\nprintf %%s "{\\"matches\\":[],\\"ignoredMatches\\":[]}"\n' "$GPIN" > "$GPIN/bin/grype"
+printf '#!/bin/sh\nprintf "%%s|%%s\\n" "${GRYPE_ONLY_NOTFIXED-unset}" "${GRYPE_IGNORE_WONTFIX-unset}" > "%s/seen"\nprintf %%s "{\\"matches\\":[],\\"ignoredMatches\\":[]}"\n' "$GPIN" > "$GPIN/bin/grype"
 chmod +x "$GPIN/bin/grype"
 printf 'only-notfixed: true\n' > "$GPIN/repo/.grype.yaml"
 (cd "$GPIN/repo" && HAS_LOCAL_GRYPE=true CONTAINER_CMD="" PATH="$GPIN/bin:$PATH" run_grype --json >/dev/null 2>&1) || true
-check "local scans pin only-notfixed off" test "$(cat "$GPIN/seen" 2>/dev/null)" = false
+check "local scans pin only-notfixed and ignore-wontfix off" test "$(cat "$GPIN/seen" 2>/dev/null)" = 'false|'
 
 # Distribution go.env experiments make Grype record an unmatchable stdlib
 # version, so a run builds with upstream defaults unless the caller chose one.

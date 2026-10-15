@@ -49,10 +49,10 @@ Where:
 Example:
 
 ```text
-VERDICT: FAIL
-ISSUES: 2
-SUMMARY: 2 packages have fixes available
-DETAILS:
+  VERDICT: FAIL
+  ISSUES: 2
+  SUMMARY: 2 packages have fixes available
+  DETAILS:
 FIX-AVAILABLE: golang.org/x/net v0.20.0 -> v0.23.0 location:/go.mod CVEs:GHSA-xxxx
 FIX-AVAILABLE: golang.org/x/crypto v0.18.0 -> v0.21.0 location:/tools/go.mod CVEs:GHSA-yyyy
 ```

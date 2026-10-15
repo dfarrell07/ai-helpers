@@ -58,7 +58,7 @@ cleanup() {
   fi
   if [[ -n "${STATE_FILE:-}" ]]; then
     rm -f "$STATE_FILE" "${STATE_FILE}.build-failed" "${STATE_FILE}.network-broken" "${STATE_FILE}.scanner-degraded" "${STATE_FILE}.scan-transient" "${STATE_FILE}.coverage-unknown" "${STATE_FILE}.review-unresolved" "${STATE_FILE}.review-resolved" "${STATE_FILE}.generated-artifacts" "${STATE_FILE}.baseline-artifacts" 2>/dev/null || true
-    rmdir "$(dirname "$STATE_FILE")" 2>/dev/null || true
+    rmdir "$(dirname "$STATE_FILE")/reviewer" "$(dirname "$STATE_FILE")" 2>/dev/null || true
   fi
   # Preserve subagent reports on verification failure so they can be debugged;
   # the "see reports" message points here.
@@ -465,10 +465,10 @@ echo ""
 # Test the current HEAD. Verification may commit further updates, so the
 # orchestrator reruns this whenever HEAD moves after the first pass.
 run_tests() {
-  echo ""
-  echo "Running tests..."
   TESTED_HEAD=$(git rev-parse HEAD)
   [[ -n "${TEST_CMD:-}" ]] || return 0
+  echo ""
+  echo "Running tests..."
   build_env_scrub
   TEST_LOG=$(mktemp "${TMPDIR:-/tmp}/cve-fix-test.XXXXXX")
   TEST_RC=0

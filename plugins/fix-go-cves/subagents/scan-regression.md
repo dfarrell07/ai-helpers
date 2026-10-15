@@ -64,9 +64,9 @@ Where:
 Examples:
 
 ```text
-VERDICT: FAIL
-ISSUES: 1
-SUMMARY: 1 new CVE introduced
-DETAILS:
+  VERDICT: FAIL
+  ISSUES: 1
+  SUMMARY: 1 new CVE introduced
+  DETAILS:
 NEW: GHSA-xxxx-xxxx-xxxx (golang.org/x/text v0.14.0 High 0.15.0) location:/go.mod
 ```

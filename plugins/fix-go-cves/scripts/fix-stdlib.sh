@@ -22,6 +22,12 @@ trap 'git reset --quiet HEAD -- . 2>/dev/null || true; git checkout -- . 2>/dev/
 
 echo "--- Fixing stdlib: go $GO_VERSION for ${CVE_IDS[*]} ---"
 
+# Workspace builds take their toolchain from go.work, ignoring each module's.
+if [[ -f go.work ]]; then
+  echo "NEEDS_REVIEW: stdlib — go.work selects the toolchain for workspace builds; update its toolchain directive or the build image"
+  exit 2
+fi
+
 # Select from the lowest effective compiler floor across repository modules.
 # A library may keep go 1.18 while selecting toolchain go1.26; its language floor
 # must not select an obsolete fix stream or reject a same-stream compiler patch.
@@ -162,6 +168,12 @@ while IFS= read -r GOMOD; do
       echo "NOTE: $GOMOD already at go $CUR_GO (>= $GO_VERSION); leaving as-is"
       continue
     fi
+    # Without builder evidence, a pre-1.21 module may be built by a Go that
+    # rejects a toolchain line, while any Go that reads it exceeds this fix.
+    if [[ -z "$COMPILER_GO" ]] && ! version_gte "$CUR_GO" 1.21.0; then
+      SKIPPED_MODULES+=("$GOMOD ($CUR_GO): Go below 1.21 cannot read a toolchain directive")
+      continue
+    fi
   fi
   # A custom toolchain can encode vendor or compliance policy. Do not replace
   # it with stock Go or invent a custom release whose availability is unknown.
@@ -185,6 +197,9 @@ mapfile -t _CHANGED_GOMODS < <(git diff --name-only -- go.mod '*/go.mod')
 [[ ${#_CHANGED_GOMODS[@]} -eq 0 ]] || git add -- "${_CHANGED_GOMODS[@]}"
 
 FIXES=$(format_cve_fixes "${CVE_IDS[@]}")
+PARTIAL=""
+[[ ${#SKIPPED_MODULES[@]} -eq 0 ]] ||
+  PARTIAL=$'\n'"Not updated, needs review: $(printf '%s; ' "${SKIPPED_MODULES[@]}")"$'\n'
 if ! git diff --staged --quiet 2>/dev/null; then
   git commit -s -m "$(cat <<EOF
 Bump Go to $GO_VERSION for stdlib CVEs
@@ -192,7 +207,7 @@ Bump Go to $GO_VERSION for stdlib CVEs
 Sets the toolchain directive to go$GO_VERSION to address stdlib
 vulnerabilities. The go directive is unchanged, so dependent modules
 are not forced to upgrade.
-
+$PARTIAL
 $FIXES
 EOF
 )"

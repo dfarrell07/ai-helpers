@@ -22,12 +22,11 @@ naming anything missing.
 ## Report only
 
 When the user asks only to scan, check, or report, do not run `fix-all.sh`.
-Scan the current checkout without creating a branch or commit (the build
-still runs):
+Scan the checked-out branch without creating a branch or commit (the build
+still runs, and may leave build output):
 
 ```bash
-STATE=$(bash "$PLUGIN_ROOT/scripts/detect.sh" [REPO] [BRANCH] </dev/null | tail -1)
-bash "$PLUGIN_ROOT/scripts/scan.sh" "$STATE" --fresh </dev/null
+bash "$PLUGIN_ROOT/scripts/report.sh" [REPO] </dev/null
 ```
 
 ## Fix one repository
