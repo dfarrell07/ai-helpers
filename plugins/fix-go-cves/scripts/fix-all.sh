@@ -893,7 +893,7 @@ echo "Fixed: ${FIXED_COUNT} pkgs / ${FIXED_CVES} CVEs · Ignored: ${IGNORED_COUN
 # Full CVE IDs remain in the commit messages listed below.
 format_fix_detail "$(printf '%s\n' "${FIX_LINES[@]+"${FIX_LINES[@]}"}")"
 
-COMMIT_COUNT=$(git --no-pager log "origin/$BRANCH"..HEAD --oneline 2>/dev/null | wc -l | tr -d ' ')
+COMMIT_COUNT=$(git rev-list --count "origin/$BRANCH"..HEAD 2>/dev/null || echo 0)
 PR_NOT_READY=false
 if [[ "$COMMIT_COUNT" -gt 0 ]]; then
   _CS=$([[ "$COMMIT_COUNT" -eq 1 ]] && echo commit || echo commits)
@@ -979,6 +979,10 @@ if [[ "$COMMIT_COUNT" -gt 0 ]]; then
       echo "PR command unavailable until a writable fork remote is configured."
     fi
   fi
+else
+  # Nothing to keep: return the checkout to where the run started.
+  remove_fix_branch >/dev/null
+  echo "No commits; removed the empty fix branch."
 fi
 
 if $FETCH_FAILED; then
