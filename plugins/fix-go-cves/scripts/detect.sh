@@ -268,10 +268,12 @@ fi
 # Auto-detect build/clean/test commands if not set by config
 if [[ -z "$BUILD_CMD" ]] && [[ "$NEEDS_BUILD_FOR_SCAN" == "true" ]]; then
   # Dapper only forwards variables named by DAPPER_ENV. MAKEFLAGS does not carry
-  # BUILD_UPX through its docker boundary, so name and set it explicitly.
+  # BUILD_UPX through its docker boundary, so name and set it explicitly. The
+  # Fedora-based Dapper image defaults GOEXPERIMENT, which makes binaries
+  # unmatchable by Grype; forward the run's choice, defaulting to upstream.
   if [[ "$USES_SHIPYARD_DAPPER" == "true" ]]; then
     # shellcheck disable=SC2016 # expanded later by bash -c in the build environment
-    BUILD_CMD='DAPPER_ENV="${DAPPER_ENV:+$DAPPER_ENV }BUILD_UPX" BUILD_UPX=false make build'
+    BUILD_CMD='DAPPER_ENV="${DAPPER_ENV:+$DAPPER_ENV }BUILD_UPX GOEXPERIMENT" BUILD_UPX=false GOEXPERIMENT="${GOEXPERIMENT-,}" make build'
   else
     BUILD_CMD="make build"
   fi

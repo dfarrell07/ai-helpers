@@ -858,9 +858,12 @@ if [[ -n "$_PACKAGE_SCAN_BEFORE" ]]; then
           version_gte "$_retry_v" "$VERSION" && _retry_above+=("$_retry_v")
       done
       [[ ${#_retry_above[@]} -eq 0 ]] || echo "RETRY_FIX: $_retry_cve $(IFS=,; echo "${_retry_above[*]}")"
-    done < <(jq -r --arg pkg "$PACKAGE" --argjson ids "$_REQUESTED_IDS" '
-      [.matches[] | select(.artifact.name == $pkg) | .vulnerability as $v |
-        select($ids | index($v.id)) | {cve: $v.id, versions: ($v.fix.versions // [])}] |
+    done < <(jq -r --arg pkg "$PACKAGE" --arg location "$FIX_LOCATION" --argjson ids "$_REQUESTED_IDS" '
+      def normloc: sub("^/src/"; "/") | if startswith("/") then . else "/" + . end;
+      [((.matches // []) + (.ignoredMatches // []))[] | select(.artifact.name == $pkg) |
+        select($location == "" or any(.artifact.locations[]?; (.path | normloc) == $location)) |
+        .vulnerability as $v | select($ids | index($v.id)) |
+        {cve: $v.id, versions: ($v.fix.versions // [])}] |
       group_by(.cve)[] | "\(.[0].cve) \([.[].versions[]] | unique | join(","))"
       ' "$_PACKAGE_SCAN_AFTER" || true)
     exit 2

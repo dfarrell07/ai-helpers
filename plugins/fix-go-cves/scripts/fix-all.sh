@@ -58,6 +58,7 @@ cleanup() {
   fi
   if [[ -n "${STATE_FILE:-}" ]]; then
     rm -f "$STATE_FILE" "${STATE_FILE}.build-failed" "${STATE_FILE}.network-broken" "${STATE_FILE}.scanner-degraded" "${STATE_FILE}.scan-transient" "${STATE_FILE}.coverage-unknown" "${STATE_FILE}.review-unresolved" "${STATE_FILE}.review-resolved" "${STATE_FILE}.generated-artifacts" "${STATE_FILE}.baseline-artifacts" 2>/dev/null || true
+    rmdir "$(dirname "$STATE_FILE")" 2>/dev/null || true
   fi
   # Preserve subagent reports on verification failure so they can be debugged;
   # the "see reports" message points here.
@@ -394,11 +395,11 @@ while IFS='|' read -r TYPE PKG FIX_VER CVE_CSV _SEVERITY ALL_FIX_VERS FIX_STATE_
       0)
         FIX_LINES+=("FIXED: $PKG v$USED_VER for ${CVES[*]}$_outcome_scope")
         FIXED_COUNT=$((FIXED_COUNT + 1))
-        # A committed fix can still carry a caveat (e.g. an indirect re-pin failed).
+        # A committed fix can carry a caveat (a failed indirect re-pin). Report it
+        # for review without blocking the PR; the reviewer can still escalate.
         if grep -q '^NEEDS_REVIEW:' "$FIX_LOG"; then
           FIX_LINES+=("$(grep -m1 '^NEEDS_REVIEW:' "$FIX_LOG")$_outcome_scope")
           REVIEW_COUNT=$((REVIEW_COUNT + 1))
-          UNSEEN_NEEDS_REVIEW=true
         fi
         ;;
       2|3)
@@ -623,7 +624,8 @@ fi
 # or FIXED_COUNT directly; _fix_fv_package writes to fixed-pkgs so the parent
 # can record the outcome and remove any stale ERROR: line from the main loop.
 fold_fixed_package_outcomes "$SUBAGENT_REPORT_DIR"
-if ! $TESTS_FAILED && [[ "$(git rev-parse HEAD)" != "$TESTED_HEAD" ]]; then
+# Ignore-policy commits change no code, so only dependency changes are retested.
+if ! $TESTS_FAILED && ! git diff --quiet "$TESTED_HEAD" HEAD -- . ':(exclude).grype.yaml'; then
   run_tests
 fi
 

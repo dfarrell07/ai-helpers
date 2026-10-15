@@ -42,6 +42,8 @@ check() {
 
 TMPD=$(mktemp -d "${TMPDIR:-/tmp}/cve-fix-test.XXXXXX")
 trap 'rm -rf "$TMPD"' EXIT
+# Run state and scratch files stay inside the suite's directory.
+export TMPDIR="$TMPD"
 
 # Host runtimes must not pull builder images during hermetic detection tests.
 # Tests that exercise containers prepend their own controlled runtime stubs.
@@ -123,12 +125,13 @@ check "Go directive unknown builder allows same minor" \
 check "Go directive unknown builder rejects cross minor" \
   ! go_directive_supported 1.25.0 1.26.0 ""
 _STATE_PATH=$(state_file_path /x/myrepo release-0.23)
-check "state_file_path" bash -c '[[ "$1" == '"${TMPDIR:-/tmp}"'/cve-fix-myrepo-release-0-23.*.env && -f "$1" && ! -L "$1" ]]' _ "$_STATE_PATH"
+check "state_file_path" bash -c '[[ "$1" == '"${TMPDIR:-/tmp}"'/cve-fix-myrepo-release-0-23.*/state.env && -f "$1" && ! -L "$1" ]]' _ "$_STATE_PATH"
 check "state_file_path mode 0600" test "$(stat -c '%a' "$_STATE_PATH")" = 600
+check "state_file_path run directory mode 0700" test "$(stat -c '%a' "$(dirname "$_STATE_PATH")")" = 700
 _STATE_DEVEL=$(state_file_path /x/myrepo devel)
-check "state_file_path devel" bash -c '[[ "$1" == '"${TMPDIR:-/tmp}"'/cve-fix-myrepo-devel.*.env ]]' _ "$_STATE_DEVEL"
+check "state_file_path devel" bash -c '[[ "$1" == '"${TMPDIR:-/tmp}"'/cve-fix-myrepo-devel.*/state.env ]]' _ "$_STATE_DEVEL"
 # state_file_path honours TMPDIR: when TMPDIR is set, the state file must land there.
-check "state_file_path respects TMPDIR" bash -c "( TMPDIR='$TMPD'; source '$SCRIPT_DIR/lib.sh'; out=\$(state_file_path /x/myrepo devel); [[ \$out == '$TMPD'/cve-fix-myrepo-devel.*.env && -f \$out ]] )"
+check "state_file_path respects TMPDIR" bash -c "( TMPDIR='$TMPD'; source '$SCRIPT_DIR/lib.sh'; out=\$(state_file_path /x/myrepo devel); [[ \$out == '$TMPD'/cve-fix-myrepo-devel.*/state.env && -f \$out ]] )"
 
 # === LLM agent provider selection and argv construction ===
 echo "agent provider selection"
@@ -809,7 +812,7 @@ check "pristine Dapper wrapper detects release builder image" \
 check "pristine Dapper wrapper detects builder Go" \
   test "$(state_value "$_PD_STATE" BUILD_GO_VERSION)" = 'go version go1.26.8 linux/amd64'
 check "Dapper scan build forwards BUILD_UPX through container boundary" \
-  test "$(state_value "$_PD_STATE" BUILD_CMD)" = 'DAPPER_ENV="${DAPPER_ENV:+$DAPPER_ENV }BUILD_UPX" BUILD_UPX=false make build'
+  test "$(state_value "$_PD_STATE" BUILD_CMD)" = 'DAPPER_ENV="${DAPPER_ENV:+$DAPPER_ENV }BUILD_UPX GOEXPERIMENT" BUILD_UPX=false GOEXPERIMENT="${GOEXPERIMENT-,}" make build'
 check "pristine Dapper wrapper uses standard in-container unit target" \
   test "$(state_value "$_PD_STATE" TEST_CMD)" = 'make unit'
 check "Dapper wrapper does not auto-run global clean graph" \
@@ -10063,14 +10066,30 @@ check "insert into an empty flow list succeeds" \
   insert_grype_ignore "$IGY/empty-flow.yaml" GO-2026-0001 golang.org/x/net "No fix" not-fixed /go.mod
 check "insert into an empty flow list stays valid" \
   python3 -c 'import yaml,sys; d=yaml.safe_load(open(sys.argv[1])); assert len(d["ignore"]) == 1' "$IGY/empty-flow.yaml"
+printf 'ignore: !!seq []\n' > "$IGY/breaks.yaml"
+check "insert reports YAML it breaks as failure" \
+  ! insert_grype_ignore "$IGY/breaks.yaml" GO-2026-0002 golang.org/x/net "No fix" not-fixed
 printf 'ignore:\n  - vulnerability: CVE-1\n    package:\n      name: a.b/c\nbroken: [\n' > "$IGY/broken.yaml"
-check "insert reports invalid YAML as failure" \
-  ! insert_grype_ignore "$IGY/broken.yaml" GO-2026-0002 golang.org/x/net "No fix" not-fixed
+check "insert is not blamed for already-invalid YAML" \
+  insert_grype_ignore "$IGY/broken.yaml" GO-2026-0002 golang.org/x/net "No fix" not-fixed
 printf -- '---\nignore:\n  - {vulnerability: CVE-2023-1111, package: {name: golang.org/x/net}}\n  - vulnerability: CVE-2023-2222\n    package: {name: golang.org/x/crypto, location: /go.mod}\n  - vulnerability: CVE-2023-3333\n' > "$IGY/flow.yaml"
 remove_invalid_grype_ignores "$IGY/flow.yaml" >/dev/null
 check "flow-style package names are not broad" grep -q CVE-2023-1111 "$IGY/flow.yaml"
 check "inline package maps are not broad" grep -q CVE-2023-2222 "$IGY/flow.yaml"
 check "entries without a package are still removed" ! grep -q CVE-2023-3333 "$IGY/flow.yaml"
+
+FIX_LINES=('NEEDS_REVIEW: example.com/sc — det at /sub/go.mod')
+apply_review_outcome example.com/sc 'needs k8s (need team input) at /sub/go.mod'
+check "review reason echoing its scope is not scoped twice" \
+  test "${FIX_LINES[*]}" = 'NEEDS_REVIEW: example.com/sc — needs k8s (need team input) at /sub/go.mod'
+printf 'ignore:\n  - vulnerability: CVE-9\n    package:\n      name: a.b/c\n    # about the next entry\n  - vulnerability: CVE-10\n    package:\n      name: a.b/d\n' > "$IGY/comment.yaml"
+remove_grype_ignore "$IGY/comment.yaml" CVE-9 a.b/c >/dev/null
+check "removal keeps the next entry's indented comment" grep -q 'about the next entry' "$IGY/comment.yaml"
+printf 'ignore:\n  - vulnerability: CVE-11\n    # name: a.b/c\n' > "$IGY/commented.yaml"
+remove_invalid_grype_ignores "$IGY/commented.yaml" >/dev/null
+check "a commented-out name does not make an entry scoped" ! grep -q CVE-11 "$IGY/commented.yaml"
+check "reviewer prose quoting a limit stays a verdict" ! bash -c \
+  "printf 'VERDICT: FAIL\nThe log says usage limit reached earlier.\n' | { source '$SCRIPT_DIR/lib.sh'; is_auth_error; }"
 
 echo "existing-entries audits only Go ignores"
 EEF="$TMPD/ee-foreign"; mkdir -p "$EEF/rep"
@@ -10087,7 +10106,7 @@ check "untyped non-module names are never stale" ! grep -q 'libxml2' <<< "$EEF_O
 
 echo "verification updates are tested"
 check "fix-all reruns tests when verification moves HEAD" \
-  grep -q 'git rev-parse HEAD)" != "$TESTED_HEAD"' "$SCRIPT_DIR/fix-all.sh"
+  grep -qF '! git diff --quiet "$TESTED_HEAD" HEAD' "$SCRIPT_DIR/fix-all.sh"
 
 echo "repository config cannot inject names or options"
 CFGV="$TMPD/config-validation"
@@ -10128,6 +10147,18 @@ check "distro default: run selects upstream experiments" test "$(_gxp GXP_DEFAUL
 check "no distro default: GOEXPERIMENT stays unset" test "$(_gxp GXP_DEFAULT=)" = unset
 check "explicit experiment: caller choice kept" test "$(_gxp GXP_DEFAULT=nodwarf5 GOEXPERIMENT=boringcrypto)" = boringcrypto
 check "explicit empty experiment: caller choice kept" test -z "$(_gxp GXP_DEFAULT=nodwarf5 GOEXPERIMENT=)"
+printf 'GOEXPERIMENT=boringcrypto\n' > "$GXP/goenv"
+cat > "$GXP/go-with-user-env" <<'STUB'
+#!/usr/bin/env bash
+if [[ "$*" == "env GOEXPERIMENT" ]]; then
+  if [[ "${GOENV:-}" == off ]]; then echo nodwarf5; else echo boringcrypto; fi
+  exit 0
+fi
+exit 1
+STUB
+mkdir -p "$GXP/userenv"; cp "$GXP/go-with-user-env" "$GXP/userenv/go"; chmod +x "$GXP/userenv/go"
+check "go env -w experiment: user choice kept" test "$(env -u GOEXPERIMENT PATH="$GXP/userenv:$PATH" bash -c \
+  "source '$SCRIPT_DIR/lib.sh'; use_upstream_goexperiment; printf '%s' \"\${GOEXPERIMENT-unset}\"")" = unset
 check "fix-all applies the experiment policy before building" \
   grep -qx 'use_upstream_goexperiment' "$SCRIPT_DIR/fix-all.sh"
 

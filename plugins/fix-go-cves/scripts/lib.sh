@@ -15,17 +15,13 @@ state_file_path() {
   local repo_basename branch_sanitized
   repo_basename=$(basename "$1")
   branch_sanitized=$(echo "$2" | tr './' '-')
-  # Create the file atomically with owner-only permissions. A predictable path
-  # followed by a shell redirection is vulnerable to symlink replacement in a
-  # shared temporary directory.
-  local tmp_path final_path
-  tmp_path=$(umask 077; mktemp "${TMPDIR:-/tmp}/cve-fix-${repo_basename}-${branch_sanitized}.XXXXXX") || return 1
-  final_path="${tmp_path}.env"
-  if ! mv "$tmp_path" "$final_path"; then
-    rm -f "$tmp_path"
-    return 1
-  fi
-  printf '%s\n' "$final_path"
+  # A private run directory holds the state file and every "$STATE_FILE.*"
+  # sidecar, so other users of a shared temporary directory cannot plant or
+  # replace any of them.
+  local run_dir
+  run_dir=$(mktemp -d "${TMPDIR:-/tmp}/cve-fix-${repo_basename}-${branch_sanitized}.XXXXXX") || return 1
+  (umask 077; : > "$run_dir/state.env") || { rmdir "$run_dir"; return 1; }
+  printf '%s\n' "$run_dir/state.env"
 }
 
 # Load state from file, cd to repo
@@ -1125,6 +1121,10 @@ clean_gomod() {
 # When LOCATION is provided (grype's exact reported path, e.g. "/tools/go.mod"),
 # the ignore is scoped to that module so it can't mask the same CVE elsewhere.
 # It is written after name: — remove_grype_ignore relies on that order.
+_grype_yaml_valid() {
+  python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$1" 2>/dev/null
+}
+
 # Usage: insert_grype_ignore FILE CVE_ID PACKAGE REASON [FIX_STATE] [LOCATION]
 insert_grype_ignore() {
   local file="$1" cve_id="$2" package="$3" reason="$4" fix_state="${5:-}" location="${6:-}" tmp
@@ -1155,6 +1155,8 @@ insert_grype_ignore() {
   fi
   # Replace only the same scope. Root, tools, and other module-specific entries
   # for the same CVE/package are independent security decisions.
+  local was_valid=true
+  [[ ! -f "$file" ]] || _grype_yaml_valid "$file" || was_valid=false
   remove_grype_ignore "$file" "$cve_id" "$package" "$location"
   local entry padding width=2 ignore_line insert_line
   if [[ ! -f "$file" ]]; then
@@ -1196,7 +1198,7 @@ ${padding}    name: $package"
   mv "$tmp" "$file"
   if ! python3 -c "import yaml" 2>/dev/null; then
     echo "WARNING: python3-yaml unavailable — skipping YAML validation of $file"
-  elif ! python3 -c "import yaml,sys; list(yaml.safe_load_all(open(sys.argv[1])))" "$file" 2>/dev/null; then
+  elif $was_valid && ! _grype_yaml_valid "$file"; then
     echo "ERROR: inserting the ignore made $file invalid YAML" >&2
     return 1
   fi
@@ -1242,7 +1244,7 @@ remove_grype_ignore() {
       # fields after name: (type:, version:, location:) leave nothing behind.
       end_line=$(awk -v start="$vuln_line" '
         NR == start { match($0, /^[[:space:]]*/); dash = RLENGTH; last = NR; next }
-        NR > start && /^[[:space:]]*$/ { next }
+        NR > start && /^[[:space:]]*(#.*)?$/ { next }
         NR > start { match($0, /^[[:space:]]*/); if (RLENGTH <= dash) exit; last = NR }
         END { print last }' "$file")
       item_name=$(sed -n "${vuln_line},${end_line}p" "$file" | \
@@ -1309,7 +1311,7 @@ remove_invalid_grype_ignores() {
       in_ignore && /^[[:space:]]*-([[:space:]]|$)/ { finish(NR-1); entry=1; start=NR }
       in_ignore && entry && /vulnerability:[[:space:]]*[^[:space:]]/ { vuln=1 }
       # Block or flow style: "name: x" or "package: {name: x}".
-      in_ignore && entry && /(^|[{,[:space:]])name:[[:space:]]*[^[:space:],}]/ { pkg=1 }
+      in_ignore && entry && !/^[[:space:]]*#/ && /(^|[{,[:space:]])name:[[:space:]]*[^[:space:],}]/ { pkg=1 }
       END { if (!emitted && in_ignore) finish(NR) }
     ' "$file")
     [[ -n "$range" ]] || break
@@ -1598,7 +1600,7 @@ filter_package_outcomes() {
 # unscoped line already covers every module, so it absorbs the scoped ones.
 # FIX_LINES/REVIEW_COUNT are the orchestrator's output variables.
 apply_review_outcome() {
-  local pkg="$1" reason="$2" line scope
+  local pkg="$1" reason="${2% at /*go.mod}" line scope
   local -a scopes=()
   for line in "${FIX_LINES[@]+"${FIX_LINES[@]}"}"; do
     [[ "$line" == "NEEDS_REVIEW: $pkg "* ]] && scopes+=("$(package_outcome_location "$line")")
@@ -1824,7 +1826,7 @@ is_infra_error() { _grep_pattern "$INFRA_ERROR_RE" "${1:-}"; }
 # your session limit · resets ...") last hours, so they belong here too.
 # Anchored to real signatures so a "403" inside e.g. a CVE id can't misroute a
 # rate-limit (429) as auth.
-AUTH_ERROR_RE='API Error: 40[13]|HTTP( error)?:[[:space:]]*40[13]|unexpected status 40[13]|40[13] Unauthorized|Missing bearer|not logged in|login required|PERMISSION_DENIED|Failed to authenticate|invalid model|model[^.]*not[^.]*found|hit your (session|usage|weekly)( [a-z]+)? limit|usage limit reached'
+AUTH_ERROR_RE='API Error: 40[13]|HTTP( error)?:[[:space:]]*40[13]|unexpected status 40[13]|40[13] Unauthorized|Missing bearer|not logged in|login required|PERMISSION_DENIED|Failed to authenticate|invalid model|model[^.]*not[^.]*found|^You.ve hit your (session|usage|weekly)( [a-z]+)? limit|^Claude AI usage limit reached'
 
 # Return 0 if output looks like a deterministic auth/permission/model error.
 # Check this BEFORE is_infra_error (403 matches both; auth must win to avoid retry storm).
@@ -2285,9 +2287,12 @@ print_provider_env() {
 # When the caller chose no experiments, build with upstream defaults for the
 # whole run; an explicit GOEXPERIMENT is kept and remains fail-closed.
 use_upstream_goexperiment() {
-  if [[ -z "${GOEXPERIMENT+set}" && -n "$(cd / && go env GOEXPERIMENT 2>/dev/null)" ]]; then
-    export GOEXPERIMENT=,
-  fi
+  local default
+  [[ -z "${GOEXPERIMENT+set}" ]] || return 0
+  default=$(cd / && go env GOEXPERIMENT 2>/dev/null) || return 0
+  # A value set with "go env -w" is the user's choice, not a distribution default.
+  [[ -n "$default" && "$default" == "$(cd / && GOENV=off go env GOEXPERIMENT 2>/dev/null)" ]] || return 0
+  export GOEXPERIMENT=,
 }
 
 compiler_go_version() {
