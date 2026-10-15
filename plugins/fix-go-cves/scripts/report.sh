@@ -15,8 +15,11 @@ use_upstream_goexperiment
 
 STATE_FILE=$("$SCRIPT_DIR/detect.sh" "$@" | tail -1) || die "detect.sh failed (a branch argument is not accepted)"
 [[ "$STATE_FILE" == */cve-fix-*/state.env ]] || die "unexpected state path: $STATE_FILE"
-trap 'rm -rf -- "$(dirname "$STATE_FILE")"' EXIT
 load_state "$STATE_FILE"
+# A report leaves no trace: undo tracked files the build regenerates.
+CLEAN_AT_START=false
+[[ -n "$(git status --porcelain --untracked-files=no)" ]] || CLEAN_AT_START=true
+trap '$CLEAN_AT_START && git checkout -- . 2>/dev/null; rm -rf -- "$(dirname "$STATE_FILE")"' EXIT
 [[ "$BRANCH" == "$(git branch --show-current)" ]] || die "report.sh scans the checked-out branch; got $BRANCH"
 
 "$SCRIPT_DIR/scan.sh" "$STATE_FILE" --fresh

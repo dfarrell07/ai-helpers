@@ -7386,6 +7386,14 @@ sed -i 's/field: old/field: regenerated/' "$GF_DRIFT/crd.yaml"
 check "pre-fix generated drift is recorded" grep -qx crd.yaml "$GF_DRIFT/.state.generated-drift"
 check "pre-fix generated drift is restored" grep -q 'field: old' "$GF_DRIFT/crd.yaml"
 check "pre-fix generated drift is never staged" git -C "$GF_DRIFT" diff --cached --quiet
+GF_STAMP=$(gf_repo stamp)
+printf 'metadata:\n  annotations:\n    controller-gen.kubebuilder.io/version: v0.19.0\nfield: same\n' > "$GF_STAMP/crd.yaml"
+gf_commit "$GF_STAMP"
+GF_STAMP_RULES=$(gf_detect "$GF_STAMP")
+sed -i 's/v0.19.0/v0.22.0/' "$GF_STAMP/crd.yaml"
+( cd "$GF_STAMP"; STATE_FILE="$GF_STAMP/.state"; DIFF_IGNORE_ARGS="$GF_STAMP_RULES"; record_generated_drift )
+check "a version-stamp-only change is not drift" test ! -s "$GF_STAMP/.state.generated-drift"
+check "a version-stamp-only change is restored" grep -q 'v0.19.0' "$GF_STAMP/crd.yaml"
 
 ( cd "$GF_SEMANTIC"; DIFF_IGNORE_ARGS="$GF_SEMANTIC_RULES" reconcile_generated_files )
 check "generated reconciliation preserves changed Go build constraint" grep -q '^//go:build windows$' "$GF_SEMANTIC/build.pb.go"
@@ -10149,6 +10157,11 @@ check "report-only prints the scan" grep -q 'NAME INSTALLED VULNERABILITY' <<< "
 check "report-only leaves HEAD unchanged" test "$(git -C "$RPT/repo" rev-parse HEAD)" = "$_rpt_head"
 check "report-only creates no branch" test "$(git -C "$RPT/repo" branch)" = "$_rpt_branches"
 check "report-only removes its state" test -z "$(find "$TMPD" -maxdepth 1 -name 'cve-fix-repo-*')"
+printf 'build:\n\t@echo regenerated >> tracked.txt\n' > "$RPT/repo/Makefile"
+printf 'base\n' > "$RPT/repo/tracked.txt"
+git -C "$RPT/repo" add -A && git -C "$RPT/repo" commit -qm build
+(cd "$RPT/repo" && PATH="$RPT/bin:$PATH" bash "$RPT/scripts/report.sh" >/dev/null 2>&1 </dev/null || true)
+check "report-only restores files its build changed" git -C "$RPT/repo" diff --quiet
 
 echo "existing-entries audits only Go ignores"
 EEF="$TMPD/ee-foreign"; mkdir -p "$EEF/rep"

@@ -2134,11 +2134,13 @@ _is_tolerated_generated_file() {
 # the repository had before this run.
 record_generated_drift() {
   local drift="${STATE_FILE}.generated-drift" file
+  local -a ignore_args=()
   : > "$drift"
   [[ -n "${DIFF_IGNORE_ARGS:-}" ]] || return 0
+  read -ra ignore_args <<< "$DIFF_IGNORE_ARGS"
   while IFS= read -r file; do
     _is_tolerated_generated_file "$file" || continue
-    printf '%s\n' "$file" >> "$drift"
+    git diff --quiet "${ignore_args[@]}" -- "$file" || printf '%s\n' "$file" >> "$drift"
     git checkout -- "$file"
   done < <(git diff --name-only)
 }
@@ -2826,7 +2828,7 @@ _fix_fv_package() {
       git -C "$REPO" add .grype.yaml
       local abbrev
       abbrev=$(abbreviate_package "$pkg")
-      if git -C "$REPO" log -1 --format="%s" | grep -qF "Bump $abbrev"; then
+      if git -C "$REPO" log -1 --format="%s" | grep -qF "Bump $abbrev "; then
         git -C "$REPO" commit --amend --no-edit -s
       else
         git -C "$REPO" commit -s -m "$(printf '%s\n\n%s' \
