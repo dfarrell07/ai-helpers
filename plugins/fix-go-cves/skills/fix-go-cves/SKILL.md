@@ -1,6 +1,6 @@
 ---
 name: fix-go-cves
-description: Use when asked to fix the CVE/GHSA findings of a Go repository — scans every module with Grype, updates dependencies on a new branch, ignores only findings without a published fix, verifies with rebuild, tests and rescan, and delivers the captured runtime log. Also scans without changes when only a report is wanted. For one known CVE with a user-supplied fix version or fork, use golang:fix-cve instead.
+description: Use when asked to fix the CVE/GHSA findings of a Go repository — scans every module with Grype, updates dependencies on a new branch, ignores only findings without a published fix, verifies with rebuild, tests and rescan, and delivers the captured runtime log. After Submariner CVE-fix PRs are open upstream, sync matching open ACM CVE trackers to Review. Also scans without changes when only a report is wanted. For one known CVE with a user-supplied fix version or fork, use golang:fix-cve instead.
 argument-hint: "[repo] [branch] | all <branch>"
 user-invocable: true
 allowed-tools: Bash, Read
@@ -168,3 +168,108 @@ when no Summary is emitted. Return a concise result with:
 Keep the Summary's counts distinct from its individual repair detail; do not
 reconstruct totals or imply readiness from an exit code alone. For `all`, retain
 a separate log/result per repository and run them serially.
+
+## 4. ACM CVE tracker sync (after upstream PRs open)
+
+Agent-owned Atlassian/Jira follow-up. Scripts do not touch trackers and still
+must not push or open PRs. **Do not run this during the fix engine invocation.**
+It is a separate step that runs only after Submariner CVE-fix PRs are open
+**upstream** on `github.com/submariner-io/<repo>` (not merely a printed recipe,
+a fork push, or a draft on a personal fork).
+
+### When
+
+1. Fix run finished for Submariner `release-X.Y` / `X.Y` (one repo or `all`).
+2. **Hard gate:** at least one CVE-fix PR is `OPEN` on the upstream
+   `submariner-io` org against that `release-X.Y` branch. Confirm with
+   `gh pr view` / `gh pr list --repo submariner-io/<repo> --base release-X.Y`
+   before any Jira transition. Skip components with no upstream PR (tests
+   failed, NOT READY, recipe withheld, or PR only on a fork).
+3. The target ships in ACM (typical for Submariner `release-*`), or the user
+   asks for tracker sync. Skip ad-hoc branches unless requested.
+
+### Map Submariner → ACM stream
+
+Submariner `0.X` → ACM `2.(X-7)` (example: `0.23` → `2.16`). Summaries use
+`[rhacm-2.N]`. Prefer an ACM train the user names explicitly.
+
+### Query open trackers
+
+Filter [99723](https://redhat.atlassian.net/issues/?filter=99723)
+(`Submariner CVEs public`):
+
+```text
+project = ACM AND labels in (Security, SecurityTracking)
+AND (text ~ "submariner*" OR text ~ "lighthouse*" OR text ~ subctl OR text ~ nettest)
+AND labels not in (submariner-ignore) AND resolution = Unresolved
+ORDER BY priority DESC, updated DESC
+```
+
+Narrow to the stream under fix (replace `2.N`):
+
+```text
+filter = 99723 AND summary ~ "rhacm-2.N" AND statusCategory != Done
+```
+
+Page until `isLast`. Use Atlassian Jira tools when available
+(`searchJiraIssuesUsingJql`); collect `summary`, `status`, `labels` (CVE id and
+`pscomponent:`). If Jira tools are unavailable, report the JQL and matched FIXED
+set for the operator to apply.
+
+### Match only FIXED findings
+
+Build the FIXED set from each run log Summary (`FIXED: <package> … for
+<advisories>`). Match an open Jira only when all hold:
+
+| Rule | Requirement |
+| ---- | ----------- |
+| Advisory | Jira CVE id/label maps to a FIXED advisory, or the summary package is FIXED (see below). |
+| Stream | Summary contains `[rhacm-2.N]` for the mapped (or user-named) ACM train. |
+| Coverage | An **upstream** `submariner-io` PR (`OPEN`, base `release-X.Y`) owns **this Jira's** `pscomponent` image (table below). |
+| Confidence | Never match NEEDS\_REVIEW, IGNORED, outstanding/still-present, or unverified (rescan failed) findings. |
+
+**Per-component only:** one CVE often has many ACM trackers (one per image).
+Transition only the Jiras whose `pscomponent` maps to a repo that already has
+an upstream CVE-fix PR open. Example: if only `subctl`'s PR is open, move only
+`pscomponent:…/subctl-…` trackers for that CVE—leave gateway/operator/lighthouse
+siblings for the same CVE untouched until their upstream PRs exist.
+
+**Advisory detail:** match on `CVE-…` / GHSA / GO id among FIXED advisories, or
+on a FIXED package path in the summary (`golang.org/x/net`, …). For stdlib /
+`net/http` trackers, the run must record FIXED stdlib (or an equivalent Go
+toolchain bump marked FIXED)—not merely NEEDS\_REVIEW for a newer builder Go.
+
+| `pscomponent` (substring) | Owning repo(s) |
+| ------------------------- | -------------- |
+| `submariner-rhel9-operator`, `submariner-addon` | `submariner-operator` |
+| `submariner-gateway`, `submariner-globalnet`, `submariner-route-agent` | `submariner` |
+| `lighthouse-agent`, `lighthouse-coredns` | `lighthouse` |
+| `subctl` | `subctl` |
+| `nettest` / shipyard images | `shipyard` |
+
+Never match application / Glasswing product bugs (spoofing, trust-model, ipsec
+injection, …) to dependency FIXED lines.
+
+### Transition matched Jiras to Review
+
+ACM Vulnerability status for this gate is **Review**. Confirm the transition
+with `listJiraIssueTransitions` per issue; do not hard-code ids. From `New` /
+`Backlog` / `In Progress` the transition name is typically `Review`.
+
+For each matched issue not already in `Review`, `Testing`, `Resolved`, or
+`Closed`:
+
+1. `transitionJiraIssue` to **Review**.
+2. Comment with PR URL(s), FIXED package/advisory, Submariner branch, and ACM
+   stream. Do not set a resolution on this transition.
+3. List unmatched open trackers with skip reasons (NEEDS\_REVIEW, no PR for that
+   component, Glasswing, wrong stream, …).
+
+Never transition trackers whose only related finding is NEEDS\_REVIEW or whose
+covering PR was not opened.
+
+### Record
+
+In the operator's run notes (or the delivered summary reply), record: sync
+done / skipped / partial, plus a short table of Jira key, CVE, FIXED package,
+PR URL(s), and new status or skip reason.
